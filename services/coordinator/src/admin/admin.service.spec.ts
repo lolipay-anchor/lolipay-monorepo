@@ -1,0 +1,675 @@
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { AdminService } from './admin.service';
+
+const ADDR = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
+
+function makePrisma() {
+  return {
+    lp: {
+      findUnique: jest.fn(),
+      create: jest.fn(async ({ data }: any) => ({ id: 'new', ...data })),
+    },
+  } as any;
+}
+
+function makeStellar(hasTrustline = true) {
+  return { hasUsdcTrustline: jest.fn().mockResolvedValue(hasTrustline) } as any;
+}
+
+function makeCfg() {
+  return { usdcAssetCode: 'TUSDC', usdcAssetIssuer: 'GCMUR7GX' } as any;
+}
+
+function makeUserReputation(overrides: Record<string, any> = {}) {
+  return {
+    getReputation: jest.fn().mockResolvedValue({
+      tier: 'BRONZE',
+      completedTrades: 0,
+      disputesLost: 0,
+      completionRate: null,
+    }),
+    dailyLimitBaseUnits: jest.fn().mockReturnValue(100_0000000n),
+    used24hBaseUnits: jest.fn().mockResolvedValue(0n),
+    ...overrides,
+  } as any;
+}
+
+function makeMarkets(overrides: Record<string, any> = {}) {
+  return {
+    list: jest.fn(),
+    get: jest.fn(),
+    update: jest.fn(),
+    ...overrides,
+  } as any;
+}
+
+describe('AdminService.register', () => {
+  it('creates an APPROVED LP by default (admin vouches)', async () => {
+    const prisma = makePrisma();
+    prisma.lp.findUnique.mockResolvedValue(null);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+
+    const lp = await svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any);
+
+    expect(lp.status).toBe('APPROVED');
+    expect(lp.approvedAt).toBeInstanceOf(Date);
+    expect(lp.stellarAddress).toBe(ADDR);
+
+    expect(lp.liquidityProof).toBe('Registered by admin');
+    expect(lp.approvalNote).toBe('Registered by admin');
+  });
+
+  it('creates a PENDING LP with no approvedAt when approve=false', async () => {
+    const prisma = makePrisma();
+    prisma.lp.findUnique.mockResolvedValue(null);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+
+    const lp = await svc.register({
+      stellarAddress: ADDR,
+      contact: 'tg:@lp',
+      liquidityProof: 'on-chain balance',
+      approve: false,
+    } as any);
+
+    expect(lp.status).toBe('PENDING');
+    expect(lp.approvedAt).toBeNull();
+    expect(lp.liquidityProof).toBe('on-chain balance');
+  });
+
+  it('rejects a duplicate wallet address with 409', async () => {
+    const prisma = makePrisma();
+    prisma.lp.findUnique.mockResolvedValue({ id: 'existing', stellarAddress: ADDR });
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+
+    await expect(
+      svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.lp.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an address with an invalid checksum (regex passes but StrKey fails)', async () => {
+    const prisma = makePrisma();
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+
+    await expect(
+      svc.register({ stellarAddress: 'G' + 'A'.repeat(55), contact: 'tg:@lp' } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.lp.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('rejects a wallet with no USDC trustline (would trap payouts)', async () => {
+    const prisma = makePrisma();
+    prisma.lp.findUnique.mockResolvedValue(null);
+    const svc = new AdminService(prisma, makeStellar(false), makeCfg(), makeMarkets(), makeUserReputation());
+
+    await expect(
+      svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.lp.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('AdminService.updateConfigTransactional', () => {
+  const CURRENT = {
+    platformFeeBps: 30,
+    lpFeeBps: 120,
+    minOrder: 50_000_000n,
+    maxOrder: 10_000_000_000n,
+  };
+
+  function makeConfigPrisma(current: any) {
+    const configApi = {
+      findUnique: jest.fn().mockResolvedValue(current),
+      update: jest.fn(async ({ data }: any) => ({ ...current, ...data })),
+    };
+    const prisma = {
+      config: configApi,
+      $transaction: jest.fn((cb: any) => cb({ config: configApi })),
+    } as any;
+    return { prisma, configApi };
+  }
+
+  it('rejects when platformFeeBps + lpFeeBps >= 10000, using the CURRENT row for the omitted side', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+
+    await expect(
+      svc.updateConfigTransactional({ platformFeeBps: 9970 } as any),
+    ).rejects.toThrow('BPS_OVERFLOW');
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('accepts a bps patch that stays under the 10000 sum', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+
+    await svc.updateConfigTransactional({ platformFeeBps: 40 } as any);
+    expect(configApi.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { platformFeeBps: 40 },
+    });
+  });
+
+  it('rejects minOrder >= maxOrder when only minOrder is patched (compares against CURRENT maxOrder)', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+
+    await expect(
+      svc.updateConfigTransactional({ minOrder: '20000000000' } as any),
+    ).rejects.toThrow('ORDER_BOUNDS_INVALID');
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects minOrder >= maxOrder when only maxOrder is patched (compares against CURRENT minOrder)', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+
+    await expect(
+      svc.updateConfigTransactional({ maxOrder: '1000000' } as any),
+    ).rejects.toThrow('ORDER_BOUNDS_INVALID');
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects minOrder === maxOrder (strict less-than, not less-or-equal)', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+
+    await expect(
+      svc.updateConfigTransactional({ minOrder: '10000000000', maxOrder: '10000000000' } as any),
+    ).rejects.toThrow('ORDER_BOUNDS_INVALID');
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('accepts minOrder < maxOrder and writes both as BigInt', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+
+    await svc.updateConfigTransactional({
+      minOrder: '10000000',
+      maxOrder: '20000000000',
+    } as any);
+
+    expect(configApi.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { minOrder: 10_000_000n, maxOrder: 20_000_000_000n },
+    });
+  });
+
+  it('leaves non-order fields untouched in the write payload (no stray minOrder/maxOrder when unpatched)', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+
+    await svc.updateConfigTransactional({ paused: true } as any);
+
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { paused: true } });
+  });
+});
+
+describe('AdminService.listMarkets', () => {
+  it('delegates straight to MarketsService.list()', async () => {
+    const rows = [{ code: 'IDR' }];
+    const markets = makeMarkets({ list: jest.fn().mockResolvedValue(rows) });
+    const svc = new AdminService(makePrisma(), makeStellar(), makeCfg(), markets, makeUserReputation());
+
+    await expect(svc.listMarkets()).resolves.toBe(rows);
+    expect(markets.list).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AdminService.updateMarket', () => {
+  it('delegates straight to MarketsService.update with the same code and patch', async () => {
+    const updated = { code: 'IDR', enabled: false };
+    const markets = makeMarkets({ update: jest.fn().mockResolvedValue(updated) });
+    const svc = new AdminService(makePrisma(), makeStellar(), makeCfg(), markets, makeUserReputation());
+
+    const result = await svc.updateMarket('IDR', { enabled: false } as any);
+
+    expect(markets.update).toHaveBeenCalledWith('IDR', { enabled: false });
+    expect(result).toBe(updated);
+  });
+
+  it('propagates MarketsService.update rejections unchanged (e.g. unknown code, bad bounds)', async () => {
+    const markets = makeMarkets({
+      update: jest.fn().mockRejectedValue(new BadRequestException('unknown market: ZZZ')),
+    });
+    const svc = new AdminService(makePrisma(), makeStellar(), makeCfg(), markets, makeUserReputation());
+
+    await expect(svc.updateMarket('ZZZ', { enabled: true } as any)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(markets.update).toHaveBeenCalledWith('ZZZ', { enabled: true });
+  });
+});
+
+describe('AdminService.getOrderRisk', () => {
+  const USER_ADDR = 'GUSER';
+  const LP_ID = 'lp-1';
+
+  const BASE_ORDER = {
+    id: 'order-1',
+    userAddress: USER_ADDR,
+    lpId: null,
+    lp: null,
+    usdcAmount: 50_0000000n,
+  };
+
+  function makeRiskPrisma(
+    order: any,
+    counts: { userVelocity?: number; lpVelocity?: number; completed?: number; refunded?: number } = {},
+  ) {
+    const count = jest.fn(({ where }: any) => {
+      if (where.status === 'RELEASED') return Promise.resolve(counts.completed ?? 0);
+      if (where.status === 'REFUNDED') return Promise.resolve(counts.refunded ?? 0);
+      if (where.lpId) return Promise.resolve(counts.lpVelocity ?? 0);
+      if (where.userAddress) return Promise.resolve(counts.userVelocity ?? 0);
+      return Promise.resolve(0);
+    });
+    return {
+      order: { findUnique: jest.fn().mockResolvedValue(order), count },
+      config: { findUnique: jest.fn().mockResolvedValue({ dailyLimitByTier: null }) },
+    } as any;
+  }
+
+  function makeStellarWithAge(firstTxAt: string | null) {
+    return { getAccountFirstTxAt: jest.fn().mockResolvedValue(firstTxAt) } as any;
+  }
+
+  it('throws NotFoundException when the order does not exist', async () => {
+    const prisma = makeRiskPrisma(null);
+    const svc = new AdminService(
+      prisma,
+      makeStellarWithAge(null),
+      makeCfg(),
+      makeMarkets(),
+      makeUserReputation(),
+    );
+
+    await expect(svc.getOrderRisk('missing')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('wallet_age_days is null (unknown) when Horizon returns 404/no first tx', async () => {
+    const prisma = makeRiskPrisma(BASE_ORDER);
+    const svc = new AdminService(
+      prisma,
+      makeStellarWithAge(null),
+      makeCfg(),
+      makeMarkets(),
+      makeUserReputation(),
+    );
+
+    const risk = await svc.getOrderRisk('order-1');
+
+    expect(risk.walletAgeDays).toBeNull();
+  });
+
+  it('wallet_age_days computes whole days since the first transaction', async () => {
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+    const prisma = makeRiskPrisma(BASE_ORDER);
+    const svc = new AdminService(
+      prisma,
+      makeStellarWithAge(tenDaysAgo),
+      makeCfg(),
+      makeMarkets(),
+      makeUserReputation(),
+    );
+
+    const risk = await svc.getOrderRisk('order-1');
+
+    expect(risk.walletAgeDays).toBe(10);
+  });
+
+  it('user/lp dispute velocity counts are queried with a 30-day disputeAt window', async () => {
+    const orderWithLp = { ...BASE_ORDER, lpId: LP_ID, lp: { online: true, approvedAt: new Date(), createdAt: new Date() } };
+    const prisma = makeRiskPrisma(orderWithLp, { userVelocity: 2, lpVelocity: 1 });
+    const svc = new AdminService(
+      prisma,
+      makeStellarWithAge(null),
+      makeCfg(),
+      makeMarkets(),
+      makeUserReputation(),
+    );
+
+    const risk = await svc.getOrderRisk('order-1');
+
+    expect(risk.userDisputeVelocity30d).toBe(2);
+    expect(risk.lpDisputeVelocity30d).toBe(1);
+    const userCall = prisma.order.count.mock.calls.find((c: any) => c[0].where.userAddress);
+    expect(userCall[0].where.disputeAt.gte).toBeInstanceOf(Date);
+  });
+
+  it('lp_dispute_velocity_30d is 0 and no lp-scoped count query fires when the order has no lpId', async () => {
+    const prisma = makeRiskPrisma(BASE_ORDER);
+    const svc = new AdminService(
+      prisma,
+      makeStellarWithAge(null),
+      makeCfg(),
+      makeMarkets(),
+      makeUserReputation(),
+    );
+
+    const risk = await svc.getOrderRisk('order-1');
+
+    expect(risk.lpDisputeVelocity30d).toBe(0);
+    expect(prisma.order.count.mock.calls.some((c: any) => c[0].where.lpId)).toBe(false);
+  });
+
+  it('lp_completion is null when the order has no lpId', async () => {
+    const prisma = makeRiskPrisma(BASE_ORDER);
+    const svc = new AdminService(
+      prisma,
+      makeStellarWithAge(null),
+      makeCfg(),
+      makeMarkets(),
+      makeUserReputation(),
+    );
+
+    const risk = await svc.getOrderRisk('order-1');
+
+    expect(risk.lpCompletion).toBeNull();
+  });
+
+  it('lp_completion is populated (same shape as OrderService.getLpReputation) when the order has an lpId', async () => {
+    const approvedAt = new Date('2026-01-01T00:00:00.000Z');
+    const orderWithLp = {
+      ...BASE_ORDER,
+      lpId: LP_ID,
+      lp: { online: true, approvedAt, createdAt: approvedAt },
+    };
+    const prisma = makeRiskPrisma(orderWithLp, { completed: 8, refunded: 2 });
+    const svc = new AdminService(
+      prisma,
+      makeStellarWithAge(null),
+      makeCfg(),
+      makeMarkets(),
+      makeUserReputation(),
+    );
+
+    const risk = await svc.getOrderRisk('order-1');
+
+    expect(risk.lpCompletion).toEqual({
+      completed_trades: 8,
+      completion_rate: 0.8,
+      member_since: approvedAt.toISOString(),
+      online: true,
+    });
+  });
+
+  it('amount_vs_tier_limit computes order/limit ratio from the user tier', async () => {
+    const prisma = makeRiskPrisma(BASE_ORDER);
+    const userReputation = makeUserReputation({
+      getReputation: jest.fn().mockResolvedValue({
+        tier: 'SILVER',
+        completedTrades: 5,
+        disputesLost: 0,
+        completionRate: 1,
+      }),
+      dailyLimitBaseUnits: jest.fn().mockReturnValue(300_0000000n),
+    });
+    const svc = new AdminService(prisma, makeStellarWithAge(null), makeCfg(), makeMarkets(), userReputation);
+
+    const risk = await svc.getOrderRisk('order-1');
+
+    expect(risk.amountVsTierLimit).toEqual({
+      orderUsdc: 50,
+      tier: 'SILVER',
+      dailyLimitUsdc: 300,
+      ratio: 50 / 300,
+    });
+  });
+});
+
+describe('AdminService.getMetricsOverview', () => {
+  function makeMetricsPrisma(
+    opts: {
+      feeRows?: { usdcAmount: bigint; platformFeeBps: number; lpFeeBps: number }[];
+      flowMix?: any[];
+      topLp?: any[];
+      openDisputes?: number;
+      dailyBars?: { day: string; volume: string }[];
+      avgSecs?: number | null;
+      lps?: { id: string; stellarAddress: string }[];
+    } = {},
+  ) {
+    const order = {
+      findMany: jest.fn().mockResolvedValue(opts.feeRows ?? []),
+      groupBy: jest.fn((args: any) => {
+        if (args.by.includes('flow')) return Promise.resolve(opts.flowMix ?? []);
+        if (args.by.includes('lpId')) return Promise.resolve(opts.topLp ?? []);
+        return Promise.resolve([]);
+      }),
+      count: jest.fn().mockResolvedValue(opts.openDisputes ?? 0),
+    };
+    const lp = { findMany: jest.fn().mockResolvedValue(opts.lps ?? []) };
+    const $queryRaw = jest.fn((sql: any) => {
+      const text = String(sql?.sql ?? sql?.text ?? sql);
+      if (text.includes('date_trunc')) return Promise.resolve(opts.dailyBars ?? []);
+      if (text.includes('AVG(')) return Promise.resolve([{ avg_secs: opts.avgSecs ?? null }]);
+      return Promise.resolve([]);
+    });
+    return { order, lp, $queryRaw } as any;
+  }
+
+  function makeSvc(prisma: any) {
+    return new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+  }
+
+  afterEach(() => jest.useRealTimers());
+
+  it('rejects an unknown range with BadRequestException (defense in depth)', async () => {
+    const svc = makeSvc(makeMetricsPrisma());
+    await expect(svc.getMetricsOverview('1y' as any)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it.each([
+    ['24h', 24 * 60 * 60 * 1000],
+    ['7d', 7 * 24 * 60 * 60 * 1000],
+    ['30d', 30 * 24 * 60 * 60 * 1000],
+  ])('range=%s maps to a since-date %d ms in the past', async (range, ms) => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-08T12:00:00.000Z'));
+    const prisma = makeMetricsPrisma();
+    const svc = makeSvc(prisma);
+
+    await svc.getMetricsOverview(range as any);
+
+    const expectedSince = new Date(Date.now() - ms);
+    expect(prisma.order.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ settledAt: { gte: expectedSince } }),
+      }),
+    );
+    const flowCall = prisma.order.groupBy.mock.calls.find((c: any) => c[0].by.includes('flow'));
+    expect(flowCall[0].where.settledAt).toEqual({ gte: expectedSince });
+  });
+
+  it('computes volume_usdc and fees_usdc with exact per-row BigInt bps math (no floats)', async () => {
+    const prisma = makeMetricsPrisma({
+      feeRows: [
+        { usdcAmount: 100_0000000n, platformFeeBps: 30, lpFeeBps: 120 },
+        { usdcAmount: 50_0000000n, platformFeeBps: 30, lpFeeBps: 120 },
+      ],
+    });
+    const svc = makeSvc(prisma);
+
+    const m = await svc.getMetricsOverview('24h');
+
+    expect(m.volumeUsdc).toBe(150);
+
+    expect(m.feesUsdc).toBeCloseTo(2.25, 7);
+    expect(m.ordersCount).toBe(2);
+  });
+
+  it('fees math stays exact (integer base-unit division) for a bps split that would round unevenly as a float', async () => {
+    const prisma = makeMetricsPrisma({
+      feeRows: [{ usdcAmount: 1_0000001n, platformFeeBps: 33, lpFeeBps: 17 }],
+    });
+    const svc = makeSvc(prisma);
+
+    const m = await svc.getMetricsOverview('24h');
+
+    const expectedFeeBase = (1_0000001n * 50n) / 10_000n;
+    expect(m.feesUsdc).toBeCloseTo(Number(expectedFeeBase) / 1e7, 10);
+  });
+
+  it('fees_usdc uses the SEPARATE per-fee floor sum, not a single combined-bps floor (they diverge for this input)', async () => {
+    const usdcAmount = 189n;
+    const platformFeeBps = 333;
+    const lpFeeBps = 200;
+
+    const separateFloorSum =
+      (usdcAmount * BigInt(platformFeeBps)) / 10_000n + (usdcAmount * BigInt(lpFeeBps)) / 10_000n;
+    const combinedFloor = (usdcAmount * BigInt(platformFeeBps + lpFeeBps)) / 10_000n;
+    expect(separateFloorSum).toBe(9n);
+    expect(combinedFloor).toBe(10n);
+    expect(separateFloorSum).not.toBe(combinedFloor);
+
+    const prisma = makeMetricsPrisma({ feeRows: [{ usdcAmount, platformFeeBps, lpFeeBps }] });
+    const svc = makeSvc(prisma);
+
+    const m = await svc.getMetricsOverview('24h');
+
+    expect(m.feesUsdc).toBeCloseTo(Number(separateFloorSum) / 1e7, 10);
+    expect(m.feesUsdc).not.toBeCloseTo(Number(combinedFloor) / 1e7, 10);
+  });
+
+  it('flow_mix reflects the groupBy(flow) shape, converting summed base units to USDC', async () => {
+    const prisma = makeMetricsPrisma({
+      flowMix: [
+        { flow: 'TOP_UP', _sum: { usdcAmount: 200_0000000n }, _count: { _all: 4 } },
+        { flow: 'WITHDRAW', _sum: { usdcAmount: 50_0000000n }, _count: { _all: 1 } },
+      ],
+    });
+    const svc = makeSvc(prisma);
+
+    const m = await svc.getMetricsOverview('7d');
+
+    expect(m.flowMix).toEqual([
+      { flow: 'TOP_UP', count: 4, volumeUsdc: 200 },
+      { flow: 'WITHDRAW', count: 1, volumeUsdc: 50 },
+    ]);
+  });
+
+  it('top_lps joins groupBy(lpId) rows with Lp.stellarAddress', async () => {
+    const prisma = makeMetricsPrisma({
+      topLp: [
+        { lpId: 'lp-1', _sum: { usdcAmount: 300_0000000n }, _count: { _all: 6 } },
+        { lpId: 'lp-2', _sum: { usdcAmount: 100_0000000n }, _count: { _all: 2 } },
+      ],
+      lps: [
+        { id: 'lp-1', stellarAddress: 'GLP1' },
+        { id: 'lp-2', stellarAddress: 'GLP2' },
+      ],
+    });
+    const svc = makeSvc(prisma);
+
+    const m = await svc.getMetricsOverview('30d');
+
+    expect(m.topLps).toEqual([
+      { lpId: 'lp-1', address: 'GLP1', volumeUsdc: 300, trades: 6 },
+      { lpId: 'lp-2', address: 'GLP2', volumeUsdc: 100, trades: 2 },
+    ]);
+    expect(prisma.lp.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ['lp-1', 'lp-2'] } },
+      select: { id: true, stellarAddress: true },
+    });
+  });
+
+  it('top_lps address is null when the Lp row is missing (defensive, should not happen in practice)', async () => {
+    const prisma = makeMetricsPrisma({
+      topLp: [{ lpId: 'lp-orphan', _sum: { usdcAmount: 10_0000000n }, _count: { _all: 1 } }],
+      lps: [],
+    });
+    const svc = makeSvc(prisma);
+
+    const m = await svc.getMetricsOverview('24h');
+
+    expect(m.topLps).toEqual([{ lpId: 'lp-orphan', address: null, volumeUsdc: 10, trades: 1 }]);
+  });
+
+  it('does not query Lp at all when top_lps groupBy is empty (no lpIds)', async () => {
+    const prisma = makeMetricsPrisma({ topLp: [] });
+    const svc = makeSvc(prisma);
+
+    await svc.getMetricsOverview('24h');
+
+    expect(prisma.lp.findMany).not.toHaveBeenCalled();
+  });
+
+  it('daily_bars SQL uses plain date_trunc (no AT TIME ZONE) over the naive-UTC settledAt column', async () => {
+    const prisma = makeMetricsPrisma();
+    const svc = makeSvc(prisma);
+
+    await svc.getMetricsOverview('24h');
+
+    const dailyBarsCall = prisma.$queryRaw.mock.calls.find((c: any) => {
+      const text = String(c[0]?.sql ?? c[0]?.text ?? c[0]);
+      return text.includes('date_trunc');
+    });
+    expect(dailyBarsCall).toBeDefined();
+    const sqlText = String(dailyBarsCall[0]?.sql ?? dailyBarsCall[0]?.text ?? dailyBarsCall[0]);
+    expect(sqlText).toContain(`date_trunc('day', "settledAt")`);
+    expect(sqlText).not.toContain('AT TIME ZONE');
+  });
+
+  it('daily_bars maps the $queryRaw day-bucketed rows, converting base-unit volume text to USDC', async () => {
+    const prisma = makeMetricsPrisma({
+      dailyBars: [
+        { day: '2026-07-06', volume: '1000000000' },
+        { day: '2026-07-07', volume: '500000000' },
+      ],
+    });
+    const svc = makeSvc(prisma);
+
+    const m = await svc.getMetricsOverview('7d');
+
+    expect(m.dailyBars).toEqual([
+      { date: '2026-07-06', volumeUsdc: 100 },
+      { date: '2026-07-07', volumeUsdc: 50 },
+    ]);
+  });
+
+  it('avg_settle_secs is null when there is nothing to average (SQL AVG() over zero rows)', async () => {
+    const prisma = makeMetricsPrisma({ avgSecs: null });
+    const svc = makeSvc(prisma);
+
+    const m = await svc.getMetricsOverview('24h');
+
+    expect(m.avgSettleSecs).toBeNull();
+  });
+
+  it('avg_settle_secs surfaces the $queryRaw average verbatim when data exists', async () => {
+    const prisma = makeMetricsPrisma({ avgSecs: 842.5 });
+    const svc = makeSvc(prisma);
+
+    const m = await svc.getMetricsOverview('24h');
+
+    expect(m.avgSettleSecs).toBe(842.5);
+  });
+
+  it('open_disputes counts DISPUTED with NO range filter (all-time backlog, not period-limited)', async () => {
+    const prisma = makeMetricsPrisma({ openDisputes: 7 });
+    const svc = makeSvc(prisma);
+
+    const m = await svc.getMetricsOverview('24h');
+
+    expect(m.openDisputes).toBe(7);
+    expect(prisma.order.count).toHaveBeenCalledWith({ where: { status: 'DISPUTED' } });
+  });
+
+  it('empty range → zeros and empty arrays, NOT nulls (except avg_settle_secs)', async () => {
+    const prisma = makeMetricsPrisma();
+    const svc = makeSvc(prisma);
+
+    const m = await svc.getMetricsOverview('24h');
+
+    expect(m.volumeUsdc).toBe(0);
+    expect(m.feesUsdc).toBe(0);
+    expect(m.ordersCount).toBe(0);
+    expect(m.openDisputes).toBe(0);
+    expect(m.dailyBars).toEqual([]);
+    expect(m.flowMix).toEqual([]);
+    expect(m.topLps).toEqual([]);
+    expect(m.avgSettleSecs).toBeNull();
+    expect(m.range).toBe('24h');
+  });
+});

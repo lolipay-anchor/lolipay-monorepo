@@ -1,0 +1,72 @@
+export function applyBps(amount: bigint, bps: number): bigint {
+  return (amount * BigInt(bps)) / 10_000n;
+}
+
+const USDC_BASE_UNITS = 10_000_000n;
+
+export function baseUnitsToUsdc(base: bigint): number {
+  const whole = base / USDC_BASE_UNITS;
+  const frac = base % USDC_BASE_UNITS;
+  return Number(whole) + Number(frac) / 1e7;
+}
+
+export function splitFees(usdc: bigint, platformBps: number, lpBps: number) {
+  const platformFee = applyBps(usdc, platformBps);
+  const lpFee = applyBps(usdc, lpBps);
+  const net = usdc - platformFee - lpFee;
+  return { platformFee, lpFee, net };
+}
+
+export function applySpreadToRate(midPrice: string, spreadBps: number): string {
+  const parsed = parseFloat(midPrice);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new RangeError(`Invalid midPrice: "${midPrice}"`);
+  }
+
+  const priceMicro = BigInt(Math.round(parsed * 1_000_000));
+  const withSpread = priceMicro + (priceMicro * BigInt(spreadBps)) / 10_000n;
+  const whole = withSpread / 1_000_000n;
+  const frac = withSpread % 1_000_000n;
+  if (frac === 0n) return whole.toString();
+
+  const fracStr = frac.toString().padStart(6, '0').replace(/0+$/, '');
+  return `${whole}.${fracStr}`;
+}
+
+export function quoteFiat(
+  usdcBaseUnits: bigint,
+  idrPerUsdc: string,
+  spreadBps: number,
+  sell = false,
+): bigint {
+  const parsed = parseFloat(idrPerUsdc);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new RangeError(`Invalid idrPerUsdc: "${idrPerUsdc}"`);
+  }
+
+  const priceMicro = BigInt(Math.round(parsed * 1_000_000));
+  const spreadMicro = (priceMicro * BigInt(spreadBps)) / 10_000n;
+  const withSpread = sell ? priceMicro - spreadMicro : priceMicro + spreadMicro;
+
+  return (usdcBaseUnits * withSpread) / 10_000_000n / 1_000_000n;
+}
+
+export function quoteUsdcForFiat(
+  fiatAmount: bigint,
+  idrPerUsdc: string,
+  spreadBps: number,
+  sell = false,
+): bigint {
+  const parsed = parseFloat(idrPerUsdc);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new RangeError(`Invalid idrPerUsdc: "${idrPerUsdc}"`);
+  }
+  if (fiatAmount <= 0n) throw new RangeError('fiatAmount must be positive');
+  const priceMicro = BigInt(Math.round(parsed * 1_000_000));
+  const spreadMicro = (priceMicro * BigInt(spreadBps)) / 10_000n;
+  const withSpread = sell ? priceMicro - spreadMicro : priceMicro + spreadMicro;
+  if (withSpread <= 0n) throw new RangeError('spread too large');
+
+  const numerator = fiatAmount * 10_000_000n * 1_000_000n;
+  return (numerator + withSpread - 1n) / withSpread;
+}

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+SCANNER="$ROOT/.githooks/secret_scan.py"
+
+ADDED="$(git diff --cached --no-color -U0 | grep -E '^\+' | grep -vE '^\+\+\+' || true)"
+
+[ -z "$ADDED" ] && exit 0
+
+printf '%s\n' "$ADDED" | python3 "$SCANNER"

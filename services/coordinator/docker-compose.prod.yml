@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    restart: unless-stopped
+
+  coordinator:
+    build: .
+    env_file: [.env]
+    environment:
+      ESCROW_CONTRACT_ID: ${ESCROW_CONTRACT_ID}
+      ESCROW_CONTRACT_IDS_EXTRA: ${ESCROW_CONTRACT_IDS_EXTRA:-}
+      STAKING_CONTRACT_ID: ${STAKING_CONTRACT_ID}
+      USDC_ASSET_CODE: USDC
+      USDC_ASSET_ISSUER: ${USDC_ASSET_ISSUER}
+      PLATFORM_WALLET: ${PLATFORM_WALLET}
+      AUTH_CHALLENGE_TTL_SECONDS: "300"
+      PRICE_DEVIATION_MAX_BPS: "100"
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: lolipay-uploads
+    depends_on: [postgres, minio]
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+volumes:
+  pgdata: {}
+  minio-data: {}

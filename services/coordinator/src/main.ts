@@ -1,0 +1,40 @@
+import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
+import helmet from 'helmet';
+import { AppModule } from './app.module';
+import { ObjectStorageService } from './storage/object-storage.service';
+import { AppConfigService } from './config/app-config.service';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+
+  await app.get(ObjectStorageService).ensureBucket();
+
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
+  app.use(helmet());
+
+  app.enableShutdownHooks();
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // @ts-ignore
+  app.use(require('express').json({ limit: '100kb' }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      forbidNonWhitelisted: true,
+    }),
+  );
+
+  const corsOrigins = app.get(AppConfigService).corsOrigins;
+  app.enableCors({
+    origin: corsOrigins.length > 0 ? corsOrigins : false,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  });
+  await app.listen(process.env.PORT ?? 3000);
+}
+bootstrap();

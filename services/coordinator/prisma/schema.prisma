@@ -1,0 +1,206 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "library"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LpStatus {
+  PENDING
+  APPROVED
+  SUSPENDED
+  REVOKED
+}
+
+enum Rail {
+  BANK
+  QRIS
+  EWALLET
+}
+
+enum Flow {
+  TOP_UP
+  WITHDRAW
+}
+
+enum UserTier {
+  BRONZE
+  SILVER
+  TRUSTED
+  GOLD
+}
+
+enum OrderStatus {
+  CREATED
+  MATCHED
+  AWAITING_ONCHAIN
+  FUNDED
+  FIAT_PAID
+  RELEASED
+  REFUNDED
+  DISPUTED
+  EXPIRED
+  CANCELLED
+}
+
+model Lp {
+  id              String   @id @default(uuid())
+  stellarAddress  String   @unique
+  status          LpStatus @default(PENDING)
+  contact         String
+  liquidityProof  String
+  approvalNote    String?
+  online          Boolean  @default(false)
+  lastHeartbeatAt DateTime?
+  paymentMethods  PaymentMethod[]
+  orders          Order[]
+  createdAt       DateTime @default(now())
+  approvedAt      DateTime?
+}
+
+model PaymentMethod {
+  id        String  @id @default(uuid())
+  lp        Lp      @relation(fields: [lpId], references: [id])
+  lpId      String
+  rail      Rail
+  label     String
+  details   String
+  currency  String  @default("IDR")
+  active    Boolean @default(true)
+
+  @@index([lpId, rail, active])
+}
+
+model Order {
+  id                  String      @id @default(uuid())
+  tradeId             String      @unique
+  contractId          String?
+  userAddress         String
+  lp                  Lp?         @relation(fields: [lpId], references: [id])
+  lpId                String?
+  flow                Flow
+  rail                Rail
+  usdcAmount          BigInt
+  fiatAmount          BigInt
+  fiatCurrency        String      @default("IDR")
+  rateSnapshot        String
+  platformFeeBps      Int
+  lpFeeBps            Int
+  spreadBps           Int         @default(0)
+  platformWallet      String
+  lpWallet            String?
+  paymentMethodId     String?
+  lpPaymentDetails    String?
+  userPaymentDetails  String?
+  status              OrderStatus @default(CREATED)
+  payDeadline         BigInt
+  confirmDeadline     BigInt
+  disputeDeadline     BigInt
+  createdAt           DateTime    @default(now())
+  expiresAt           DateTime
+  ref                 String?     @unique
+  proofUrl            String?
+  proofUploadedAt     DateTime?
+  proofRrn            String?
+  proofAmount         BigInt?
+  proofPaidAt         DateTime?
+  settledAt           DateTime?
+  disputeBy           String?
+  disputeReason       String?
+  disputeNote         String?
+  disputeEvidenceUrl  String?
+  disputeAt           DateTime?
+  resolution          String?
+  disputeLossAccrued  Boolean     @default(false)
+
+  @@index([userAddress])
+  @@index([lpId, status])
+  @@index([status])
+  @@unique([proofRrn, lpId])
+}
+
+model UserProfile {
+  address      String   @id
+  disputesLost Int      @default(0)
+  updatedAt    DateTime @updatedAt
+}
+
+model Quote {
+  id             String    @id @default(uuid())
+  userAddress    String
+  flow           Flow
+  rail           Rail
+  usdcAmount     BigInt
+  fiatAmount     BigInt
+  fiatCurrency   String    @default("IDR")
+  rateSnapshot   String
+  platformFeeBps Int
+  lpFeeBps       Int
+  expiresAt      DateTime
+  usedAt         DateTime?
+  createdAt      DateTime  @default(now())
+}
+
+model Market {
+  code               String   @id
+  country            String
+  currencySymbol     String
+  locale             String
+  railName           String
+  rateSource         String   @default("coingecko")
+  manualRateOverride String?
+  priceMinPerUsdc    String
+  priceMaxPerUsdc    String
+  decimals           Int      @default(0)
+  enabled            Boolean  @default(false)
+  updatedAt          DateTime @updatedAt
+}
+
+model Config {
+  id            Int     @id @default(1)
+  spreadBps     Int     @default(150)
+  platformFeeBps Int    @default(30)
+  lpFeeBps      Int     @default(120)
+  platformWallet String @default("")
+  minOrder      BigInt  @default(50000000)
+  maxOrder      BigInt  @default(10000000000)
+  payWindowSecs Int     @default(1800)
+  confirmWindowSecs Int @default(1800)
+  disputeWindowSecs Int @default(7200)
+  paused        Boolean @default(false)
+  requireProof  Boolean @default(true)
+  autoRefund    Boolean @default(true)
+  dailyLimitByTier Json?
+  postSettleDisputeWindowSecs Int @default(3600)
+  updatedAt     DateTime @updatedAt
+}
+
+model FiatPriceCache {
+  fiat         String   @id
+  source       String
+  pricePerUsdc String
+  fetchedAt    DateTime
+}
+
+model IndexerState {
+  id        Int      @id @default(1)
+  cursor    String?
+  updatedAt DateTime @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  address   String
+  orderId   String?
+  event     String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([address, orderId, event])
+  @@index([address, read])
+  @@index([address, createdAt])
+}

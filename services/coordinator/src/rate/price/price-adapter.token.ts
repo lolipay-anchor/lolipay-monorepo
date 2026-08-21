@@ -1,0 +1,1 @@
+export const PRICE_ADAPTER = 'PRICE_ADAPTER';
