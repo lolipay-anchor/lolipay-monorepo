@@ -159,11 +159,9 @@ function NoticeScreen({
           Your LP access is {label}.
         </p>
 
-        {me.approvalNote && (
-          <p className="text-xs text-lp-muted text-center break-words">
-            Note: {me.approvalNote}
-          </p>
-        )}
+        <p className="text-xs text-lp-muted text-center">
+          Contact support if you believe this is a mistake.
+        </p>
 
         <div className="w-full">
           <Button variant="ghost" onClick={onDisconnect}>

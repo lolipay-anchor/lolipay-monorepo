@@ -81,7 +81,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
       .post(`/admin/lps/${VALID_UUID_V4}/approve`)
       .send({})
       .expect(200);
-    expect(mockAdminService.setStatus).toHaveBeenCalledWith(VALID_UUID_V4, 'APPROVED', undefined);
+    expect(mockAdminService.setStatus).toHaveBeenCalledWith(VALID_UUID_V4, 'APPROVED', undefined, expect.anything());
   });
 
   const VALID_ADDR = 'G' + 'A'.repeat(55);
@@ -348,7 +348,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
       .send({ enabled: false })
       .expect(200);
 
-    expect(mockAdminService.updateMarket).toHaveBeenCalledWith('IDR', { enabled: false });
+    expect(mockAdminService.updateMarket).toHaveBeenCalledWith('IDR', { enabled: false }, expect.anything());
     expect(res.body.enabled).toBe(false);
     expect(res.body.code).toBe('IDR');
   });
@@ -385,7 +385,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
       .send({ manualRateOverride: null })
       .expect(200);
 
-    expect(mockAdminService.updateMarket).toHaveBeenCalledWith('IDR', { manualRateOverride: null });
+    expect(mockAdminService.updateMarket).toHaveBeenCalledWith('IDR', { manualRateOverride: null }, expect.anything());
   });
 
   it('PATCH /admin/markets/:code with a malformed priceMinPerUsdc → 400 (service not called)', async () => {
@@ -463,7 +463,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
 
     await request(app.getHttpServer()).patch('/admin/config').send(body).expect(200);
 
-    expect(mockAdminService.updateConfigTransactional).toHaveBeenCalledWith(body);
+    expect(mockAdminService.updateConfigTransactional).toHaveBeenCalledWith(body, expect.anything());
   });
 
   it.each([

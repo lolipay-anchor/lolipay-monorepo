@@ -8,6 +8,7 @@ import { LpStatus, Market, OrderStatus, Prisma } from '@prisma/client';
 import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
+import { recordAudit, auditPayload } from './admin-audit';
 import { AppConfigService } from '../config/app-config.service';
 import { MarketsService } from '../market/markets.service';
 import { UpdateConfigDto } from './dto/update-config.dto';
@@ -72,7 +73,7 @@ export class AdminService {
     });
   }
 
-  async register(dto: RegisterLpDto) {
+  async register(dto: RegisterLpDto, actorAddress: string) {
     if (!StrKey.isValidEd25519PublicKey(dto.stellarAddress)) {
       throw new BadRequestException(
         'Invalid Stellar address (bad checksum) — double-check the wallet key.',
@@ -97,15 +98,25 @@ export class AdminService {
     }
     const approve = dto.approve !== false;
     try {
-      return await this.prisma.lp.create({
-        data: {
-          stellarAddress: dto.stellarAddress,
-          contact: dto.contact,
-          liquidityProof: dto.liquidityProof?.trim() || 'Registered by admin',
-          status: approve ? LpStatus.APPROVED : LpStatus.PENDING,
-          approvalNote: 'Registered by admin',
-          approvedAt: approve ? new Date() : null,
-        },
+      return await this.prisma.$transaction(async (tx) => {
+        const created = await tx.lp.create({
+          data: {
+            stellarAddress: dto.stellarAddress,
+            contact: dto.contact,
+            liquidityProof: dto.liquidityProof?.trim() || 'Registered by admin',
+            status: approve ? LpStatus.APPROVED : LpStatus.PENDING,
+            approvalNote: 'Registered by admin',
+            approvedAt: approve ? new Date() : null,
+          },
+        });
+        await recordAudit(tx as any, {
+          actorAddress,
+          action: 'lp.register',
+          targetType: 'Lp',
+          targetId: created.id,
+          after: { status: created.status, stellarAddress: created.stellarAddress },
+        });
+        return created;
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -117,16 +128,35 @@ export class AdminService {
     }
   }
 
-  async setStatus(id: string, status: 'APPROVED' | 'SUSPENDED' | 'REVOKED', note?: string) {
-    const lp = await this.prisma.lp.findUnique({ where: { id } });
-    if (!lp) throw new NotFoundException();
-    return this.prisma.lp.update({
-      where: { id },
-      data: {
-        status,
-        approvalNote: note ?? null,
-        approvedAt: status === 'APPROVED' ? new Date() : lp.approvedAt,
-      },
+  async setStatus(
+    id: string,
+    status: 'APPROVED' | 'SUSPENDED' | 'REVOKED',
+    note: string | undefined,
+    actorAddress: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const lp = await tx.lp.findUnique({ where: { id } });
+      if (!lp) throw new NotFoundException();
+
+      const updated = await tx.lp.update({
+        where: { id },
+        data: {
+          status,
+          approvalNote: note ?? lp.approvalNote,
+          approvedAt: status === 'APPROVED' ? new Date() : lp.approvedAt,
+        },
+      });
+
+      await recordAudit(tx as any, {
+        actorAddress,
+        action: 'lp.setStatus',
+        targetType: 'Lp',
+        targetId: id,
+        before: { status: lp.status, approvalNote: lp.approvalNote },
+        after: { status: updated.status, approvalNote: updated.approvalNote },
+      });
+
+      return updated;
     });
   }
 
@@ -146,7 +176,7 @@ export class AdminService {
     return this.prisma.config.findUnique({ where: { id: 1 } });
   }
 
-  async updateConfigTransactional(patch: UpdateConfigDto) {
+  async updateConfigTransactional(patch: UpdateConfigDto, actorAddress: string) {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.config.findUnique({ where: { id: 1 } });
 
@@ -175,7 +205,18 @@ export class AdminService {
       if (minOrderPatch !== undefined) data.minOrder = nextMinOrder;
       if (maxOrderPatch !== undefined) data.maxOrder = nextMaxOrder;
 
-      return tx.config.update({ where: { id: 1 }, data });
+      const updated = await tx.config.update({ where: { id: 1 }, data });
+
+      await recordAudit(tx as any, {
+        actorAddress,
+        action: 'config.update',
+        targetType: 'Config',
+        targetId: '1',
+        before: auditPayload(current),
+        after: auditPayload(updated),
+      });
+
+      return updated;
     });
   }
 
@@ -183,8 +224,18 @@ export class AdminService {
     return this.markets.list();
   }
 
-  updateMarket(code: string, patch: UpdateMarketDto): Promise<Market> {
-    return this.markets.update(code, patch as Prisma.MarketUncheckedUpdateInput);
+  async updateMarket(code: string, patch: UpdateMarketDto, actorAddress: string): Promise<Market> {
+    const before = await this.markets.get(code);
+    const updated = await this.markets.update(code, patch as Prisma.MarketUncheckedUpdateInput);
+    await recordAudit(this.prisma as any, {
+      actorAddress,
+      action: 'market.update',
+      targetType: 'Market',
+      targetId: code,
+      before: auditPayload(before),
+      after: auditPayload(updated),
+    });
+    return updated;
   }
 
   async getOrderRisk(id: string): Promise<OrderRisk> {

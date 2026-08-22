@@ -4,12 +4,20 @@ import { AdminService } from './admin.service';
 const ADDR = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
 
 function makePrisma() {
-  return {
+  const client: any = {
     lp: {
       findUnique: jest.fn(),
       create: jest.fn(async ({ data }: any) => ({ id: 'new', ...data })),
+      update: jest.fn(async ({ data }: any) => ({ id: 'existing', ...data })),
     },
-  } as any;
+    config: {
+      findUnique: jest.fn(async () => ({ id: 1, platformFeeBps: 30, lpFeeBps: 120, minOrder: 1n, maxOrder: 9n })),
+      update: jest.fn(async ({ data }: any) => ({ id: 1, ...data })),
+    },
+    adminAudit: { create: jest.fn(async () => ({})) },
+  };
+  client.$transaction = jest.fn(async (cb: any) => cb(client));
+  return client as any;
 }
 
 function makeStellar(hasTrustline = true) {
@@ -49,7 +57,7 @@ describe('AdminService.register', () => {
     prisma.lp.findUnique.mockResolvedValue(null);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
 
-    const lp = await svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any);
+    const lp = await svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any, 'GADMINTEST');
 
     expect(lp.status).toBe('APPROVED');
     expect(lp.approvedAt).toBeInstanceOf(Date);
@@ -69,7 +77,7 @@ describe('AdminService.register', () => {
       contact: 'tg:@lp',
       liquidityProof: 'on-chain balance',
       approve: false,
-    } as any);
+    } as any, 'GADMINTEST');
 
     expect(lp.status).toBe('PENDING');
     expect(lp.approvedAt).toBeNull();
@@ -82,7 +90,7 @@ describe('AdminService.register', () => {
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
 
     await expect(
-      svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any),
+      svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any, 'GADMINTEST'),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(prisma.lp.create).not.toHaveBeenCalled();
   });
@@ -92,7 +100,7 @@ describe('AdminService.register', () => {
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
 
     await expect(
-      svc.register({ stellarAddress: 'G' + 'A'.repeat(55), contact: 'tg:@lp' } as any),
+      svc.register({ stellarAddress: 'G' + 'A'.repeat(55), contact: 'tg:@lp' } as any, 'GADMINTEST'),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(prisma.lp.findUnique).not.toHaveBeenCalled();
@@ -104,7 +112,7 @@ describe('AdminService.register', () => {
     const svc = new AdminService(prisma, makeStellar(false), makeCfg(), makeMarkets(), makeUserReputation());
 
     await expect(
-      svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any),
+      svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any, 'GADMINTEST'),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.lp.create).not.toHaveBeenCalled();
   });
@@ -123,11 +131,13 @@ describe('AdminService.updateConfigTransactional', () => {
       findUnique: jest.fn().mockResolvedValue(current),
       update: jest.fn(async ({ data }: any) => ({ ...current, ...data })),
     };
+    const auditApi = { create: jest.fn(async () => ({})) };
     const prisma = {
       config: configApi,
-      $transaction: jest.fn((cb: any) => cb({ config: configApi })),
+      adminAudit: auditApi,
+      $transaction: jest.fn((cb: any) => cb({ config: configApi, adminAudit: auditApi })),
     } as any;
-    return { prisma, configApi };
+    return { prisma, configApi, auditApi };
   }
 
   it('rejects when platformFeeBps + lpFeeBps >= 10000, using the CURRENT row for the omitted side', async () => {
@@ -135,7 +145,7 @@ describe('AdminService.updateConfigTransactional', () => {
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
 
     await expect(
-      svc.updateConfigTransactional({ platformFeeBps: 9970 } as any),
+      svc.updateConfigTransactional({ platformFeeBps: 9970 } as any, 'GADMINTEST'),
     ).rejects.toThrow('BPS_OVERFLOW');
     expect(configApi.update).not.toHaveBeenCalled();
   });
@@ -144,7 +154,7 @@ describe('AdminService.updateConfigTransactional', () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
 
-    await svc.updateConfigTransactional({ platformFeeBps: 40 } as any);
+    await svc.updateConfigTransactional({ platformFeeBps: 40 } as any, 'GADMINTEST');
     expect(configApi.update).toHaveBeenCalledWith({
       where: { id: 1 },
       data: { platformFeeBps: 40 },
@@ -156,7 +166,7 @@ describe('AdminService.updateConfigTransactional', () => {
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
 
     await expect(
-      svc.updateConfigTransactional({ minOrder: '20000000000' } as any),
+      svc.updateConfigTransactional({ minOrder: '20000000000' } as any, 'GADMINTEST'),
     ).rejects.toThrow('ORDER_BOUNDS_INVALID');
     expect(configApi.update).not.toHaveBeenCalled();
   });
@@ -166,7 +176,7 @@ describe('AdminService.updateConfigTransactional', () => {
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
 
     await expect(
-      svc.updateConfigTransactional({ maxOrder: '1000000' } as any),
+      svc.updateConfigTransactional({ maxOrder: '1000000' } as any, 'GADMINTEST'),
     ).rejects.toThrow('ORDER_BOUNDS_INVALID');
     expect(configApi.update).not.toHaveBeenCalled();
   });
@@ -176,7 +186,7 @@ describe('AdminService.updateConfigTransactional', () => {
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
 
     await expect(
-      svc.updateConfigTransactional({ minOrder: '10000000000', maxOrder: '10000000000' } as any),
+      svc.updateConfigTransactional({ minOrder: '10000000000', maxOrder: '10000000000' } as any, 'GADMINTEST'),
     ).rejects.toThrow('ORDER_BOUNDS_INVALID');
     expect(configApi.update).not.toHaveBeenCalled();
   });
@@ -188,7 +198,7 @@ describe('AdminService.updateConfigTransactional', () => {
     await svc.updateConfigTransactional({
       minOrder: '10000000',
       maxOrder: '20000000000',
-    } as any);
+    } as any, 'GADMINTEST');
 
     expect(configApi.update).toHaveBeenCalledWith({
       where: { id: 1 },
@@ -200,7 +210,7 @@ describe('AdminService.updateConfigTransactional', () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
 
-    await svc.updateConfigTransactional({ paused: true } as any);
+    await svc.updateConfigTransactional({ paused: true } as any, 'GADMINTEST');
 
     expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { paused: true } });
   });
@@ -223,7 +233,7 @@ describe('AdminService.updateMarket', () => {
     const markets = makeMarkets({ update: jest.fn().mockResolvedValue(updated) });
     const svc = new AdminService(makePrisma(), makeStellar(), makeCfg(), markets, makeUserReputation());
 
-    const result = await svc.updateMarket('IDR', { enabled: false } as any);
+    const result = await svc.updateMarket('IDR', { enabled: false } as any, 'GADMINTEST');
 
     expect(markets.update).toHaveBeenCalledWith('IDR', { enabled: false });
     expect(result).toBe(updated);
@@ -235,7 +245,7 @@ describe('AdminService.updateMarket', () => {
     });
     const svc = new AdminService(makePrisma(), makeStellar(), makeCfg(), markets, makeUserReputation());
 
-    await expect(svc.updateMarket('ZZZ', { enabled: true } as any)).rejects.toBeInstanceOf(
+    await expect(svc.updateMarket('ZZZ', { enabled: true } as any, 'GADMINTEST')).rejects.toBeInstanceOf(
       BadRequestException,
     );
     expect(markets.update).toHaveBeenCalledWith('ZZZ', { enabled: true });

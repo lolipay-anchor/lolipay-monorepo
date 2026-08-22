@@ -204,3 +204,18 @@ model Notification {
   @@index([address, read])
   @@index([address, createdAt])
 }
+
+model AdminAudit {
+  id           String   @id @default(uuid())
+  actorAddress String
+  action       String
+  targetType   String
+  targetId     String?
+  before       Json?
+  after        Json?
+  createdAt    DateTime @default(now())
+
+  @@index([actorAddress, createdAt])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}

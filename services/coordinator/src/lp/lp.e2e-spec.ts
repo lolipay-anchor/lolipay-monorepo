@@ -156,6 +156,46 @@ describe('LP registry + admin actions (e2e)', () => {
     expect(res.body.status).toBe('SUSPENDED');
   });
 
+  it('a SUSPENDED provider cannot clear its own sanction by re-applying', async () => {
+    await request(app.getHttpServer())
+      .post(`/admin/lps/${lpId}/suspend`)
+      .set('Authorization', `Bearer ${adminJwt}`)
+      .send({ note: 'took fiat, never delivered' })
+      .expect(200);
+
+    const freshLpJwt = await mintJwt(app, lpKp);
+    await request(app.getHttpServer())
+      .post('/lp/apply')
+      .set('Authorization', `Bearer ${freshLpJwt}`)
+      .send({ contact: 'sneaky@test.com', liquidityProof: 'proof' })
+      .expect(409);
+
+    const row = await prisma.lp.findUnique({ where: { id: lpId } });
+    expect(row?.status).toBe('SUSPENDED');
+    expect(row?.approvalNote).toBe('took fiat, never delivered');
+  });
+
+  it('the administrator note is never returned to the provider', async () => {
+    const freshLpJwt = await mintJwt(app, lpKp);
+    const res = await request(app.getHttpServer())
+      .get('/lp/me')
+      .set('Authorization', `Bearer ${freshLpJwt}`)
+      .expect(200);
+
+    expect(res.body.status).toBe('SUSPENDED');
+    expect(res.body).not.toHaveProperty('approvalNote');
+  });
+
+  it('every administrator mutation leaves an audit row naming the actor', async () => {
+    const rows = await prisma.adminAudit.findMany({
+      where: { targetType: 'Lp', targetId: lpId },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.actorAddress === adminKp.publicKey())).toBe(true);
+    expect(rows.some((r) => r.action === 'lp.setStatus')).toBe(true);
+  });
+
   it('admin revokes LP → 200, status REVOKED', async () => {
     const res = await request(app.getHttpServer())
       .post(`/admin/lps/${lpId}/revoke`)
@@ -242,7 +282,7 @@ describe('LP registry + admin actions (e2e)', () => {
       .expect(400);
   });
 
-  it('approved LP re-applies → status resets to PENDING', async () => {
+  it('approved LP re-applies → status resets to PENDING, but the administrator note survives', async () => {
     const freshLpJwt = await mintJwt(app, lpKp);
 
     const res = await request(app.getHttpServer())
@@ -251,8 +291,10 @@ describe('LP registry + admin actions (e2e)', () => {
       .send({ contact: 'updated@test.com', liquidityProof: 'new-proof' })
       .expect(201);
     expect(res.body.status).toBe('PENDING');
-    expect(res.body.approvalNote).toBeNull();
     expect(res.body.approvedAt).toBeNull();
+
+    const row = await prisma.lp.findUnique({ where: { id: lpId } });
+    expect(row?.approvalNote).toBeTruthy();
 
     const listRes = await request(app.getHttpServer())
       .get('/admin/lps?status=APPROVED')

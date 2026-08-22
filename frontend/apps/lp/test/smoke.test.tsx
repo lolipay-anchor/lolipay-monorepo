@@ -158,7 +158,8 @@ describe('AppGate (LP)', () => {
       expect(screen.getByText(/suspended/i)).toBeTruthy()
     })
 
-    expect(screen.getByText(/Insufficient stake/)).toBeTruthy()
+    expect(screen.queryByText(/Insufficient stake/)).toBeNull()
+    expect(screen.getByText(/Contact support/i)).toBeTruthy()
     expect(screen.getByText('Disconnect')).toBeTruthy()
 
     expect(screen.queryByTestId('lp-shell')).toBeNull()

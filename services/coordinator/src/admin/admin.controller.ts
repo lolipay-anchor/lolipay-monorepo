@@ -11,6 +11,7 @@ import {
   PipeTransform,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
@@ -48,26 +49,26 @@ export class AdminController {
   }
 
   @Post('lps')
-  registerLp(@Body() dto: RegisterLpDto) {
-    return this.admin.register(dto);
+  registerLp(@Req() req: any, @Body() dto: RegisterLpDto) {
+    return this.admin.register(dto, req.user.address);
   }
 
   @Post('lps/:id/approve')
   @HttpCode(200)
-  approveLp(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetLpStatusDto) {
-    return this.admin.setStatus(id, 'APPROVED', dto.note);
+  approveLp(@Req() req: any, @Param('id', ParseUUIDPipe) id: string, @Body() dto: SetLpStatusDto) {
+    return this.admin.setStatus(id, 'APPROVED', dto.note, req.user.address);
   }
 
   @Post('lps/:id/suspend')
   @HttpCode(200)
-  suspendLp(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetLpStatusDto) {
-    return this.admin.setStatus(id, 'SUSPENDED', dto.note);
+  suspendLp(@Req() req: any, @Param('id', ParseUUIDPipe) id: string, @Body() dto: SetLpStatusDto) {
+    return this.admin.setStatus(id, 'SUSPENDED', dto.note, req.user.address);
   }
 
   @Post('lps/:id/revoke')
   @HttpCode(200)
-  revokeLp(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetLpStatusDto) {
-    return this.admin.setStatus(id, 'REVOKED', dto.note);
+  revokeLp(@Req() req: any, @Param('id', ParseUUIDPipe) id: string, @Body() dto: SetLpStatusDto) {
+    return this.admin.setStatus(id, 'REVOKED', dto.note, req.user.address);
   }
 
   @Get('orders')
@@ -102,9 +103,9 @@ export class AdminController {
   }
 
   @Patch('config')
-  async updateConfig(@Body() dto: UpdateConfigDto) {
+  async updateConfig(@Req() req: any, @Body() dto: UpdateConfigDto) {
     try {
-      const updated = await this.admin.updateConfigTransactional(dto);
+      const updated = await this.admin.updateConfigTransactional(dto, req.user.address);
       return this.serializeConfig(updated);
     } catch (err: any) {
       if (err?.message === 'BPS_OVERFLOW') {
@@ -127,10 +128,11 @@ export class AdminController {
 
   @Patch('markets/:code')
   async updateMarket(
+    @Req() req: any,
     @Param('code', ParseMarketCodePipe) code: string,
     @Body() dto: UpdateMarketDto,
   ) {
-    const updated = await this.admin.updateMarket(code, dto);
+    const updated = await this.admin.updateMarket(code, dto, req.user.address);
     return serializeMarket(updated);
   }
 

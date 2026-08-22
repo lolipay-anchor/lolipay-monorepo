@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
+  ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
@@ -42,23 +43,49 @@ export class LpService {
   ) {}
 
   async apply(address: string, contact: string, liquidityProof: string) {
+    const existing = await this.prisma.lp.findUnique({
+      where: { stellarAddress: address },
+    });
+    if (existing && (existing.status === 'SUSPENDED' || existing.status === 'REVOKED')) {
+      throw new ConflictException(
+        'This wallet is not eligible to apply. Contact support if you believe this is a mistake.',
+      );
+    }
+
     const hasTrustline = await this.stellar.hasUsdcTrustline(address);
     if (!hasTrustline) {
       throw new BadRequestException(
         'Add a USDC trustline to your wallet before applying as an LP — you need it to receive USDC.',
       );
     }
-    return this.prisma.lp.upsert({
-      where: { stellarAddress: address },
-      update: { contact, liquidityProof, status: 'PENDING', approvalNote: null, approvedAt: null },
-      create: { stellarAddress: address, contact, liquidityProof },
+
+    if (existing) {
+      return this.prisma.lp.update({
+        where: { stellarAddress: address },
+        data: { contact, liquidityProof, status: 'PENDING', approvedAt: null },
+      });
+    }
+
+    return this.prisma.lp.create({
+      data: { stellarAddress: address, contact, liquidityProof },
     });
   }
 
   me(address: string) {
     return this.prisma.lp.findUnique({
       where: { stellarAddress: address },
-      include: { paymentMethods: true },
+      select: {
+        id: true,
+        stellarAddress: true,
+        status: true,
+        contact: true,
+        liquidityProof: true,
+        online: true,
+        lastHeartbeatAt: true,
+        createdAt: true,
+        approvedAt: true,
+        paymentMethods: true,
+      },
     });
   }
 
