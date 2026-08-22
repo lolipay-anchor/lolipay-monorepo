@@ -1,0 +1,36 @@
+{
+  "12": {
+    "customers": {
+      "toBeCreated": {
+        "first_name": "Budi",
+        "last_name": "Santoso",
+        "email_address": "budi.santoso@example.com",
+        "id_type": "id_card",
+        "id_country_code": "IDN"
+      },
+      "sendingClient": {
+        "first_name": "Siti",
+        "last_name": "Rahayu",
+        "email_address": "siti.rahayu@example.com",
+        "id_type": "id_card",
+        "id_country_code": "IDN"
+      },
+      "receivingClient": {
+        "first_name": "Agus",
+        "last_name": "Wijaya",
+        "email_address": "agus.wijaya@example.com",
+        "id_type": "id_card",
+        "id_country_code": "IDN"
+      },
+      "toBeDeleted": {
+        "first_name": "Dewi",
+        "last_name": "Lestari",
+        "email_address": "dewi.lestari@example.com",
+        "id_type": "id_card",
+        "id_country_code": "IDN"
+      }
+    },
+    "createCustomer": "toBeCreated",
+    "deleteCustomer": "toBeDeleted"
+  }
+}
