@@ -53,7 +53,7 @@ export class AuthService {
     }
     const role = await this.roleFor(address);
     this.logger.log(`verify OK addr=${address} role=${role}`);
-    return this.jwt.signAsync({ sub: address, role }, { expiresIn: this.cfg.jwtTtl });
+    return this.jwt.signAsync({ sub: address, role, cls: 'session' }, { expiresIn: this.cfg.jwtTtl });
   }
 
   private mac(payload: string): string {

@@ -35,11 +35,11 @@ function makeGateway(opts: {
   const jwt = {
     verify: jest.fn().mockImplementation((token: string) => {
       if (opts.verifyImpl) return opts.verifyImpl(token);
-      if (token === 'valid-user') return { sub: USER };
-      if (token === 'valid-lp') return { sub: LP_ADDR };
-      if (token === 'valid-admin') return { sub: ADMIN };
-      if (token === 'valid-other-user') return { sub: OTHER_USER };
-      if (token === 'valid-non-party-lp') return { sub: NON_PARTY_LP };
+      if (token === 'valid-user') return { sub: USER, cls: 'session' };
+      if (token === 'valid-lp') return { sub: LP_ADDR, cls: 'session' };
+      if (token === 'valid-admin') return { sub: ADMIN, cls: 'session' };
+      if (token === 'valid-other-user') return { sub: OTHER_USER, cls: 'session' };
+      if (token === 'valid-non-party-lp') return { sub: NON_PARTY_LP, cls: 'session' };
       throw new Error('invalid token');
     }),
   } as any;
@@ -490,5 +490,54 @@ describe('RealtimeGateway.emitOrderUpdate', () => {
     expect(() =>
       gw.emitOrderUpdate({ id: ORDER_ID, status: 'FUNDED', flow: 'TOP_UP', userAddress: USER, lpWallet: null }),
     ).not.toThrow();
+  });
+});
+
+describe('the socket door honours the token class too', () => {
+  it('does not let a sep10 token join the administrator room', async () => {
+    const { gw } = makeGateway({
+      verifyImpl: () => ({ sub: ADMIN, cls: 'sep10' }),
+      adminAddresses: [ADMIN],
+    });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+
+    await gw.handleConnection(socket);
+
+    expect(socket.join).not.toHaveBeenCalledWith('admin:orders');
+    expect(socket.data.role).toBe('user');
+  });
+
+  it('does not let a sep10 token join the provider room', async () => {
+    const { gw } = makeGateway({
+      verifyImpl: () => ({ sub: LP_ADDR, cls: 'sep10' }),
+      lpRow: { status: 'APPROVED' },
+    });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+
+    await gw.handleConnection(socket);
+
+    expect(socket.join).not.toHaveBeenCalledWith('lp:assignments');
+  });
+
+  it('still lets a session token into the administrator room', async () => {
+    const { gw } = makeGateway({
+      verifyImpl: () => ({ sub: ADMIN, cls: 'session' }),
+      adminAddresses: [ADMIN],
+    });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+
+    await gw.handleConnection(socket);
+
+    expect(socket.join).toHaveBeenCalledWith('admin:orders');
+  });
+
+  it('disconnects a token carrying no class at all', async () => {
+    const { gw } = makeGateway({ verifyImpl: () => ({ sub: ADMIN }) });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+
+    await gw.handleConnection(socket);
+
+    expect(socket.disconnect).toHaveBeenCalledWith(true);
+    expect(socket.join).not.toHaveBeenCalled();
   });
 });

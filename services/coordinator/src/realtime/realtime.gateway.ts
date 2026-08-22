@@ -12,7 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import type { Server, Socket } from 'socket.io';
 import { AppConfigService, parseCorsOrigins } from '../config/app-config.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { resolveRole, Role } from '../auth/role.util';
+import { resolveRole, isTokenClass, Role, TokenClass } from '../auth/role.util';
 
 const CORS_ORIGINS = parseCorsOrigins(process.env.CORS_ORIGINS);
 
@@ -85,15 +85,20 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
 
     let address: string;
+    let cls: TokenClass;
     try {
-      const payload = this.jwt.verify<{ sub?: unknown }>(token, {
+      const payload = this.jwt.verify<{ sub?: unknown; cls?: unknown }>(token, {
         secret: this.cfg.jwtSecret,
         algorithms: ['HS256'],
       });
       if (!payload || typeof payload.sub !== 'string' || !payload.sub) {
         throw new Error('missing sub claim');
       }
+      if (!isTokenClass(payload.cls)) {
+        throw new Error('token class missing or unrecognised');
+      }
       address = payload.sub;
+      cls = payload.cls;
     } catch {
       socket.disconnect(true);
       return;
@@ -115,7 +120,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
     let role: Role;
     try {
-      role = await resolveRole(address, this.prisma, this.cfg.adminAddresses);
+      role = await resolveRole(address, this.prisma, this.cfg.adminAddresses, cls);
     } catch {
       this.releaseSocketSlot(address, socket.id);
       socket.disconnect(true);

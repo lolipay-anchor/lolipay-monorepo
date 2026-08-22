@@ -1,9 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { AppConfigService } from '../config/app-config.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { resolveRole } from './role.util';
+import { resolveRole, isTokenClass } from './role.util';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -19,8 +19,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string }) {
-    const role = await resolveRole(payload.sub, this.prisma, this.cfg.adminAddresses);
-    return { address: payload.sub, role };
+  async validate(payload: { sub: string; cls?: unknown }) {
+    if (!isTokenClass(payload.cls)) {
+      throw new UnauthorizedException('token class missing or unrecognised');
+    }
+    const role = await resolveRole(payload.sub, this.prisma, this.cfg.adminAddresses, payload.cls);
+    return { address: payload.sub, role, cls: payload.cls };
   }
 }

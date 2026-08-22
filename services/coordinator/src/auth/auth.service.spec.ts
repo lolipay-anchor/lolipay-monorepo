@@ -37,7 +37,7 @@ describe('AuthService (stateless HMAC challenge)', () => {
     const token = await svc.verify(kp.publicKey(), challenge, sig);
     expect(token).toBe('jwt-token');
     expect(jwt.signAsync).toHaveBeenCalledWith(
-      { sub: kp.publicKey(), role: 'user' },
+      { sub: kp.publicKey(), role: 'user', cls: 'session' },
       { expiresIn: 900 },
     );
   });
@@ -110,7 +110,7 @@ describe('AuthService (stateless HMAC challenge)', () => {
     const sig = signSep53(kp, challenge);
     await svc.verify(kp.publicKey(), challenge, sig);
     expect(jwt.signAsync).toHaveBeenCalledWith(
-      { sub: kp.publicKey(), role: 'admin' },
+      { sub: kp.publicKey(), role: 'admin', cls: 'session' },
       { expiresIn: 900 },
     );
   });
