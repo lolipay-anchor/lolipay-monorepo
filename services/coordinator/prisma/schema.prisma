@@ -220,3 +220,23 @@ model AdminAudit {
   @@index([targetType, targetId])
   @@index([createdAt])
 }
+
+enum OutboxStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model OutboxMessage {
+  id        String       @id @default(uuid())
+  kind      String
+  payload   Json
+  dedupeKey String?      @unique
+  status    OutboxStatus @default(PENDING)
+  attempts  Int          @default(0)
+  lastError String?
+  createdAt DateTime     @default(now())
+  sentAt    DateTime?
+
+  @@index([status, createdAt])
+}

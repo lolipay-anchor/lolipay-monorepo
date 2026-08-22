@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AppConfigModule } from './config/config.module';
+import { OutboxModule } from './outbox/outbox.module';
 import { StorageModule } from './storage/storage.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { IndexerModule } from './indexer/indexer.module';
@@ -28,6 +29,7 @@ class HealthController {
 
 @Module({
   imports: [
+    OutboxModule,
 
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
     ScheduleModule.forRoot(),
