@@ -1,5 +1,6 @@
 import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { MatchingService } from './matching.service';
+import { PersonService } from '../person/person.service';
 
 const PM = { id: 'pm1', rail: 'BANK', active: true, currency: 'IDR', details: 'BCA 123' };
 const PM2 = { id: 'pm2', rail: 'BANK', active: true, currency: 'IDR', details: 'BNI 456' };
@@ -89,12 +90,23 @@ describe('MatchingService refuses to pair a person with their own provider', () 
     );
   });
 
-  it('excludes a revoked wallet of the person too', async () => {
+  it('excludes a wallet the person revoked, read through the real person service', async () => {
     const prisma = makePrisma([makeCandidate('lp-mine', MINE, 0)]);
+    const rows = [{ stellarAddress: MINE, personId: PERSON, status: 'REVOKED' }];
+    prisma.walletLink = {
+      findMany: jest.fn(async ({ where }: any) =>
+        rows.filter(
+          (r) =>
+            r.personId === where.personId &&
+            (where.status === undefined || r.status === where.status),
+        ),
+      ),
+    };
     const stellar = makeStellar({ [MINE]: true });
-    const svc = new MatchingService(prisma, stellar, makePeople({ [PERSON]: [MINE] }));
+    const svc = new MatchingService(prisma, stellar, new PersonService(prisma));
 
     await expect(svc.pickLp('BANK', 'IDR', PERSON)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(stellar.isEligible).not.toHaveBeenCalled();
   });
 
   it('matches as before when the caller has no person to exclude', async () => {

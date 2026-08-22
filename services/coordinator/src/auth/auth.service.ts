@@ -2,6 +2,7 @@ import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { verifySep53 } from './sep53';
+import { resolveRole } from './role.util';
 import { AppConfigService } from '../config/app-config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonService } from '../person/person.service';
@@ -53,9 +54,9 @@ export class AuthService {
     if (!verifySep53(address, challenge, signature)) {
       this.reject(address, 'bad signature');
     }
-    await this.people.ensureForAddress(address, 'SEP53');
+    await this.people.proveWallet(address, 'SEP53');
 
-    const role = await this.roleFor(address);
+    const role = await resolveRole(address, this.prisma, this.cfg.adminAddresses, 'session');
     this.logger.log(`verify OK addr=${address} role=${role}`);
     return this.jwt.signAsync({ sub: address, role, cls: 'session' }, { expiresIn: this.cfg.jwtTtl });
   }
@@ -71,12 +72,4 @@ export class AuthService {
     return ba.length === bb.length && timingSafeEqual(ba, bb);
   }
 
-  private async roleFor(address: string): Promise<'admin' | 'lp' | 'user'> {
-    if (this.cfg.adminAddresses.includes(address)) return 'admin';
-    const lp = await this.prisma.lp.findUnique({
-      where: { stellarAddress: address },
-    });
-    if (lp && lp.status === 'APPROVED') return 'lp';
-    return 'user';
-  }
 }

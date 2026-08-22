@@ -24,8 +24,11 @@ function makeService(cfgOverrides: Record<string, any> = {}) {
     adminAddresses: [] as string[],
     ...cfgOverrides,
   } as any;
-  const prisma = { lp: { findUnique: jest.fn().mockResolvedValue(null) } } as any;
-  return { svc: new AuthService(jwt, cfg, prisma, { ensureForAddress: jest.fn().mockResolvedValue({ id: 'person-test' }) } as any), jwt, cfg, prisma };
+  const prisma = {
+    walletLink: { findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE' }) },
+    lp: { findUnique: jest.fn().mockResolvedValue(null) },
+  } as any;
+  return { svc: new AuthService(jwt, cfg, prisma, { proveWallet: jest.fn().mockResolvedValue({ id: 'person-test' }) } as any), jwt, cfg, prisma };
 }
 
 describe('AuthService (stateless HMAC challenge)', () => {

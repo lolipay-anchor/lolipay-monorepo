@@ -81,6 +81,7 @@ model Order {
   contractId          String?
   userAddress         String
   personId            String
+  person              Person   @relation(fields: [personId], references: [id])
   lp                  Lp?         @relation(fields: [lpId], references: [id])
   lpId                String?
   flow                Flow
@@ -257,6 +258,7 @@ enum WalletLinkStatus {
 model Person {
   id          String       @id @default(uuid())
   wallets     WalletLink[]
+  orders      Order[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 }

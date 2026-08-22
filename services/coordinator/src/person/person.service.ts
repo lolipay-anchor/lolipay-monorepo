@@ -16,7 +16,7 @@ export type LinkProof = { challenge: string; signature: string };
 export class PersonService {
   constructor(private prisma: PrismaService) {}
 
-  async ensureForAddress(address: string, authMethod: WalletAuthMethod): Promise<Person> {
+  async proveWallet(address: string, authMethod: WalletAuthMethod): Promise<Person> {
     const existing = await this.linkedPerson(address);
     if (existing) return existing;
 
@@ -36,6 +36,15 @@ export class PersonService {
     }
   }
 
+  async lookupPerson(address: string): Promise<Person | null> {
+    const link = await this.prisma.walletLink.findUnique({
+      where: { stellarAddress: address },
+      include: { person: true },
+    });
+    if (!link || link.status !== 'ACTIVE') return null;
+    return link.person;
+  }
+
   async walletsOf(personId: string): Promise<string[]> {
     const links = await this.prisma.walletLink.findMany({
       where: { personId },
@@ -44,7 +53,14 @@ export class PersonService {
     return links.map((l) => l.stellarAddress);
   }
 
-  async issueLinkChallenge(personId: string, address: string): Promise<string> {
+  private async requirePersonId(callerAddress: string): Promise<string> {
+    const person = await this.lookupPerson(callerAddress);
+    if (!person) throw new UnauthorizedException('caller has no proven wallet');
+    return person.id;
+  }
+
+  async issueLinkChallenge(callerAddress: string, address: string): Promise<string> {
+    const personId = await this.requirePersonId(callerAddress);
     const nonce = randomBytes(16).toString('hex');
     const expiresAt = new Date(Date.now() + LINK_CHALLENGE_TTL_MS);
     await this.prisma.walletLinkChallenge.create({
@@ -53,7 +69,8 @@ export class PersonService {
     return `${LINK_PREFIX}:${address}:${nonce}:${expiresAt.getTime()}`;
   }
 
-  async linkWallet(personId: string, address: string, proof: LinkProof): Promise<WalletLink> {
+  async linkWallet(callerAddress: string, address: string, proof: LinkProof): Promise<WalletLink> {
+    const personId = await this.requirePersonId(callerAddress);
     const parts = proof.challenge.split(':');
     if (parts.length !== 4 || parts[0] !== LINK_PREFIX || parts[1] !== address) {
       throw new UnauthorizedException('link challenge does not belong to this address');
@@ -109,20 +126,24 @@ export class PersonService {
     });
   }
 
-  async revokeWallet(personId: string, address: string): Promise<void> {
-    const active = await this.prisma.walletLink.count({
-      where: { personId, status: 'ACTIVE' },
+  async revokeWallet(callerAddress: string, address: string): Promise<void> {
+    const personId = await this.requirePersonId(callerAddress);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${personId}))`;
+      const active = await tx.walletLink.count({
+        where: { personId, status: 'ACTIVE' },
+      });
+      if (active <= 1) {
+        throw new ConflictException('a person must keep at least one active wallet');
+      }
+      const revoked = await tx.walletLink.updateMany({
+        where: { stellarAddress: address, personId, status: 'ACTIVE' },
+        data: { status: 'REVOKED' },
+      });
+      if (revoked.count !== 1) {
+        throw new ConflictException('no active link between this person and this address');
+      }
     });
-    if (active <= 1) {
-      throw new ConflictException('a person must keep at least one active wallet');
-    }
-    const revoked = await this.prisma.walletLink.updateMany({
-      where: { stellarAddress: address, personId, status: 'ACTIVE' },
-      data: { status: 'REVOKED' },
-    });
-    if (revoked.count !== 1) {
-      throw new ConflictException('no active link between this person and this address');
-    }
   }
 
   private async linkedPerson(address: string): Promise<Person | null> {

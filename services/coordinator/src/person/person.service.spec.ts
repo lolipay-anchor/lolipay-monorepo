@@ -38,12 +38,12 @@ function makePrisma() {
   return client;
 }
 
-describe('PersonService.ensureForAddress', () => {
+describe('PersonService.proveWallet', () => {
   it('creates a person and a wallet link the first time an address is seen', async () => {
     const prisma = makePrisma();
     const svc = new PersonService(prisma);
 
-    const person = await svc.ensureForAddress(ADDR_A, 'SEP10');
+    const person = await svc.proveWallet(ADDR_A, 'SEP10');
 
     expect(person.id).toBe('person-1');
     expect(prisma.walletLink.create).toHaveBeenCalledWith({
@@ -55,8 +55,8 @@ describe('PersonService.ensureForAddress', () => {
     const prisma = makePrisma();
     const svc = new PersonService(prisma);
 
-    const first = await svc.ensureForAddress(ADDR_A, 'SEP10');
-    const second = await svc.ensureForAddress(ADDR_A, 'SEP10');
+    const first = await svc.proveWallet(ADDR_A, 'SEP10');
+    const second = await svc.proveWallet(ADDR_A, 'SEP10');
 
     expect(second.id).toBe(first.id);
     expect(prisma.walletLink.create).toHaveBeenCalledTimes(1);
@@ -67,8 +67,8 @@ describe('PersonService.ensureForAddress', () => {
     const prisma = makePrisma();
     const svc = new PersonService(prisma);
 
-    const a = await svc.ensureForAddress(ADDR_A, 'SEP10');
-    const b = await svc.ensureForAddress(ADDR_B, 'SEP10');
+    const a = await svc.proveWallet(ADDR_A, 'SEP10');
+    const b = await svc.proveWallet(ADDR_B, 'SEP10');
 
     expect(b.id).not.toBe(a.id);
   });
@@ -77,7 +77,7 @@ describe('PersonService.ensureForAddress', () => {
     const prisma = makePrisma();
     const svc = new PersonService(prisma);
 
-    await svc.ensureForAddress(ADDR_A, 'SEP53');
+    await svc.proveWallet(ADDR_A, 'SEP53');
 
     expect(prisma.walletLink.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ authMethod: 'SEP53' }) }),
@@ -89,8 +89,8 @@ describe('PersonService.ensureForAddress', () => {
     const svc = new PersonService(prisma);
 
     const [a, b] = await Promise.all([
-      svc.ensureForAddress(ADDR_A, 'SEP10'),
-      svc.ensureForAddress(ADDR_A, 'SEP10'),
+      svc.proveWallet(ADDR_A, 'SEP10'),
+      svc.proveWallet(ADDR_A, 'SEP10'),
     ]);
 
     expect(b.id).toBe(a.id);

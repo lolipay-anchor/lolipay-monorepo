@@ -153,7 +153,7 @@ function makeWorld(opts: { personCreateThrows?: boolean } = {}) {
 describe('one person gets one limit, one lock and one history', () => {
   it('gives one person one daily limit, however many wallets they link', async () => {
     const { svc, personSvc, client } = makeWorld();
-    const person = await personSvc.ensureForAddress(ADDR_1, 'SEP53');
+    const person = await personSvc.proveWallet(ADDR_1, 'SEP53');
     await client.walletLink.create({
       data: { stellarAddress: ADDR_2, personId: person.id, authMethod: 'SEP53' },
     });
@@ -165,7 +165,9 @@ describe('one person gets one limit, one lock and one history', () => {
   });
 
   it('still lets an unrelated person spend their own limit', async () => {
-    const { svc } = makeWorld();
+    const { svc, personSvc } = makeWorld();
+    await personSvc.proveWallet(ADDR_1, 'SEP53');
+    await personSvc.proveWallet(ADDR_2, 'SEP53');
 
     await svc.createFromQuote(ADDR_1, 'q1');
 
@@ -174,8 +176,8 @@ describe('one person gets one limit, one lock and one history', () => {
 
   it('takes the advisory lock on the person, not the wallet', async () => {
     const { svc, client, personSvc } = makeWorld();
+    const person = await personSvc.proveWallet(ADDR_1, 'SEP53');
     await svc.createFromQuote(ADDR_1, 'q1');
-    const person = await personSvc.ensureForAddress(ADDR_1, 'SEP53');
 
     const [strings, ...values] = client.$executeRaw.mock.calls[0];
     expect(strings.join('?')).toContain('pg_advisory_xact_lock');
@@ -185,15 +187,15 @@ describe('one person gets one limit, one lock and one history', () => {
 
   it('stamps the order with the person it was priced against', async () => {
     const { svc, orders, personSvc } = makeWorld();
+    const person = await personSvc.proveWallet(ADDR_1, 'SEP53');
     await svc.createFromQuote(ADDR_1, 'q1');
-    const person = await personSvc.ensureForAddress(ADDR_1, 'SEP53');
 
     expect(orders[0].personId).toBe(person.id);
   });
 
   it('counts settled trades across every wallet the person has linked', async () => {
     const { reputation, personSvc, orders, client } = makeWorld();
-    const person = await personSvc.ensureForAddress(ADDR_1, 'SEP53');
+    const person = await personSvc.proveWallet(ADDR_1, 'SEP53');
     await client.walletLink.create({
       data: { stellarAddress: ADDR_2, personId: person.id, authMethod: 'SEP53' },
     });
@@ -207,7 +209,7 @@ describe('one person gets one limit, one lock and one history', () => {
 
   it('carries a dispute loss from one wallet onto the whole person', async () => {
     const { reputation, personSvc, profiles, client } = makeWorld();
-    const person = await personSvc.ensureForAddress(ADDR_1, 'SEP53');
+    const person = await personSvc.proveWallet(ADDR_1, 'SEP53');
     await client.walletLink.create({
       data: { stellarAddress: ADDR_2, personId: person.id, authMethod: 'SEP53' },
     });

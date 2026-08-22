@@ -68,8 +68,8 @@ export class UserReputationService implements OnModuleInit {
 
   async personIdFor(address: string): Promise<PersonId> {
     try {
-      const person = await this.people.ensureForAddress(address, 'SEP53');
-      if (!person?.id) throw new Error('no person id');
+      const person = await this.people.lookupPerson(address);
+      if (!person?.id) throw new Error('address has no proven wallet link');
       return person.id as PersonId;
     } catch (err) {
       this.logger.error(

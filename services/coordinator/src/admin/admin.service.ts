@@ -7,6 +7,7 @@ import {
 import { LpStatus, Market, OrderStatus, Prisma } from '../generated/prisma/client';
 import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
+import { PersonId } from '../person/person.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { recordAudit, auditPayload } from './admin-audit';
 import { windowsFitTheContract } from '../config/contract-limits';
@@ -278,9 +279,7 @@ export class AdminService {
         order.lpId
           ? this.prisma.order.count({ where: { lpId: order.lpId, disputeAt: { gte: since30d } } })
           : Promise.resolve(0),
-        this.userReputation
-          .personIdFor(order.userAddress)
-          .then((personId) => this.userReputation.getReputation(personId)),
+        this.userReputation.getReputation(order.personId as PersonId),
         this.config(),
       ]);
 

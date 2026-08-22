@@ -22,7 +22,11 @@ function makePrisma() {
       create: jest.fn(async () => ({ id: 'person-new' })),
     },
     walletLink: {
-      findUnique: jest.fn(async ({ where }: any) => links.get(where.stellarAddress) ?? null),
+      findUnique: jest.fn(async ({ where, include }: any) => {
+        const l = links.get(where.stellarAddress);
+        if (!l) return null;
+        return include?.person ? { ...l, person: { id: l.personId } } : l;
+      }),
       count: jest.fn(async ({ where }: any) =>
         [...links.values()].filter(
           (l) => l.personId === where.personId && l.status === where.status,
@@ -68,6 +72,7 @@ function makePrisma() {
       }),
     },
   };
+  client.$executeRaw = jest.fn(async () => 0);
   client.$transaction = jest.fn(async (cb: any) => cb(client));
   return { client, links, challenges };
 }
@@ -77,7 +82,9 @@ function seedLink(links: Map<string, any>, address: string, personId: string, st
 }
 
 const PERSON_A = 'person-a';
+const CALLER_A = 'GCALLERA';
 const PERSON_B = 'person-b';
+const CALLER_B = 'GCALLERB';
 
 describe('PersonService wallet linking demands a fresh, single-use proof', () => {
   let prisma: any;
@@ -91,13 +98,15 @@ describe('PersonService wallet linking demands a fresh, single-use proof', () =>
     links = made.links;
     svc = new PersonService(prisma);
     kp = Keypair.random();
+    seedLink(links, CALLER_A, PERSON_A);
+    seedLink(links, CALLER_B, PERSON_B);
   });
 
   it('refuses a link with no valid signature from the address', async () => {
-    const challenge = await svc.issueLinkChallenge(PERSON_A, kp.publicKey());
+    const challenge = await svc.issueLinkChallenge(CALLER_A, kp.publicKey());
 
     await expect(
-      svc.linkWallet(PERSON_A, kp.publicKey(), { challenge, signature: 'not-a-signature' }),
+      svc.linkWallet(CALLER_A, kp.publicKey(), { challenge, signature: 'not-a-signature' }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
     expect(prisma.walletLink.create).not.toHaveBeenCalled();
   });
@@ -107,12 +116,12 @@ describe('PersonService wallet linking demands a fresh, single-use proof', () =>
       { signAsync: jest.fn() } as any,
       { challengeTtl: 300, jwtTtl: 900, jwtSecret: 'a'.repeat(32), adminAddresses: [] } as any,
       { lp: { findUnique: jest.fn() } } as any,
-      { ensureForAddress: jest.fn().mockResolvedValue({ id: 'person-test' }) } as any,
+      { proveWallet: jest.fn().mockResolvedValue({ id: 'person-test' }) } as any,
     );
     const login = auth.issueChallenge(kp.publicKey());
 
     await expect(
-      svc.linkWallet(PERSON_A, kp.publicKey(), {
+      svc.linkWallet(CALLER_A, kp.publicKey(), {
         challenge: login,
         signature: signSep53(kp, login),
       }),
@@ -121,9 +130,9 @@ describe('PersonService wallet linking demands a fresh, single-use proof', () =>
   });
 
   it('links when the signature comes from the address and the challenge is ours', async () => {
-    const challenge = await svc.issueLinkChallenge(PERSON_A, kp.publicKey());
+    const challenge = await svc.issueLinkChallenge(CALLER_A, kp.publicKey());
 
-    const link = await svc.linkWallet(PERSON_A, kp.publicKey(), {
+    const link = await svc.linkWallet(CALLER_A, kp.publicKey(), {
       challenge,
       signature: signSep53(kp, challenge),
     });
@@ -135,10 +144,10 @@ describe('PersonService wallet linking demands a fresh, single-use proof', () =>
 
   it('refuses a challenge minted for a different address', async () => {
     const other = Keypair.random();
-    const challenge = await svc.issueLinkChallenge(PERSON_A, other.publicKey());
+    const challenge = await svc.issueLinkChallenge(CALLER_A, other.publicKey());
 
     await expect(
-      svc.linkWallet(PERSON_A, kp.publicKey(), {
+      svc.linkWallet(CALLER_A, kp.publicKey(), {
         challenge,
         signature: signSep53(kp, challenge),
       }),
@@ -146,10 +155,10 @@ describe('PersonService wallet linking demands a fresh, single-use proof', () =>
   });
 
   it('refuses a challenge minted for a different person', async () => {
-    const challenge = await svc.issueLinkChallenge(PERSON_B, kp.publicKey());
+    const challenge = await svc.issueLinkChallenge(CALLER_B, kp.publicKey());
 
     await expect(
-      svc.linkWallet(PERSON_A, kp.publicKey(), {
+      svc.linkWallet(CALLER_A, kp.publicKey(), {
         challenge,
         signature: signSep53(kp, challenge),
       }),
@@ -157,13 +166,13 @@ describe('PersonService wallet linking demands a fresh, single-use proof', () =>
   });
 
   it('refuses an expired challenge', async () => {
-    const challenge = await svc.issueLinkChallenge(PERSON_A, kp.publicKey());
+    const challenge = await svc.issueLinkChallenge(CALLER_A, kp.publicKey());
     const nonce = challenge.split(':')[2];
     const row = (await prisma.walletLinkChallenge.findUnique({ where: { nonce } }))!;
     row.expiresAt = new Date(Date.now() - 1000);
 
     await expect(
-      svc.linkWallet(PERSON_A, kp.publicKey(), {
+      svc.linkWallet(CALLER_A, kp.publicKey(), {
         challenge,
         signature: signSep53(kp, challenge),
       }),
@@ -172,24 +181,24 @@ describe('PersonService wallet linking demands a fresh, single-use proof', () =>
 
   it('consumes the challenge, so the same proof cannot be replayed', async () => {
     seedLink(links, 'GKEEP', PERSON_A);
-    const challenge = await svc.issueLinkChallenge(PERSON_A, kp.publicKey());
+    const challenge = await svc.issueLinkChallenge(CALLER_A, kp.publicKey());
     const proof = { challenge, signature: signSep53(kp, challenge) };
 
-    await svc.linkWallet(PERSON_A, kp.publicKey(), proof);
-    await svc.revokeWallet(PERSON_A, kp.publicKey());
+    await svc.linkWallet(CALLER_A, kp.publicKey(), proof);
+    await svc.revokeWallet(CALLER_A, kp.publicKey());
 
-    await expect(svc.linkWallet(PERSON_A, kp.publicKey(), proof)).rejects.toBeInstanceOf(
+    await expect(svc.linkWallet(CALLER_A, kp.publicKey(), proof)).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
   });
 
   it('links only once when one proof is used twice at the same moment', async () => {
-    const challenge = await svc.issueLinkChallenge(PERSON_A, kp.publicKey());
+    const challenge = await svc.issueLinkChallenge(CALLER_A, kp.publicKey());
     const proof = { challenge, signature: signSep53(kp, challenge) };
 
     const results = await Promise.allSettled([
-      svc.linkWallet(PERSON_A, kp.publicKey(), proof),
-      svc.linkWallet(PERSON_A, kp.publicKey(), proof),
+      svc.linkWallet(CALLER_A, kp.publicKey(), proof),
+      svc.linkWallet(CALLER_A, kp.publicKey(), proof),
     ]);
 
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
@@ -197,10 +206,10 @@ describe('PersonService wallet linking demands a fresh, single-use proof', () =>
 
   it('refuses an address that already belongs to a different person', async () => {
     seedLink(links, kp.publicKey(), PERSON_A);
-    const challenge = await svc.issueLinkChallenge(PERSON_B, kp.publicKey());
+    const challenge = await svc.issueLinkChallenge(CALLER_B, kp.publicKey());
 
     await expect(
-      svc.linkWallet(PERSON_B, kp.publicKey(), {
+      svc.linkWallet(CALLER_B, kp.publicKey(), {
         challenge,
         signature: signSep53(kp, challenge),
       }),
@@ -210,12 +219,12 @@ describe('PersonService wallet linking demands a fresh, single-use proof', () =>
   it('does not free the address when a link is revoked', async () => {
     seedLink(links, kp.publicKey(), PERSON_A);
     seedLink(links, 'GKEEP', PERSON_A);
-    await svc.revokeWallet(PERSON_A, kp.publicKey());
+    await svc.revokeWallet(CALLER_A, kp.publicKey());
 
-    const challenge = await svc.issueLinkChallenge(PERSON_B, kp.publicKey());
+    const challenge = await svc.issueLinkChallenge(CALLER_B, kp.publicKey());
 
     await expect(
-      svc.linkWallet(PERSON_B, kp.publicKey(), {
+      svc.linkWallet(CALLER_B, kp.publicKey(), {
         challenge,
         signature: signSep53(kp, challenge),
       }),
@@ -223,22 +232,28 @@ describe('PersonService wallet linking demands a fresh, single-use proof', () =>
   });
 
   it('refuses to revoke the only wallet a person can still sign with', async () => {
+    await expect(svc.revokeWallet(CALLER_A, CALLER_A)).rejects.toBeInstanceOf(ConflictException);
+    expect(links.get(CALLER_A).status).toBe('ACTIVE');
+  });
+
+  it('serialises revocation on the person so two of them cannot empty the account', async () => {
     seedLink(links, kp.publicKey(), PERSON_A);
 
-    await expect(svc.revokeWallet(PERSON_A, kp.publicKey())).rejects.toBeInstanceOf(
-      ConflictException,
-    );
-    expect(links.get(kp.publicKey()).status).toBe('ACTIVE');
+    await svc.revokeWallet(CALLER_A, kp.publicKey());
+
+    const [strings, ...values] = (prisma.$executeRaw as jest.Mock).mock.calls[0];
+    expect(strings.join('?')).toContain('pg_advisory_xact_lock');
+    expect(values).toContain(PERSON_A);
   });
 
   it('refuses to link beyond the cap of active wallets, naming the cap', async () => {
-    for (let i = 0; i < WALLET_CAP; i++) {
+    for (let i = 0; i < WALLET_CAP - 1; i++) {
       seedLink(links, `GCAP${i}`, PERSON_A);
     }
-    const challenge = await svc.issueLinkChallenge(PERSON_A, kp.publicKey());
+    const challenge = await svc.issueLinkChallenge(CALLER_A, kp.publicKey());
 
     await expect(
-      svc.linkWallet(PERSON_A, kp.publicKey(), {
+      svc.linkWallet(CALLER_A, kp.publicKey(), {
         challenge,
         signature: signSep53(kp, challenge),
       }),
@@ -246,11 +261,11 @@ describe('PersonService wallet linking demands a fresh, single-use proof', () =>
   });
 
   it('lets a person re-link a wallet they revoked while at the cap', async () => {
-    for (let i = 0; i < WALLET_CAP - 1; i++) seedLink(links, `GCAP${i}`, PERSON_A);
+    for (let i = 0; i < WALLET_CAP - 2; i++) seedLink(links, `GCAP${i}`, PERSON_A);
     seedLink(links, kp.publicKey(), PERSON_A, 'REVOKED');
-    const challenge = await svc.issueLinkChallenge(PERSON_A, kp.publicKey());
+    const challenge = await svc.issueLinkChallenge(CALLER_A, kp.publicKey());
 
-    const link = await svc.linkWallet(PERSON_A, kp.publicKey(), {
+    const link = await svc.linkWallet(CALLER_A, kp.publicKey(), {
       challenge,
       signature: signSep53(kp, challenge),
     });
