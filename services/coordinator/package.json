@@ -9,7 +9,10 @@
     "test": "jest",
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "e2e:up": "docker compose -f docker-compose.e2e.yml -p lolipay-e2e up -d && sleep 8 && DATABASE_URL=postgresql://lolipay:lolipay@localhost:5432/lolipay?schema=public prisma db push --skip-generate",
+    "e2e:down": "docker compose -f docker-compose.e2e.yml -p lolipay-e2e down -v",
+    "test:all": "npm test && npm run e2e:up && npm run test:e2e; npm run e2e:down"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.0",

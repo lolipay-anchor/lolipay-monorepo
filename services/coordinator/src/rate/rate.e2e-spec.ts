@@ -7,6 +7,9 @@ import { AppModule } from '../app.module';
 import { PRICE_ADAPTER } from './rate.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { ThrottlerStorage } from '@nestjs/throttler';
+import { OrderService } from '../order/order.service';
+import { RateService } from '../rate/rate.service';
+import { StellarReadService } from '../stellar/stellar-read.service';
 
 const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
@@ -39,6 +42,7 @@ async function getJwt(app: INestApplication): Promise<{ jwt: string; address: st
 describe('POST /quotes (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let clearConfigCaches: () => void;
 
   const fakeAdapter = {
     name: 'fake',
@@ -61,6 +65,15 @@ describe('POST /quotes (e2e)', () => {
 
     prisma = mod.get(PrismaService);
 
+    clearConfigCaches = () => {
+      for (const svc of [mod.get(RateService), mod.get(OrderService)] as any[]) {
+        svc.configCache = null;
+      }
+    };
+
+
+    jest.spyOn(mod.get(StellarReadService), 'hasUsdcTrustline').mockResolvedValue(true);
+
     await prisma.config.upsert({
       where: { id: 1 },
       update: {
@@ -70,6 +83,7 @@ describe('POST /quotes (e2e)', () => {
         minOrder: 50_000_000n,
         maxOrder: 10_000_000_000n,
         paused: false,
+        dailyLimitByTier: { BRONZE: 1000000, SILVER: 1000000, TRUSTED: 1000000, GOLD: 1000000 },
       },
       create: {
         id: 1,
@@ -79,6 +93,7 @@ describe('POST /quotes (e2e)', () => {
         minOrder: 50_000_000n,
         maxOrder: 10_000_000_000n,
         paused: false,
+        dailyLimitByTier: { BRONZE: 1000000, SILVER: 1000000, TRUSTED: 1000000, GOLD: 1000000 },
         platformWallet: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
       },
     });
@@ -136,6 +151,7 @@ describe('POST /quotes (e2e)', () => {
 
   it('paused platform → 503', async () => {
     await prisma.config.update({ where: { id: 1 }, data: { paused: true } });
+    clearConfigCaches();
 
     const { jwt } = await getJwt(app);
     await request(app.getHttpServer())
@@ -145,6 +161,7 @@ describe('POST /quotes (e2e)', () => {
       .expect(503);
 
     await prisma.config.update({ where: { id: 1 }, data: { paused: false } });
+    clearConfigCaches();
   });
 
   it('invalid flow → 400', async () => {

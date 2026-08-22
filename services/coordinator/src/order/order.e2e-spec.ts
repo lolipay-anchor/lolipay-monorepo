@@ -6,8 +6,11 @@ import { createHash } from 'crypto';
 import { AppModule } from '../app.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
+import { onChainTradeFor } from './test-helpers';
 import { PRICE_ADAPTER } from '../rate/rate.module';
 import { ThrottlerStorage } from '@nestjs/throttler';
+import { OrderService } from './order.service';
+import { RateService } from '../rate/rate.service';
 
 const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
@@ -39,6 +42,7 @@ async function mintJwt(app: INestApplication, kp: Keypair): Promise<string> {
 describe('Order lifecycle (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let clearConfigCaches: () => void;
   let stellarMock: jest.Mocked<StellarReadService>;
 
   const userKp = Keypair.random();
@@ -72,6 +76,12 @@ describe('Order lifecycle (e2e)', () => {
     await app.init();
 
     prisma = mod.get(PrismaService);
+
+    clearConfigCaches = () => {
+      for (const svc of [mod.get(RateService), mod.get(OrderService)] as any[]) {
+        svc.configCache = null;
+      }
+    };
     stellarMock = mod.get(StellarReadService) as jest.Mocked<StellarReadService>;
 
     await prisma.config.upsert({
@@ -83,6 +93,7 @@ describe('Order lifecycle (e2e)', () => {
         minOrder: 50_000_000n,
         maxOrder: 10_000_000_000n,
         paused: false,
+        dailyLimitByTier: { BRONZE: 1000000, SILVER: 1000000, TRUSTED: 1000000, GOLD: 1000000 },
         payWindowSecs: 1800,
         confirmWindowSecs: 1800,
         disputeWindowSecs: 7200,
@@ -96,22 +107,22 @@ describe('Order lifecycle (e2e)', () => {
         minOrder: 50_000_000n,
         maxOrder: 10_000_000_000n,
         paused: false,
+        dailyLimitByTier: { BRONZE: 1000000, SILVER: 1000000, TRUSTED: 1000000, GOLD: 1000000 },
         payWindowSecs: 1800,
         confirmWindowSecs: 1800,
         disputeWindowSecs: 7200,
         platformWallet: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
       },
     });
-
-    await prisma.lp.deleteMany({
-      where: { stellarAddress: { in: [lpKp.publicKey(), userKp.publicKey()] } },
-    });
-
+    await prisma.order.deleteMany({});
+    await prisma.paymentMethod.deleteMany({});
+    await prisma.lp.deleteMany({});
     const lp = await prisma.lp.upsert({
       where: { stellarAddress: lpKp.publicKey() },
       update: {
         status: 'APPROVED',
         online: true,
+        lastHeartbeatAt: new Date(),
         contact: 'lp@e2e.test',
         liquidityProof: 'proof',
         approvedAt: new Date(),
@@ -120,6 +131,7 @@ describe('Order lifecycle (e2e)', () => {
         stellarAddress: lpKp.publicKey(),
         status: 'APPROVED',
         online: true,
+        lastHeartbeatAt: new Date(),
         contact: 'lp@e2e.test',
         liquidityProof: 'proof',
         approvedAt: new Date(),
@@ -237,7 +249,8 @@ describe('Order lifecycle (e2e)', () => {
   });
 
   it('GET /orders/:id — chain reports FUNDED from MATCHED → DB advances; LP (fiat payer) sees instructions', async () => {
-    stellarMock.getTradeStatus.mockResolvedValueOnce({ status: 'FUNDED' });
+    stellarMock.getTradeStatus.mockImplementationOnce(async (_c: string, tid: string) =>
+      onChainTradeFor(await prisma.order.findUnique({ where: { tradeId: tid } }), 'FUNDED') as any);
 
     const res = await request(app.getHttpServer())
       .get(`/orders/${withdrawOrderId}`)
@@ -251,7 +264,8 @@ describe('Order lifecycle (e2e)', () => {
   });
 
   it('GET /orders/:id — user is NOT fiat payer for WITHDRAW → instructions hidden after FUNDED', async () => {
-    stellarMock.getTradeStatus.mockResolvedValueOnce({ status: 'FUNDED' });
+    stellarMock.getTradeStatus.mockImplementationOnce(async (_c: string, tid: string) =>
+      onChainTradeFor(await prisma.order.findUnique({ where: { tradeId: tid } }), 'FUNDED') as any);
 
     const res = await request(app.getHttpServer())
       .get(`/orders/${withdrawOrderId}`)
@@ -276,7 +290,8 @@ describe('Order lifecycle (e2e)', () => {
       .expect(201);
     const freshOrderId = oRes.body.order.id;
 
-    stellarMock.getTradeStatusStrict.mockResolvedValueOnce({ status: 'FUNDED' });
+    stellarMock.getTradeStatusStrict.mockImplementationOnce(async (_c: string, tid: string) =>
+      onChainTradeFor(await prisma.order.findUnique({ where: { tradeId: tid } }), 'FUNDED') as any);
 
     await request(app.getHttpServer())
       .post(`/orders/${freshOrderId}/cancel`)
@@ -378,7 +393,8 @@ describe('Order lifecycle (e2e)', () => {
       .expect(201);
     const topUpId = oRes.body.order.id;
 
-    stellarMock.getTradeStatus.mockResolvedValueOnce({ status: 'FUNDED' });
+    stellarMock.getTradeStatus.mockImplementationOnce(async (_c: string, tid: string) =>
+      onChainTradeFor(await prisma.order.findUnique({ where: { tradeId: tid } }), 'FUNDED') as any);
 
     const res = await request(app.getHttpServer())
       .get(`/orders/${topUpId}`)
@@ -398,6 +414,7 @@ describe('Order lifecycle (e2e)', () => {
       .expect(201);
 
     await prisma.config.update({ where: { id: 1 }, data: { paused: true } });
+    clearConfigCaches();
 
     await request(app.getHttpServer())
       .post('/orders')
@@ -406,6 +423,7 @@ describe('Order lifecycle (e2e)', () => {
       .expect(503);
 
     await prisma.config.update({ where: { id: 1 }, data: { paused: false } });
+    clearConfigCaches();
   });
 
   it('unauthenticated POST /orders → 401', async () => {

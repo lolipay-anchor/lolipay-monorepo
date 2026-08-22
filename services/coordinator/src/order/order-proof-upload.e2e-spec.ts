@@ -6,6 +6,7 @@ import { createHash } from 'crypto';
 import { AppModule } from '../app.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
+import { onChainTradeFor } from './test-helpers';
 import { PRICE_ADAPTER } from '../rate/rate.module';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { OrderService } from './order.service';
@@ -91,6 +92,7 @@ describe('Payment proof + dispute evidence uploads (e2e)', () => {
         minOrder: 50_000_000n,
         maxOrder: 10_000_000_000n,
         paused: false,
+        dailyLimitByTier: { BRONZE: 1000000, SILVER: 1000000, TRUSTED: 1000000, GOLD: 1000000 },
         payWindowSecs: 1800,
         confirmWindowSecs: 1800,
         disputeWindowSecs: 7200,
@@ -106,6 +108,7 @@ describe('Payment proof + dispute evidence uploads (e2e)', () => {
         minOrder: 50_000_000n,
         maxOrder: 10_000_000_000n,
         paused: false,
+        dailyLimitByTier: { BRONZE: 1000000, SILVER: 1000000, TRUSTED: 1000000, GOLD: 1000000 },
         payWindowSecs: 1800,
         confirmWindowSecs: 1800,
         disputeWindowSecs: 7200,
@@ -114,29 +117,27 @@ describe('Payment proof + dispute evidence uploads (e2e)', () => {
         platformWallet: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
       },
     });
-
-    await prisma.lp.deleteMany({
-      where: { stellarAddress: { in: [lpKp.publicKey(), userKp.publicKey(), strangerKp.publicKey()] } },
-    });
+    await prisma.order.deleteMany({});
+    await prisma.paymentMethod.deleteMany({});
+    await prisma.lp.deleteMany({});
     const lp = await prisma.lp.upsert({
       where: { stellarAddress: lpKp.publicKey() },
       update: {
         status: 'APPROVED',
         online: true,
+        lastHeartbeatAt: new Date(),
         contact: 'lp@e2e.test',
         liquidityProof: 'proof',
         approvedAt: new Date(),
-
-        lastHeartbeatAt: new Date(),
       },
       create: {
         stellarAddress: lpKp.publicKey(),
         status: 'APPROVED',
         online: true,
+        lastHeartbeatAt: new Date(),
         contact: 'lp@e2e.test',
         liquidityProof: 'proof',
         approvedAt: new Date(),
-        lastHeartbeatAt: new Date(),
       },
     });
     await prisma.paymentMethod.deleteMany({ where: { lpId: lp.id, rail: 'BANK' } });
@@ -174,7 +175,8 @@ describe('Payment proof + dispute evidence uploads (e2e)', () => {
       .expect(201);
     const orderId = oRes.body.order.id as string;
 
-    stellarMock.getTradeStatus.mockResolvedValueOnce({ status: 'FUNDED' } as any);
+    stellarMock.getTradeStatus.mockImplementationOnce(async (_c: string, tid: string) =>
+      onChainTradeFor(await prisma.order.findUnique({ where: { tradeId: tid } }), 'FUNDED') as any);
     await request(app.getHttpServer())
       .get(`/orders/${orderId}`)
       .set('Authorization', `Bearer ${userJwt}`)
@@ -380,7 +382,8 @@ describe('Payment proof + dispute evidence uploads (e2e)', () => {
 
   it('POST /orders/:id/dispute-evidence — FIAT_PAID → 200 with an evidence_url; does not change order status', async () => {
     const orderId = await createFundedWithdrawOrder();
-    stellarMock.getTradeStatus.mockResolvedValueOnce({ status: 'FIAT_PAID' } as any);
+    stellarMock.getTradeStatus.mockImplementationOnce(async (_c: string, tid: string) =>
+      onChainTradeFor(await prisma.order.findUnique({ where: { tradeId: tid } }), 'FIAT_PAID') as any);
     await request(app.getHttpServer())
       .get(`/orders/${orderId}`)
       .set('Authorization', `Bearer ${userJwt}`)
@@ -432,7 +435,8 @@ describe('Payment proof + dispute evidence uploads (e2e)', () => {
 
   it('POST /orders/:id/dispute-evidence — reupload by the same party overwrites the same path (no growth), user/lp stay separate', async () => {
     const orderId = await createFundedWithdrawOrder();
-    stellarMock.getTradeStatus.mockResolvedValueOnce({ status: 'FIAT_PAID' } as any);
+    stellarMock.getTradeStatus.mockImplementationOnce(async (_c: string, tid: string) =>
+      onChainTradeFor(await prisma.order.findUnique({ where: { tradeId: tid } }), 'FIAT_PAID') as any);
     await request(app.getHttpServer())
       .get(`/orders/${orderId}`)
       .set('Authorization', `Bearer ${userJwt}`)

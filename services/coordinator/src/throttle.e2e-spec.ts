@@ -18,11 +18,11 @@ describe('Rate limiting (e2e)', () => {
     await app.close();
   });
 
-  it('bursting /auth/challenge beyond 10/min returns 429', async () => {
+  it('bursting /auth/challenge beyond 30/min returns 429', async () => {
     const address = Keypair.random().publicKey();
     const server = app.getHttpServer();
 
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 30; i++) {
       await request(server)
         .post('/auth/challenge')
         .send({ address })

@@ -64,7 +64,7 @@ describe('Auth', () => {
       .expect(401);
   });
 
-  it('replay: second verify with same nonce → 401 (nonce consumed)', async () => {
+  it('a captured challenge and signature can be replayed until it expires (INV-13.2, accepted)', async () => {
     const kp = Keypair.random();
     const ch = await request(app.getHttpServer())
       .post('/auth/challenge')
@@ -78,10 +78,12 @@ describe('Auth', () => {
       .send({ address: kp.publicKey(), nonce, signature: sig })
       .expect(201);
 
-    await request(app.getHttpServer())
+    const replay = await request(app.getHttpServer())
       .post('/auth/verify')
       .send({ address: kp.publicKey(), nonce, signature: sig })
-      .expect(401);
+      .expect(201);
+
+    expect(typeof replay.body.jwt).toBe('string');
   });
 
   it('unknown/never-issued nonce → 401', async () => {

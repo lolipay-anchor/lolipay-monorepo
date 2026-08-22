@@ -6,6 +6,7 @@ import { createHash } from 'crypto';
 import { AppModule } from '../app.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { ThrottlerStorage } from '@nestjs/throttler';
+import { StellarReadService } from '../stellar/stellar-read.service';
 
 const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
@@ -58,6 +59,8 @@ describe('LP registry + admin actions (e2e)', () => {
     await app.init();
 
     prisma = mod.get(PrismaService);
+
+    jest.spyOn(mod.get(StellarReadService), 'hasUsdcTrustline').mockResolvedValue(true);
 
     await prisma.config.upsert({
       where: { id: 1 },

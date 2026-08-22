@@ -87,8 +87,8 @@ npm run start:dev
 
 # frontend
 cd frontend
-npm ci
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 Each app has its own `.env.example`. No example file carries a live value: the
@@ -100,13 +100,25 @@ pointing at someone else's contract.
 
 ```bash
 cargo test                              # 71 contract tests
-cd services/coordinator && npm test     # 784 coordinator tests
-cd frontend && npm test                 # 650 frontend tests
+cd services/coordinator && npm test     # 811 coordinator unit tests
+cd frontend && pnpm test                # 650 frontend tests
 ```
 
-The coordinator's end-to-end suites need Postgres and MinIO running. The testnet
-integration suite is opt-in behind `RUN_TESTNET_IT` and takes its contract ids
-from the environment.
+The coordinator's 77 end-to-end tests need Postgres and MinIO. They are a
+separate run because they need those services, not because they are optional:
+
+```bash
+cd services/coordinator
+npm run e2e:up        # starts postgres + minio, applies the schema
+npm run test:e2e      # 77 tests
+npm run e2e:down
+```
+
+`npm run test:all` does the whole sequence and tears down afterwards. Both
+services use tmpfs, so every run starts from an empty database.
+
+The testnet integration suite is opt-in behind `RUN_TESTNET_IT` and takes its
+contract ids from the environment.
 
 ## Status
 
