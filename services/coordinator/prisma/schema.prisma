@@ -269,3 +269,15 @@ model WalletLink {
 
   @@index([personId])
 }
+
+model WalletLinkChallenge {
+  nonce          String    @id
+  personId       String
+  stellarAddress String
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([personId, stellarAddress])
+  @@index([expiresAt])
+}
