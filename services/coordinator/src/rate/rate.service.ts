@@ -170,9 +170,10 @@ export class RateService {
       throw new BadRequestException('amount out of range');
     }
 
-    const { tier } = await this.userReputation.getReputation(userAddress);
+    const personId = await this.userReputation.personIdFor(userAddress);
+    const { tier } = await this.userReputation.getReputation(personId);
     const limitBase = this.userReputation.dailyLimitBaseUnits(tier, conf);
-    const used = await this.userReputation.used24hBaseUnits(userAddress);
+    const used = await this.userReputation.used24hBaseUnits(personId);
     if (used + usdcAmount > limitBase) {
       throw new BadRequestException('daily limit exceeded');
     }

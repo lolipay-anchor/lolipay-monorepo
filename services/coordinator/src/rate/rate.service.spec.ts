@@ -95,6 +95,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
 
 function makeReputationStub(overrides: Record<string, any> = {}) {
   return {
+    personIdFor: jest.fn().mockResolvedValue('person-test'),
     getReputation: jest.fn().mockResolvedValue({
       tier: 'BRONZE',
       completedTrades: 0,
@@ -560,6 +561,7 @@ describe('RateService.createQuote — per-tier daily limit (Phase 6 Task 3)', ()
   it('allows a quote when used24h + this quote is UNDER the tier limit', async () => {
     const prisma = makePrisma();
     const userReputation = makeReputationStub({
+      personIdFor: jest.fn().mockResolvedValue('person-test'),
       getReputation: jest.fn().mockResolvedValue({ tier: 'SILVER', completedTrades: 10, disputesLost: 0, completionRate: 1 }),
       dailyLimitBaseUnits: jest.fn().mockReturnValue(3_000_000_000n),
       used24hBaseUnits: jest.fn().mockResolvedValue(1_000_000_000n),
@@ -603,6 +605,7 @@ describe('RateService.createQuote — per-tier daily limit (Phase 6 Task 3)', ()
   it('different tiers get different limits — a higher tier allows an amount a lower tier would reject', async () => {
     const prisma = makePrisma();
     const userReputation = makeReputationStub({
+      personIdFor: jest.fn().mockResolvedValue('person-test'),
       getReputation: jest.fn().mockResolvedValue({ tier: 'GOLD', completedTrades: 100, disputesLost: 0, completionRate: 1 }),
 
       dailyLimitBaseUnits: jest.fn((tier: string) => (tier === 'GOLD' ? 20_000_000_000n : 1_000_000_000n)),
@@ -656,6 +659,7 @@ describe('RateService.createQuote — per-tier daily limit (Phase 6 Task 3)', ()
   it('fails CLOSED when getReputation throws — propagates (500), never silently allows the quote', async () => {
     const prisma = makePrisma();
     const userReputation = makeReputationStub({
+      personIdFor: jest.fn().mockResolvedValue('person-test'),
       getReputation: jest.fn().mockRejectedValue(new Error('db unavailable')),
     });
     const svc = makeSvc(prisma, adapter, mockCfg, userReputation);

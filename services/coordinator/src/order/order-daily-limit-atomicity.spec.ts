@@ -85,6 +85,7 @@ describe('OrderService.createFromQuote — advisory-lock transaction wiring (SEC
 
     const usedInsideTx = opts.usedInsideTx ?? 0n;
     const userReputation = {
+      personIdFor: jest.fn().mockResolvedValue('person-test'),
       getReputation: jest.fn().mockResolvedValue({ tier: 'BRONZE', completedTrades: 0, disputesLost: 0, completionRate: null }),
       dailyLimitBaseUnits: jest.fn().mockReturnValue(limitBase),
 
@@ -121,7 +122,8 @@ describe('OrderService.createFromQuote — advisory-lock transaction wiring (SEC
     const sql = strings.join('?');
     expect(sql).toContain('pg_advisory_xact_lock');
     expect(sql).toContain('hashtext');
-    expect(values).toContain(USER);
+    expect(values).toContain('person-test');
+    expect(values).not.toContain(USER);
   });
 
   it('never takes the advisory lock (or touches quote/order) on the OUTSIDE-of-tx prisma client', async () => {
@@ -137,7 +139,7 @@ describe('OrderService.createFromQuote — advisory-lock transaction wiring (SEC
     const { svc, userReputation, tx } = makeSvc({ usedInsideTx: 0n });
     await svc.createFromQuote(USER, 'q1', 'bank details');
 
-    expect(userReputation.used24hBaseUnits).toHaveBeenCalledWith(USER, tx);
+    expect(userReputation.used24hBaseUnits).toHaveBeenCalledWith('person-test', tx);
   });
 
   it('rejects (rolling back the transaction) when the in-tx re-read shows the limit is now exceeded — even though the outer advisory pre-check passed', async () => {

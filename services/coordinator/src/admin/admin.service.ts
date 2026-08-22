@@ -278,7 +278,9 @@ export class AdminService {
         order.lpId
           ? this.prisma.order.count({ where: { lpId: order.lpId, disputeAt: { gte: since30d } } })
           : Promise.resolve(0),
-        this.userReputation.getReputation(order.userAddress),
+        this.userReputation
+          .personIdFor(order.userAddress)
+          .then((personId) => this.userReputation.getReputation(personId)),
         this.config(),
       ]);
 

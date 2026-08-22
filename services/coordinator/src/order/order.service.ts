@@ -125,9 +125,10 @@ export class OrderService {
       throw new BadRequestException('quote amount is outside current limits');
     }
 
-    const { tier } = await this.userReputation.getReputation(userAddress);
+    const personId = await this.userReputation.personIdFor(userAddress);
+    const { tier } = await this.userReputation.getReputation(personId);
     const limitBase = this.userReputation.dailyLimitBaseUnits(tier, config);
-    const used = await this.userReputation.used24hBaseUnits(userAddress);
+    const used = await this.userReputation.used24hBaseUnits(personId);
     if (used + quote.usdcAmount > limitBase) {
       throw new BadRequestException('daily limit exceeded');
     }
@@ -176,6 +177,7 @@ export class OrderService {
       tradeId,
       contractId: this.cfg.escrowContractId,
       userAddress,
+      personId,
       lpId: lp.id,
       flow: quote.flow,
       rail: quote.rail,
@@ -205,9 +207,9 @@ export class OrderService {
     for (let attempt = 0; ; attempt++) {
       try {
         order = await this.prisma.$transaction(async (tx) => {
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userAddress}))`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${personId}))`;
 
-          const used = await this.userReputation.used24hBaseUnits(userAddress, tx);
+          const used = await this.userReputation.used24hBaseUnits(personId, tx);
           if (used + quote.usdcAmount > limitBase) {
             throw new BadRequestException('daily limit exceeded');
           }

@@ -7,6 +7,7 @@ export function makeUserReputationStub(
     getReputation: jest.Mock;
     dailyLimitBaseUnits: jest.Mock;
     used24hBaseUnits: jest.Mock;
+    personIdFor: jest.Mock;
   }> = {},
 ): UserReputationService {
   return {
@@ -18,6 +19,7 @@ export function makeUserReputationStub(
     }),
     dailyLimitBaseUnits: jest.fn().mockReturnValue(9_999_999_999_999n),
     used24hBaseUnits: jest.fn().mockResolvedValue(0n),
+    personIdFor: jest.fn().mockResolvedValue('person-test'),
     ...overrides,
   } as unknown as UserReputationService;
 }

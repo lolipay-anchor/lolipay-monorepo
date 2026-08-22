@@ -183,6 +183,7 @@ describe('RateService.getDisplayRate', () => {
     const markets = new MarketsService(prisma);
 
     const userReputation = {
+      personIdFor: jest.fn().mockResolvedValue('person-test'),
       getReputation: jest.fn(),
       dailyLimitBaseUnits: jest.fn(),
       used24hBaseUnits: jest.fn(),

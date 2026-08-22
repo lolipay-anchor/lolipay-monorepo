@@ -27,6 +27,7 @@ describe('OrderService.createFromQuote — per-tier daily limit re-check (Phase 
 
   function makeUserReputation(overrides: Record<string, any> = {}) {
     return {
+      personIdFor: jest.fn().mockResolvedValue('person-test'),
       getReputation: jest.fn().mockResolvedValue({
         tier: 'BRONZE',
         completedTrades: 0,
@@ -165,6 +166,7 @@ describe('OrderService.createFromQuote — per-tier daily limit re-check (Phase 
 
   it('different tiers get different limits at create-time too', async () => {
     const userReputation = makeUserReputation({
+      personIdFor: jest.fn().mockResolvedValue('person-test'),
       getReputation: jest.fn().mockResolvedValue({ tier: 'GOLD', completedTrades: 100, disputesLost: 0, completionRate: 1 }),
       dailyLimitBaseUnits: jest.fn((tier: string) => (tier === 'GOLD' ? 20_000_000_000n : 1_000_000_000n)),
       used24hBaseUnits: jest.fn().mockResolvedValue(0n),
@@ -210,6 +212,7 @@ describe('OrderService.createFromQuote — per-tier daily limit re-check (Phase 
 
   it('fails CLOSED when getReputation throws at create-time — propagates, never silently allows the order', async () => {
     const userReputation = makeUserReputation({
+      personIdFor: jest.fn().mockResolvedValue('person-test'),
       getReputation: jest.fn().mockRejectedValue(new Error('db unavailable')),
     });
     const { svc, prisma } = makeSvc({}, userReputation);

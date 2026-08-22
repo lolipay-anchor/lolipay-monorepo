@@ -15,11 +15,12 @@ export class ProfileController {
 
   @Get()
   async getProfile(@Req() req: any): Promise<Record<string, unknown>> {
-    const address = req.user.address;
+    const address: string = req.user.address;
+    const personId = await this.userReputation.personIdFor(address);
     const [reputation, config, usedBase] = await Promise.all([
-      this.userReputation.getReputation(address),
+      this.userReputation.getReputation(personId),
       this.prisma.config.findUnique({ where: { id: 1 } }),
-      this.userReputation.used24hBaseUnits(address),
+      this.userReputation.used24hBaseUnits(personId),
     ]);
 
     const limitBase = this.userReputation.dailyLimitBaseUnits(reputation.tier, config);

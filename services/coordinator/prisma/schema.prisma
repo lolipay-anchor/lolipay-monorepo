@@ -80,6 +80,7 @@ model Order {
   tradeId             String      @unique
   contractId          String?
   userAddress         String
+  personId            String
   lp                  Lp?         @relation(fields: [lpId], references: [id])
   lpId                String?
   flow                Flow
@@ -118,6 +119,7 @@ model Order {
   disputeLossAccrued  Boolean     @default(false)
 
   @@index([userAddress])
+  @@index([personId])
   @@index([lpId, status])
   @@index([status])
   @@unique([proofRrn, lpId])

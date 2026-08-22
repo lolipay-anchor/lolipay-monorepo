@@ -1,4 +1,14 @@
 import { UserReputationService } from './user-reputation.service';
+import { PersonId } from '../person/person.service';
+
+const PERSON = 'person-1' as PersonId;
+
+function makePeople(wallets: string[] = ['GUSER']) {
+  return {
+    ensureForAddress: jest.fn().mockResolvedValue({ id: PERSON }),
+    walletsOf: jest.fn().mockResolvedValue(wallets),
+  } as any;
+}
 
 function makePrisma(overrides: Record<string, any> = {}) {
   const order = {
@@ -10,6 +20,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
   };
   const userProfile = {
     findUnique: jest.fn().mockResolvedValue(null),
+    aggregate: jest.fn().mockResolvedValue({ _sum: { disputesLost: null } }),
     upsert: jest.fn().mockResolvedValue({ address: 'GUSER', disputesLost: 1 }),
     ...overrides.userProfile,
   };
@@ -20,7 +31,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
 }
 
 describe('UserReputationService.computeTier (pure)', () => {
-  const svc = new UserReputationService(makePrisma());
+  const svc = new UserReputationService(makePrisma(), makePeople());
 
   it('BRONZE below the SILVER threshold', () => {
     expect(svc.computeTier(0, 0)).toBe('BRONZE');
@@ -65,13 +76,13 @@ describe('UserReputationService.getReputation', () => {
   it('computes tier/completionRate from a live RELEASED count + persisted disputesLost', async () => {
     const prisma = makePrisma({
       order: { count: jest.fn().mockResolvedValue(20) },
-      userProfile: { findUnique: jest.fn().mockResolvedValue({ address: 'GUSER', disputesLost: 1 }) },
+      userProfile: { aggregate: jest.fn().mockResolvedValue({ _sum: { disputesLost: 1 } }) },
     });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
-    const rep = await svc.getReputation('GUSER');
+    const rep = await svc.getReputation(PERSON);
 
-    expect(prisma.order.count).toHaveBeenCalledWith({ where: { userAddress: 'GUSER', status: 'RELEASED' } });
+    expect(prisma.order.count).toHaveBeenCalledWith({ where: { personId: PERSON, status: 'RELEASED' } });
     expect(rep.completedTrades).toBe(20);
     expect(rep.disputesLost).toBe(1);
     expect(rep.tier).toBe('SILVER');
@@ -80,9 +91,9 @@ describe('UserReputationService.getReputation', () => {
 
   it('defaults disputesLost to 0 when no UserProfile row exists (new user)', async () => {
     const prisma = makePrisma({ order: { count: jest.fn().mockResolvedValue(3) } });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
-    const rep = await svc.getReputation('GNEW');
+    const rep = await svc.getReputation(PERSON);
 
     expect(rep.disputesLost).toBe(0);
     expect(rep.tier).toBe('BRONZE');
@@ -91,16 +102,16 @@ describe('UserReputationService.getReputation', () => {
 
   it('completionRate is null when the user has neither completed trades nor lost disputes', async () => {
     const prisma = makePrisma();
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
-    const rep = await svc.getReputation('GBRANDNEW');
+    const rep = await svc.getReputation(PERSON);
 
     expect(rep.completionRate).toBeNull();
   });
 });
 
 describe('UserReputationService.dailyLimitBaseUnits', () => {
-  const svc = new UserReputationService(makePrisma());
+  const svc = new UserReputationService(makePrisma(), makePeople());
   const USDC = 10_000_000n;
 
   it('falls back to code defaults when config is null', () => {
@@ -136,17 +147,17 @@ describe('UserReputationService.dailyLimitBaseUnits', () => {
 });
 
 describe('UserReputationService.used24hBaseUnits', () => {
-  it('filters by userAddress, 24h window, and excludes terminal-failed statuses', async () => {
+  it('filters by person, 24h window, and excludes terminal-failed statuses', async () => {
     const prisma = makePrisma({
       order: { aggregate: jest.fn().mockResolvedValue({ _sum: { usdcAmount: 12345n } }) },
     });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
-    const used = await svc.used24hBaseUnits('GUSER');
+    const used = await svc.used24hBaseUnits(PERSON);
 
     expect(used).toBe(12345n);
     const call = prisma.order.aggregate.mock.calls[0][0];
-    expect(call.where.userAddress).toBe('GUSER');
+    expect(call.where.personId).toBe(PERSON);
     expect(call.where.status.notIn.sort()).toEqual(['CANCELLED', 'EXPIRED', 'REFUNDED'].sort());
     expect(call.where.createdAt.gte).toBeInstanceOf(Date);
   });
@@ -155,22 +166,22 @@ describe('UserReputationService.used24hBaseUnits', () => {
     const prisma = makePrisma({
       order: { aggregate: jest.fn().mockResolvedValue({ _sum: { usdcAmount: null } }) },
     });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
-    expect(await svc.used24hBaseUnits('GUSER')).toBe(0n);
+    expect(await svc.used24hBaseUnits(PERSON)).toBe(0n);
   });
 
   it('reads through an explicitly-passed client (e.g. a transaction client) instead of the default this.prisma', async () => {
     const defaultPrisma = makePrisma({
       order: { aggregate: jest.fn().mockResolvedValue({ _sum: { usdcAmount: 999n } }) },
     });
-    const svc = new UserReputationService(defaultPrisma);
+    const svc = new UserReputationService(defaultPrisma, makePeople());
 
     const txClient = makePrisma({
       order: { aggregate: jest.fn().mockResolvedValue({ _sum: { usdcAmount: 42n } }) },
     });
 
-    const used = await svc.used24hBaseUnits('GUSER', txClient as any);
+    const used = await svc.used24hBaseUnits(PERSON, txClient as any);
 
     expect(used).toBe(42n);
     expect(txClient.order.aggregate).toHaveBeenCalledTimes(1);
@@ -181,7 +192,7 @@ describe('UserReputationService.used24hBaseUnits', () => {
 describe('UserReputationService.recordDisputeLost (M3 fix: per-order idempotent)', () => {
   it('flips Order.disputeLossAccrued false→true, then upserts an atomic increment', async () => {
     const prisma = makePrisma({ order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await svc.recordDisputeLost('GUSER', 'order-1');
 
@@ -205,7 +216,7 @@ describe('UserReputationService.recordDisputeLost (M3 fix: per-order idempotent)
           .mockResolvedValueOnce({ count: 0 }),
       },
     });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await svc.recordDisputeLost('GUSER', 'order-1');
     await svc.recordDisputeLost('GUSER', 'order-1');
@@ -216,7 +227,7 @@ describe('UserReputationService.recordDisputeLost (M3 fix: per-order idempotent)
 
   it('a fresh order (never accrued) increments exactly once', async () => {
     const prisma = makePrisma({ order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await svc.recordDisputeLost('GUSER', 'order-fresh');
 
@@ -225,7 +236,7 @@ describe('UserReputationService.recordDisputeLost (M3 fix: per-order idempotent)
 
   it('DIFFERENT orders for the same user each accrue independently (not conflated by orderId)', async () => {
     const prisma = makePrisma({ order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await svc.recordDisputeLost('GUSER', 'order-A');
     await svc.recordDisputeLost('GUSER', 'order-B');
@@ -235,7 +246,7 @@ describe('UserReputationService.recordDisputeLost (M3 fix: per-order idempotent)
 
   it('wraps the flip + increment in a single prisma.$transaction call', async () => {
     const prisma = makePrisma({ order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await svc.recordDisputeLost('GUSER', 'order-1');
 
@@ -280,7 +291,7 @@ describe('UserReputationService.recordDisputeLost — atomicity (L-A fix)', () =
         return result;
       },
     } as any;
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await expect(svc.recordDisputeLost('GUSER', 'order-1')).rejects.toThrow(
       'simulated DB crash between flip and increment',
@@ -302,7 +313,7 @@ describe('UserReputationService.recordDisputeLost — atomicity (L-A fix)', () =
           userProfile: { upsert },
         }),
     } as any;
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await svc.recordDisputeLost('GUSER', 'order-1');
 
@@ -313,7 +324,7 @@ describe('UserReputationService.recordDisputeLost — atomicity (L-A fix)', () =
 describe('UserReputationService.backfillDisputesLost', () => {
   it('is a no-op when there is no dispute history (prod-launch case)', async () => {
     const prisma = makePrisma({ order: { findMany: jest.fn().mockResolvedValue([]) } });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await svc.backfillDisputesLost();
 
@@ -330,7 +341,7 @@ describe('UserReputationService.backfillDisputesLost', () => {
         ]),
       },
     });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await svc.backfillDisputesLost();
 
@@ -362,7 +373,7 @@ describe('UserReputationService.backfillDisputesLost', () => {
         ]),
       },
     });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await svc.backfillDisputesLost();
 
@@ -382,7 +393,7 @@ describe('UserReputationService.backfillDisputesLost', () => {
         ]),
       },
     });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await svc.recordDisputeLost('GALICE', 'order-cold-restart');
     expect(prisma.userProfile.upsert).toHaveBeenCalledWith(
@@ -408,7 +419,7 @@ describe('UserReputationService.backfillDisputesLost', () => {
         ]),
       },
     });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await svc.backfillDisputesLost();
 
@@ -420,7 +431,7 @@ describe('UserReputationService.backfillDisputesLost', () => {
 
   it('does not touch Order.disputeLossAccrued when there is nothing to backfill', async () => {
     const prisma = makePrisma({ order: { findMany: jest.fn().mockResolvedValue([]) } });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await svc.backfillDisputesLost();
 
@@ -431,7 +442,7 @@ describe('UserReputationService.backfillDisputesLost', () => {
     const prisma = makePrisma({
       order: { findMany: jest.fn().mockResolvedValue([{ id: 'o1', userAddress: 'GALICE' }]) },
     });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await svc.backfillDisputesLost();
     await svc.backfillDisputesLost();
@@ -452,7 +463,7 @@ describe('UserReputationService.backfillDisputesLost', () => {
     const prisma = makePrisma({
       order: { findMany: jest.fn().mockResolvedValue([{ id: 'order-1', userAddress: 'GALICE' }]) },
     });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
 
     await svc.recordDisputeLost('GALICE', 'order-1');
     prisma.userProfile.upsert.mockClear();
@@ -470,7 +481,7 @@ describe('UserReputationService.backfillDisputesLost', () => {
     const prisma = makePrisma({
       order: { findMany: jest.fn().mockResolvedValue([{ id: 'o1', userAddress: 'GALICE' }]) },
     });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
     const spy = jest.spyOn(svc, 'backfillDisputesLost');
 
     await svc.onModuleInit();
@@ -482,7 +493,7 @@ describe('UserReputationService.backfillDisputesLost', () => {
 describe('UserReputationService.onModuleInit — boot safety', () => {
   it('does not reject onModuleInit when backfillDisputesLost throws — logs a warning and continues', async () => {
     const prisma = makePrisma({ order: { findMany: jest.fn().mockRejectedValue(new Error('db unavailable')) } });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
     const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => undefined);
 
     await expect(svc.onModuleInit()).resolves.toBeUndefined();
@@ -493,7 +504,7 @@ describe('UserReputationService.onModuleInit — boot safety', () => {
 
   it('still resolves cleanly (no warning) when backfillDisputesLost succeeds', async () => {
     const prisma = makePrisma({ order: { findMany: jest.fn().mockResolvedValue([]) } });
-    const svc = new UserReputationService(prisma);
+    const svc = new UserReputationService(prisma, makePeople());
     const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => undefined);
 
     await expect(svc.onModuleInit()).resolves.toBeUndefined();

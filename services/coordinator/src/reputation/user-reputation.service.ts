@@ -1,6 +1,7 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PersonId, PersonService } from '../person/person.service';
 
 type OrderQueryable = PrismaService | Prisma.TransactionClient;
 
@@ -37,7 +38,10 @@ export interface UserReputation {
 export class UserReputationService implements OnModuleInit {
   private readonly logger = new Logger(UserReputationService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private people: PersonService,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     try {
@@ -62,12 +66,31 @@ export class UserReputationService implements OnModuleInit {
     return TIER_LEVELS[level];
   }
 
-  async getReputation(address: string): Promise<UserReputation> {
-    const [completedTrades, profile] = await Promise.all([
-      this.prisma.order.count({ where: { userAddress: address, status: 'RELEASED' } }),
-      this.prisma.userProfile.findUnique({ where: { address } }),
+  async personIdFor(address: string): Promise<PersonId> {
+    try {
+      const person = await this.people.ensureForAddress(address, 'SEP53');
+      if (!person?.id) throw new Error('no person id');
+      return person.id as PersonId;
+    } catch (err) {
+      this.logger.error(
+        `cannot establish a person for ${address}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      throw new ServiceUnavailableException('cannot establish identity for this address');
+    }
+  }
+
+  async getReputation(personId: PersonId): Promise<UserReputation> {
+    const addresses = await this.people.walletsOf(personId);
+    const [completedTrades, profiles] = await Promise.all([
+      this.prisma.order.count({ where: { personId, status: 'RELEASED' } }),
+      this.prisma.userProfile.aggregate({
+        where: { address: { in: addresses } },
+        _sum: { disputesLost: true },
+      }),
     ]);
-    const disputesLost = profile?.disputesLost ?? 0;
+    const disputesLost = profiles._sum.disputesLost ?? 0;
     const concluded = completedTrades + disputesLost;
     return {
       tier: this.computeTier(completedTrades, disputesLost),
@@ -91,14 +114,14 @@ export class UserReputationService implements OnModuleInit {
   }
 
   async used24hBaseUnits(
-    address: string,
+    personId: PersonId,
     client: OrderQueryable = this.prisma,
     excludeOrderId?: string,
   ): Promise<bigint> {
     const since = new Date(Date.now() - DAY_MS);
     const result = await client.order.aggregate({
       where: {
-        userAddress: address,
+        personId,
         createdAt: { gte: since },
         status: { notIn: [...VOLUME_EXCLUDED_STATUSES] as any },
 

@@ -36,6 +36,7 @@ function makeCfg(over: Record<string, unknown> = {}) {
 
 function makeUserReputation(overrides: Record<string, any> = {}) {
   return {
+    personIdFor: jest.fn().mockResolvedValue('person-test'),
     getReputation: jest.fn().mockResolvedValue({
       tier: 'BRONZE',
       completedTrades: 0,
@@ -476,6 +477,7 @@ describe('AdminService.getOrderRisk', () => {
   it('amount_vs_tier_limit computes order/limit ratio from the user tier', async () => {
     const prisma = makeRiskPrisma(BASE_ORDER);
     const userReputation = makeUserReputation({
+      personIdFor: jest.fn().mockResolvedValue('person-test'),
       getReputation: jest.fn().mockResolvedValue({
         tier: 'SILVER',
         completedTrades: 5,

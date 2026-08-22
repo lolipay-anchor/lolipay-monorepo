@@ -4,6 +4,8 @@ import { verifySep53 } from '../auth/sep53';
 import { PrismaService } from '../prisma/prisma.service';
 import { Person, WalletAuthMethod, WalletLink } from '../generated/prisma/client';
 
+export type PersonId = string & { readonly __brand: 'PersonId' };
+
 export const WALLET_CAP = 5;
 export const LINK_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const LINK_PREFIX = 'lolipay-wallet-link';
@@ -32,6 +34,14 @@ export class PersonService {
       if (!raced) throw err;
       return raced;
     }
+  }
+
+  async walletsOf(personId: string): Promise<string[]> {
+    const links = await this.prisma.walletLink.findMany({
+      where: { personId },
+      select: { stellarAddress: true },
+    });
+    return links.map((l) => l.stellarAddress);
   }
 
   async issueLinkChallenge(personId: string, address: string): Promise<string> {

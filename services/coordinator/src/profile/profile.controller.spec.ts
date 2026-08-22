@@ -15,6 +15,7 @@ describe('ProfileController — GET /profile', () => {
   let app: INestApplication;
 
   const mockUserReputation = {
+    personIdFor: jest.fn().mockResolvedValue('person-test'),
     getReputation: jest.fn(),
     dailyLimitBaseUnits: jest.fn(),
     used24hBaseUnits: jest.fn(),
@@ -65,8 +66,9 @@ describe('ProfileController — GET /profile', () => {
       .set('Authorization', 'Bearer user')
       .expect(200);
 
-    expect(mockUserReputation.getReputation).toHaveBeenCalledWith(ADDR);
-    expect(mockUserReputation.used24hBaseUnits).toHaveBeenCalledWith(ADDR);
+    expect(mockUserReputation.personIdFor).toHaveBeenCalledWith(ADDR);
+    expect(mockUserReputation.getReputation).toHaveBeenCalledWith('person-test');
+    expect(mockUserReputation.used24hBaseUnits).toHaveBeenCalledWith('person-test');
     expect(mockUserReputation.dailyLimitBaseUnits).toHaveBeenCalledWith('SILVER', {
       dailyLimitByTier: null,
     });
