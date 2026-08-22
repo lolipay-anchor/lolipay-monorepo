@@ -1,0 +1,99 @@
+import { PersonService } from './person.service';
+
+const ADDR_A = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+const ADDR_B = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
+
+function makePrisma() {
+  const people = new Map<string, any>();
+  const links = new Map<string, any>();
+  let seq = 0;
+
+  const client: any = {
+    person: {
+      create: jest.fn(async () => {
+        const p = { id: `person-${++seq}`, createdAt: new Date() };
+        people.set(p.id, p);
+        return p;
+      }),
+      findUnique: jest.fn(async ({ where }: any) => people.get(where.id) ?? null),
+    },
+    walletLink: {
+      findUnique: jest.fn(async ({ where, include }: any) => {
+        const l = links.get(where.stellarAddress);
+        if (!l) return null;
+        return include?.person ? { ...l, person: people.get(l.personId) } : l;
+      }),
+      create: jest.fn(async ({ data }: any) => {
+        if (links.has(data.stellarAddress)) {
+          const e: any = new Error('Unique constraint failed');
+          e.code = 'P2002';
+          throw e;
+        }
+        links.set(data.stellarAddress, { ...data });
+        return data;
+      }),
+    },
+  };
+  client.$transaction = jest.fn(async (cb: any) => cb(client));
+  return client;
+}
+
+describe('PersonService.ensureForAddress', () => {
+  it('creates a person and a wallet link the first time an address is seen', async () => {
+    const prisma = makePrisma();
+    const svc = new PersonService(prisma);
+
+    const person = await svc.ensureForAddress(ADDR_A, 'SEP10');
+
+    expect(person.id).toBe('person-1');
+    expect(prisma.walletLink.create).toHaveBeenCalledWith({
+      data: { stellarAddress: ADDR_A, personId: 'person-1', authMethod: 'SEP10' },
+    });
+  });
+
+  it('returns the same person the second time, and creates no second link', async () => {
+    const prisma = makePrisma();
+    const svc = new PersonService(prisma);
+
+    const first = await svc.ensureForAddress(ADDR_A, 'SEP10');
+    const second = await svc.ensureForAddress(ADDR_A, 'SEP10');
+
+    expect(second.id).toBe(first.id);
+    expect(prisma.walletLink.create).toHaveBeenCalledTimes(1);
+    expect(prisma.person.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives two different addresses two different people', async () => {
+    const prisma = makePrisma();
+    const svc = new PersonService(prisma);
+
+    const a = await svc.ensureForAddress(ADDR_A, 'SEP10');
+    const b = await svc.ensureForAddress(ADDR_B, 'SEP10');
+
+    expect(b.id).not.toBe(a.id);
+  });
+
+  it('records how the address was proven', async () => {
+    const prisma = makePrisma();
+    const svc = new PersonService(prisma);
+
+    await svc.ensureForAddress(ADDR_A, 'SEP53');
+
+    expect(prisma.walletLink.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ authMethod: 'SEP53' }) }),
+    );
+  });
+
+  it('yields one person when two first sightings of one address race', async () => {
+    const prisma = makePrisma();
+    const svc = new PersonService(prisma);
+
+    const [a, b] = await Promise.all([
+      svc.ensureForAddress(ADDR_A, 'SEP10'),
+      svc.ensureForAddress(ADDR_A, 'SEP10'),
+    ]);
+
+    expect(b.id).toBe(a.id);
+    expect(prisma.walletLink.create).toHaveBeenCalledTimes(2);
+  });
+});
