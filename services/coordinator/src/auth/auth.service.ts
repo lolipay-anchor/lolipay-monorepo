@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { verifySep53 } from './sep53';
 import { resolveRole } from './role.util';
+import { jwtSignOptions } from './jwt-options';
 import { AppConfigService } from '../config/app-config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonService } from '../person/person.service';
@@ -58,7 +59,14 @@ export class AuthService {
 
     const role = await resolveRole(address, this.prisma, this.cfg.adminAddresses, 'session');
     this.logger.log(`verify OK addr=${address} role=${role}`);
-    return this.jwt.signAsync({ sub: address, role, cls: 'session' }, { expiresIn: this.cfg.jwtTtl });
+    return this.mintFor(address, role);
+  }
+
+  private mintFor(address: string, role: 'admin' | 'lp' | 'user' = 'user'): Promise<string> {
+    return this.jwt.signAsync(
+      { sub: address, role, cls: 'session' },
+      jwtSignOptions(this.cfg),
+    );
   }
 
   private mac(payload: string): string {

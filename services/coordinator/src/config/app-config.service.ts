@@ -19,6 +19,8 @@ export class AppConfigService {
     return s;
   }
   get jwtTtl() { return Number(this.c.get('JWT_TTL_SECONDS') ?? 900); }
+  get jwtIssuer() { return String(this.c.get('JWT_ISSUER') ?? 'lolipay-coordinator'); }
+  get jwtAudience() { return String(this.c.get('JWT_AUDIENCE') ?? 'lolipay-app'); }
   get challengeTtl() { return Number(this.c.get('AUTH_CHALLENGE_TTL_SECONDS') ?? 120); }
   get adminAddresses() { return (this.c.get<string>('ADMIN_ADDRESSES') ?? '').split(',').map(s => s.trim()).filter(Boolean); }
   get rpcUrl() { return this.req('STELLAR_RPC_URL'); }
