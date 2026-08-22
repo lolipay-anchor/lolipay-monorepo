@@ -1,7 +1,6 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import { OrderService } from './order.service';
-import { makeUserReputationStub } from './test-helpers';
-import { OrderStatusService } from './order-status.service';
+import { makeUserReputationStub, orderStatusFor, orderTxFor } from './test-helpers';
 
 describe('OrderService — masked build-catch server-side logging (Fix 2)', () => {
   const USER_ADDR = 'GUSER';
@@ -70,7 +69,7 @@ describe('OrderService — masked build-catch server-side logging (Fix 2)', () =
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
 
     return {
-      svc: new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg)),
+      svc: orderTxFor(prisma, stellar, cfg),
       prisma,
       stellar,
       order,

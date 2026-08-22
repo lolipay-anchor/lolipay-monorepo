@@ -18,6 +18,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { OrderService } from './order.service';
+import { OrderTxService } from './order-tx.service';
+import { OrderProofService } from './order-proof.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { PostDisputeDto } from './dto/post-dispute.dto';
 import { UploadProofDto } from './dto/upload-proof.dto';
@@ -39,6 +41,8 @@ function clampInt(v: string | undefined, def: number, min: number, max: number):
 export class OrderController {
   constructor(
     private orders: OrderService,
+    private tx: OrderTxService,
+    private proofs: OrderProofService,
     private storage: ObjectStorageService,
   ) {}
 
@@ -81,25 +85,25 @@ export class OrderController {
   @Get(':id/tx/mark-paid')
   @Roles('user', 'lp', 'admin')
   async markFiatPaidTx(@Req() req: any, @Param('id') id: string) {
-    return this.orders.buildMarkFiatPaidTx(id, req.user.address);
+    return this.tx.buildMarkFiatPaidTx(id, req.user.address);
   }
 
   @Get(':id/tx/create-trade')
   @Roles('user', 'lp', 'admin')
   async createTradeTx(@Req() req: any, @Param('id') id: string) {
-    return this.orders.buildCreateTradeTx(id, req.user.address);
+    return this.tx.buildCreateTradeTx(id, req.user.address);
   }
 
   @Get(':id/tx/confirm-release')
   @Roles('user', 'lp', 'admin')
   async confirmReleaseTx(@Req() req: any, @Param('id') id: string) {
-    return this.orders.buildConfirmReleaseTx(id, req.user.address);
+    return this.tx.buildConfirmReleaseTx(id, req.user.address);
   }
 
   @Get(':id/tx/raise-dispute')
   @Roles('user', 'lp', 'admin')
   async raiseDisputeTx(@Req() req: any, @Param('id') id: string) {
-    return this.orders.buildRaiseDisputeTx(id, req.user.address);
+    return this.tx.buildRaiseDisputeTx(id, req.user.address);
   }
 
   @Get(':id/tx/resolve')
@@ -112,7 +116,7 @@ export class OrderController {
     if (outcome !== 'release' && outcome !== 'refund') {
       throw new BadRequestException("outcome must be 'release' or 'refund'");
     }
-    return this.orders.buildResolveTx(id, req.user.address, outcome);
+    return this.tx.buildResolveTx(id, req.user.address, outcome);
   }
 
   @Post(':id/proof')
@@ -126,14 +130,14 @@ export class OrderController {
 
     @Body() body: UploadProofDto,
   ) {
-    return this.orders.uploadProof(id, req.user.address, file, body);
+    return this.proofs.uploadProof(id, req.user.address, file, body);
   }
 
   @Get(':id/proof')
   @Roles('user', 'lp', 'admin')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- no @types/express in this lockfile (see main.ts)
   async getProof(@Req() req: any, @Param('id') id: string, @Res({ passthrough: false }) res: any) {
-    const { key, contentType, ext } = await this.orders.getProofFile(id, req.user.address);
+    const { key, contentType, ext } = await this.proofs.getProofFile(id, req.user.address);
 
     const stream = await this.storage.getObjectStream(key);
     res.setHeader('Content-Type', contentType);
@@ -151,7 +155,7 @@ export class OrderController {
   @Roles('user', 'lp', 'admin')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- no @types/express in this lockfile (see main.ts)
   async getDisputeEvidence(@Req() req: any, @Param('id') id: string, @Res({ passthrough: false }) res: any) {
-    const { key, contentType, ext } = await this.orders.getDisputeEvidenceFile(id, req.user.address);
+    const { key, contentType, ext } = await this.proofs.getDisputeEvidenceFile(id, req.user.address);
 
     const stream = await this.storage.getObjectStream(key);
     res.setHeader('Content-Type', contentType);
@@ -174,7 +178,7 @@ export class OrderController {
     @Param('id') id: string,
     @UploadedFile() file: UploadedFileLike | undefined,
   ) {
-    return this.orders.uploadDisputeEvidence(id, req.user.address, file);
+    return this.proofs.uploadDisputeEvidence(id, req.user.address, file);
   }
 
   @Post(':id/dispute')

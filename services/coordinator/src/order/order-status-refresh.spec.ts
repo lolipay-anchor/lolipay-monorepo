@@ -1,6 +1,5 @@
 import { OrderService } from './order.service';
-import { makeUserReputationStub, onChainTradeFor } from './test-helpers';
-import { OrderStatusService } from './order-status.service';
+import { makeUserReputationStub, onChainTradeFor, orderStatusFor, orderTxFor } from './test-helpers';
 
 const USER_ADDR = 'GUSER';
 const LP_ADDR = 'GLP';
@@ -64,7 +63,7 @@ function makeSvc(orderOverrides: Partial<any> = {}, onChain: any = null) {
     { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any,
     {} as any,
     makeUserReputationStub(),
-    new OrderStatusService(prisma, stellar, cfg),
+    orderStatusFor(prisma, stellar, cfg), orderTxFor(prisma, stellar, cfg),
 
   );
   return { svc, prisma, stellar, order };

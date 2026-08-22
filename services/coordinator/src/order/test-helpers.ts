@@ -1,3 +1,6 @@
+import { OrderProofService } from './order-proof.service';
+import { OrderStatusService } from './order-status.service';
+import { OrderTxService } from './order-tx.service';
 import { UserReputationService } from '../reputation/user-reputation.service';
 export function makeUserReputationStub(
   overrides: Partial<{
@@ -46,4 +49,16 @@ export function onChainTradeFor(order: any, status: string, overrides: Record<st
     disputeDeadline: BigInt(order.disputeDeadline),
     ...overrides,
   };
+}
+
+export function orderStatusFor(prisma: any, stellar: any, cfg: any, realtime?: any) {
+  return new OrderStatusService(prisma, stellar, cfg, realtime);
+}
+
+export function orderTxFor(prisma: any, stellar: any, cfg: any, realtime?: any) {
+  return new OrderTxService(prisma, stellar, cfg, orderStatusFor(prisma, stellar, cfg, realtime));
+}
+
+export function orderProofFor(prisma: any, stellar: any, cfg: any, storage: any) {
+  return new OrderProofService(prisma, cfg, storage, orderStatusFor(prisma, stellar, cfg));
 }

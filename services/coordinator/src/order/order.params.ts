@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 
 export type Flow = 'TOP_UP' | 'WITHDRAW';
@@ -25,4 +26,15 @@ export function contractIdFor(
   cfg: { escrowContractId: string },
 ): string {
   return order.contractId ?? cfg.escrowContractId;
+}
+
+export function getFiatPayer(flow: Flow, user: string, lpAddress: string): string {
+  return flow === 'TOP_UP' ? user : lpAddress;
+}
+
+export function requireLp<T extends { stellarAddress: string }>(order: { lp: T | null }): T {
+  if (!order.lp) {
+    throw new ConflictException('order has no matched LP yet');
+  }
+  return order.lp;
 }

@@ -1,7 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { OrderService } from './order.service';
-import { makeUserReputationStub, withTxSupport } from './test-helpers';
-import { OrderStatusService } from './order-status.service';
+import { makeUserReputationStub, withTxSupport, orderStatusFor, orderTxFor } from './test-helpers';
 
 const fakeStorage = {} as any;
 
@@ -79,7 +78,7 @@ describe('OrderService.createFromQuote — market-aware order creation (Phase 4 
       ...marketsOverrides,
     } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
-    const svc = new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg));
+    const svc = new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub(), orderStatusFor(prisma, stellar, cfg), orderTxFor(prisma, stellar, cfg));
     return { svc, prisma, stellar, matching, markets };
   }
 

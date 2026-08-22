@@ -1,6 +1,5 @@
 import { OrderService } from './order.service';
-import { makeUserReputationStub, withTxSupport } from './test-helpers';
-import { OrderStatusService } from './order-status.service';
+import { makeUserReputationStub, withTxSupport, orderStatusFor, orderTxFor } from './test-helpers';
 
 const fakeStorage = {} as any;
 
@@ -66,7 +65,7 @@ describe('OrderService — Phase 5A per-order contractId cutover', () => {
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
 
-    return { svc: new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg)), prisma, stellar, order };
+    return { svc: new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub(), orderStatusFor(prisma, stellar, cfg), orderTxFor(prisma, stellar, cfg)), prisma, stellar, order, tx: orderTxFor(prisma, stellar, cfg) };
   }
 
   it('createFromQuote snapshots contractId = cfg.escrowContractId on the new order', async () => {
@@ -128,7 +127,7 @@ describe('OrderService — Phase 5A per-order contractId cutover', () => {
     const cfg = { platformWallet: PLATFORM, escrowContractId: ENV_CONTRACT } as any;
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
-    const svc = new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg));
+    const svc = new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub(), orderStatusFor(prisma, stellar, cfg), orderTxFor(prisma, stellar, cfg));
 
     await svc.createFromQuote(USER_ADDR, 'q1');
 
@@ -138,71 +137,71 @@ describe('OrderService — Phase 5A per-order contractId cutover', () => {
   });
 
   it('buildMarkFiatPaidTx targets order.contractId (not the env default)', async () => {
-    const { svc, stellar } = makeSvc();
-    await svc.buildMarkFiatPaidTx('order-1', USER_ADDR);
+    const { svc, tx, stellar } = makeSvc();
+    await tx.buildMarkFiatPaidTx('order-1', USER_ADDR);
     expect(stellar.buildMarkFiatPaidTx).toHaveBeenCalledWith(SNAPSHOTTED_CONTRACT, USER_ADDR, FAKE_TRADE_ID);
   });
 
   it('buildMarkFiatPaidTx falls back to cfg.escrowContractId for a legacy order (contractId NULL)', async () => {
-    const { svc, stellar } = makeSvc({ contractId: null });
-    await svc.buildMarkFiatPaidTx('order-1', USER_ADDR);
+    const { svc, tx, stellar } = makeSvc({ contractId: null });
+    await tx.buildMarkFiatPaidTx('order-1', USER_ADDR);
     expect(stellar.buildMarkFiatPaidTx).toHaveBeenCalledWith(ENV_CONTRACT, USER_ADDR, FAKE_TRADE_ID);
   });
 
   it('buildCreateTradeTx targets order.contractId', async () => {
-    const { svc, stellar } = makeSvc({ status: 'MATCHED' });
-    await svc.buildCreateTradeTx('order-1', LP_ADDR);
+    const { svc, tx, stellar } = makeSvc({ status: 'MATCHED' });
+    await tx.buildCreateTradeTx('order-1', LP_ADDR);
     expect(stellar.buildCreateTradeTx).toHaveBeenCalledWith(
       expect.objectContaining({ contractId: SNAPSHOTTED_CONTRACT }),
     );
   });
 
   it('buildCreateTradeTx falls back to cfg.escrowContractId for a legacy order', async () => {
-    const { svc, stellar } = makeSvc({ status: 'MATCHED', contractId: null });
-    await svc.buildCreateTradeTx('order-1', LP_ADDR);
+    const { svc, tx, stellar } = makeSvc({ status: 'MATCHED', contractId: null });
+    await tx.buildCreateTradeTx('order-1', LP_ADDR);
     expect(stellar.buildCreateTradeTx).toHaveBeenCalledWith(
       expect.objectContaining({ contractId: ENV_CONTRACT }),
     );
   });
 
   it('buildConfirmReleaseTx targets order.contractId', async () => {
-    const { svc, stellar } = makeSvc({ status: 'FIAT_PAID' });
-    await svc.buildConfirmReleaseTx('order-1', LP_ADDR);
+    const { svc, tx, stellar } = makeSvc({ status: 'FIAT_PAID' });
+    await tx.buildConfirmReleaseTx('order-1', LP_ADDR);
     expect(stellar.buildConfirmReleaseTx).toHaveBeenCalledWith(SNAPSHOTTED_CONTRACT, LP_ADDR, FAKE_TRADE_ID);
   });
 
   it('buildRaiseDisputeTx targets order.contractId', async () => {
-    const { svc, stellar } = makeSvc({ status: 'FIAT_PAID' });
-    await svc.buildRaiseDisputeTx('order-1', LP_ADDR);
+    const { svc, tx, stellar } = makeSvc({ status: 'FIAT_PAID' });
+    await tx.buildRaiseDisputeTx('order-1', LP_ADDR);
     expect(stellar.buildRaiseDisputeTx).toHaveBeenCalledWith(SNAPSHOTTED_CONTRACT, LP_ADDR, FAKE_TRADE_ID);
   });
 
   it('buildResolveTx targets order.contractId', async () => {
-    const { svc, stellar } = makeSvc({ status: 'DISPUTED' });
-    await svc.buildResolveTx('order-1', LP_ADDR, 'release');
+    const { svc, tx, stellar } = makeSvc({ status: 'DISPUTED' });
+    await tx.buildResolveTx('order-1', LP_ADDR, 'release');
     expect(stellar.buildResolveTx).toHaveBeenCalledWith(SNAPSHOTTED_CONTRACT, LP_ADDR, FAKE_TRADE_ID, 'release');
   });
 
   it('cancelOrder\'s strict on-chain read targets order.contractId', async () => {
-    const { svc, stellar } = makeSvc({ status: 'MATCHED' });
+    const { svc, tx, stellar } = makeSvc({ status: 'MATCHED' });
     await svc.cancelOrder('order-1', USER_ADDR);
     expect(stellar.getTradeStatusStrict).toHaveBeenCalledWith(SNAPSHOTTED_CONTRACT, FAKE_TRADE_ID);
   });
 
   it('getOrder\'s chain refresh targets order.contractId', async () => {
-    const { svc, stellar } = makeSvc({ status: 'FUNDED' });
+    const { svc, tx, stellar } = makeSvc({ status: 'FUNDED' });
     await svc.getOrder('order-1', USER_ADDR);
     expect(stellar.getTradeStatus).toHaveBeenCalledWith(SNAPSHOTTED_CONTRACT, FAKE_TRADE_ID);
   });
 
   it('getOrder\'s chain refresh falls back to cfg.escrowContractId for a legacy order', async () => {
-    const { svc, stellar } = makeSvc({ status: 'FUNDED', contractId: null });
+    const { svc, tx, stellar } = makeSvc({ status: 'FUNDED', contractId: null });
     await svc.getOrder('order-1', USER_ADDR);
     expect(stellar.getTradeStatus).toHaveBeenCalledWith(ENV_CONTRACT, FAKE_TRADE_ID);
   });
 
   it("listLpAssignments' chain refresh targets order.contractId (not the env default)", async () => {
-    const { svc, prisma, stellar, order } = makeSvc({ status: 'FUNDED' });
+    const { svc, tx, prisma, stellar, order } = makeSvc({ status: 'FUNDED' });
     prisma.lp.findUnique = jest.fn().mockResolvedValue({ id: 'lp1', stellarAddress: LP_ADDR });
     prisma.order.findMany = jest.fn().mockResolvedValue([order]);
 
@@ -212,7 +211,7 @@ describe('OrderService — Phase 5A per-order contractId cutover', () => {
   });
 
   it('listLpAssignments falls back to cfg.escrowContractId for a legacy order (contractId NULL)', async () => {
-    const { svc, prisma, stellar, order } = makeSvc({ status: 'FUNDED', contractId: null });
+    const { svc, tx, prisma, stellar, order } = makeSvc({ status: 'FUNDED', contractId: null });
     prisma.lp.findUnique = jest.fn().mockResolvedValue({ id: 'lp1', stellarAddress: LP_ADDR });
     prisma.order.findMany = jest.fn().mockResolvedValue([order]);
 

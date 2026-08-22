@@ -1,7 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { OrderService } from './order.service';
-import { withTxSupport } from './test-helpers';
-import { OrderStatusService } from './order-status.service';
+import { withTxSupport, orderStatusFor, orderTxFor } from './test-helpers';
 
 describe('OrderService.createFromQuote — per-tier daily limit re-check (Phase 6 Task 3)', () => {
   const USER = 'GUSER';
@@ -94,7 +93,7 @@ describe('OrderService.createFromQuote — per-tier daily limit re-check (Phase 
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
     const storage = {} as any;
-    const svc = new OrderService(prisma, stellar, matching, cfg, markets, notifications, storage, userReputation, new OrderStatusService(prisma, stellar, cfg));
+    const svc = new OrderService(prisma, stellar, matching, cfg, markets, notifications, storage, userReputation, orderStatusFor(prisma, stellar, cfg), orderTxFor(prisma, stellar, cfg));
     return { svc, prisma, userReputation };
   }
 

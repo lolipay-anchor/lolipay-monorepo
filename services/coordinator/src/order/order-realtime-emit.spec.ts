@@ -1,6 +1,5 @@
 import { OrderService } from './order.service';
-import { makeUserReputationStub, onChainTradeFor } from './test-helpers';
-import { OrderStatusService } from './order-status.service';
+import { makeUserReputationStub, onChainTradeFor, orderStatusFor, orderTxFor } from './test-helpers';
 
 const fakeStorage = {} as any;
 
@@ -75,8 +74,7 @@ describe('OrderStatusService.refreshOrderStatus — realtime emit on chain-confi
       notifications,
       fakeStorage,
       makeUserReputationStub(),
-      new OrderStatusService(prisma, stellar, cfg, realtime),
-      realtime,
+      orderStatusFor(prisma, stellar, cfg, realtime), orderTxFor(prisma, stellar, cfg, realtime),
     );
     return { svc, prisma, stellar, realtime, order };
   }
@@ -136,7 +134,7 @@ describe('OrderStatusService.refreshOrderStatus — realtime emit on chain-confi
       notifications,
       fakeStorage,
       makeUserReputationStub(),
-      new OrderStatusService(prisma, stellar, cfg),
+      orderStatusFor(prisma, stellar, cfg), orderTxFor(prisma, stellar, cfg),
     );
 
     await expect(svc.getOrder('order-1', USER_ADDR)).resolves.toBeTruthy();

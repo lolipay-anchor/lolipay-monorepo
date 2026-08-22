@@ -26,6 +26,7 @@ import { ListLpsQueryDto } from './dto/list-lps-query.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
 import { MetricsOverviewQueryDto } from './dto/metrics-overview-query.dto';
 import { postSettleDisputeDeadline } from '../order/dispute.util';
+import { serializeOrderBase } from '../order/order.serialize';
 
 @Injectable()
 class ParseMarketCodePipe implements PipeTransform<string, string> {
@@ -206,42 +207,3 @@ function serializeMetricsOverview(m: MetricsOverview): Record<string, any> {
   };
 }
 
-function serializeOrderBase(
-  order: any,
-  config?: { postSettleDisputeWindowSecs: number } | null,
-): Record<string, any> {
-  return {
-    id: order.id,
-    trade_id: order.tradeId,
-    user_address: order.userAddress,
-    lp_wallet: order.lpWallet,
-    flow: order.flow,
-    rail: order.rail,
-    usdc_amount: order.usdcAmount?.toString(),
-    fiat_amount: order.fiatAmount?.toString(),
-    fiat_currency: order.fiatCurrency,
-    rate_snapshot: order.rateSnapshot,
-    platform_fee_bps: order.platformFeeBps,
-    lp_fee_bps: order.lpFeeBps,
-    status: order.status,
-    pay_deadline: Number(order.payDeadline),
-    confirm_deadline: Number(order.confirmDeadline),
-    dispute_deadline: Number(order.disputeDeadline),
-    expires_at: order.expiresAt,
-    created_at: order.createdAt,
-
-    ref: order.ref ?? null,
-    proof_url: order.proofUrl ?? null,
-    proof_rrn: order.proofRrn ?? null,
-    proof_amount: order.proofAmount != null ? order.proofAmount.toString() : null,
-    proof_paid_at: order.proofPaidAt ?? null,
-    settled_at: order.settledAt ?? null,
-    dispute_by: order.disputeBy ?? null,
-    dispute_reason: order.disputeReason ?? null,
-    dispute_note: order.disputeNote ?? null,
-    dispute_evidence_url: order.disputeEvidenceUrl ?? null,
-    dispute_at: order.disputeAt ?? null,
-    resolution: order.resolution ?? null,
-    post_settle_dispute_until: config ? postSettleDisputeDeadline(order, config) : null,
-  };
-}

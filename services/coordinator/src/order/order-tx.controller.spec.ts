@@ -7,10 +7,11 @@ import { Account, Keypair, Networks, StrKey } from '@stellar/stellar-sdk';
 
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { OrderService } from './order.service';
-import { makeUserReputationStub, onChainTradeFor } from './test-helpers';
+import { OrderTxService } from './order-tx.service';
+import { OrderProofService } from './order-proof.service';
+import { makeUserReputationStub, onChainTradeFor, orderStatusFor, orderTxFor } from './test-helpers';
 import { OrderController } from './order.controller';
 import { ObjectStorageService } from '../storage/object-storage.service';
-import { OrderStatusService } from './order-status.service';
 
 const mockObjectStorage = { getObjectStream: jest.fn() };
 
@@ -188,7 +189,7 @@ describe('StellarReadService.buildCreateTradeTx (unit, mocked RPC server)', () =
   });
 });
 
-describe('OrderService.buildMarkFiatPaidTx (unit)', () => {
+describe('OrderTxService.buildMarkFiatPaidTx (unit)', () => {
   function makeOrder(overrides: Partial<any> = {}): any {
     return {
       id: 'order-1',
@@ -229,7 +230,7 @@ describe('OrderService.buildMarkFiatPaidTx (unit)', () => {
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
 
-    return new OrderService(prisma, stellar, matching, cfg, markets, notifications, mockObjectStorage as any, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg));
+    return orderTxFor(prisma, stellar, cfg);
   }
 
   it('(a) FUNDED order, correct fiat payer (TOP_UP → user) → returns {xdr, networkPassphrase}', async () => {
@@ -309,7 +310,7 @@ describe('OrderService.buildMarkFiatPaidTx (unit)', () => {
   });
 });
 
-describe('OrderService.buildCreateTradeTx (unit)', () => {
+describe('OrderTxService.buildCreateTradeTx (unit)', () => {
   function makeOrder(overrides: Partial<any> = {}): any {
     return {
       id: 'order-1',
@@ -356,7 +357,7 @@ describe('OrderService.buildCreateTradeTx (unit)', () => {
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
 
-    return new OrderService(prisma, stellar, matching, cfg, markets, notifications, mockObjectStorage as any, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg));
+    return orderTxFor(prisma, stellar, cfg);
   }
 
   it('(a) MATCHED TOP_UP order, caller is LP (usdc_provider) → returns {xdr, networkPassphrase}', async () => {
@@ -457,6 +458,8 @@ describe('GET /orders/:id/tx/mark-paid (HTTP controller)', () => {
       controllers: [OrderController],
       providers: [
         { provide: OrderService, useValue: mockOrderService },
+        { provide: OrderTxService, useValue: mockOrderService },
+        { provide: OrderProofService, useValue: mockOrderService },
         { provide: ObjectStorageService, useValue: mockObjectStorage },
       ],
     })
@@ -559,6 +562,8 @@ describe('GET /orders/:id/tx/create-trade (HTTP controller)', () => {
       controllers: [OrderController],
       providers: [
         { provide: OrderService, useValue: mockOrderSvc },
+        { provide: OrderTxService, useValue: mockOrderSvc },
+        { provide: OrderProofService, useValue: mockOrderSvc },
         { provide: ObjectStorageService, useValue: mockObjectStorage },
       ],
     })
@@ -691,7 +696,7 @@ describe('StellarReadService.buildConfirmReleaseTx (unit, mocked RPC server)', (
   });
 });
 
-describe('OrderService.buildConfirmReleaseTx (unit)', () => {
+describe('OrderTxService.buildConfirmReleaseTx (unit)', () => {
   function makeOrder(overrides: Partial<any> = {}): any {
     return {
       id: 'order-1',
@@ -729,7 +734,7 @@ describe('OrderService.buildConfirmReleaseTx (unit)', () => {
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
 
-    return new OrderService(prisma, stellar, matching, cfg, markets, notifications, mockObjectStorage as any, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg));
+    return orderTxFor(prisma, stellar, cfg);
   }
 
   it('(a) FIAT_PAID TOP_UP order, caller is LP (confirmer) → returns {xdr, networkPassphrase}', async () => {
@@ -829,6 +834,8 @@ describe('GET /orders/:id/tx/confirm-release (HTTP controller)', () => {
       controllers: [OrderController],
       providers: [
         { provide: OrderService, useValue: mockOrderSvcConfirm },
+        { provide: OrderTxService, useValue: mockOrderSvcConfirm },
+        { provide: OrderProofService, useValue: mockOrderSvcConfirm },
         { provide: ObjectStorageService, useValue: mockObjectStorage },
       ],
     })
@@ -927,6 +934,8 @@ describe('POST /orders/:id/dispute (HTTP controller — DTO validation + delegat
       controllers: [OrderController],
       providers: [
         { provide: OrderService, useValue: mockOrderSvcDispute },
+        { provide: OrderTxService, useValue: mockOrderSvcDispute },
+        { provide: OrderProofService, useValue: mockOrderSvcDispute },
         { provide: ObjectStorageService, useValue: mockObjectStorage },
       ],
     })

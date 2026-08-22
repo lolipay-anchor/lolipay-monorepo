@@ -1,7 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { OrderService } from './order.service';
-import { makeUserReputationStub, onChainTradeFor } from './test-helpers';
-import { OrderStatusService } from './order-status.service';
+import { makeUserReputationStub, onChainTradeFor, orderStatusFor, orderTxFor } from './test-helpers';
 
 const fakeStorage = {} as any;
 
@@ -73,7 +72,7 @@ describe('OrderService — an on-chain trade must bind to the order before it co
       notifications,
       fakeStorage,
       makeUserReputationStub(),
-      new OrderStatusService(prisma, stellar, cfg),
+      orderStatusFor(prisma, stellar, cfg), orderTxFor(prisma, stellar, cfg),
     );
     return { svc, prisma, stellar, order };
   }
