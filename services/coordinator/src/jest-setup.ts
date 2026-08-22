@@ -19,6 +19,8 @@ process.env.ESCROW_CONTRACT_ID =
 process.env.PRICE_STALE_SECONDS = process.env.PRICE_STALE_SECONDS || '120';
 process.env.PRICE_DEVIATION_MAX_BPS =
   process.env.PRICE_DEVIATION_MAX_BPS || '100';
+process.env.ALERT_WEBHOOK_URL =
+  process.env.ALERT_WEBHOOK_URL || 'https://alerts.invalid/test-hook';
 process.env.PLATFORM_WALLET =
   process.env.PLATFORM_WALLET ||
   'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';

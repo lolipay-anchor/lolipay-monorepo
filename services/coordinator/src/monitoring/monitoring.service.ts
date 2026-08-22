@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/app-config.service';
@@ -6,12 +6,20 @@ import { AppConfigService } from '../config/app-config.service';
 const INDEXER_LAG_ALERT_SECONDS = 120;
 
 @Injectable()
-export class MonitoringService {
+export class MonitoringService implements OnModuleInit {
   private readonly log = new Logger('Monitoring');
   constructor(
     private prisma: PrismaService,
     private cfg: AppConfigService,
   ) {}
+
+  onModuleInit() {
+    if (!this.cfg.alertWebhookUrl) {
+      this.log.error(
+        'ALERT_WEBHOOK_URL is unset: every alert this service raises will be written to the log and delivered nowhere',
+      );
+    }
+  }
 
   async metrics() {
     const nowSec = BigInt(Math.floor(Date.now() / 1000));
