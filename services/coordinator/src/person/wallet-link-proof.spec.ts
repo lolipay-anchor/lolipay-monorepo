@@ -107,6 +107,7 @@ describe('PersonService wallet linking demands a fresh, single-use proof', () =>
       { signAsync: jest.fn() } as any,
       { challengeTtl: 300, jwtTtl: 900, jwtSecret: 'a'.repeat(32), adminAddresses: [] } as any,
       { lp: { findUnique: jest.fn() } } as any,
+      { ensureForAddress: jest.fn().mockResolvedValue({ id: 'person-test' }) } as any,
     );
     const login = auth.issueChallenge(kp.publicKey());
 

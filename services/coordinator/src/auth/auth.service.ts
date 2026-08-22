@@ -4,6 +4,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { verifySep53 } from './sep53';
 import { AppConfigService } from '../config/app-config.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { PersonService } from '../person/person.service';
 
 const PREFIX = 'lolipay-auth';
 
@@ -15,6 +16,7 @@ export class AuthService {
     private jwt: JwtService,
     private cfg: AppConfigService,
     private prisma: PrismaService,
+    private people: PersonService,
   ) {}
 
   private reject(address: string, reason: string): never {
@@ -51,6 +53,8 @@ export class AuthService {
     if (!verifySep53(address, challenge, signature)) {
       this.reject(address, 'bad signature');
     }
+    await this.people.ensureForAddress(address, 'SEP53');
+
     const role = await this.roleFor(address);
     this.logger.log(`verify OK addr=${address} role=${role}`);
     return this.jwt.signAsync({ sub: address, role, cls: 'session' }, { expiresIn: this.cfg.jwtTtl });

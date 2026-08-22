@@ -57,6 +57,7 @@ function makeGateway(opts: {
     opts.order ?? { id: ORDER_ID, userAddress: USER, lpWallet: LP_ADDR },
   );
   const prisma = {
+    walletLink: { findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE' }) },
     lp: {
       findUnique: lpFindUnique,
       update: jest.fn().mockResolvedValue(undefined),

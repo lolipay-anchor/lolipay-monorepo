@@ -1,3 +1,4 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 export type Role = 'admin' | 'lp' | 'user';
@@ -16,6 +17,11 @@ export async function resolveRole(
   adminAddresses: string[],
   cls: TokenClass,
 ): Promise<Role> {
+  const link = await prisma.walletLink.findUnique({ where: { stellarAddress: address } });
+  if (!link || link.status !== 'ACTIVE') {
+    throw new UnauthorizedException('address is not a proven wallet');
+  }
+
   if (cls === 'sep10') return 'user';
   if (adminAddresses.includes(address)) return 'admin';
   const lp = await prisma.lp.findUnique({ where: { stellarAddress: address } });

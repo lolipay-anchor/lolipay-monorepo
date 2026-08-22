@@ -25,7 +25,7 @@ function makeService(cfgOverrides: Record<string, any> = {}) {
     ...cfgOverrides,
   } as any;
   const prisma = { lp: { findUnique: jest.fn().mockResolvedValue(null) } } as any;
-  return { svc: new AuthService(jwt, cfg, prisma), jwt, cfg, prisma };
+  return { svc: new AuthService(jwt, cfg, prisma, { ensureForAddress: jest.fn().mockResolvedValue({ id: 'person-test' }) } as any), jwt, cfg, prisma };
 }
 
 describe('AuthService (stateless HMAC challenge)', () => {

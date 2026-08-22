@@ -2,7 +2,10 @@ import { JwtStrategy } from './jwt.strategy';
 
 function makeStrategy(lp: any, adminAddresses: string[] = []) {
   const cfg = { jwtSecret: 'z'.repeat(40), adminAddresses } as any;
-  const prisma = { lp: { findUnique: jest.fn().mockResolvedValue(lp) } } as any;
+  const prisma = {
+    walletLink: { findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE' }) },
+    lp: { findUnique: jest.fn().mockResolvedValue(lp) },
+  } as any;
   return { strategy: new JwtStrategy(cfg, prisma), prisma };
 }
 

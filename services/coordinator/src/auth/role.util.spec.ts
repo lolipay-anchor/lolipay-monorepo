@@ -1,7 +1,10 @@
 import { resolveRole } from './role.util';
 
 function makePrisma(lp: any) {
-  return { lp: { findUnique: jest.fn().mockResolvedValue(lp) } } as any;
+  return {
+    walletLink: { findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE' }) },
+    lp: { findUnique: jest.fn().mockResolvedValue(lp) },
+  } as any;
 }
 
 describe('resolveRole', () => {
@@ -9,7 +12,7 @@ describe('resolveRole', () => {
   const LP_ADDR = 'GLP...';
   const USER_ADDR = 'GUSER...';
 
-  it('returns admin for an allowlisted address (never even queries the DB)', async () => {
+  it('returns admin for an allowlisted address without consulting the provider table', async () => {
     const prisma = makePrisma(null);
     await expect(resolveRole(ADMIN, prisma, [ADMIN], 'session')).resolves.toBe('admin');
     expect(prisma.lp.findUnique).not.toHaveBeenCalled();

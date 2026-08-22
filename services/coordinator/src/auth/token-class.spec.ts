@@ -6,10 +6,16 @@ const ADMIN = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 const LP = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
 
 function prismaWithApprovedLp() {
-  return { lp: { findUnique: jest.fn(async () => ({ status: 'APPROVED' })) } } as any;
+  return {
+    walletLink: { findUnique: jest.fn(async () => ({ status: 'ACTIVE' })) },
+    lp: { findUnique: jest.fn(async () => ({ status: 'APPROVED' })) },
+  } as any;
 }
 function prismaWithNoLp() {
-  return { lp: { findUnique: jest.fn(async () => null) } } as any;
+  return {
+    walletLink: { findUnique: jest.fn(async () => ({ status: 'ACTIVE' })) },
+    lp: { findUnique: jest.fn(async () => null) },
+  } as any;
 }
 function makeCfg(adminAddresses: string[]) {
   return { jwtSecret: 'x'.repeat(32), adminAddresses, jwtTtl: 900 } as any;
