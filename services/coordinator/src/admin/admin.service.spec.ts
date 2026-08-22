@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { ConfigCache } from '../config/config-cache';
 
 const ADDR = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
 
@@ -148,6 +149,38 @@ describe('AdminService.updateConfigTransactional', () => {
     } as any;
     return { prisma, configApi, auditApi };
   }
+
+  function makeCachePrisma() {
+    return { config: { upsert: jest.fn(async () => ({ id: 1, paused: false })) } } as any;
+  }
+
+  it('invalidates the cached platform config once the patch has committed', async () => {
+    const { prisma } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const cachePrisma = makeCachePrisma();
+    const cache = new ConfigCache();
+
+    await cache.read(cachePrisma, 'GADMINTEST');
+    await svc.updateConfigTransactional({ paused: true } as any, 'GADMINTEST');
+    await cache.read(cachePrisma, 'GADMINTEST');
+
+    expect(cachePrisma.config.upsert).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves the cached platform config alone when the patch is rejected', async () => {
+    const { prisma } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const cachePrisma = makeCachePrisma();
+    const cache = new ConfigCache();
+
+    await cache.read(cachePrisma, 'GADMINTEST');
+    await expect(
+      svc.updateConfigTransactional({ platformFeeBps: 9970 } as any, 'GADMINTEST'),
+    ).rejects.toThrow('BPS_OVERFLOW');
+    await cache.read(cachePrisma, 'GADMINTEST');
+
+    expect(cachePrisma.config.upsert).toHaveBeenCalledTimes(1);
+  });
 
   it('rejects a spreadBps patch that no longer covers the price-deviation allowance', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);

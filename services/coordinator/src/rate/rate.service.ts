@@ -11,6 +11,7 @@ import { PRICE_ADAPTER } from './price/price-adapter.token';
 import { applySpreadToRate, quoteFiat, quoteUsdcForFiat } from '../money/money';
 import { normalizeFiat } from './fiat';
 import { MarketsService } from '../market/markets.service';
+import { ConfigCache } from '../config/config-cache';
 import { UserReputationService } from '../reputation/user-reputation.service';
 import { Flow, Market } from '@prisma/client';
 
@@ -199,20 +200,9 @@ export class RateService {
     }
   }
 
-  private configCache: { row: any; at: number } | null = null;
-  private async config() {
-    const now = Date.now();
-    if (this.configCache && now - this.configCache.at < CONFIG_TTL_MS) {
-      return this.configCache.row;
-    }
-    const row = await this.prisma.config.upsert({
-      where: { id: 1 },
-      update: {},
-      create: { id: 1, platformWallet: this.cfg.platformWallet },
-    });
-    this.configCache = { row, at: now };
-    return row;
+  private configCache = new ConfigCache();
+  private config() {
+    return this.configCache.read(this.prisma, this.cfg.platformWallet);
   }
 }
 
-const CONFIG_TTL_MS = 5000;

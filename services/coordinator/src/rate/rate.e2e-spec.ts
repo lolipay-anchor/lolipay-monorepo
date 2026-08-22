@@ -10,6 +10,7 @@ import { ThrottlerStorage } from '@nestjs/throttler';
 import { OrderService } from '../order/order.service';
 import { RateService } from '../rate/rate.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
+import { invalidateAllConfigCaches } from '../config/config-cache';
 
 const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
@@ -65,11 +66,7 @@ describe('POST /quotes (e2e)', () => {
 
     prisma = mod.get(PrismaService);
 
-    clearConfigCaches = () => {
-      for (const svc of [mod.get(RateService), mod.get(OrderService)] as any[]) {
-        svc.configCache = null;
-      }
-    };
+    clearConfigCaches = () => invalidateAllConfigCaches();
 
 
     jest.spyOn(mod.get(StellarReadService), 'hasUsdcTrustline').mockResolvedValue(true);

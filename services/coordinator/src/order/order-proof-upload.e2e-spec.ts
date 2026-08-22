@@ -11,6 +11,7 @@ import { PRICE_ADAPTER } from '../rate/rate.module';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { OrderService } from './order.service';
 import { ObjectStorageService } from '../storage/object-storage.service';
+import { invalidateAllConfigCaches } from '../config/config-cache';
 
 const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
@@ -363,7 +364,7 @@ describe('Payment proof + dispute evidence uploads (e2e)', () => {
   it('requireProof=false → mark-paid succeeds even without a proof upload', async () => {
     await prisma.config.update({ where: { id: 1 }, data: { requireProof: false } });
 
-    (app.get(OrderService) as any).configCache = null;
+    invalidateAllConfigCaches();
     try {
       const orderId = await createFundedWithdrawOrder();
       await request(app.getHttpServer())
@@ -372,7 +373,7 @@ describe('Payment proof + dispute evidence uploads (e2e)', () => {
         .expect(200);
     } finally {
       await prisma.config.update({ where: { id: 1 }, data: { requireProof: true } });
-      (app.get(OrderService) as any).configCache = null;
+      invalidateAllConfigCaches();
     }
   });
 

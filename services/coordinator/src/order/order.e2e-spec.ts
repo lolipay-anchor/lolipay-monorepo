@@ -11,6 +11,7 @@ import { PRICE_ADAPTER } from '../rate/rate.module';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { OrderService } from './order.service';
 import { RateService } from '../rate/rate.service';
+import { invalidateAllConfigCaches } from '../config/config-cache';
 
 const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
@@ -77,11 +78,7 @@ describe('Order lifecycle (e2e)', () => {
 
     prisma = mod.get(PrismaService);
 
-    clearConfigCaches = () => {
-      for (const svc of [mod.get(RateService), mod.get(OrderService)] as any[]) {
-        svc.configCache = null;
-      }
-    };
+    clearConfigCaches = () => invalidateAllConfigCaches();
     stellarMock = mod.get(StellarReadService) as jest.Mocked<StellarReadService>;
 
     await prisma.config.upsert({

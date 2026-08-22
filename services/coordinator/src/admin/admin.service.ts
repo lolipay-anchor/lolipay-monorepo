@@ -11,6 +11,7 @@ import { StellarReadService } from '../stellar/stellar-read.service';
 import { recordAudit, auditPayload } from './admin-audit';
 import { windowsFitTheContract } from '../config/contract-limits';
 import { spreadCoversPriceDeviation } from '../config/rate-guard';
+import { invalidateAllConfigCaches } from '../config/config-cache';
 import { AppConfigService } from '../config/app-config.service';
 import { MarketsService } from '../market/markets.service';
 import { UpdateConfigDto } from './dto/update-config.dto';
@@ -179,7 +180,7 @@ export class AdminService {
   }
 
   async updateConfigTransactional(patch: UpdateConfigDto, actorAddress: string) {
-    return this.prisma.$transaction(async (tx) => {
+    const committed = await this.prisma.$transaction(async (tx) => {
       const current = await tx.config.findUnique({ where: { id: 1 } });
 
       const effectivePlatformFee =
@@ -239,6 +240,9 @@ export class AdminService {
 
       return updated;
     });
+
+    invalidateAllConfigCaches();
+    return committed;
   }
 
   listMarkets(): Promise<Market[]> {

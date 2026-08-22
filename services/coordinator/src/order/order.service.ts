@@ -19,6 +19,7 @@ import { NotificationService } from '../notification/notification.service';
 import { mapRoles, newTradeId, contractIdFor, Flow } from './order.params';
 import { verifyTradeMatchesOrder } from './trade-binding';
 import { describeContractError } from './contract-error';
+import { ConfigCache } from '../config/config-cache';
 import { TradeOnChain } from '../stellar/stellar-read.types';
 import { generateRef } from './ref.util';
 import { quoteUsdcForFiat } from '../money/money';
@@ -35,7 +36,6 @@ import { ObjectStorageService } from '../storage/object-storage.service';
 import { UserReputationService } from '../reputation/user-reputation.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 
-const CONFIG_TTL_MS = 5000;
 
 export const MAX_REF_ATTEMPTS = 5;
 
@@ -978,19 +978,9 @@ export class OrderService {
     return client.order.create({ data: { ...data, ref: generateRef() } } as any);
   }
 
-  private configCache: { row: any; at: number } | null = null;
-  private async getConfig() {
-    const now = Date.now();
-    if (this.configCache && now - this.configCache.at < CONFIG_TTL_MS) {
-      return this.configCache.row;
-    }
-    const row = await this.prisma.config.upsert({
-      where: { id: 1 },
-      update: {},
-      create: { id: 1, platformWallet: this.cfg.platformWallet },
-    });
-    this.configCache = { row, at: now };
-    return row;
+  private configCache = new ConfigCache();
+  private getConfig() {
+    return this.configCache.read(this.prisma, this.cfg.platformWallet);
   }
 }
 
