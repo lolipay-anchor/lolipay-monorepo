@@ -49,6 +49,7 @@ model Lp {
   id              String   @id @default(uuid())
   stellarAddress  String   @unique
   status          LpStatus @default(PENDING)
+  disputesLost    Int      @default(0)
   contact         String
   liquidityProof  String
   approvalNote    String?

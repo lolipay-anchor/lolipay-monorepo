@@ -101,7 +101,7 @@ export class OrderService {
 
   async getLpReputation(
     lpId: string,
-    lp: { online: boolean; approvedAt: Date | null; createdAt: Date },
+    lp: { online: boolean; approvedAt: Date | null; createdAt: Date; disputesLost?: number },
   ): Promise<Record<string, any>> {
     const now = Date.now();
     const cached = this.repCache.get(lpId);
@@ -110,7 +110,13 @@ export class OrderService {
     }
 
     const [completed, refunded] = await Promise.all([
-      this.prisma.order.count({ where: { lpId, status: 'RELEASED' } }),
+      this.prisma.order.count({
+        where: {
+          lpId,
+          status: 'RELEASED',
+          NOT: { flow: 'TOP_UP', resolution: 'released' },
+        },
+      }),
       this.prisma.order.count({
         where: { lpId, status: 'REFUNDED', flow: 'WITHDRAW' },
       }),
@@ -119,6 +125,7 @@ export class OrderService {
     const val = {
       completed_trades: completed,
       completion_rate: concluded > 0 ? completed / concluded : null,
+      disputes_lost: lp.disputesLost ?? 0,
       member_since: (lp.approvedAt ?? lp.createdAt).toISOString(),
     };
     this.repCache.set(lpId, { val, at: now });

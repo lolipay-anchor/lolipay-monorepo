@@ -7,4 +7,4 @@ RUN npm ci
 COPY . .
 RUN npx prisma generate && npm run build
 USER node
-CMD ["sh","-c","npx prisma db push --skip-generate && node dist/main.js"]
+CMD ["sh","-c","npx prisma migrate deploy && node dist/main.js"]

@@ -199,9 +199,12 @@ Stated plainly rather than omitted.
 - **A captured login challenge and signature can be replayed until it expires.**
   It only re-issues a session for the address the signer already controls, so it
   grants no impersonation, but strict single use would require a replay store.
-- **Schema changes are currently applied automatically at container start.** This
-  is appropriate for testnet and must become a reviewed, gated migration before
-  any mainnet deployment.
+- **Schema changes are applied at container start, from reviewed migration files.**
+  Until recently the start command also carried a flag that authorised dropping
+  columns and tables without asking; that is gone, and a migration that would lose
+  data now stops the container instead of proceeding. Application is still
+  automatic, which is normal, but a mainnet deployment should gate it behind a
+  deliberate step rather than a restart.
 - **Advisory locking assumes a single coordinator instance for boot-time
   seeding.** The per-trade money paths are safe across instances; the seed step is
   not guarded by a distributed lock.

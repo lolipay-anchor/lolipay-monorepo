@@ -63,6 +63,8 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setToken(null)
     setAddress(null)
+
+    queryClient.clear()
   }, [])
 
   return (

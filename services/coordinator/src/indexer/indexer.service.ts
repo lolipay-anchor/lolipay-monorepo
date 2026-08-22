@@ -8,6 +8,7 @@ import { NotificationService } from '../notification/notification.service';
 import { StellarReadService, withRpcTimeout } from '../stellar/stellar-read.service';
 import { contractIdFor } from '../order/order.params';
 import { verifyTradeMatchesOrder } from '../order/trade-binding';
+import { userLostDispute, providerLostDispute } from '../reputation/dispute-outcome';
 import { UserReputationService } from '../reputation/user-reputation.service';
 
 const EVENT_STATUS: Record<string, string> = {
@@ -328,10 +329,30 @@ export class IndexerService {
     order: { id: string; userAddress: string; flow: string },
     resolution: 'released' | 'refunded',
   ): Promise<void> {
-    const userLost =
-      (order.flow === 'TOP_UP' && resolution === 'refunded') ||
-      (order.flow === 'WITHDRAW' && resolution === 'released');
-    if (!userLost) return;
+    if (providerLostDispute(order.flow, resolution)) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const flipped = await tx.order.updateMany({
+            where: { id: order.id, disputeLossAccrued: false },
+            data: { disputeLossAccrued: true },
+          });
+          if (flipped.count === 0) return;
+          const fresh = await tx.order.findUnique({ where: { id: order.id }, select: { lpId: true } });
+          if (!fresh?.lpId) return;
+          await tx.lp.update({
+            where: { id: fresh.lpId },
+            data: { disputesLost: { increment: 1 } },
+          });
+        });
+      } catch (e) {
+        this.log.warn(
+          `recording a provider dispute loss failed for order ${order.id}: ${e instanceof Error ? e.message : String(e)} — status indexing continues unaffected`,
+        );
+      }
+      return;
+    }
+
+    if (!userLostDispute(order.flow, resolution)) return;
     try {
       await this.userReputation.recordDisputeLost(order.userAddress, order.id);
     } catch (e) {
