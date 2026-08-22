@@ -24,3 +24,26 @@ export function withTxSupport<T extends Record<string, any>>(prisma: T): T {
   (prisma as Record<string, any>).$executeRaw = jest.fn().mockResolvedValue(0);
   return prisma;
 }
+
+export function onChainTradeFor(order: any, status: string, overrides: Record<string, any> = {}) {
+  const isTopUp = order.flow === 'TOP_UP';
+  return {
+    status,
+    settledAt: 0,
+    usdcAmount: BigInt(order.usdcAmount),
+    fiatAmount: BigInt(order.fiatAmount),
+    fiatCurrency: order.fiatCurrency,
+    flow: isTopUp ? 0 : 1,
+    usdcProvider: isTopUp ? order.lpWallet : order.userAddress,
+    usdcRecipient: isTopUp ? order.userAddress : order.lpWallet,
+    confirmer: isTopUp ? order.lpWallet : order.userAddress,
+    platformWallet: order.platformWallet,
+    lpWallet: order.lpWallet,
+    platformFeeBps: order.platformFeeBps,
+    lpFeeBps: order.lpFeeBps,
+    payDeadline: BigInt(order.payDeadline),
+    confirmDeadline: BigInt(order.confirmDeadline),
+    disputeDeadline: BigInt(order.disputeDeadline),
+    ...overrides,
+  };
+}

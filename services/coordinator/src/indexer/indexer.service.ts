@@ -7,6 +7,7 @@ import { AppConfigService } from '../config/app-config.service';
 import { NotificationService } from '../notification/notification.service';
 import { StellarReadService, withRpcTimeout } from '../stellar/stellar-read.service';
 import { contractIdFor } from '../order/order.params';
+import { verifyTradeMatchesOrder } from '../order/trade-binding';
 import { UserReputationService } from '../reputation/user-reputation.service';
 
 const EVENT_STATUS: Record<string, string> = {
@@ -18,6 +19,8 @@ const EVENT_STATUS: Record<string, string> = {
 };
 
 const POST_SETTLE_TERMINAL = ['RELEASED', 'REFUNDED'] as const;
+
+const NOT_YET_BOUND_ON_CHAIN = ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'EXPIRED'];
 
 const STATUS_BEFORE: Record<string, string[]> = {
   FUNDED: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'EXPIRED'],
@@ -153,6 +156,11 @@ export class IndexerService {
     const target = EVENT_STATUS[name];
 
     if ((STATUS_BEFORE[target] as string[]).includes(order.status)) {
+      if (NOT_YET_BOUND_ON_CHAIN.includes(order.status)) {
+        const bound = await this.bindTradeToOrder(evContractId, order);
+        if (!bound) return 0;
+      }
+
       let settledAt = new Date();
       if (target === 'RELEASED' || target === 'REFUNDED') {
         try {
@@ -175,6 +183,24 @@ export class IndexerService {
       return 1;
     }
     return 0;
+  }
+
+  private async bindTradeToOrder(contractId: string, order: any): Promise<boolean> {
+    const trade = await this.stellar.getTradeStatusStrict(contractId, order.tradeId);
+    if (!trade) {
+      this.log.warn(
+        `order ${order.id} (tradeId ${order.tradeId}): event received but get_trade returned nothing — not advancing (fail-closed)`,
+      );
+      return false;
+    }
+
+    const mismatches = verifyTradeMatchesOrder(trade, order);
+    if (mismatches.length === 0) return true;
+
+    this.log.error(
+      `order ${order.id} (tradeId ${order.tradeId}): REFUSING to bind — the on-chain trade does not match the order. ${mismatches.join(' | ')}`,
+    );
+    return false;
   }
 
   private async applyDisputedEvent(

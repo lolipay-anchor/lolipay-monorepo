@@ -17,6 +17,8 @@ import { AppConfigService } from '../config/app-config.service';
 import { MarketsService } from '../market/markets.service';
 import { NotificationService } from '../notification/notification.service';
 import { mapRoles, newTradeId, contractIdFor, Flow } from './order.params';
+import { verifyTradeMatchesOrder } from './trade-binding';
+import { TradeOnChain } from '../stellar/stellar-read.types';
 import { generateRef } from './ref.util';
 import { quoteUsdcForFiat } from '../money/money';
 import {
@@ -38,6 +40,8 @@ const CONFIG_TTL_MS = 5000;
 export const MAX_REF_ATTEMPTS = 5;
 
 const PRE_CHAIN_STATUSES = ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN'];
+
+const NOT_YET_BOUND_ON_CHAIN = ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'EXPIRED'];
 
 const REFRESH_FROM_CHAIN_STATUSES = [
   'MATCHED',
@@ -328,7 +332,7 @@ export class OrderService {
           HttpStatus.CONFLICT,
         );
       }
-      if (onChain && isAhead(onChain.status, order.status)) {
+      if (onChain && this.tradeBindsToOrder(onChain, order) && isAhead(onChain.status, order.status)) {
         const updated = await this.prisma.order.update({
           where: { id },
           data: { status: onChain.status as any },
@@ -853,7 +857,7 @@ export class OrderService {
       let currentOrder = order;
       if (REFRESH_FROM_CHAIN_STATUSES.includes(order.status)) {
         const onChain = await this.stellar.getTradeStatus(this.contractIdFor(order), order.tradeId);
-        if (onChain && isAhead(onChain.status, order.status)) {
+        if (onChain && this.tradeBindsToOrder(onChain, order) && isAhead(onChain.status, order.status)) {
           currentOrder = await this.prisma.order.update({
             where: { id: order.id },
             data: { status: onChain.status as any },
@@ -888,11 +892,26 @@ export class OrderService {
     return results.map((r) => ({ ...r, require_proof: config?.requireProof ?? false }));
   }
 
+  private tradeBindsToOrder(onChain: TradeOnChain, order: any): boolean {
+    if (!NOT_YET_BOUND_ON_CHAIN.includes(order.status)) return true;
+
+    const mismatches = verifyTradeMatchesOrder(onChain, order);
+    if (mismatches.length === 0) return true;
+
+    this.log.error(
+      `order ${order.id} (tradeId ${order.tradeId}): REFUSING to bind — the on-chain trade does not match the order. ${mismatches.join(' | ')}`,
+    );
+    return false;
+  }
+
   private async refreshOrderStatus(id: string, order: any): Promise<any> {
     if (!REFRESH_FROM_CHAIN_STATUSES.includes(order.status)) {
       return order;
     }
     const onChain = await this.stellar.getTradeStatus(this.contractIdFor(order), order.tradeId);
+
+    if (onChain && !this.tradeBindsToOrder(onChain, order)) return order;
+
     if (onChain && isAhead(onChain.status, order.status)) {
       const updated = await this.prisma.order.update({
         where: { id },

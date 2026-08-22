@@ -49,6 +49,32 @@ function isNotFound(err: unknown): boolean {
   return NOT_FOUND_PATTERNS.some((p) => msg.includes(p));
 }
 
+const STELLAR_ADDRESS_RE = /^[GCM][A-Z2-7]{55}$/;
+
+function asBigInt(v: unknown): bigint | undefined {
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'number' && Number.isSafeInteger(v)) return BigInt(v);
+  if (typeof v === 'string' && /^-?\d+$/.test(v)) return BigInt(v);
+  return undefined;
+}
+
+function asNumber(v: unknown): number | undefined {
+  if (typeof v === 'number' && Number.isInteger(v)) return v;
+  if (typeof v === 'bigint' && v >= BigInt(Number.MIN_SAFE_INTEGER) && v <= BigInt(Number.MAX_SAFE_INTEGER)) {
+    return Number(v);
+  }
+  return undefined;
+}
+
+function asString(v: unknown): string | undefined {
+  if (typeof v === 'string') return v.length > 0 ? v : undefined;
+  if (v && typeof (v as { toString?: unknown }).toString === 'function') {
+    const s = String(v);
+    if (STELLAR_ADDRESS_RE.test(s)) return s;
+  }
+  return undefined;
+}
+
 const ESCROW_TRADE_NOT_FOUND_RE = /error\(contract,\s*#5\)/i;
 
 function isEscrowTradeNotFoundError(err: unknown): boolean {
@@ -180,7 +206,25 @@ export class StellarReadService {
 
     const settledAtRaw = Number(ret.settled_at ?? 0);
     const settledAt = Number.isFinite(settledAtRaw) && settledAtRaw > 0 ? settledAtRaw : 0;
-    return { status: STATUS_MAP[idx], settledAt };
+
+    return {
+      status: STATUS_MAP[idx],
+      settledAt,
+      usdcAmount: asBigInt(ret.usdc_amount),
+      fiatAmount: asBigInt(ret.fiat_amount),
+      fiatCurrency: asString(ret.fiat_currency),
+      flow: asNumber(ret.flow),
+      usdcProvider: asString(ret.usdc_provider),
+      usdcRecipient: asString(ret.usdc_recipient),
+      confirmer: asString(ret.confirmer),
+      platformWallet: asString(ret.platform_wallet),
+      lpWallet: asString(ret.lp_wallet),
+      platformFeeBps: asNumber(ret.platform_fee_bps),
+      lpFeeBps: asNumber(ret.lp_fee_bps),
+      payDeadline: asBigInt(ret.pay_deadline),
+      confirmDeadline: asBigInt(ret.confirm_deadline),
+      disputeDeadline: asBigInt(ret.dispute_deadline),
+    };
   }
 
   async buildMarkFiatPaidTx(

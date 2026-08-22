@@ -1,5 +1,5 @@
 import { OrderService } from './order.service';
-import { makeUserReputationStub } from './test-helpers';
+import { makeUserReputationStub, onChainTradeFor } from './test-helpers';
 
 const fakeStorage = {} as any;
 
@@ -55,7 +55,9 @@ describe('OrderService.refreshOrderStatus — realtime emit on chain-confirmed a
       lp: { findUnique: jest.fn() },
     } as any;
     const stellar = {
-      getTradeStatus: jest.fn().mockResolvedValue(onChainStatus ? { status: onChainStatus } : null),
+      getTradeStatus: jest
+        .fn()
+        .mockResolvedValue(onChainStatus ? onChainTradeFor(order, onChainStatus) : null),
     } as any;
     const matching = { pickLp: jest.fn() } as any;
     const cfg = { platformWallet: PLATFORM, escrowContractId: 'CENV' } as any;

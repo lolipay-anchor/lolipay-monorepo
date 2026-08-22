@@ -15,10 +15,39 @@ const tradeIdTopic = (hex: string) => nativeToScVal(Buffer.from(hex, 'hex'));
 
 const TRADE_ID_A = 'a'.repeat(64);
 
+function boundTrade(order: any, overrides: Record<string, any> = {}) {
+  const isTopUp = order.flow === 'TOP_UP';
+  return {
+    status: 'FUNDED',
+    settledAt: 0,
+    usdcAmount: order.usdcAmount,
+    fiatAmount: order.fiatAmount,
+    fiatCurrency: order.fiatCurrency,
+    flow: isTopUp ? 0 : 1,
+    usdcProvider: isTopUp ? order.lpWallet : order.userAddress,
+    usdcRecipient: isTopUp ? order.userAddress : order.lpWallet,
+    confirmer: isTopUp ? order.lpWallet : order.userAddress,
+    platformWallet: order.platformWallet,
+    lpWallet: order.lpWallet,
+    platformFeeBps: order.platformFeeBps,
+    lpFeeBps: order.lpFeeBps,
+    payDeadline: order.payDeadline,
+    confirmDeadline: order.confirmDeadline,
+    disputeDeadline: order.disputeDeadline,
+    ...overrides,
+  };
+}
+
 describe('IndexerService.applyEvent', () => {
   function make(
     orderStatus = 'MATCHED',
-    opts: { cfgOverrides?: any; stellarOverrides?: any; tradeId?: string; updateManyCount?: number } = {},
+    opts: {
+      cfgOverrides?: any;
+      stellarOverrides?: any;
+      orderOverrides?: any;
+      tradeId?: string;
+      updateManyCount?: number;
+    } = {},
   ) {
     const order = {
       id: 'ord-1',
@@ -27,6 +56,16 @@ describe('IndexerService.applyEvent', () => {
       lpWallet: 'GLP',
       flow: 'TOP_UP',
       status: orderStatus,
+      usdcAmount: 100_0000000n,
+      fiatAmount: 1_630_000n,
+      fiatCurrency: 'IDR',
+      platformFeeBps: 30,
+      lpFeeBps: 120,
+      platformWallet: 'GPLATFORM',
+      payDeadline: 1_800n,
+      confirmDeadline: 3_600n,
+      disputeDeadline: 10_800n,
+      ...opts.orderOverrides,
     };
     const prisma = {
       order: {
@@ -37,10 +76,15 @@ describe('IndexerService.applyEvent', () => {
     } as any;
     const cfg = { rpcUrl: 'x', escrowContractId: 'CXXX', escrowContractIdsExtra: [], ...opts.cfgOverrides } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
-    const stellar = { getTradeStatus: jest.fn(), ...opts.stellarOverrides } as any;
+    const stellar = {
+      getTradeStatus: jest.fn(),
+      getTradeStatusStrict: jest.fn().mockResolvedValue(boundTrade(order)),
+      ...opts.stellarOverrides,
+    } as any;
     const userReputation = { recordDisputeLost: jest.fn().mockResolvedValue(undefined) } as any;
     return {
       svc: new IndexerService(prisma, cfg, notifications, stellar, userReputation) as any,
+      order,
       prisma,
       notifications,
       stellar,
@@ -63,6 +107,88 @@ describe('IndexerService.applyEvent', () => {
       expect.objectContaining({ id: 'ord-1' }),
       'FUNDED',
     );
+  });
+
+  it('REFUSES to advance when the on-chain trade is underfunded against the order (X0)', async () => {
+    const errSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { svc, order, prisma, notifications, stellar } = make('MATCHED');
+    stellar.getTradeStatusStrict.mockImplementation(async () =>
+      boundTrade({ ...order, usdcAmount: 1n }),
+    );
+
+    const advanced = await svc.applyEvent({
+      topic: [TOPIC_TRADE_CREATED, TOPIC_TRADE_ID],
+      value: VALUE_EMPTY,
+      contractId: 'CXXX',
+    });
+
+    expect(advanced).toBe(0);
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+    expect(notifications.notifyOrderStatus).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('REFUSING to bind'));
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('usdcAmount'));
+    errSpy.mockRestore();
+  });
+
+  it('REFUSES to advance when the on-chain trade pays a wallet the order never matched (X0)', async () => {
+    const errSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { svc, order, prisma, notifications, stellar } = make('MATCHED');
+    stellar.getTradeStatusStrict.mockImplementation(async () =>
+      boundTrade(order, { usdcRecipient: 'GATTACKER' }),
+    );
+
+    const advanced = await svc.applyEvent({
+      topic: [TOPIC_TRADE_CREATED, TOPIC_TRADE_ID],
+      value: VALUE_EMPTY,
+      contractId: 'CXXX',
+    });
+
+    expect(advanced).toBe(0);
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+    expect(notifications.notifyOrderStatus).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('usdcRecipient'));
+    errSpy.mockRestore();
+  });
+
+  it('fails closed when get_trade returns nothing for an unbound order', async () => {
+    const { svc, prisma, notifications, stellar } = make('MATCHED');
+    stellar.getTradeStatusStrict.mockResolvedValue(null);
+
+    const advanced = await svc.applyEvent({
+      topic: [TOPIC_TRADE_CREATED, TOPIC_TRADE_ID],
+      value: VALUE_EMPTY,
+      contractId: 'CXXX',
+    });
+
+    expect(advanced).toBe(0);
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+    expect(notifications.notifyOrderStatus).not.toHaveBeenCalled();
+  });
+
+  it('binds against the contract the event came from, not cfg.escrowContractId', async () => {
+    const { svc, stellar } = make('MATCHED', { cfgOverrides: { escrowContractIdsExtra: ['CEXTRA'] } });
+
+    await svc.applyEvent({
+      topic: [TOPIC_TRADE_CREATED, TOPIC_TRADE_ID],
+      value: VALUE_EMPTY,
+      contractId: 'CXXX',
+    });
+
+    expect(stellar.getTradeStatusStrict).toHaveBeenCalledWith('CXXX', TRADE_ID_A);
+  });
+
+  it('does not re-verify an order already bound on chain (FUNDED → FIAT_PAID)', async () => {
+    const { svc, prisma, stellar } = make('FUNDED');
+
+    const advanced = await svc.applyEvent({
+      topic: [TOPIC_FIAT_PAID, TOPIC_TRADE_ID],
+      value: VALUE_EMPTY,
+      contractId: 'CXXX',
+    });
+
+    expect(advanced).toBe(1);
+    expect(stellar.getTradeStatusStrict).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany.mock.calls[0][0].data.status).toBe('FIAT_PAID');
   });
 
   it('does NOT notify (and returns 0) when the order is already ahead — notify-gate fix', async () => {
@@ -1240,6 +1366,15 @@ function makeBase(
     lpWallet: 'GLP',
     flow: opts.flow ?? 'TOP_UP',
     status: orderStatus,
+    usdcAmount: 100_0000000n,
+    fiatAmount: 1_630_000n,
+    fiatCurrency: 'IDR',
+    platformFeeBps: 30,
+    lpFeeBps: 120,
+    platformWallet: 'GPLATFORM',
+    payDeadline: 1_800n,
+    confirmDeadline: 3_600n,
+    disputeDeadline: 10_800n,
   };
   const prisma = {
     order: {
@@ -1250,7 +1385,11 @@ function makeBase(
   } as any;
   const cfg = { rpcUrl: 'x', escrowContractId: 'CXXX', escrowContractIdsExtra: [], ...opts.cfgOverrides } as any;
   const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
-  const stellar = { getTradeStatus: jest.fn(), ...opts.stellarOverrides } as any;
+  const stellar = {
+    getTradeStatus: jest.fn(),
+    getTradeStatusStrict: jest.fn().mockResolvedValue(boundTrade(order)),
+    ...opts.stellarOverrides,
+  } as any;
   const userReputation = { recordDisputeLost: jest.fn().mockResolvedValue(undefined) } as any;
   return {
     svc: new IndexerService(prisma, cfg, notifications, stellar, userReputation) as any,

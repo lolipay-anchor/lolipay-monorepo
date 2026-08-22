@@ -7,7 +7,7 @@ import { Account, Keypair, Networks, StrKey } from '@stellar/stellar-sdk';
 
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { OrderService } from './order.service';
-import { makeUserReputationStub } from './test-helpers';
+import { makeUserReputationStub, onChainTradeFor } from './test-helpers';
 import { OrderController } from './order.controller';
 import { ObjectStorageService } from '../storage/object-storage.service';
 
@@ -422,13 +422,14 @@ describe('OrderService.buildCreateTradeTx (unit)', () => {
   });
 
   it('M2: chain refresh advances MATCHED→FUNDED before status guard → ConflictException', async () => {
+    const matched = makeOrder({ status: 'MATCHED' });
     const svc = makeSvc(
       {
-        findUnique: jest.fn().mockResolvedValue(makeOrder({ status: 'MATCHED' })),
+        findUnique: jest.fn().mockResolvedValue(matched),
         update: jest.fn().mockResolvedValue(makeOrder({ status: 'FUNDED' })),
       },
       {
-        getTradeStatus: jest.fn().mockResolvedValue({ status: 'FUNDED' }),
+        getTradeStatus: jest.fn().mockResolvedValue(onChainTradeFor(matched, 'FUNDED')),
       },
     );
     await expect(svc.buildCreateTradeTx('order-1', LP_ADDR)).rejects.toThrow(ConflictException);
