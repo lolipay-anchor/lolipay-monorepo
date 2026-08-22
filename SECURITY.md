@@ -78,6 +78,37 @@ the key is never logged.
   ledger entry would strand escrowed funds, so every mutating call also extends
   the contract's own instance entry.
 
+## Binding the escrow to the order
+
+A trade identifier alone is not evidence. The contract deliberately does not know
+about orders, so it accepts an amount, a recipient, a provider wallet and a set of
+deadlines from whoever calls it, checking only that they are internally coherent.
+Treating the mere existence of a trade with a matching identifier as proof that the
+escrow holds what the order describes would let a provider fund one base unit and
+still have the counterparty told to pay in full.
+
+**So an on-chain trade may not advance an order until it has been compared against
+it, field by field.** Fourteen values must match exactly: both amounts, the
+currency, the direction, all three party roles, both wallets, both fee rates and
+all three deadlines. The roles are derived from the direction, so a deposit and a
+withdrawal are each checked with their own parties in their own positions.
+
+**A value that cannot be decoded counts as a mismatch, never as a value to skip.**
+A response carrying only a status produces fourteen violations rather than passing,
+so a decoder broken by a library upgrade or a contract change refuses to bind
+instead of silently accepting what it could not read.
+
+Every path that can advance an order from its off-chain state performs this check —
+event ingestion, the refresh behind a status read, the provider's assignment list,
+and the refresh that runs before a cancellation. On a mismatch nothing happens: the
+order does not advance, no notification is sent, and payment instructions stay
+hidden. The mismatching fields are logged. The escrow in question holds only the
+submitter's own funds and the permissionless refund path returns them.
+
+Once an order legitimately holds an on-chain status the binding is settled and is
+not re-checked; the compared values cannot change, because the contract refuses a
+second creation for the same identifier.
+
 ## Collateral and slashing
 
 A slash is bound to a genuinely disputed trade. The trade must actually be in
