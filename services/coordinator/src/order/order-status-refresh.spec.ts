@@ -33,8 +33,9 @@ function makeOrder(overrides: Partial<any> = {}): any {
   };
 }
 
-function makeSvc(orderOverrides: Partial<any> = {}, onChain: any = null) {
+function makeSvc(orderOverrides: Partial<any> = {}, onChainStatus: string | null = null) {
   const order = makeOrder(orderOverrides);
+  const onChain = onChainStatus ? onChainTradeFor(order, onChainStatus) : null;
   const prisma = {
     order: {
       findUnique: jest.fn().mockResolvedValue(order),
@@ -71,8 +72,7 @@ function makeSvc(orderOverrides: Partial<any> = {}, onChain: any = null) {
 
 describe('refreshing an order status from the chain', () => {
   it('writes the chain status back when the chain is ahead of the database', async () => {
-    const base = makeOrder({ status: 'MATCHED' });
-    const { svc, prisma } = makeSvc({ status: 'MATCHED' }, onChainTradeFor(base, 'FUNDED'));
+    const { svc, prisma } = makeSvc({ status: 'MATCHED' }, 'FUNDED');
 
     await svc.getOrder('order-1', USER_ADDR);
 
@@ -82,8 +82,7 @@ describe('refreshing an order status from the chain', () => {
   });
 
   it('leaves the row alone when the chain is behind the database', async () => {
-    const base = makeOrder({ status: 'FIAT_PAID' });
-    const { svc, prisma } = makeSvc({ status: 'FIAT_PAID' }, onChainTradeFor(base, 'FUNDED'));
+    const { svc, prisma } = makeSvc({ status: 'FIAT_PAID' }, 'FUNDED');
 
     await svc.getOrder('order-1', USER_ADDR);
 
@@ -101,8 +100,7 @@ describe('refreshing an order status from the chain', () => {
   });
 
   it('does not read the chain at all for a status that is never refreshed from it', async () => {
-    const base = makeOrder({ status: 'RELEASED' });
-    const { svc, stellar, prisma } = makeSvc({ status: 'RELEASED' }, onChainTradeFor(base, 'REFUNDED'));
+    const { svc, stellar, prisma } = makeSvc({ status: 'RELEASED' }, 'REFUNDED');
 
     await svc.getOrder('order-1', USER_ADDR);
 
@@ -111,8 +109,7 @@ describe('refreshing an order status from the chain', () => {
   });
 
   it('resolves the contract to read from the order row, not the configured default', async () => {
-    const base = makeOrder({ status: 'MATCHED', contractId: 'CRETIRED' });
-    const { svc, stellar } = makeSvc({ status: 'MATCHED', contractId: 'CRETIRED' }, onChainTradeFor(base, 'FUNDED'));
+    const { svc, stellar } = makeSvc({ status: 'MATCHED', contractId: 'CRETIRED' }, 'FUNDED');
 
     await svc.getOrder('order-1', USER_ADDR);
 
@@ -120,8 +117,7 @@ describe('refreshing an order status from the chain', () => {
   });
 
   it('falls back to the configured escrow when the order carries no contract of its own', async () => {
-    const base = makeOrder({ status: 'MATCHED', contractId: null });
-    const { svc, stellar } = makeSvc({ status: 'MATCHED', contractId: null }, onChainTradeFor(base, 'FUNDED'));
+    const { svc, stellar } = makeSvc({ status: 'MATCHED', contractId: null }, 'FUNDED');
 
     await svc.getOrder('order-1', USER_ADDR);
 
