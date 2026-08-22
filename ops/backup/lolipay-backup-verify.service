@@ -1,0 +1,17 @@
+[Unit]
+Description=lolipay restore test - proves the newest backup is actually usable
+Documentation=file:/home/lolipay/lolipay-monorepo/ops/backup/README.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Environment=BACKUP_DIR=/var/backups/lolipay
+Environment=BACKUP_PASSPHRASE_FILE=/etc/lolipay/backup.key
+Environment=COMPOSE_FILE=/home/lolipay/lolipay-monorepo/services/coordinator/docker-compose.yml
+ExecStart=/home/lolipay/lolipay-monorepo/ops/backup/lolipay-backup.sh restore-test
+TimeoutStartSec=3600
+
+[Install]
+WantedBy=multi-user.target

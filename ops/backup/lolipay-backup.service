@@ -1,0 +1,20 @@
+[Unit]
+Description=lolipay encrypted backup of Postgres and MinIO
+Documentation=file:/home/lolipay/lolipay-monorepo/ops/backup/README.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Environment=BACKUP_DIR=/var/backups/lolipay
+Environment=BACKUP_PASSPHRASE_FILE=/etc/lolipay/backup.key
+Environment=BACKUP_RETENTION_DAYS=60
+Environment=COMPOSE_FILE=/home/lolipay/lolipay-monorepo/services/coordinator/docker-compose.yml
+ExecStart=/home/lolipay/lolipay-monorepo/ops/backup/lolipay-backup.sh backup
+TimeoutStartSec=3600
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target
