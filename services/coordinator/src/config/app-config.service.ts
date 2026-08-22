@@ -34,9 +34,6 @@ export class AppConfigService {
   }
   get priceStaleSecs() { return Number(this.c.get('PRICE_STALE_SECONDS') ?? 120); }
   get priceDeviationMaxBps() { return Number(this.c.get('PRICE_DEVIATION_MAX_BPS') ?? 100); }
-
-  get priceMinIdrPerUsdc() { return Number(this.c.get('PRICE_MIN_IDR_PER_USDC') ?? 5000); }
-  get priceMaxIdrPerUsdc() { return Number(this.c.get('PRICE_MAX_IDR_PER_USDC') ?? 50000); }
   get platformWallet(): string {
     const w = this.req('PLATFORM_WALLET');
     if (!/^G[A-Z2-7]{55}$/.test(w)) throw new Error(`PLATFORM_WALLET is not a valid Stellar public key: "${w}"`);
