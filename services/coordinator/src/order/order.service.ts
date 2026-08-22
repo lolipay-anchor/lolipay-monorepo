@@ -16,8 +16,7 @@ import { MatchingService } from '../matching/matching.service';
 import { AppConfigService } from '../config/app-config.service';
 import { MarketsService } from '../market/markets.service';
 import { NotificationService } from '../notification/notification.service';
-import { mapRoles, newTradeId, Flow, getFiatPayer, requireLp } from './order.params';
-import { describeContractError } from './contract-error';
+import { mapRoles, newTradeId, Flow, getFiatPayer } from './order.params';
 import { serializeOrderBase } from './order.serialize';
 import { ConfigCache } from '../config/config-cache';
 import {
@@ -27,16 +26,7 @@ import {
 } from './order-status.service';
 import { OrderTxService } from './order-tx.service';
 import { generateRef } from './ref.util';
-import { quoteUsdcForFiat } from '../money/money';
-import {
-  sniffFileType,
-  newProofKey,
-  deterministicKey,
-  EXT_CONTENT_TYPE,
-  UploadedFileLike,
-} from './upload.util';
-import { canDispute, allowedDisputeReasons, isOwnEvidencePath, postSettleDisputeDeadline } from './dispute.util';
-import { UploadProofDto } from './dto/upload-proof.dto';
+import { canDispute, allowedDisputeReasons, isOwnEvidencePath } from './dispute.util';
 import { ObjectStorageService } from '../storage/object-storage.service';
 import { UserReputationService } from '../reputation/user-reputation.service';
 

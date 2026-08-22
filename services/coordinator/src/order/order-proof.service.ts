@@ -11,7 +11,7 @@ import { AppConfigService } from '../config/app-config.service';
 import { ObjectStorageService } from '../storage/object-storage.service';
 import { ConfigCache } from '../config/config-cache';
 import { OrderStatusService } from './order-status.service';
-import { Flow, getFiatPayer, requireLp } from './order.params';
+import { requireLp } from './order.params';
 import {
   sniffFileType,
   newProofKey,

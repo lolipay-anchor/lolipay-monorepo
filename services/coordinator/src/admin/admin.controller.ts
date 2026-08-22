@@ -25,7 +25,6 @@ import { UpdateMarketDto } from './dto/update-market.dto';
 import { ListLpsQueryDto } from './dto/list-lps-query.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
 import { MetricsOverviewQueryDto } from './dto/metrics-overview-query.dto';
-import { postSettleDisputeDeadline } from '../order/dispute.util';
 import { serializeOrderBase } from '../order/order.serialize';
 
 @Injectable()
