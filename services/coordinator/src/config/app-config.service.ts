@@ -33,7 +33,7 @@ export class AppConfigService {
       .filter(Boolean);
   }
   get priceStaleSecs() { return Number(this.c.get('PRICE_STALE_SECONDS') ?? 120); }
-  get priceDeviationMaxBps() { return Number(this.c.get('PRICE_DEVIATION_MAX_BPS') ?? 500); }
+  get priceDeviationMaxBps() { return Number(this.c.get('PRICE_DEVIATION_MAX_BPS') ?? 100); }
 
   get priceMinIdrPerUsdc() { return Number(this.c.get('PRICE_MIN_IDR_PER_USDC') ?? 5000); }
   get priceMaxIdrPerUsdc() { return Number(this.c.get('PRICE_MAX_IDR_PER_USDC') ?? 50000); }

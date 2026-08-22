@@ -499,6 +499,20 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
     expect(res.body.message).toMatch(/minOrder must be less than maxOrder/i);
   });
 
+  it('PATCH /admin/config surfaces AdminService SPREAD_TOO_NARROW as 400 without the error prefix', async () => {
+    mockAdminService.updateConfigTransactional.mockRejectedValue(
+      new Error('SPREAD_TOO_NARROW: PRICE_DEVIATION_MAX_BPS (100) must stay strictly below Config.spreadBps (100) — INV-30.1'),
+    );
+
+    const res = await request(app.getHttpServer())
+      .patch('/admin/config')
+      .send({ spreadBps: 100 })
+      .expect(400);
+
+    expect(res.body.message).toMatch(/INV-30\.1/);
+    expect(res.body.message).not.toMatch(/SPREAD_TOO_NARROW/);
+  });
+
   it('PATCH /admin/config still rejects an unknown field (forbidNonWhitelisted)', async () => {
     await request(app.getHttpServer())
       .patch('/admin/config')

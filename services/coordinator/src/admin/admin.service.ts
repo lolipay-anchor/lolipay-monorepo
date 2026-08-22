@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { recordAudit, auditPayload } from './admin-audit';
 import { windowsFitTheContract } from '../config/contract-limits';
+import { spreadCoversPriceDeviation } from '../config/rate-guard';
 import { AppConfigService } from '../config/app-config.service';
 import { MarketsService } from '../market/markets.service';
 import { UpdateConfigDto } from './dto/update-config.dto';
@@ -199,6 +200,16 @@ export class AdminService {
       );
       if (windowProblem) {
         throw new Error(`WINDOW_BOUNDS_INVALID: ${windowProblem}`);
+      }
+
+      if (patch.spreadBps !== undefined) {
+        const spreadProblem = spreadCoversPriceDeviation(
+          patch.spreadBps,
+          this.cfg.priceDeviationMaxBps,
+        );
+        if (spreadProblem) {
+          throw new Error(`SPREAD_TOO_NARROW: ${spreadProblem}`);
+        }
       }
 
       const { minOrder: minOrderPatch, maxOrder: maxOrderPatch, ...rest } = patch;

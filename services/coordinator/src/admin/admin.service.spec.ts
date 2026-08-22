@@ -24,8 +24,13 @@ function makeStellar(hasTrustline = true) {
   return { hasUsdcTrustline: jest.fn().mockResolvedValue(hasTrustline) } as any;
 }
 
-function makeCfg() {
-  return { usdcAssetCode: 'TUSDC', usdcAssetIssuer: 'GCMUR7GX' } as any;
+function makeCfg(over: Record<string, unknown> = {}) {
+  return {
+    usdcAssetCode: 'TUSDC',
+    usdcAssetIssuer: 'GCMUR7GX',
+    priceDeviationMaxBps: 100,
+    ...over,
+  } as any;
 }
 
 function makeUserReputation(overrides: Record<string, any> = {}) {
@@ -120,6 +125,7 @@ describe('AdminService.register', () => {
 
 describe('AdminService.updateConfigTransactional', () => {
   const CURRENT = {
+    spreadBps: 150,
     platformFeeBps: 30,
     lpFeeBps: 120,
     minOrder: 50_000_000n,
@@ -142,6 +148,32 @@ describe('AdminService.updateConfigTransactional', () => {
     } as any;
     return { prisma, configApi, auditApi };
   }
+
+  it('rejects a spreadBps patch that no longer covers the price-deviation allowance', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+
+    await expect(
+      svc.updateConfigTransactional({ spreadBps: 100 } as any, 'GADMINTEST'),
+    ).rejects.toThrow('SPREAD_TOO_NARROW');
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('accepts a spreadBps patch that keeps a cushion above the deviation allowance', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+
+    await svc.updateConfigTransactional({ spreadBps: 101 } as any, 'GADMINTEST');
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { spreadBps: 101 } });
+  });
+
+  it('does not block an unrelated config change when the stored spread already violates INV-30.1', async () => {
+    const { prisma, configApi } = makeConfigPrisma({ ...CURRENT, spreadBps: 50 });
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+
+    await svc.updateConfigTransactional({ paused: true } as any, 'GADMINTEST');
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { paused: true } });
+  });
 
   it('rejects when platformFeeBps + lpFeeBps >= 10000, using the CURRENT row for the omitted side', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);

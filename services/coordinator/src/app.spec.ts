@@ -17,6 +17,7 @@ class PrismaServiceStub {
   config = {
     findUnique: async () => null,
     update: async () => ({}),
+    upsert: async ({ create }: any) => ({ id: 1, spreadBps: 150, ...create }),
   };
   order = {
     findMany: async () => [],
