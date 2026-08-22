@@ -9,7 +9,8 @@ Type=oneshot
 User=root
 Environment=BACKUP_DIR=/var/backups/lolipay
 Environment=BACKUP_PASSPHRASE_FILE=/etc/lolipay/backup.key
-Environment=COMPOSE_FILE=/home/lolipay/lolipay-monorepo/services/coordinator/docker-compose.yml
+Environment=COMPOSE_FILE=/home/lolipay/lolipay-monorepo/services/coordinator/docker-compose.prod.yml
+Environment=COMPOSE_PROJECT=lolipayprod
 ExecStart=/home/lolipay/lolipay-monorepo/ops/backup/lolipay-backup.sh restore-test
 TimeoutStartSec=3600
 

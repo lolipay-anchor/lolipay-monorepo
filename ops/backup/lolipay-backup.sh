@@ -7,7 +7,8 @@ PASSPHRASE_FILE="${BACKUP_PASSPHRASE_FILE:-/etc/lolipay/backup.key}"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-60}"
 PG_CONTAINER="${PG_CONTAINER:-}"
 MINIO_CONTAINER="${MINIO_CONTAINER:-}"
-COMPOSE_FILE="${COMPOSE_FILE:-/home/lolipay/lolipay-monorepo/services/coordinator/docker-compose.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-/home/lolipay/lolipay-monorepo/services/coordinator/docker-compose.prod.yml}"
+COMPOSE_PROJECT="${COMPOSE_PROJECT:-lolipayprod}"
 PG_USER="${PG_USER:-lolipay}"
 PG_DB="${PG_DB:-lolipay}"
 OFFSITE_CMD="${BACKUP_OFFSITE_CMD:-}"
@@ -21,7 +22,7 @@ die()  { printf '%s [%s] FATAL %s\n' "$(date -u +%FT%TZ)" "$LOG_TAG" "$*" >&2; e
 resolve_container() {
   local service="$1" explicit="$2"
   if [ -n "$explicit" ]; then printf '%s' "$explicit"; return 0; fi
-  docker compose -f "$COMPOSE_FILE" ps -q "$service" 2>/dev/null | head -1
+  docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" ps -aq "$service" 2>/dev/null | head -1
 }
 
 require_running() {
