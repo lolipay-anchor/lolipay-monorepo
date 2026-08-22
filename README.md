@@ -15,9 +15,9 @@ treasury burden that comes with that.
 
 lolipay presents the same interface with a different engine underneath. There is
 no company treasury. Liquidity comes from a network of providers who stake USDC
-on-chain; the stake is slashable and bound to a genuinely disputed trade, so a
-provider who takes fiat and does not deliver loses collateral. Settlement is
-per-trade escrow, not a pooled float.
+on-chain, and the staking contract can take that collateral from a provider who
+is party to a genuinely disputed trade. Settlement is per-trade escrow, not a
+pooled float.
 
 The result is an anchor that can be audited rather than trusted.
 
@@ -125,6 +125,13 @@ contract ids from the environment.
 Testnet. The escrow, staking, matching, dispute and settlement paths are built
 and covered by the suites above. The SEP-1 / SEP-10 / SEP-12 / SEP-24 anchor
 interface is in progress.
+
+One gap is named here rather than left to be discovered. The staking contract
+implements slashing and its tests cover it, but the coordinator has no slash
+path: no endpoint builds that transaction and no admin screen offers it. A slash
+today is a manual invocation signed by the holder of the resolver or admin key,
+and it has to be submitted before the dispute is resolved, because resolving is
+what ends the disputed status the contract checks.
 
 ## Security
 

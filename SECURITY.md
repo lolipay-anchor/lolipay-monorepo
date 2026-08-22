@@ -118,6 +118,17 @@ value, and each trade can be slashed once. Disputed status is read live, so a
 resolved trade cannot be slashed. Deduction takes from staked collateral before
 unbonding collateral, so a provider cannot escape by moving funds into cooldown.
 
+Every sentence above describes the staking contract, which enforces it. The
+product does not yet reach it: no coordinator endpoint builds a slash
+transaction and no admin screen offers one, so a slash today is a manual
+invocation signed by the resolver or admin key.
+
+The ordering is the part that is easy to get wrong. `slash` reads the escrow's
+dispute status live, and resolving clears that status, so a slash must be
+submitted before the resolve rather than after it. Two contract tests pin this:
+`test_slash_rejected_after_trade_resolved` and
+`test_slash_rejected_after_post_settlement_resolve_proves_ordering`.
+
 ## Concurrency
 
 Two patterns carry the load, and both are load-bearing rather than stylistic.
@@ -210,3 +221,7 @@ Stated plainly rather than omitted.
   not guarded by a distributed lock.
 - **Dispute resolution is a trusted role.** It cannot redirect funds, but it does
   decide outcomes.
+- **Slashing has no path through the product.** The contract implements it and is
+  tested; the coordinator never builds the transaction. Until it does, the
+  economic consequence a dispute is supposed to carry depends on a key holder
+  acting by hand, before the resolve rather than after it.

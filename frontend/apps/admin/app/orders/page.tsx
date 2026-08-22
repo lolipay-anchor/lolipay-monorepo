@@ -92,8 +92,9 @@ export function ResolveActions({
       </div>
       {}
       <p className="text-[11px] leading-relaxed text-lp-muted">
-        Resolving against the fiat payer makes their stake slashable for this trade (dispute-bound,
-        capped at the trade amount).
+        Resolving ends the dispute, and the staking contract accepts a slash only while the trade
+        is still disputed — so a slash has to be submitted before this, not after. There is no
+        slash action in this console yet; it is a manual invocation with the resolver key.
       </p>
     </div>
   )
