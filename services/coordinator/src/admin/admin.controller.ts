@@ -116,6 +116,11 @@ export class AdminController {
       if (err?.message === 'ORDER_BOUNDS_INVALID') {
         throw new BadRequestException('minOrder must be less than maxOrder');
       }
+      if (typeof err?.message === 'string' && err.message.startsWith('WINDOW_BOUNDS_INVALID: ')) {
+        throw new BadRequestException(
+          `${err.message.slice('WINDOW_BOUNDS_INVALID: '.length)} — the escrow contract would reject every order created with these windows`,
+        );
+      }
       throw err;
     }
   }

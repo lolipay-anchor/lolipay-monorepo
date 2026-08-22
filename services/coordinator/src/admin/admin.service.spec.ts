@@ -124,6 +124,9 @@ describe('AdminService.updateConfigTransactional', () => {
     lpFeeBps: 120,
     minOrder: 50_000_000n,
     maxOrder: 10_000_000_000n,
+    payWindowSecs: 1800,
+    confirmWindowSecs: 1800,
+    disputeWindowSecs: 7200,
   };
 
   function makeConfigPrisma(current: any) {

@@ -40,7 +40,7 @@ import { TradeOnChain } from './stellar-read.types';
 
 export { TradeOnChain } from './stellar-read.types';
 
-const STATUS_MAP = ['FUNDED', 'FIAT_PAID', 'RELEASED', 'REFUNDED', 'DISPUTED'] as const;
+export const STATUS_MAP = ['FUNDED', 'FIAT_PAID', 'RELEASED', 'REFUNDED', 'DISPUTED'] as const;
 
 const NOT_FOUND_PATTERNS = ['not found', 'key not found', 'missingvalue'];
 

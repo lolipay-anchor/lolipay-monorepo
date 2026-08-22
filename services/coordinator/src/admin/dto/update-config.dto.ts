@@ -10,8 +10,11 @@ import {
   registerDecorator,
   ValidationOptions,
 } from 'class-validator';
-
-const MIN_PAY_WINDOW_SECS = 600;
+import {
+  MIN_PAY_WINDOW_SECS,
+  MAX_PAY_WINDOW_SECS,
+  MAX_TOTAL_WINDOW_SECS,
+} from '../../config/contract-limits';
 
 const MAX_DISPUTE_WINDOW_SECS = 604800;
 
@@ -94,16 +97,19 @@ export class UpdateConfigDto {
 
   @IsInt()
   @Min(MIN_PAY_WINDOW_SECS)
+  @Max(MAX_PAY_WINDOW_SECS)
   @IsOptional()
   payWindowSecs?: number;
 
   @IsInt()
   @Min(1)
+  @Max(MAX_TOTAL_WINDOW_SECS)
   @IsOptional()
   confirmWindowSecs?: number;
 
   @IsInt()
   @Min(1)
+  @Max(MAX_TOTAL_WINDOW_SECS)
   @IsOptional()
   disputeWindowSecs?: number;
 

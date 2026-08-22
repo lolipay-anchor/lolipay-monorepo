@@ -18,6 +18,7 @@ import { MarketsService } from '../market/markets.service';
 import { NotificationService } from '../notification/notification.service';
 import { mapRoles, newTradeId, contractIdFor, Flow } from './order.params';
 import { verifyTradeMatchesOrder } from './trade-binding';
+import { describeContractError } from './contract-error';
 import { TradeOnChain } from '../stellar/stellar-read.types';
 import { generateRef } from './ref.util';
 import { quoteUsdcForFiat } from '../money/money';
@@ -29,7 +30,6 @@ import {
   UploadedFileLike,
 } from './upload.util';
 import { canDispute, allowedDisputeReasons, isOwnEvidencePath, postSettleDisputeDeadline } from './dispute.util';
-import { RateService } from '../rate/rate.service';
 import { UploadProofDto } from './dto/upload-proof.dto';
 import { ObjectStorageService } from '../storage/object-storage.service';
 import { UserReputationService } from '../reputation/user-reputation.service';
@@ -94,8 +94,6 @@ export class OrderService {
     private storage: ObjectStorageService,
     private userReputation: UserReputationService,
     private realtime?: RealtimeGateway,
-
-    private rate?: RateService,
   ) {}
 
   private repCache = new Map<string, { val: Record<string, any>; at: number }>();
@@ -402,6 +400,10 @@ export class OrderService {
       );
     } catch (err) {
       console.error('buildMarkFiatPaidTx error:', err instanceof Error ? err.message : String(err));
+      const contractProblem = describeContractError(err);
+      if (contractProblem) {
+        throw new ConflictException(contractProblem);
+      }
       throw new ServiceUnavailableException('Stellar RPC unavailable, retry later');
     }
   }
@@ -455,6 +457,10 @@ export class OrderService {
       });
     } catch (err) {
       console.error('buildCreateTradeTx error:', err instanceof Error ? err.message : String(err));
+      const contractProblem = describeContractError(err);
+      if (contractProblem) {
+        throw new ConflictException(contractProblem);
+      }
       throw new ServiceUnavailableException('Stellar RPC unavailable, retry later');
     }
   }
@@ -491,6 +497,10 @@ export class OrderService {
       );
     } catch (err) {
       console.error('buildConfirmReleaseTx error:', err instanceof Error ? err.message : String(err));
+      const contractProblem = describeContractError(err);
+      if (contractProblem) {
+        throw new ConflictException(contractProblem);
+      }
       throw new ServiceUnavailableException('Stellar RPC unavailable, retry later');
     }
   }
@@ -524,6 +534,10 @@ export class OrderService {
       );
     } catch (err) {
       console.error('buildRaiseDisputeTx error:', err instanceof Error ? err.message : String(err));
+      const contractProblem = describeContractError(err);
+      if (contractProblem) {
+        throw new ConflictException(contractProblem);
+      }
       throw new ServiceUnavailableException('Stellar RPC unavailable, retry later');
     }
   }
@@ -552,6 +566,10 @@ export class OrderService {
       );
     } catch (err) {
       console.error('buildResolveTx error:', err instanceof Error ? err.message : String(err));
+      const contractProblem = describeContractError(err);
+      if (contractProblem) {
+        throw new ConflictException(contractProblem);
+      }
       throw new ServiceUnavailableException('Stellar RPC unavailable, retry later');
     }
   }

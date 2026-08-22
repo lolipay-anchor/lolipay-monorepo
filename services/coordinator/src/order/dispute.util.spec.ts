@@ -25,8 +25,17 @@ describe('canDispute', () => {
   );
 
   it('boundary: exactly at the window edge is still disputable (inclusive)', () => {
-    const settledAt = new Date(Date.now() - CONFIG.postSettleDisputeWindowSecs * 1000);
-    expect(canDispute({ status: 'RELEASED', settledAt }, CONFIG)).toBe(true);
+    const now = new Date('2026-08-22T12:00:00.000Z');
+    jest.useFakeTimers().setSystemTime(now);
+    try {
+      const settledAt = new Date(now.getTime() - CONFIG.postSettleDisputeWindowSecs * 1000);
+      expect(canDispute({ status: 'RELEASED', settledAt }, CONFIG)).toBe(true);
+
+      const oneMsPast = new Date(settledAt.getTime() - 1);
+      expect(canDispute({ status: 'RELEASED', settledAt: oneMsPast }, CONFIG)).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('boundary: one second past the window edge is NOT disputable', () => {

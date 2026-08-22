@@ -5,7 +5,6 @@ import { MatchingModule } from '../matching/matching.module';
 import { AuthModule } from '../auth/auth.module';
 import { MarketModule } from '../market/market.module';
 
-import { RateModule } from '../rate/rate.module';
 import { NotificationModule } from '../notification/notification.module';
 import { ReputationModule } from '../reputation/reputation.module';
 import { RealtimeModule } from '../realtime/realtime.module';
@@ -15,7 +14,6 @@ import { RealtimeModule } from '../realtime/realtime.module';
     MatchingModule,
     AuthModule,
     MarketModule,
-    RateModule,
     NotificationModule,
     ReputationModule,
     RealtimeModule,

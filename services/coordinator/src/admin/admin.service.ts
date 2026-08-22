@@ -9,6 +9,7 @@ import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { recordAudit, auditPayload } from './admin-audit';
+import { windowsFitTheContract } from '../config/contract-limits';
 import { AppConfigService } from '../config/app-config.service';
 import { MarketsService } from '../market/markets.service';
 import { UpdateConfigDto } from './dto/update-config.dto';
@@ -189,6 +190,15 @@ export class AdminService {
 
       if (effectivePlatformFee + effectiveLpFee >= 10000) {
         throw new Error('BPS_OVERFLOW');
+      }
+
+      const windowProblem = windowsFitTheContract(
+        patch.payWindowSecs ?? current?.payWindowSecs ?? 0,
+        patch.confirmWindowSecs ?? current?.confirmWindowSecs ?? 0,
+        patch.disputeWindowSecs ?? current?.disputeWindowSecs ?? 0,
+      );
+      if (windowProblem) {
+        throw new Error(`WINDOW_BOUNDS_INVALID: ${windowProblem}`);
       }
 
       const { minOrder: minOrderPatch, maxOrder: maxOrderPatch, ...rest } = patch;

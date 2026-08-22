@@ -251,6 +251,20 @@ describe('Payment proof + dispute evidence uploads (e2e)', () => {
       .expect(400);
   });
 
+  it('POST /orders/:id/proof — a flood of text fields is refused before the handler runs', async () => {
+    const orderId = await createFundedWithdrawOrder();
+    const req = request(app.getHttpServer())
+      .post(`/orders/${orderId}/proof`)
+      .set('Authorization', `Bearer ${lpJwt}`)
+      .attach('file', JPG, { filename: 'p.jpg', contentType: 'image/jpeg' });
+
+    for (let i = 0; i < 200; i++) req.field(`junk${i}`, 'x');
+
+    const res = await req;
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+  });
+
   it('POST /orders/:id/proof — file over 5MB → 413', async () => {
     const orderId = await createFundedWithdrawOrder();
     await request(app.getHttpServer())

@@ -24,7 +24,9 @@ import { UploadProofDto } from './dto/upload-proof.dto';
 import { UploadedFileLike } from './upload.util';
 import { ObjectStorageService } from '../storage/object-storage.service';
 
-const UPLOAD_OPTS = { limits: { fileSize: 5 * 1024 * 1024 } };
+const UPLOAD_OPTS = {
+  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 4, fieldSize: 4096, parts: 6 },
+};
 
 function clampInt(v: string | undefined, def: number, min: number, max: number): number {
   const n = v === undefined ? def : parseInt(v, 10);

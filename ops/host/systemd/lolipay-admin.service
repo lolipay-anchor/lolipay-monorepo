@@ -1,0 +1,14 @@
+[Unit]
+Description=lolipay admin app (Next.js)
+After=network.target
+[Service]
+Type=simple
+User=lolipay
+WorkingDirectory=/home/lolipay/lolipay-monorepo/frontend/apps/admin
+Environment=PATH=/home/lolipay/.local/node-v22.23.1-linux-x64/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+ExecStart=/home/lolipay/lolipay-monorepo/frontend/apps/admin/node_modules/.bin/next start -p 3002
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
