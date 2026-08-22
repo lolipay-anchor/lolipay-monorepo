@@ -143,7 +143,7 @@ export class OrderService {
 
     const rail = quote.rail as 'BANK' | 'QRIS' | 'EWALLET';
 
-    const lp = await this.matching.pickLp(rail, quote.fiatCurrency);
+    const lp = await this.matching.pickLp(rail, quote.fiatCurrency, personId);
 
     if (lp.stellarAddress === userAddress) {
       throw new ForbiddenException('you cannot be matched with your own order');

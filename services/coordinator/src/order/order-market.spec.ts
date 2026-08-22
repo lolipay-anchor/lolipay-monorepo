@@ -98,11 +98,11 @@ describe('OrderService.createFromQuote — market-aware order creation (Phase 4 
     expect(markets.getEnabled).toHaveBeenCalledWith('IDR');
   });
 
-  it('passes the quote fiat through to matching.pickLp(rail, fiat)', async () => {
+  it('passes the quote fiat and the calling person through to matching.pickLp', async () => {
     const { svc, matching } = makeSvc({ fiatCurrency: 'IDR', rail: 'BANK' });
     await svc.createFromQuote(USER, 'q1');
 
-    expect(matching.pickLp).toHaveBeenCalledWith('BANK', 'IDR');
+    expect(matching.pickLp).toHaveBeenCalledWith('BANK', 'IDR', 'person-test');
   });
 
   it(
