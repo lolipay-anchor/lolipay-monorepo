@@ -175,7 +175,79 @@ describe('RateService.getReferencePrice', () => {
     const adapter = { name: 'mock', fetchPrices: jest.fn().mockResolvedValue({ IDR: '17000' }) };
     const svc = makeSvc(prisma, adapter);
     await expect(svc.getReferencePrice('IDR')).rejects.toThrow(ServiceUnavailableException);
+    expect(prisma.fiatPriceCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it('accepts the new level once a second fetch agrees with the one it refused', async () => {
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const staleFetchedAt = new Date(Date.now() - 200_000);
+    const prisma = makePrisma({
+      fiatPriceCache: {
+        findUnique: jest.fn().mockResolvedValue({
+          fiat: 'IDR', source: 'coingecko', pricePerUsdc: '16000', fetchedAt: staleFetchedAt,
+        }),
+        upsert: jest.fn().mockResolvedValue(undefined),
+      },
+    });
+    const adapter = { name: 'mock', fetchPrices: jest.fn().mockResolvedValue({ IDR: '17000' }) };
+    const svc = makeSvc(prisma, adapter);
+
     await expect(svc.getReferencePrice('IDR')).rejects.toThrow('price anomaly');
+    await expect(svc.getReferencePrice('IDR')).resolves.toBe('17000');
+
+    expect(prisma.fiatPriceCache.upsert).toHaveBeenCalledTimes(1);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('holding quotes until a second fetch agrees'));
+    err.mockRestore();
+  });
+
+  it('keeps refusing while each fetch disagrees with the one before it', async () => {
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const staleFetchedAt = new Date(Date.now() - 200_000);
+    const prisma = makePrisma({
+      fiatPriceCache: {
+        findUnique: jest.fn().mockResolvedValue({
+          fiat: 'IDR', source: 'coingecko', pricePerUsdc: '16000', fetchedAt: staleFetchedAt,
+        }),
+        upsert: jest.fn().mockResolvedValue(undefined),
+      },
+    });
+    const prices = ['17000', '18500', '20000'];
+    const adapter = {
+      name: 'mock',
+      fetchPrices: jest.fn().mockImplementation(async () => ({ IDR: prices.shift() as string })),
+    };
+    const svc = makeSvc(prisma, adapter);
+
+    await expect(svc.getReferencePrice('IDR')).rejects.toThrow('price anomaly');
+    await expect(svc.getReferencePrice('IDR')).rejects.toThrow('price anomaly');
+    await expect(svc.getReferencePrice('IDR')).rejects.toThrow('price anomaly');
+
+    expect(prisma.fiatPriceCache.upsert).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it('forgets the refused observation once a price inside the band arrives', async () => {
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const staleFetchedAt = new Date(Date.now() - 200_000);
+    const prisma = makePrisma({
+      fiatPriceCache: {
+        findUnique: jest.fn().mockResolvedValue({
+          fiat: 'IDR', source: 'coingecko', pricePerUsdc: '16000', fetchedAt: staleFetchedAt,
+        }),
+        upsert: jest.fn().mockResolvedValue(undefined),
+      },
+    });
+    const prices = ['17000', '16050', '17000'];
+    const adapter = {
+      name: 'mock',
+      fetchPrices: jest.fn().mockImplementation(async () => ({ IDR: prices.shift() as string })),
+    };
+    const svc = makeSvc(prisma, adapter);
+
+    await expect(svc.getReferencePrice('IDR')).rejects.toThrow('price anomaly');
+    await expect(svc.getReferencePrice('IDR')).resolves.toBe('16050');
+    await expect(svc.getReferencePrice('IDR')).rejects.toThrow('price anomaly');
+    err.mockRestore();
   });
 
   it('accepts a refreshed price within allowed deviation of the cached value', async () => {

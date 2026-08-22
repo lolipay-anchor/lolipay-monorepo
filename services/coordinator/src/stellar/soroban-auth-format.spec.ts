@@ -81,9 +81,10 @@ describe('Soroban authorisation format', () => {
     );
     const prepared = source.match(/server\.prepareTransaction\([^)]*\)/g) ?? [];
 
+    expect(source).toMatch(/const USE_UPGRADED_SOROBAN_AUTH = false;/);
     expect(prepared.length).toBeGreaterThanOrEqual(9);
     for (const call of prepared) {
-      expect(call).toBe('server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH)');
+      expect(call).toBe('server.prepareTransaction(tx, USE_UPGRADED_SOROBAN_AUTH)');
     }
   });
 });

@@ -7,4 +7,4 @@ RUN npm ci
 COPY . .
 RUN npx prisma generate && npm run build
 USER node
-CMD ["sh","-c","npx prisma migrate deploy && node dist/main.js"]
+CMD ["sh","-c","test -n \"$DATABASE_URL\" || { echo 'Missing env DATABASE_URL' >&2; exit 1; }; npx prisma migrate deploy && node dist/main.js"]

@@ -49,7 +49,7 @@ function isNotFound(err: unknown): boolean {
   return NOT_FOUND_PATTERNS.some((p) => msg.includes(p));
 }
 
-const USE_LEGACY_SOROBAN_AUTH = false;
+const USE_UPGRADED_SOROBAN_AUTH = false;
 
 const STELLAR_ADDRESS_RE = /^[GCM][A-Z2-7]{55}$/;
 
@@ -262,7 +262,7 @@ export class StellarReadService {
 
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_UPGRADED_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildMarkFiatPaidTx: prepareTransaction failed: ${msg}`);
@@ -337,7 +337,7 @@ export class StellarReadService {
 
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_UPGRADED_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildCreateTradeTx: prepareTransaction failed: ${msg}`);
@@ -379,7 +379,7 @@ export class StellarReadService {
 
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_UPGRADED_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildConfirmReleaseTx: prepareTransaction failed: ${msg}`);
@@ -418,7 +418,7 @@ export class StellarReadService {
       .build();
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_UPGRADED_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildRaiseDisputeTx: prepareTransaction failed: ${msg}`);
@@ -459,7 +459,7 @@ export class StellarReadService {
       .build();
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_UPGRADED_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildResolveTx: prepareTransaction failed: ${msg}`);
@@ -495,7 +495,7 @@ export class StellarReadService {
       .build();
 
     try {
-      return await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
+      return await withRpcRetry(() => server.prepareTransaction(tx, USE_UPGRADED_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildRefundTx: prepareTransaction failed: ${msg}`);
@@ -538,7 +538,7 @@ export class StellarReadService {
 
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_UPGRADED_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildStakeTx: prepareTransaction failed: ${msg}`);
@@ -578,7 +578,7 @@ export class StellarReadService {
       .build();
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_UPGRADED_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildRequestUnstakeTx: prepareTransaction failed: ${msg}`);
@@ -613,7 +613,7 @@ export class StellarReadService {
       .build();
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_UPGRADED_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildClaimUnstakeTx: prepareTransaction failed: ${msg}`);

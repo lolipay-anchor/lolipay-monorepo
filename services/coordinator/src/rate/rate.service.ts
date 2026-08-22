@@ -81,11 +81,15 @@ export class RateService {
     if (cache) {
       const prev = parseFloat(cache.pricePerUsdc);
       const now = parseFloat(price);
-      const devBps = (Math.abs(now - prev) / prev) * 10_000;
-      if (devBps > this.cfg.priceDeviationMaxBps) {
+      if (this.deviatesTooFar(prev, now) && !this.confirmsPendingPrice(code, now)) {
+        this.pendingPrice.set(code, price);
+        console.error(
+          `price anomaly (${code}): ${cache.pricePerUsdc} -> ${price}; holding quotes until a second fetch agrees`,
+        );
         throw new ServiceUnavailableException('price anomaly');
       }
     }
+    this.pendingPrice.delete(code);
 
     await this.prisma.fiatPriceCache.upsert({
       where: { fiat: code },
@@ -188,6 +192,18 @@ export class RateService {
         expiresAt: new Date(Date.now() + QUOTE_TTL_MS),
       },
     });
+  }
+
+  private pendingPrice = new Map<string, string>();
+
+  private deviatesTooFar(prev: number, next: number): boolean {
+    return (Math.abs(next - prev) / prev) * 10_000 > this.cfg.priceDeviationMaxBps;
+  }
+
+  private confirmsPendingPrice(fiat: string, next: number): boolean {
+    const pending = this.pendingPrice.get(fiat);
+    if (pending === undefined) return false;
+    return !this.deviatesTooFar(parseFloat(pending), next);
   }
 
   private assertPlausible(priceStr: string, market: Market, context: string): void {
