@@ -8,6 +8,7 @@ import { OrderService } from './order.service';
 import { makeUserReputationStub } from './test-helpers';
 import { UploadedFileLike } from './upload.util';
 import { FakeObjectStorage } from '../storage/object-storage.fake';
+import { OrderStatusService } from './order-status.service';
 
 const JPG: Buffer = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(16, 0)]);
 const PNG: Buffer = Buffer.concat([
@@ -120,7 +121,7 @@ describe('OrderService — payment proof + dispute evidence uploads (Phase 5B Ta
     const storage = new FakeObjectStorage();
 
     return {
-      svc: new OrderService(prisma, stellar, matching, cfg, markets, notifications, storage as any, makeUserReputationStub()),
+      svc: new OrderService(prisma, stellar, matching, cfg, markets, notifications, storage as any, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg)),
       prisma,
       stellar,
       storage,

@@ -7,6 +7,7 @@ import {
 import { OrderService } from './order.service';
 import { makeUserReputationStub } from './test-helpers';
 import { FakeObjectStorage } from '../storage/object-storage.fake';
+import { OrderStatusService } from './order-status.service';
 
 describe('OrderService — dispute metadata + post-settle window (Phase 5B Task 4)', () => {
   const USER_ADDR = 'GUSER';
@@ -108,7 +109,7 @@ describe('OrderService — dispute metadata + post-settle window (Phase 5B Task 
     const storage = new FakeObjectStorage();
 
     return {
-      svc: new OrderService(prisma, stellar, matching, cfg, markets, notifications, storage as any, makeUserReputationStub()),
+      svc: new OrderService(prisma, stellar, matching, cfg, markets, notifications, storage as any, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg)),
       prisma,
       stellar,
       storage,

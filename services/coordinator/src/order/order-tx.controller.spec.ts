@@ -10,6 +10,7 @@ import { OrderService } from './order.service';
 import { makeUserReputationStub, onChainTradeFor } from './test-helpers';
 import { OrderController } from './order.controller';
 import { ObjectStorageService } from '../storage/object-storage.service';
+import { OrderStatusService } from './order-status.service';
 
 const mockObjectStorage = { getObjectStream: jest.fn() };
 
@@ -228,7 +229,7 @@ describe('OrderService.buildMarkFiatPaidTx (unit)', () => {
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
 
-    return new OrderService(prisma, stellar, matching, cfg, markets, notifications, mockObjectStorage as any, makeUserReputationStub());
+    return new OrderService(prisma, stellar, matching, cfg, markets, notifications, mockObjectStorage as any, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg));
   }
 
   it('(a) FUNDED order, correct fiat payer (TOP_UP → user) → returns {xdr, networkPassphrase}', async () => {
@@ -355,7 +356,7 @@ describe('OrderService.buildCreateTradeTx (unit)', () => {
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
 
-    return new OrderService(prisma, stellar, matching, cfg, markets, notifications, mockObjectStorage as any, makeUserReputationStub());
+    return new OrderService(prisma, stellar, matching, cfg, markets, notifications, mockObjectStorage as any, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg));
   }
 
   it('(a) MATCHED TOP_UP order, caller is LP (usdc_provider) → returns {xdr, networkPassphrase}', async () => {
@@ -728,7 +729,7 @@ describe('OrderService.buildConfirmReleaseTx (unit)', () => {
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
 
-    return new OrderService(prisma, stellar, matching, cfg, markets, notifications, mockObjectStorage as any, makeUserReputationStub());
+    return new OrderService(prisma, stellar, matching, cfg, markets, notifications, mockObjectStorage as any, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg));
   }
 
   it('(a) FIAT_PAID TOP_UP order, caller is LP (confirmer) → returns {xdr, networkPassphrase}', async () => {

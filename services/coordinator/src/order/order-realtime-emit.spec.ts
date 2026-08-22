@@ -1,9 +1,10 @@
 import { OrderService } from './order.service';
 import { makeUserReputationStub, onChainTradeFor } from './test-helpers';
+import { OrderStatusService } from './order-status.service';
 
 const fakeStorage = {} as any;
 
-describe('OrderService.refreshOrderStatus — realtime emit on chain-confirmed advance', () => {
+describe('OrderStatusService.refreshOrderStatus — realtime emit on chain-confirmed advance', () => {
   const USER_ADDR = 'GUSER';
   const LP_ADDR = 'GLP';
   const PLATFORM = 'GPLATFORM';
@@ -74,6 +75,7 @@ describe('OrderService.refreshOrderStatus — realtime emit on chain-confirmed a
       notifications,
       fakeStorage,
       makeUserReputationStub(),
+      new OrderStatusService(prisma, stellar, cfg, realtime),
       realtime,
     );
     return { svc, prisma, stellar, realtime, order };
@@ -108,7 +110,7 @@ describe('OrderService.refreshOrderStatus — realtime emit on chain-confirmed a
     expect(realtime.emitOrderUpdate).not.toHaveBeenCalled();
   });
 
-  it('never throws when realtime is omitted (optional dep, back-compat 8-arg construction)', async () => {
+  it('never throws when realtime is omitted, since it is an optional dependency', async () => {
     const order = makeOrder();
     const prisma = {
       order: {
@@ -134,6 +136,7 @@ describe('OrderService.refreshOrderStatus — realtime emit on chain-confirmed a
       notifications,
       fakeStorage,
       makeUserReputationStub(),
+      new OrderStatusService(prisma, stellar, cfg),
     );
 
     await expect(svc.getOrder('order-1', USER_ADDR)).resolves.toBeTruthy();

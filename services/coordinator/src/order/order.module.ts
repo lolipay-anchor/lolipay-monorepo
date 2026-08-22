@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { OrderService } from './order.service';
+import { OrderStatusService } from './order-status.service';
 import { OrderController, LpAssignmentsController } from './order.controller';
 import { MatchingModule } from '../matching/matching.module';
 import { AuthModule } from '../auth/auth.module';
@@ -18,8 +19,8 @@ import { RealtimeModule } from '../realtime/realtime.module';
     ReputationModule,
     RealtimeModule,
   ],
-  providers: [OrderService],
+  providers: [OrderService, OrderStatusService],
   controllers: [OrderController, LpAssignmentsController],
-  exports: [OrderService],
+  exports: [OrderService, OrderStatusService],
 })
 export class OrderModule {}

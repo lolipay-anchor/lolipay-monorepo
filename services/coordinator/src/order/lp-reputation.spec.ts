@@ -1,5 +1,6 @@
 import { OrderService } from './order.service';
 import { makeUserReputationStub } from './test-helpers';
+import { OrderStatusService } from './order-status.service';
 
 describe('getLpReputation does not reward a provider for losing a dispute (S7/S8)', () => {
   function make(counts: { completed: number; refunded: number }, lpOverrides: any = {}) {
@@ -15,6 +16,7 @@ describe('getLpReputation does not reward a provider for losing a dispute (S7/S8
     const svc = new OrderService(
       prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
       makeUserReputationStub(),
+      new OrderStatusService(prisma, {} as any, {} as any),
     );
     const lp = {
       online: true,

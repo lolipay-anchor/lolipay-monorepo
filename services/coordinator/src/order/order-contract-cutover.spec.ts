@@ -1,5 +1,6 @@
 import { OrderService } from './order.service';
 import { makeUserReputationStub, withTxSupport } from './test-helpers';
+import { OrderStatusService } from './order-status.service';
 
 const fakeStorage = {} as any;
 
@@ -65,7 +66,7 @@ describe('OrderService — Phase 5A per-order contractId cutover', () => {
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
 
-    return { svc: new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub()), prisma, stellar, order };
+    return { svc: new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg)), prisma, stellar, order };
   }
 
   it('createFromQuote snapshots contractId = cfg.escrowContractId on the new order', async () => {
@@ -127,7 +128,7 @@ describe('OrderService — Phase 5A per-order contractId cutover', () => {
     const cfg = { platformWallet: PLATFORM, escrowContractId: ENV_CONTRACT } as any;
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
-    const svc = new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub());
+    const svc = new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg));
 
     await svc.createFromQuote(USER_ADDR, 'q1');
 

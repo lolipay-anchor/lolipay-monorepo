@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { OrderService } from './order.service';
+import { OrderStatusService } from './order-status.service';
 
 describe('OrderService.createFromQuote — advisory-lock transaction wiring (SECURITY MEDIUM fix wave)', () => {
   const USER = 'GUSER';
@@ -101,7 +102,7 @@ describe('OrderService.createFromQuote — advisory-lock transaction wiring (SEC
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
     const storage = {} as any;
 
-    const svc = new OrderService(prisma, stellar, matching, cfg, markets, notifications, storage, userReputation);
+    const svc = new OrderService(prisma, stellar, matching, cfg, markets, notifications, storage, userReputation, new OrderStatusService(prisma, stellar, cfg));
     return { svc, prisma, tx, txQuote, txOrder, txExecuteRaw, transactionSpy, userReputation };
   }
 

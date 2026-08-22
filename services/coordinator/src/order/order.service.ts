@@ -16,11 +16,14 @@ import { MatchingService } from '../matching/matching.service';
 import { AppConfigService } from '../config/app-config.service';
 import { MarketsService } from '../market/markets.service';
 import { NotificationService } from '../notification/notification.service';
-import { mapRoles, newTradeId, contractIdFor, Flow } from './order.params';
-import { verifyTradeMatchesOrder } from './trade-binding';
+import { mapRoles, newTradeId, Flow } from './order.params';
 import { describeContractError } from './contract-error';
 import { ConfigCache } from '../config/config-cache';
-import { TradeOnChain } from '../stellar/stellar-read.types';
+import {
+  OrderStatusService,
+  isAhead,
+  REFRESH_FROM_CHAIN_STATUSES,
+} from './order-status.service';
 import { generateRef } from './ref.util';
 import { quoteUsdcForFiat } from '../money/money';
 import {
@@ -41,30 +44,7 @@ export const MAX_REF_ATTEMPTS = 5;
 
 const PRE_CHAIN_STATUSES = ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN'];
 
-const NOT_YET_BOUND_ON_CHAIN = ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'EXPIRED'];
-
-const REFRESH_FROM_CHAIN_STATUSES = [
-  'MATCHED',
-  'AWAITING_ONCHAIN',
-  'FUNDED',
-  'FIAT_PAID',
-  'DISPUTED',
-];
-
 const FUNDED_OR_LATER = ['FUNDED', 'FIAT_PAID', 'RELEASED', 'REFUNDED', 'DISPUTED'];
-
-const STATUS_ORDER = [
-  'CREATED',
-  'MATCHED',
-  'AWAITING_ONCHAIN',
-  'FUNDED',
-  'FIAT_PAID',
-  'DISPUTED',
-  'RELEASED',
-  'REFUNDED',
-  'EXPIRED',
-  'CANCELLED',
-];
 
 export interface CreateTradeParams {
   trade_id: string;
@@ -93,6 +73,7 @@ export class OrderService {
     private notifications: NotificationService,
     private storage: ObjectStorageService,
     private userReputation: UserReputationService,
+    private status: OrderStatusService,
     private realtime?: RealtimeGateway,
   ) {}
 
@@ -282,7 +263,7 @@ export class OrderService {
     const isLp = order.lp?.stellarAddress === callerAddress;
     if (!isUser && !isLp) throw new ForbiddenException('not your order');
 
-    const currentOrder = await this.refreshOrderStatus(id, order);
+    const currentOrder = await this.status.refreshOrderStatus(id, order);
 
     const isFundedOrLater = FUNDED_OR_LATER.includes(currentOrder.status);
     const fiatPayer = currentOrder.lp
@@ -330,14 +311,14 @@ export class OrderService {
     if (REFRESH_FROM_CHAIN_STATUSES.includes(order.status)) {
       let onChain;
       try {
-        onChain = await this.stellar.getTradeStatusStrict(this.contractIdFor(order), order.tradeId);
+        onChain = await this.stellar.getTradeStatusStrict(this.status.contractIdFor(order), order.tradeId);
       } catch {
         throw new HttpException(
           'cannot verify on-chain status, retry',
           HttpStatus.CONFLICT,
         );
       }
-      if (onChain && this.tradeBindsToOrder(onChain, order) && isAhead(onChain.status, order.status)) {
+      if (onChain && this.status.tradeBindsToOrder(onChain, order) && isAhead(onChain.status, order.status)) {
         const updated = await this.prisma.order.update({
           where: { id },
           data: { status: onChain.status as any },
@@ -386,7 +367,7 @@ export class OrderService {
       throw new ForbiddenException('only the fiat payer may build this transaction');
     }
 
-    const currentOrder = await this.refreshOrderStatus(orderId, order);
+    const currentOrder = await this.status.refreshOrderStatus(orderId, order);
 
     if (currentOrder.status !== 'FUNDED') {
       throw new ConflictException('order must be in FUNDED status to mark fiat paid');
@@ -401,7 +382,7 @@ export class OrderService {
 
     try {
       return await this.stellar.buildMarkFiatPaidTx(
-        this.contractIdFor(currentOrder),
+        this.status.contractIdFor(currentOrder),
         callerAddress,
         currentOrder.tradeId,
       );
@@ -433,7 +414,7 @@ export class OrderService {
       throw new ForbiddenException('only the usdc_provider may build this transaction');
     }
 
-    const currentOrder = await this.refreshOrderStatus(orderId, order);
+    const currentOrder = await this.status.refreshOrderStatus(orderId, order);
 
     const preChainCreateStatuses = ['MATCHED', 'AWAITING_ONCHAIN'];
     if (!preChainCreateStatuses.includes(currentOrder.status)) {
@@ -444,7 +425,7 @@ export class OrderService {
 
     try {
       return await this.stellar.buildCreateTradeTx({
-        contractId: this.contractIdFor(currentOrder),
+        contractId: this.status.contractIdFor(currentOrder),
         tradeIdHex: currentOrder.tradeId,
         usdcProvider: roles.usdcProvider,
         usdcRecipient: roles.usdcRecipient,
@@ -490,7 +471,7 @@ export class OrderService {
       throw new ForbiddenException('only the confirmer may build this transaction');
     }
 
-    const currentOrder = await this.refreshOrderStatus(orderId, order);
+    const currentOrder = await this.status.refreshOrderStatus(orderId, order);
 
     if (currentOrder.status !== 'FIAT_PAID') {
       throw new ConflictException('order must be in FIAT_PAID status to confirm release');
@@ -498,7 +479,7 @@ export class OrderService {
 
     try {
       return await this.stellar.buildConfirmReleaseTx(
-        this.contractIdFor(currentOrder),
+        this.status.contractIdFor(currentOrder),
         callerAddress,
         currentOrder.tradeId,
       );
@@ -526,7 +507,7 @@ export class OrderService {
       callerAddress === order.userAddress || callerAddress === order.lp?.stellarAddress;
     if (!isParty) throw new ForbiddenException('only a trade party may raise a dispute');
 
-    const currentOrder = await this.refreshOrderStatus(orderId, order);
+    const currentOrder = await this.status.refreshOrderStatus(orderId, order);
     const config = await this.getConfig();
     if (!canDispute(currentOrder, config)) {
       throw new ConflictException(
@@ -535,7 +516,7 @@ export class OrderService {
     }
     try {
       return await this.stellar.buildRaiseDisputeTx(
-        this.contractIdFor(currentOrder),
+        this.status.contractIdFor(currentOrder),
         callerAddress,
         currentOrder.tradeId,
       );
@@ -560,13 +541,13 @@ export class OrderService {
     });
     if (!order) throw new NotFoundException('order not found');
 
-    const currentOrder = await this.refreshOrderStatus(orderId, order);
+    const currentOrder = await this.status.refreshOrderStatus(orderId, order);
     if (currentOrder.status !== 'DISPUTED') {
       throw new ConflictException('order is not in DISPUTED status');
     }
     try {
       return await this.stellar.buildResolveTx(
-        this.contractIdFor(currentOrder),
+        this.status.contractIdFor(currentOrder),
         callerAddress,
         currentOrder.tradeId,
         outcome,
@@ -601,7 +582,7 @@ export class OrderService {
       throw new ForbiddenException('only the assigned LP may upload payment proof for this order');
     }
 
-    const currentOrder = await this.refreshOrderStatus(orderId, order);
+    const currentOrder = await this.status.refreshOrderStatus(orderId, order);
     if (currentOrder.status !== 'FUNDED') {
       throw new ConflictException('order must be FUNDED to upload payment proof');
     }
@@ -729,7 +710,7 @@ export class OrderService {
       throw new ForbiddenException('only a trade party may upload dispute evidence for this order');
     }
 
-    const currentOrder = await this.refreshOrderStatus(orderId, order);
+    const currentOrder = await this.status.refreshOrderStatus(orderId, order);
     const config = await this.getConfig();
     if (!canDispute(currentOrder, config)) {
       throw new ConflictException(
@@ -759,7 +740,7 @@ export class OrderService {
     }
     const role: 'user' | 'lp' = isUser ? 'user' : 'lp';
 
-    const currentOrder = await this.refreshOrderStatus(orderId, order);
+    const currentOrder = await this.status.refreshOrderStatus(orderId, order);
     const config = await this.getConfig();
     if (!canDispute(currentOrder, config)) {
       throw new ConflictException(
@@ -881,8 +862,8 @@ export class OrderService {
     const mapOne = async (order: any) => {
       let currentOrder = order;
       if (REFRESH_FROM_CHAIN_STATUSES.includes(order.status)) {
-        const onChain = await this.stellar.getTradeStatus(this.contractIdFor(order), order.tradeId);
-        if (onChain && this.tradeBindsToOrder(onChain, order) && isAhead(onChain.status, order.status)) {
+        const onChain = await this.stellar.getTradeStatus(this.status.contractIdFor(order), order.tradeId);
+        if (onChain && this.status.tradeBindsToOrder(onChain, order) && isAhead(onChain.status, order.status)) {
           currentOrder = await this.prisma.order.update({
             where: { id: order.id },
             data: { status: onChain.status as any },
@@ -917,49 +898,6 @@ export class OrderService {
     return results.map((r) => ({ ...r, require_proof: config?.requireProof ?? false }));
   }
 
-  private tradeBindsToOrder(onChain: TradeOnChain, order: any): boolean {
-    if (!NOT_YET_BOUND_ON_CHAIN.includes(order.status)) return true;
-
-    const mismatches = verifyTradeMatchesOrder(onChain, order);
-    if (mismatches.length === 0) return true;
-
-    this.log.error(
-      `order ${order.id} (tradeId ${order.tradeId}): REFUSING to bind — the on-chain trade does not match the order. ${mismatches.join(' | ')}`,
-    );
-    return false;
-  }
-
-  private async refreshOrderStatus(id: string, order: any): Promise<any> {
-    if (!REFRESH_FROM_CHAIN_STATUSES.includes(order.status)) {
-      return order;
-    }
-    const onChain = await this.stellar.getTradeStatus(this.contractIdFor(order), order.tradeId);
-
-    if (onChain && !this.tradeBindsToOrder(onChain, order)) return order;
-
-    if (onChain && isAhead(onChain.status, order.status)) {
-      const updated = await this.prisma.order.update({
-        where: { id },
-        data: { status: onChain.status as any },
-        include: { lp: true },
-      });
-
-      this.realtime?.emitOrderUpdate({
-        id: updated.id,
-        status: updated.status,
-        flow: updated.flow,
-        userAddress: updated.userAddress,
-        lpWallet: updated.lpWallet,
-      });
-      return updated;
-    }
-    return order;
-  }
-
-  private contractIdFor(order: { contractId?: string | null }): string {
-    return contractIdFor(order, this.cfg);
-  }
-
   private requireLp<T extends { stellarAddress: string }>(order: { lp: T | null }): T {
     if (!order.lp) {
       throw new ConflictException('order has no matched LP yet');
@@ -982,12 +920,6 @@ export class OrderService {
   private getConfig() {
     return this.configCache.read(this.prisma, this.cfg.platformWallet);
   }
-}
-
-function isAhead(newStatus: string, currentStatus: string): boolean {
-  const newIdx = STATUS_ORDER.indexOf(newStatus);
-  const curIdx = STATUS_ORDER.indexOf(currentStatus);
-  return newIdx > curIdx;
 }
 
 function computeWindows(config: {

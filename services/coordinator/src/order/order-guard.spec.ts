@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { makeUserReputationStub, withTxSupport } from './test-helpers';
+import { OrderStatusService } from './order-status.service';
 
 const fakeStorage = {} as any;
 
@@ -73,7 +74,7 @@ describe('OrderService.createFromQuote — trustline guard', () => {
     const cfg = { platformWallet: PLATFORM } as any;
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
-    return { svc: new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub()), prisma };
+    return { svc: new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg)), prisma };
   }
 
   it('rejects a TOP_UP order when the USER lacks a USDC trustline — and does NOT consume the quote', async () => {

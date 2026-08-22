@@ -3,6 +3,7 @@ import { nativeToScVal } from '@stellar/stellar-sdk';
 import { OrderService } from './order.service';
 import { makeUserReputationStub } from './test-helpers';
 import { IndexerService } from '../indexer/indexer.service';
+import { OrderStatusService } from './order-status.service';
 
 const fakeStorage = {} as any;
 
@@ -98,7 +99,7 @@ describe('INERT-METADATA GRIEFING — A files metadata and never signs, B raises
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
 
-    const orderService = new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub());
+    const orderService = new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg));
     const userReputation = { recordDisputeLost: jest.fn().mockResolvedValue(undefined) } as any;
     const indexerService = new IndexerService(prisma, cfg, notifications, stellar, userReputation) as any;
 
@@ -194,7 +195,7 @@ describe('INERT-METADATA GRIEFING — A files metadata and never signs, B raises
     const cfg = { platformWallet: PLATFORM, escrowContractId: 'CTEST', escrowContractIdsExtra: [], adminAddresses: [] } as any;
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
-    const orderService = new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub());
+    const orderService = new OrderService(prisma, stellar, matching, cfg, markets, notifications, fakeStorage, makeUserReputationStub(), new OrderStatusService(prisma, stellar, cfg));
 
     await expect(
       orderService.postDispute(ORDER_ID, USER_ADDR, 'WRONG_AMOUNT', 'trying again', undefined),
