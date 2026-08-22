@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
-import { OrderStatus, Prisma, Rail } from '@prisma/client';
+import { OrderStatus, Prisma, Rail } from '../generated/prisma/client';
 import { applyBps, baseUnitsToUsdc } from '../money/money';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

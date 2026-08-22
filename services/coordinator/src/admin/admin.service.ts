@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { LpStatus, Market, OrderStatus, Prisma } from '@prisma/client';
+import { LpStatus, Market, OrderStatus, Prisma } from '../generated/prisma/client';
 import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { StellarReadService } from '../stellar/stellar-read.service';

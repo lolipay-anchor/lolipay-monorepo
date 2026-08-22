@@ -28,7 +28,8 @@
     "@nestjs/schematics": "^11.1.0",
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/websockets": "^11.2.1",
-    "@prisma/client": "^5.18.0",
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
     "@stellar/stellar-sdk": "^16.0.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
@@ -36,6 +37,7 @@
     "minio": "^8.0.7",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "pg": "^8.23.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.3"
@@ -46,9 +48,10 @@
     "@types/express": "^5.0.6",
     "@types/jest": "^29.5.12",
     "@types/node": "^22.5.0",
+    "@types/pg": "^8.23.1",
     "@types/supertest": "^6.0.2",
     "jest": "^29.7.0",
-    "prisma": "^5.18.0",
+    "prisma": "^7.9.1",
     "supertest": "^7.0.0",
     "ts-jest": "^29.2.0",
     "typescript": "^5.5.4"
@@ -75,6 +78,7 @@
   "overrides": {
     "socket.io-parser": "^4.2.7",
     "fast-xml-parser": "^5.11.0",
-    "axios": "^1.19.0"
+    "axios": "^1.19.0",
+    "deepmerge-ts": "^8.0.2"
   }
 }

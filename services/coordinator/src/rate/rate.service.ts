@@ -13,7 +13,7 @@ import { normalizeFiat } from './fiat';
 import { MarketsService } from '../market/markets.service';
 import { ConfigCache } from '../config/config-cache';
 import { UserReputationService } from '../reputation/user-reputation.service';
-import { Flow, Market } from '@prisma/client';
+import { Flow, Market } from '../generated/prisma/client';
 
 export const QUOTE_TTL_MS = 300_000;
 

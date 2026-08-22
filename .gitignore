@@ -27,3 +27,4 @@ Thumbs.db
 *.log
 .idea/
 .vscode/
+services/coordinator/src/generated/

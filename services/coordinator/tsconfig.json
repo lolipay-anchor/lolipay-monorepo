@@ -15,5 +15,5 @@
       "@stellar/stellar-sdk/rpc": ["./node_modules/@stellar/stellar-sdk/lib/esm/rpc/index.d.ts"]
     }
   },
-  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts", "**/*.e2e-spec.ts", "**/*.fake.ts"]
+  "exclude": ["node_modules", "dist", "test", "prisma.config.ts", "**/*.spec.ts", "**/*.e2e-spec.ts", "**/*.fake.ts"]
 }

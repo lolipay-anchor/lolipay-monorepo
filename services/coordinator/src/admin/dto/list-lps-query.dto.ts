@@ -1,5 +1,5 @@
 import { IsEnum, IsOptional } from 'class-validator';
-import { LpStatus } from '@prisma/client';
+import { LpStatus } from '../../generated/prisma/client';
 
 export class ListLpsQueryDto {
   @IsEnum(LpStatus)
