@@ -38,7 +38,7 @@ describe('StellarReadService.buildStakeTx (unit, mocked RPC server)', () => {
   }
 
   const fakeAccount = new Account(LP_ADDR, '100');
-  const fakePreparedTx = { toXDR: () => SENTINEL_XDR };
+  const fakePreparedTx = { toXdr: () => SENTINEL_XDR };
 
   it('happy path: returns { xdr, networkPassphrase } from prepareTransaction', async () => {
     const svc = makeSvc();

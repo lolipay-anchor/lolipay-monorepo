@@ -30,7 +30,7 @@
     "@nestjs/websockets": "^11.2.1",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
-    "@stellar/stellar-sdk": "^16.0.1",
+    "@stellar/stellar-sdk": "^17.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "helmet": "^8.2.0",
@@ -69,7 +69,7 @@
     },
     "testEnvironment": "node",
     "transformIgnorePatterns": [
-      "node_modules/(?!(@borewit/text-codec|@isaacs/cliui|@noble/ed25519|@noble/hashes|@stellar/stellar-sdk|@tokenizer/inflate|axios|baseline-browser-mapping|cliui|es-module-lexer|eventsource|eventsource-parser|file-type|foreground-child|formidable|get-package-type|glob|is-retry-allowed|jackspeak|libphonenumber-js|minipass|node-releases|package-json-from-dist|path-scurry|proxy-from-env|smol-toml|strtok3|terser|token-types|uint8array-extras|y18n|yargs|yargs-parser))"
+      "node_modules/(?!(@exodus/[^/]+|@borewit/text-codec|@isaacs/cliui|@noble/ed25519|@noble/hashes|@stellar/stellar-sdk|@tokenizer/inflate|axios|baseline-browser-mapping|cliui|es-module-lexer|eventsource|eventsource-parser|file-type|foreground-child|formidable|get-package-type|glob|is-retry-allowed|jackspeak|libphonenumber-js|minipass|node-releases|package-json-from-dist|path-scurry|proxy-from-env|smol-toml|strtok3|terser|token-types|uint8array-extras|y18n|yargs|yargs-parser))"
     ],
     "setupFiles": [
       "<rootDir>/jest-setup.ts"

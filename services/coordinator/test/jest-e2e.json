@@ -1,5 +1,9 @@
 {
-  "moduleFileExtensions": ["js", "json", "ts"],
+  "moduleFileExtensions": [
+    "js",
+    "json",
+    "ts"
+  ],
   "rootDir": "..",
   "testEnvironment": "node",
   "testRegex": "\\.e2e-spec\\.ts$",
@@ -7,7 +11,9 @@
     "^.+\\.(t|j)s$": "ts-jest"
   },
   "transformIgnorePatterns": [
-    "node_modules/(?!(@borewit/text-codec|@isaacs/cliui|@noble/ed25519|@noble/hashes|@stellar/stellar-sdk|@tokenizer/inflate|axios|baseline-browser-mapping|cliui|es-module-lexer|eventsource|eventsource-parser|file-type|foreground-child|formidable|get-package-type|glob|is-retry-allowed|jackspeak|libphonenumber-js|minipass|node-releases|package-json-from-dist|path-scurry|proxy-from-env|smol-toml|strtok3|terser|token-types|uint8array-extras|y18n|yargs|yargs-parser))"
+    "node_modules/(?!(@exodus/[^/]+|@borewit/text-codec|@isaacs/cliui|@noble/ed25519|@noble/hashes|@stellar/stellar-sdk|@tokenizer/inflate|axios|baseline-browser-mapping|cliui|es-module-lexer|eventsource|eventsource-parser|file-type|foreground-child|formidable|get-package-type|glob|is-retry-allowed|jackspeak|libphonenumber-js|minipass|node-releases|package-json-from-dist|path-scurry|proxy-from-env|smol-toml|strtok3|terser|token-types|uint8array-extras|y18n|yargs|yargs-parser))"
   ],
-  "setupFiles": ["<rootDir>/test/e2e-setup.ts"]
+  "setupFiles": [
+    "<rootDir>/test/e2e-setup.ts"
+  ]
 }

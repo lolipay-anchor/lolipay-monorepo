@@ -280,7 +280,7 @@ describe('StellarReadService.buildRefundTx', () => {
 
   it('returns the prepared Transaction OBJECT (not just xdr) — RefundSignerService.submitRefund needs to .sign() it', async () => {
     const svc = makeSvc();
-    const preparedTxSentinel = { toXDR: () => 'prepared-xdr-sentinel' };
+    const preparedTxSentinel = { toXdr: () => 'prepared-xdr-sentinel' };
     const mockServer = {
       getAccount: jest.fn().mockResolvedValue(fakeAccount),
       prepareTransaction: jest.fn().mockResolvedValue(preparedTxSentinel),
@@ -309,12 +309,12 @@ describe('StellarReadService.buildRefundTx', () => {
     await svc.buildRefundTx(EXPLICIT_CONTRACT, FAKE_TRADE_ID, SIGNER_ADDR);
 
     expect(seenOp.type).toBe('invokeHostFunction');
-    const invokeArgs = seenOp.func.invokeContract();
-    expect(invokeArgs.functionName().toString()).toBe('refund');
-    expect(Address.fromScAddress(invokeArgs.contractAddress()).toString()).toBe(EXPLICIT_CONTRACT);
-    expect(Address.fromScAddress(invokeArgs.contractAddress()).toString()).not.toBe(CFG_CONTRACT);
+    const invokeArgs = seenOp.func.invokeContract;
+    expect(invokeArgs.functionName.toString()).toBe('refund');
+    expect(Address.fromScAddress(invokeArgs.contractAddress).toString()).toBe(EXPLICIT_CONTRACT);
+    expect(Address.fromScAddress(invokeArgs.contractAddress).toString()).not.toBe(CFG_CONTRACT);
 
-    expect(invokeArgs.args()).toHaveLength(1);
+    expect(invokeArgs.args).toHaveLength(1);
   });
 
   it('throws a clear error when the source account cannot be loaded', async () => {

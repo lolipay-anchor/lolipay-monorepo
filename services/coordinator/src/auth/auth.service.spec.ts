@@ -9,7 +9,7 @@ function signSep53(kp: Keypair, challenge: string): string {
     Buffer.from(challenge, 'utf8'),
   ]);
   const hash = createHash('sha256').update(payload).digest();
-  return kp.sign(hash).toString('base64');
+  return Buffer.from(kp.sign(hash)).toString('base64');
 }
 
 const KEY_A = 'a'.repeat(32);

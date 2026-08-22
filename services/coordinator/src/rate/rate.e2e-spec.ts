@@ -22,7 +22,7 @@ function signChallenge(kp: Keypair, message: string): string {
     Buffer.from(message, 'utf8'),
   ]);
   const hash = createHash('sha256').update(payload).digest();
-  return kp.sign(hash).toString('base64');
+  return Buffer.from(kp.sign(hash)).toString('base64');
 }
 
 async function getJwt(app: INestApplication): Promise<{ jwt: string; address: string }> {

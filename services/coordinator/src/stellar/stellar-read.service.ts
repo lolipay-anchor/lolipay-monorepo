@@ -49,6 +49,8 @@ function isNotFound(err: unknown): boolean {
   return NOT_FOUND_PATTERNS.some((p) => msg.includes(p));
 }
 
+const USE_LEGACY_SOROBAN_AUTH = false;
+
 const STELLAR_ADDRESS_RE = /^[GCM][A-Z2-7]{55}$/;
 
 function asBigInt(v: unknown): bigint | undefined {
@@ -260,13 +262,13 @@ export class StellarReadService {
 
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildMarkFiatPaidTx: prepareTransaction failed: ${msg}`);
     }
 
-    return { xdr: preparedTx.toXDR(), networkPassphrase: this.cfg.networkPassphrase };
+    return { xdr: preparedTx.toXdr(), networkPassphrase: this.cfg.networkPassphrase };
   }
 
   async buildCreateTradeTx(
@@ -335,13 +337,13 @@ export class StellarReadService {
 
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildCreateTradeTx: prepareTransaction failed: ${msg}`);
     }
 
-    return { xdr: preparedTx.toXDR(), networkPassphrase: this.cfg.networkPassphrase };
+    return { xdr: preparedTx.toXdr(), networkPassphrase: this.cfg.networkPassphrase };
   }
 
   async buildConfirmReleaseTx(
@@ -377,13 +379,13 @@ export class StellarReadService {
 
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildConfirmReleaseTx: prepareTransaction failed: ${msg}`);
     }
 
-    return { xdr: preparedTx.toXDR(), networkPassphrase: this.cfg.networkPassphrase };
+    return { xdr: preparedTx.toXdr(), networkPassphrase: this.cfg.networkPassphrase };
   }
 
   async buildRaiseDisputeTx(
@@ -416,12 +418,12 @@ export class StellarReadService {
       .build();
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildRaiseDisputeTx: prepareTransaction failed: ${msg}`);
     }
-    return { xdr: preparedTx.toXDR(), networkPassphrase: this.cfg.networkPassphrase };
+    return { xdr: preparedTx.toXdr(), networkPassphrase: this.cfg.networkPassphrase };
   }
 
   async buildResolveTx(
@@ -457,12 +459,12 @@ export class StellarReadService {
       .build();
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildResolveTx: prepareTransaction failed: ${msg}`);
     }
-    return { xdr: preparedTx.toXDR(), networkPassphrase: this.cfg.networkPassphrase };
+    return { xdr: preparedTx.toXdr(), networkPassphrase: this.cfg.networkPassphrase };
   }
 
   async buildRefundTx(
@@ -493,7 +495,7 @@ export class StellarReadService {
       .build();
 
     try {
-      return await withRpcRetry(() => server.prepareTransaction(tx), 'prepareTransaction');
+      return await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildRefundTx: prepareTransaction failed: ${msg}`);
@@ -536,13 +538,13 @@ export class StellarReadService {
 
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildStakeTx: prepareTransaction failed: ${msg}`);
     }
 
-    return { xdr: preparedTx.toXDR(), networkPassphrase: this.cfg.networkPassphrase };
+    return { xdr: preparedTx.toXdr(), networkPassphrase: this.cfg.networkPassphrase };
   }
 
   async buildRequestUnstakeTx(
@@ -576,12 +578,12 @@ export class StellarReadService {
       .build();
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildRequestUnstakeTx: prepareTransaction failed: ${msg}`);
     }
-    return { xdr: preparedTx.toXDR(), networkPassphrase: this.cfg.networkPassphrase };
+    return { xdr: preparedTx.toXdr(), networkPassphrase: this.cfg.networkPassphrase };
   }
 
   async buildClaimUnstakeTx(
@@ -611,12 +613,12 @@ export class StellarReadService {
       .build();
     let preparedTx;
     try {
-      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx), 'prepareTransaction');
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_LEGACY_SOROBAN_AUTH), 'prepareTransaction');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`buildClaimUnstakeTx: prepareTransaction failed: ${msg}`);
     }
-    return { xdr: preparedTx.toXDR(), networkPassphrase: this.cfg.networkPassphrase };
+    return { xdr: preparedTx.toXdr(), networkPassphrase: this.cfg.networkPassphrase };
   }
 
   async getStakeInfo(lpAddress: string): Promise<{

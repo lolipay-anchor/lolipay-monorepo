@@ -140,12 +140,12 @@ export class RefundSignerService {
       );
     }
     const hostFn = op.func;
-    if (hostFn.switch().name !== 'hostFunctionTypeInvokeContract') {
+    if (hostFn.type !== 'hostFunctionTypeInvokeContract') {
       throw new Error(
         'RefundSignerService: refused to sign — expected the host function to invoke a contract',
       );
     }
-    const fnName = hostFn.invokeContract().functionName().toString();
+    const fnName = hostFn.invokeContract.functionName.toString();
     if (fnName !== 'refund') {
       throw new Error(
         `RefundSignerService: refused to sign — expected function "refund", got "${fnName}"`,

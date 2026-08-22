@@ -227,7 +227,7 @@ describe('RefundSignerService.submitRefund', () => {
 
     await svc.submitRefund('CCONTRACT', 'ab'.repeat(32));
 
-    const signedXdr = builtTx!.toXDR();
+    const signedXdr = builtTx!.toXdr();
     for (const call of logSpy.mock.calls) {
       for (const arg of call) {
         expect(String(arg)).not.toContain(secret);

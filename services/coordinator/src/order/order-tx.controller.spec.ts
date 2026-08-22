@@ -37,7 +37,7 @@ describe('StellarReadService.buildMarkFiatPaidTx (unit, mocked RPC server)', () 
   }
 
   const fakeAccount = new Account(USER_ADDR, '100');
-  const fakePreparedTx = { toXDR: () => SENTINEL_XDR };
+  const fakePreparedTx = { toXdr: () => SENTINEL_XDR };
 
   it('happy path: returns { xdr, networkPassphrase } from prepareTransaction', async () => {
     const svc = makeSvc();
@@ -93,7 +93,7 @@ describe('StellarReadService.buildCreateTradeTx (unit, mocked RPC server)', () =
   }
 
   const fakeAccount = new Account(LP_ADDR, '100');
-  const fakePreparedTx = { toXDR: () => SENTINEL_XDR };
+  const fakePreparedTx = { toXdr: () => SENTINEL_XDR };
 
   const BASE_PARAMS = {
     contractId: FAKE_CONTRACT,
@@ -651,7 +651,7 @@ describe('StellarReadService.buildConfirmReleaseTx (unit, mocked RPC server)', (
   }
 
   const fakeAccount = new Account(LP_ADDR, '100');
-  const fakePreparedTx = { toXDR: () => SENTINEL_XDR };
+  const fakePreparedTx = { toXdr: () => SENTINEL_XDR };
 
   it('happy path: returns { xdr, networkPassphrase } from prepareTransaction', async () => {
     const svc = makeSvc();

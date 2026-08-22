@@ -28,7 +28,7 @@ const OVERSIZE_JPG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffe
 function signChallenge(kp: Keypair, message: string): string {
   const payload = Buffer.concat([Buffer.from('Stellar Signed Message:\n', 'utf8'), Buffer.from(message, 'utf8')]);
   const hash = createHash('sha256').update(payload).digest();
-  return kp.sign(hash).toString('base64');
+  return Buffer.from(kp.sign(hash)).toString('base64');
 }
 
 async function mintJwt(app: INestApplication, kp: Keypair): Promise<string> {

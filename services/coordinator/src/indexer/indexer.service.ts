@@ -119,14 +119,14 @@ export class IndexerService {
   private async applyEvent(ev: { topic: any[]; value: any; contractId?: any }): Promise<number> {
     if (!ev.topic || ev.topic.length < 2) return 0;
     const toScVal = (t: any) =>
-      typeof t === 'string' ? xdr.ScVal.fromXDR(t, 'base64') : t;
+      typeof t === 'string' ? xdr.ScVal.fromXdr(t, 'base64') : t;
 
     let name: string;
     let tradeId: string;
     try {
       name = String(scValToNative(toScVal(ev.topic[0])));
       const tid = scValToNative(toScVal(ev.topic[1]));
-      tradeId = Buffer.isBuffer(tid) ? tid.toString('hex') : String(tid);
+      tradeId = tid instanceof Uint8Array ? Buffer.from(tid).toString('hex') : String(tid);
     } catch {
       return 0;
     }
