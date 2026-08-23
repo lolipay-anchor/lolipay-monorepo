@@ -1,5 +1,7 @@
 import { RealtimeGateway, MAX_SOCKETS_PER_ADDRESS, CONNECT_RATE_LIMIT } from './realtime.gateway';
 
+const FAR_FUTURE = Math.floor(Date.now() / 1000) + 3600;
+
 const JWT_SECRET = 'z'.repeat(40);
 const ADMIN = 'GADMIN';
 const USER = 'GUSER';
@@ -35,11 +37,11 @@ function makeGateway(opts: {
   const jwt = {
     verify: jest.fn().mockImplementation((token: string) => {
       if (opts.verifyImpl) return opts.verifyImpl(token);
-      if (token === 'valid-user') return { sub: USER, cls: 'session' };
-      if (token === 'valid-lp') return { sub: LP_ADDR, cls: 'session' };
-      if (token === 'valid-admin') return { sub: ADMIN, cls: 'session' };
-      if (token === 'valid-other-user') return { sub: OTHER_USER, cls: 'session' };
-      if (token === 'valid-non-party-lp') return { sub: NON_PARTY_LP, cls: 'session' };
+      if (token === 'valid-user') return { sub: USER, cls: 'session', exp: FAR_FUTURE };
+      if (token === 'valid-lp') return { sub: LP_ADDR, cls: 'session', exp: FAR_FUTURE };
+      if (token === 'valid-admin') return { sub: ADMIN, cls: 'session', exp: FAR_FUTURE };
+      if (token === 'valid-other-user') return { sub: OTHER_USER, cls: 'session', exp: FAR_FUTURE };
+      if (token === 'valid-non-party-lp') return { sub: NON_PARTY_LP, cls: 'session', exp: FAR_FUTURE };
       throw new Error('invalid token');
     }),
   } as any;
@@ -152,7 +154,7 @@ describe('RealtimeGateway — handshake auth', () => {
     expect(jwt.verify).toHaveBeenCalledWith('valid-user', {
       secret: cfg.jwtSecret,
       algorithms: ['HS256'],
-      issuer: cfg.jwtIssuer,
+      issuer: 'https://lolipay.app/',
       audience: cfg.jwtAudience,
     });
   });
@@ -524,7 +526,7 @@ describe('the socket door honours the token class too', () => {
 
   it('still lets a session token into the administrator room', async () => {
     const { gw } = makeGateway({
-      verifyImpl: () => ({ sub: ADMIN, cls: 'session' }),
+      verifyImpl: () => ({ sub: ADMIN, cls: 'session', exp: FAR_FUTURE }),
       adminAddresses: [ADMIN],
     });
     const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
@@ -557,7 +559,7 @@ describe('the socket door is a session door', () => {
   });
 
   it('still admits an ordinary session', async () => {
-    const { gw } = makeGateway({ verifyImpl: () => ({ sub: USER, cls: 'session' }) });
+    const { gw } = makeGateway({ verifyImpl: () => ({ sub: USER, cls: 'session', exp: FAR_FUTURE }) });
     const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
 
     await gw.handleConnection(socket);
@@ -566,3 +568,84 @@ describe('the socket door is a session door', () => {
     expect(socket.join).toHaveBeenCalledWith(`user:${USER}`);
   });
 });
+
+describe('a socket does not outlive the token that opened it', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('disconnects the socket when the token expires', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 60;
+    const { gw } = makeGateway({ verifyImpl: () => ({ sub: USER, cls: 'session', exp }) });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+
+    await gw.handleConnection(socket);
+    expect(socket.disconnect).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(61_000);
+
+    expect(socket.disconnect).toHaveBeenCalledWith(true);
+  });
+
+  it('does not disconnect before the token expires', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 900;
+    const { gw } = makeGateway({ verifyImpl: () => ({ sub: USER, cls: 'session', exp }) });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+
+    await gw.handleConnection(socket);
+    jest.advanceTimersByTime(800_000);
+
+    expect(socket.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('refuses a token with no expiry rather than granting an endless socket', async () => {
+    const { gw } = makeGateway({ verifyImpl: () => ({ sub: USER, cls: 'session' }) });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+
+    await gw.handleConnection(socket);
+
+    expect(socket.disconnect).toHaveBeenCalledWith(true);
+    expect(socket.join).not.toHaveBeenCalled();
+  });
+});
+
+describe('joining an order re-asks whether the caller is still who they were', () => {
+  it('refuses and disconnects once the wallet behind the socket is revoked', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 900;
+    const { gw, prisma } = makeGateway({
+      verifyImpl: () => ({ sub: USER, cls: 'session', exp }),
+    });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+    await gw.handleConnection(socket);
+    prisma.order.findUnique = jest.fn().mockResolvedValue({
+      id: 'ord-1',
+      userAddress: USER,
+      lpWallet: null,
+    });
+
+    prisma.walletLink.findUnique = jest.fn().mockResolvedValue({ status: 'REVOKED' });
+    await gw.handleJoinOrder(socket, { orderId: 'ord-1' });
+
+    expect(socket.join).not.toHaveBeenCalledWith('order:ord-1');
+    expect(socket.disconnect).toHaveBeenCalledWith(true);
+  });
+
+  it('still joins while the wallet is live', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 900;
+    const { gw, prisma } = makeGateway({
+      verifyImpl: () => ({ sub: USER, cls: 'session', exp }),
+    });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+    await gw.handleConnection(socket);
+    prisma.order.findUnique = jest.fn().mockResolvedValue({
+      id: 'ord-1',
+      userAddress: USER,
+      lpWallet: null,
+    });
+
+    await gw.handleJoinOrder(socket, { orderId: 'ord-1' });
+
+    expect(socket.join).toHaveBeenCalledWith('order:ord-1');
+    expect(socket.disconnect).not.toHaveBeenCalled();
+  });
+});
+

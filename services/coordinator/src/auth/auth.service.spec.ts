@@ -43,7 +43,7 @@ describe('AuthService (stateless HMAC challenge)', () => {
     expect(token).toBe('jwt-token');
     expect(jwt.signAsync).toHaveBeenCalledWith(
       { sub: kp.publicKey(), role: 'user', cls: 'session' },
-      { expiresIn: 900, issuer: 'https://lolipay.app', audience: 'lolipay-app' },
+      { expiresIn: 900, issuer: 'https://lolipay.app/', audience: 'lolipay-app' },
     );
   });
 
@@ -116,7 +116,7 @@ describe('AuthService (stateless HMAC challenge)', () => {
     await svc.verify(kp.publicKey(), challenge, sig);
     expect(jwt.signAsync).toHaveBeenCalledWith(
       { sub: kp.publicKey(), role: 'admin', cls: 'session' },
-      { expiresIn: 900, issuer: 'https://lolipay.app', audience: 'lolipay-app' },
+      { expiresIn: 900, issuer: 'https://lolipay.app/', audience: 'lolipay-app' },
     );
   });
 });

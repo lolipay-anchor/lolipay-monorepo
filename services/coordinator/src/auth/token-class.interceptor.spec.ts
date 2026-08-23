@@ -1,7 +1,11 @@
 import { CallHandler, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { of } from 'rxjs';
-import { ALLOW_TOKEN_CLASSES, TokenClassInterceptor } from './token-class.interceptor';
+import {
+  ALLOW_TOKEN_CLASSES,
+  AllowTokenClasses,
+  TokenClassInterceptor,
+} from './token-class.interceptor';
 import { TOKEN_CLASSES } from './role.util';
 
 function ctxFor(user: any, allowed?: readonly string[], type = 'http'): ExecutionContext {
@@ -63,3 +67,35 @@ describe('the internal API is closed to anchor tokens unless a route opts in', (
     },
   );
 });
+
+describe('opting a route in never locks an ordinary session out of it', () => {
+  it('still serves a session on a route that opts anchor tokens in', async () => {
+    await expect(
+      run({ address: 'GUSER', cls: 'session' }, ['sep10']).toPromise(),
+    ).resolves.toBe('reached the handler');
+  });
+
+  it('serves the anchor token there too', async () => {
+    await expect(
+      run({ address: 'GUSER', cls: 'sep10' }, ['sep10']).toPromise(),
+    ).resolves.toBe('reached the handler');
+  });
+});
+
+describe('a class-level opt-in cannot silently widen its sibling routes', () => {
+  it('refuses to be applied to a class at all', () => {
+    expect(() => {
+      const decorate = AllowTokenClasses('sep10') as ClassDecorator;
+      decorate(class Widened {});
+    }).toThrow(/method/i);
+  });
+
+  it('applies happily to a method', () => {
+    expect(() => {
+      const decorate = AllowTokenClasses('sep10') as MethodDecorator;
+      const target = { handler() {} };
+      decorate(target, 'handler', Object.getOwnPropertyDescriptor(target, 'handler')!);
+    }).not.toThrow();
+  });
+});
+

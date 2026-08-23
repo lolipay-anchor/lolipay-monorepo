@@ -12,7 +12,13 @@ import { JwtService } from '@nestjs/jwt';
 import type { Server, Socket } from 'socket.io';
 import { AppConfigService, parseCorsOrigins } from '../config/app-config.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { resolveRole, isTokenClass, Role, TokenClass } from '../auth/role.util';
+import {
+  resolveRole,
+  isTokenClass,
+  MAY_OPEN_SOCKET,
+  Role,
+  TokenClass,
+} from '../auth/role.util';
 import { jwtVerifyOptions } from '../auth/jwt-options';
 
 const CORS_ORIGINS = parseCorsOrigins(process.env.CORS_ORIGINS);
@@ -58,6 +64,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   private connectAttempts = new Map<string, { count: number; windowStart: number }>();
   private presenceInterval?: ReturnType<typeof setInterval>;
+  private expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(
     private jwt: JwtService,
@@ -87,19 +94,24 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
     let address: string;
     let cls: TokenClass;
+    let expiresAt: number;
     try {
-      const payload = this.jwt.verify<{ sub?: unknown; cls?: unknown }>(
+      const payload = this.jwt.verify<{ sub?: unknown; cls?: unknown; exp?: unknown }>(
         token,
         jwtVerifyOptions(this.cfg),
       );
       if (!payload || typeof payload.sub !== 'string' || !payload.sub) {
         throw new Error('missing sub claim');
       }
-      if (!isTokenClass(payload.cls) || payload.cls !== 'session') {
+      if (!isTokenClass(payload.cls) || !MAY_OPEN_SOCKET.includes(payload.cls)) {
         throw new Error('this token class may not open a socket');
+      }
+      if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) {
+        throw new Error('token has no expiry');
       }
       address = payload.sub;
       cls = payload.cls;
+      expiresAt = payload.exp * 1000;
     } catch {
       socket.disconnect(true);
       return;
@@ -122,13 +134,29 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     let role: Role;
     try {
       role = await resolveRole(address, this.prisma, this.cfg.adminAddresses, cls);
-    } catch {
+    } catch (err) {
+      this.log.warn(
+        `connect refused for ${address}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       this.releaseSocketSlot(address, socket.id);
       socket.disconnect(true);
       return;
     }
 
     socket.data = { address, role } satisfies SocketData;
+
+    const remaining = expiresAt - Date.now();
+    if (remaining <= 0) {
+      this.releaseSocketSlot(address, socket.id);
+      socket.disconnect(true);
+      return;
+    }
+    const expiryTimer = setTimeout(() => {
+      this.expiryTimers.delete(socket.id);
+      socket.disconnect(true);
+    }, remaining);
+    if (typeof expiryTimer.unref === 'function') expiryTimer.unref();
+    this.expiryTimers.set(socket.id, expiryTimer);
 
     await socket.join(`user:${address}`);
 
@@ -173,6 +201,17 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   ): Promise<void> {
     const data = socket.data as SocketData | undefined;
     if (!data?.address) return;
+
+    try {
+      const role = await resolveRole(data.address, this.prisma, this.cfg.adminAddresses, 'session');
+      if (role !== data.role) {
+        socket.data = { address: data.address, role } satisfies SocketData;
+      }
+    } catch {
+      this.log.warn(`join:order refused: ${data.address} is no longer a proven wallet`);
+      socket.disconnect(true);
+      return;
+    }
 
     if (!this.checkJoinRate(socket.id)) {
       socket.emit('join:order:error', { reason: 'rate_limited' });

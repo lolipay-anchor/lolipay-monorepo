@@ -1,6 +1,6 @@
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
-import { jwtVerifyOptions } from './jwt-options';
+import { jwtSignOptions, jwtVerifyOptions } from './jwt-options';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 const SECRET = 'a'.repeat(32);
@@ -40,8 +40,9 @@ function tokenWith(overrides: { issuer?: string; audience?: string }) {
   return new JwtService({ secret: SECRET }).sign(
     { sub: 'GUSER', cls: 'session' },
     {
-      issuer: overrides.issuer ?? cfg.jwtIssuer,
+      issuer: overrides.issuer ?? jwtSignOptions(cfg).issuer,
       audience: overrides.audience ?? cfg.jwtAudience,
+      expiresIn: '1h',
     },
   );
 }
@@ -57,14 +58,14 @@ describe('a token minted for somewhere else is not a token here', () => {
 
     expect(jwt.signAsync).toHaveBeenCalledWith(
       expect.objectContaining({ sub: 'GUSER', cls: 'session' }),
-      expect.objectContaining({ issuer: 'https://lolipay.app', audience: 'lolipay-app' }),
+      expect.objectContaining({ issuer: 'https://lolipay.app/', audience: 'lolipay-app' }),
     );
   });
 
   it('both doors verify against the same issuer and audience', () => {
     const opts = jwtVerifyOptions(makeCfg());
 
-    expect(opts.issuer).toBe('https://lolipay.app');
+    expect(opts.issuer).toBe('https://lolipay.app/');
     expect(opts.audience).toBe('lolipay-app');
     expect(opts.algorithms).toEqual(['HS256']);
   });

@@ -20,7 +20,10 @@ function requireUri(value: string): string {
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new Error(`JWT_ISSUER must be an http(s) URI. Got: ${value}`);
   }
-  return value;
+  if (parsed.username || parsed.password) {
+    throw new Error('JWT_ISSUER must not carry a credential — it is published in every token');
+  }
+  return parsed.href;
 }
 
 export function jwtVerifyOptions(cfg: AppConfigService): JwtVerifyOptions {
