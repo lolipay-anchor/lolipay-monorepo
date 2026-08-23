@@ -505,7 +505,7 @@ describe('the socket door honours the token class too', () => {
     await gw.handleConnection(socket);
 
     expect(socket.join).not.toHaveBeenCalledWith('admin:orders');
-    expect(socket.data.role).toBe('user');
+    expect(socket.disconnect).toHaveBeenCalledWith(true);
   });
 
   it('does not let a sep10 token join the provider room', async () => {
@@ -540,5 +540,27 @@ describe('the socket door honours the token class too', () => {
 
     expect(socket.disconnect).toHaveBeenCalledWith(true);
     expect(socket.join).not.toHaveBeenCalled();
+  });
+});
+
+describe('the socket door is a session door', () => {
+  it('refuses an anchor token outright rather than admitting it as a user', async () => {
+    const { gw } = makeGateway({ verifyImpl: () => ({ sub: USER, cls: 'sep10' }) });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+
+    await gw.handleConnection(socket);
+
+    expect(socket.disconnect).toHaveBeenCalledWith(true);
+    expect(socket.join).not.toHaveBeenCalled();
+  });
+
+  it('still admits an ordinary session', async () => {
+    const { gw } = makeGateway({ verifyImpl: () => ({ sub: USER, cls: 'session' }) });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+
+    await gw.handleConnection(socket);
+
+    expect(socket.disconnect).not.toHaveBeenCalled();
+    expect(socket.join).toHaveBeenCalledWith(`user:${USER}`);
   });
 });

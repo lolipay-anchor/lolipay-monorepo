@@ -95,8 +95,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       if (!payload || typeof payload.sub !== 'string' || !payload.sub) {
         throw new Error('missing sub claim');
       }
-      if (!isTokenClass(payload.cls)) {
-        throw new Error('token class missing or unrecognised');
+      if (!isTokenClass(payload.cls) || payload.cls !== 'session') {
+        throw new Error('this token class may not open a socket');
       }
       address = payload.sub;
       cls = payload.cls;
