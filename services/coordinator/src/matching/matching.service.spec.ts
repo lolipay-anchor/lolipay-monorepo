@@ -78,7 +78,7 @@ describe('MatchingService.pickLp', () => {
     const prisma = makePrisma([busyLp, idleLp]);
     const stellar = makeStellar({ GBUSY: true, GIDLE: true });
 
-    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn() } as any);
+    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
     const result = await svc.pickLp('BANK', 'IDR');
 
     expect(result.id).toBe('lp-idle');
@@ -93,7 +93,7 @@ describe('MatchingService.pickLp', () => {
     const prisma = makePrisma([ineligible, eligible]);
     const stellar = makeStellar({ GBAD: false, GGOOD: true });
 
-    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn() } as any);
+    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
     const result = await svc.pickLp('BANK', 'IDR');
 
     expect(result.id).toBe('lp-good');
@@ -106,7 +106,7 @@ describe('MatchingService.pickLp', () => {
     const prisma = makePrisma([lp1, lp2]);
     const stellar = makeStellar({ GAAAA: false, GBBBB: false });
 
-    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn() } as any);
+    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
     await expect(svc.pickLp('BANK', 'IDR')).rejects.toThrow(ServiceUnavailableException);
     await expect(svc.pickLp('BANK', 'IDR')).rejects.toThrow('no eligible LP available');
   });
@@ -115,7 +115,7 @@ describe('MatchingService.pickLp', () => {
     const prisma = makePrisma([]);
     const stellar = makeStellar({});
 
-    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn() } as any);
+    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
     await expect(svc.pickLp('QRIS', 'IDR')).rejects.toThrow(ServiceUnavailableException);
   });
 
@@ -125,7 +125,7 @@ describe('MatchingService.pickLp', () => {
     const prisma = makePrisma([phpOnlyLp, idrLp]);
     const stellar = makeStellar({ GPHP: true, GIDR: true });
 
-    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn() } as any);
+    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
     const result = await svc.pickLp('BANK', 'IDR');
 
     expect(result.id).toBe('lp-idr');
@@ -137,7 +137,7 @@ describe('MatchingService.pickLp', () => {
     const prisma = makePrisma([phpOnlyLp]);
     const stellar = makeStellar({ GPHP: true });
 
-    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn() } as any);
+    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
     await expect(svc.pickLp('BANK', 'IDR')).rejects.toThrow(ServiceUnavailableException);
   });
 
@@ -146,7 +146,7 @@ describe('MatchingService.pickLp', () => {
     const prisma = makePrisma([idrLp]);
     const stellar = makeStellar({ GIDR: true });
 
-    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn() } as any);
+    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
     await svc.pickLp('BANK', 'IDR');
 
     expect(prisma.lp.findMany).toHaveBeenCalledWith(
@@ -164,7 +164,7 @@ describe('MatchingService.pickLp', () => {
     const prisma = makePrisma([idrLp]);
     const stellar = makeStellar({ GIDR: true });
 
-    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn() } as any);
+    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
 
     await svc.pickLp('BANK', 'PHP').catch(() => {});
 
@@ -182,7 +182,7 @@ describe('MatchingService.pickLp', () => {
     const prisma = makePrisma([multiLp]);
     const stellar = makeStellar({ GMULTI: true });
 
-    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn() } as any);
+    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
     const result = await svc.pickLp('BANK', 'IDR');
 
     expect(result.paymentMethodId).toBe(PM_MULTI_IDR.id);
@@ -194,7 +194,7 @@ describe('MatchingService.pickLp', () => {
     const prisma = makePrisma([multiLp]);
     const stellar = makeStellar({ GMULTI: true });
 
-    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn() } as any);
+    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
     const result = await svc.pickLp('BANK', 'PHP');
 
     expect(result.paymentMethodId).toBe(PM_MULTI_PHP.id);

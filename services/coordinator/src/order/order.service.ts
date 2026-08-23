@@ -145,10 +145,6 @@ export class OrderService {
 
     const lp = await this.matching.pickLp(rail, quote.fiatCurrency, personId);
 
-    if (lp.stellarAddress === userAddress) {
-      throw new ForbiddenException('you cannot be matched with your own order');
-    }
-
     const roles = mapRoles(flow, userAddress, lp.stellarAddress);
 
     const userPaymentDetails = flow === 'WITHDRAW' ? userPaymentMethod : undefined;

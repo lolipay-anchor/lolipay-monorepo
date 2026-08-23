@@ -1,11 +1,11 @@
 import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { MatchingService } from './matching.service';
-import { PersonService } from '../person/person.service';
+import { PersonId, PersonService } from '../person/person.service';
 
 const PM = { id: 'pm1', rail: 'BANK', active: true, currency: 'IDR', details: 'BCA 123' };
 const PM2 = { id: 'pm2', rail: 'BANK', active: true, currency: 'IDR', details: 'BNI 456' };
 
-const PERSON = 'person-1';
+const PERSON = 'person-1' as PersonId;
 const MINE = 'GMYOWNLP';
 const THEIRS = 'GSOMEONEELSE';
 
@@ -31,8 +31,13 @@ function makeStellar(eligibility: Record<string, boolean>) {
   } as any;
 }
 
-function makePeople(wallets: Record<string, string[]>) {
-  return { walletsOf: jest.fn(async (personId: string) => wallets[personId] ?? []) } as any;
+function makePeople(wallets: Record<string, string[]>, owners: Record<string, string> = {}) {
+  return {
+    walletsOf: jest.fn(async (personId: string) => wallets[personId] ?? []),
+    lookupPerson: jest.fn(async (address: string) =>
+      owners[address] ? { id: owners[address] } : null,
+    ),
+  } as any;
 }
 
 describe('MatchingService refuses to pair a person with their own provider', () => {
@@ -72,7 +77,7 @@ describe('MatchingService refuses to pair a person with their own provider', () 
     const stellar = makeStellar({ [MINE]: true });
     const svc = new MatchingService(prisma, stellar, makePeople({ [PERSON]: [MINE] }));
 
-    const match = await svc.pickLp('BANK', 'IDR', 'person-2');
+    const match = await svc.pickLp('BANK', 'IDR', 'person-2' as PersonId);
 
     expect(match.stellarAddress).toBe(MINE);
   });
@@ -119,5 +124,28 @@ describe('MatchingService refuses to pair a person with their own provider', () 
 
     expect(match.stellarAddress).toBe(MINE);
     expect(people.walletsOf).not.toHaveBeenCalled();
+  });
+
+  it('refuses the chosen provider on a second, independent reading of who owns it', async () => {
+    const prisma = makePrisma([makeCandidate('lp-mine', MINE, 0)]);
+    const stellar = makeStellar({ [MINE]: true });
+    const blindToTheLink = makePeople({}, { [MINE]: PERSON });
+    const svc = new MatchingService(prisma, stellar, blindToTheLink);
+
+    await expect(svc.pickLp('BANK', 'IDR', PERSON)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(blindToTheLink.walletsOf).toHaveBeenCalled();
+  });
+
+  it('lets the second reading through when the provider belongs to somebody else', async () => {
+    const prisma = makePrisma([makeCandidate('lp-theirs', THEIRS, 0)]);
+    const stellar = makeStellar({ [THEIRS]: true });
+    const people = makePeople({}, { [THEIRS]: 'person-9' });
+    const svc = new MatchingService(prisma, stellar, people);
+
+    const match = await svc.pickLp('BANK', 'IDR', PERSON);
+
+    expect(match.stellarAddress).toBe(THEIRS);
   });
 });

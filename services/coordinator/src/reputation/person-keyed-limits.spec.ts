@@ -1,6 +1,6 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import { OrderService } from '../order/order.service';
-import { PersonService } from '../person/person.service';
+import { PersonId, PersonService } from '../person/person.service';
 import { UserReputationService } from './user-reputation.service';
 import { orderStatusFor, orderTxFor } from '../order/test-helpers';
 
@@ -157,7 +157,7 @@ describe('one person gets one limit, one lock and one history', () => {
     await client.walletLink.create({
       data: { stellarAddress: ADDR_2, personId: person.id, authMethod: 'SEP53' },
     });
-    expect(await personSvc.walletsOf(person.id)).toHaveLength(2);
+    expect(await personSvc.walletsOf(person.id as PersonId)).toHaveLength(2);
 
     await svc.createFromQuote(ADDR_1, 'q1');
 

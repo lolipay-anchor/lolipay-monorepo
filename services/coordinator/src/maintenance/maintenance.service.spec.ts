@@ -9,6 +9,7 @@ describe('MaintenanceService', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       quote: { deleteMany: jest.fn().mockResolvedValue({ count: 7 }) },
+      walletLinkChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 3 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
     } as any;
     const stellar = {
@@ -71,7 +72,8 @@ describe('MaintenanceService', () => {
         findMany: jest.fn().mockResolvedValue([matchedOrder]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
-      quote: { deleteMany: jest.fn() },
+      quote: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      walletLinkChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
     } as any;
 
@@ -103,7 +105,8 @@ describe('MaintenanceService', () => {
         findMany: jest.fn().mockResolvedValue([matchedOrder]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
-      quote: { deleteMany: jest.fn() },
+      quote: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      walletLinkChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
     } as any;
     const stellar = { getTradeStatusStrict: jest.fn().mockResolvedValue(null) } as any;
@@ -130,7 +133,8 @@ describe('MaintenanceService', () => {
         findMany: jest.fn().mockResolvedValue(orders),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
-      quote: { deleteMany: jest.fn() },
+      quote: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      walletLinkChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
     } as any;
     const stellar = { getTradeStatusStrict: jest.fn().mockResolvedValue(null) } as any;
@@ -174,7 +178,8 @@ describe('MaintenanceService', () => {
         findMany: jest.fn().mockResolvedValue([acceptedOrder]),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
-      quote: { deleteMany: jest.fn() },
+      quote: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      walletLinkChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
     } as any;
     const stellar = { getTradeStatusStrict: jest.fn().mockResolvedValue(null) } as any;
@@ -236,7 +241,8 @@ describe('MaintenanceService.autoRefundExpired', () => {
     const orderTable = makeOrders(orders);
     const prisma = {
       order: orderTable,
-      quote: { deleteMany: jest.fn() },
+      quote: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      walletLinkChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund }) },
     } as any;
 
@@ -440,5 +446,14 @@ describe('MaintenanceService.autoRefundExpired', () => {
       'REFUNDED',
     );
   });
-});
 
+  it('sweeps expired wallet-link challenges on the same hourly pass', async () => {
+    const { svc, prisma } = make();
+
+    await svc.pruneOldQuotes();
+
+    const arg = prisma.walletLinkChallenge.deleteMany.mock.calls[0][0];
+    expect(arg.where.expiresAt.lt).toBeInstanceOf(Date);
+    expect(arg.where.expiresAt.lt.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+});

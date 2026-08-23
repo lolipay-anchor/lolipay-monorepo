@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { PersonService } from '../person/person.service';
+import { PersonId, PersonService } from '../person/person.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 
 export interface LpMatch {
@@ -21,7 +21,7 @@ export class MatchingService {
   async pickLp(
     rail: 'BANK' | 'QRIS' | 'EWALLET',
     fiat: string,
-    excludePersonId?: string,
+    excludePersonId?: PersonId,
   ): Promise<LpMatch> {
     const staleMs = Number(process.env.HEARTBEAT_STALE_SECONDS ?? 120) * 1000;
 
@@ -65,6 +65,10 @@ export class MatchingService {
         continue;
       }
       if (eligible) {
+        const owner = await this.people.lookupPerson(lp.stellarAddress);
+        if (excludePersonId && owner?.id === excludePersonId) {
+          throw new ForbiddenException('you cannot be matched with your own order');
+        }
         const pm = lp.paymentMethods[0];
         return {
           id: lp.id,

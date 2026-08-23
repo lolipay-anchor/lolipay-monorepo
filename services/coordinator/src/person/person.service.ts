@@ -45,7 +45,7 @@ export class PersonService {
     return link.person;
   }
 
-  async walletsOf(personId: string): Promise<string[]> {
+  async walletsOf(personId: PersonId): Promise<string[]> {
     const links = await this.prisma.walletLink.findMany({
       where: { personId },
       select: { stellarAddress: true },
@@ -92,38 +92,49 @@ export class PersonService {
       throw new UnauthorizedException('link challenge is unknown, spent or expired');
     }
 
-    const existing = await this.prisma.walletLink.findUnique({
-      where: { stellarAddress: address },
-    });
-    if (existing && existing.personId !== personId) {
-      throw new ConflictException('address is already linked to another person');
-    }
-    if (!existing || existing.status === 'REVOKED') {
-      const active = await this.prisma.walletLink.count({
-        where: { personId, status: 'ACTIVE' },
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${personId}))`;
+
+        const existing = await tx.walletLink.findUnique({
+          where: { stellarAddress: address },
+        });
+        if (existing && existing.personId !== personId) {
+          throw new ConflictException('address is already linked to another person');
+        }
+        if (!existing || existing.status === 'REVOKED') {
+          const active = await tx.walletLink.count({
+            where: { personId, status: 'ACTIVE' },
+          });
+          if (active >= WALLET_CAP) {
+            throw new ConflictException(`a person may hold at most ${WALLET_CAP} active wallets`);
+          }
+        }
+
+        const spent = await tx.walletLinkChallenge.updateMany({
+          where: { nonce: parts[2], consumedAt: null },
+          data: { consumedAt: new Date() },
+        });
+        if (spent.count !== 1) {
+          throw new UnauthorizedException('link challenge is unknown, spent or expired');
+        }
+
+        if (existing) {
+          return tx.walletLink.update({
+            where: { stellarAddress: address },
+            data: { status: 'ACTIVE', authMethod: 'SEP53', provenAt: new Date() },
+          });
+        }
+        return tx.walletLink.create({
+          data: { stellarAddress: address, personId, authMethod: 'SEP53' },
+        });
       });
-      if (active >= WALLET_CAP) {
-        throw new ConflictException(`a person may hold at most ${WALLET_CAP} active wallets`);
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new ConflictException('address is already linked to another person');
       }
+      throw err;
     }
-
-    const spent = await this.prisma.walletLinkChallenge.updateMany({
-      where: { nonce: parts[2], consumedAt: null },
-      data: { consumedAt: new Date() },
-    });
-    if (spent.count !== 1) {
-      throw new UnauthorizedException('link challenge is unknown, spent or expired');
-    }
-
-    if (existing) {
-      return this.prisma.walletLink.update({
-        where: { stellarAddress: address },
-        data: { status: 'ACTIVE', authMethod: 'SEP53', provenAt: new Date() },
-      });
-    }
-    return this.prisma.walletLink.create({
-      data: { stellarAddress: address, personId, authMethod: 'SEP53' },
-    });
   }
 
   async revokeWallet(callerAddress: string, address: string): Promise<void> {

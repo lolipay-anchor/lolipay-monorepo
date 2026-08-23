@@ -86,6 +86,11 @@ const CALLER_A = 'GCALLERA';
 const PERSON_B = 'person-b';
 const CALLER_B = 'GCALLERB';
 
+async function proofFor(caller: string, kp: Keypair, svcRef?: PersonService) {
+  const challenge = await (svcRef as PersonService).issueLinkChallenge(caller, kp.publicKey());
+  return { challenge, signature: signSep53(kp, challenge) };
+}
+
 describe('PersonService wallet linking demands a fresh, single-use proof', () => {
   let prisma: any;
   let links: Map<string, any>;
@@ -202,6 +207,32 @@ describe('PersonService wallet linking demands a fresh, single-use proof', () =>
     ]);
 
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(refused.reason).toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('refuses the loser of a race for one address with a conflict, not a crash', async () => {
+    const other = Keypair.random();
+    const proofA = await proofFor(CALLER_A, kp, svc);
+    const proofB = await proofFor(CALLER_B, kp, svc);
+    const seenByBoth = { ...prisma.walletLink };
+    prisma.walletLink.findUnique = jest.fn(async ({ where, include }: any) => {
+      const l = links.get(where.stellarAddress);
+      if (where.stellarAddress === kp.publicKey()) return null;
+      if (!l) return null;
+      return include?.person ? { ...l, person: { id: l.personId } } : l;
+    });
+    void other;
+    void seenByBoth;
+
+    const results = await Promise.allSettled([
+      svc.linkWallet(CALLER_A, kp.publicKey(), proofA),
+      svc.linkWallet(CALLER_B, kp.publicKey(), proofB),
+    ]);
+
+    const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(refused.reason).toBeInstanceOf(ConflictException);
   });
 
   it('refuses an address that already belongs to a different person', async () => {

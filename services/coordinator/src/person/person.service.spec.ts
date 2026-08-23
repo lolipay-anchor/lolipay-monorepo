@@ -34,7 +34,38 @@ function makePrisma() {
       }),
     },
   };
-  client.$transaction = jest.fn(async (cb: any) => cb(client));
+  client.$transaction = jest.fn(async (cb: any) => {
+    const wrotePeople: string[] = [];
+    const wroteLinks: string[] = [];
+    const scoped = {
+      ...client,
+      person: {
+        ...client.person,
+        create: jest.fn(async (args: any) => {
+          const p = await client.person.create(args);
+          wrotePeople.push(p.id);
+          return p;
+        }),
+      },
+      walletLink: {
+        ...client.walletLink,
+        create: jest.fn(async (args: any) => {
+          const l = await client.walletLink.create(args);
+          wroteLinks.push(args.data.stellarAddress);
+          return l;
+        }),
+      },
+    };
+    try {
+      return await cb(scoped);
+    } catch (err) {
+      wrotePeople.forEach((id) => people.delete(id));
+      wroteLinks.forEach((a) => links.delete(a));
+      throw err;
+    }
+  });
+  client.people = people;
+  client.links = links;
   return client;
 }
 
@@ -95,5 +126,6 @@ describe('PersonService.proveWallet', () => {
 
     expect(b.id).toBe(a.id);
     expect(prisma.walletLink.create).toHaveBeenCalledTimes(2);
+    expect(prisma.people.size).toBe(1);
   });
 });
