@@ -11,10 +11,11 @@ import { verifyTradeMatchesOrder } from '../order/trade-binding';
 import { userLostDispute, providerLostDispute } from '../reputation/dispute-outcome';
 import { UserReputationService } from '../reputation/user-reputation.service';
 
-const EVENT_STATUS: Record<string, string> = {
+export const EVENT_STATUS: Record<string, string> = {
   trade_created: 'FUNDED',
   fiat_paid: 'FIAT_PAID',
   released: 'RELEASED',
+  early_released: 'RELEASED',
   refunded: 'REFUNDED',
   disputed: 'DISPUTED',
 };

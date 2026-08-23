@@ -1,5 +1,5 @@
 #![cfg(test)]
-use soroban_sdk::{testutils::{Address as _, Events as _, Ledger}, token, Address, BytesN, Env, Event, Symbol};
+use soroban_sdk::{testutils::{Address as _, Events as _, Ledger, MockAuth, MockAuthInvoke}, token, Address, BytesN, Env, Event, IntoVal, Symbol};
 
 use crate::types::{Config, Error};
 use crate::{EscrowContract, EscrowContractClient};
@@ -2122,4 +2122,207 @@ fn the_provider_allowlist_is_capped() {
     cfg.early_release_providers = many;
 
     assert_eq!(client.try_set_config(&cfg), Err(Ok(Error::InvalidConfig)));
+}
+
+fn early_setup_named(
+    flow: crate::types::Flow,
+    allow: Option<Address>,
+) -> (Env, EscrowContractClient<'static>, Address, Address, Address, token::TokenClient<'static>) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (usdc, usdc_admin) = create_usdc(&env, &admin);
+    let resolver = Address::generate(&env);
+    let pw = Address::generate(&env);
+    let attestor = Address::generate(&env);
+    let contract_id = env.register(
+        EscrowContract,
+        (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, attestor.clone()),
+    );
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let provider = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let lw = Address::generate(&env);
+    usdc_admin.mint(&provider, &100_0000000i128);
+    if let Some(a) = allow {
+        let mut cfg = client.get_config();
+        cfg.early_release_providers = soroban_sdk::vec![&env, a];
+        client.set_config(&cfg);
+    }
+    client.create_trade(
+        &id32(&env, 1), &provider, &recipient, &provider, &100_0000000i128, &1i128,
+        &Symbol::new(&env, "IDR"), &flow, &30u32, &120u32,
+        &pw, &lw, &1000u64, &100_000u64, &200_000u64,
+    );
+    (env, client, provider, recipient, attestor, usdc)
+}
+
+#[test]
+fn only_the_confirmer_may_release_not_the_depositor() {
+    let (env, client, _p, recipient, _a, usdc) = {
+        let (env, client, provider, recipient, attestor, usdc) =
+            early_setup_named(crate::types::Flow::TopUp, None);
+        let mut cfg = client.get_config();
+        cfg.early_release_providers = soroban_sdk::vec![&env, provider.clone()];
+        client.set_config(&cfg);
+        (env, client, provider, recipient, attestor, usdc)
+    };
+    let before = usdc.balance(&recipient);
+
+    let attestor = client.get_config().fiat_attestor;
+    env.set_auths(&[]);
+    let res = client
+        .mock_auths(&[
+            MockAuth {
+                address: &attestor,
+                invoke: &MockAuthInvoke {
+                    contract: &client.address,
+                    fn_name: "release_from_funded",
+                    args: (id32(&env, 1),).into_val(&env),
+                    sub_invokes: &[],
+                },
+            },
+            MockAuth {
+                address: &recipient,
+                invoke: &MockAuthInvoke {
+                    contract: &client.address,
+                    fn_name: "release_from_funded",
+                    args: (id32(&env, 1),).into_val(&env),
+                    sub_invokes: &[],
+                },
+            },
+        ])
+        .try_release_from_funded(&id32(&env, 1));
+
+    assert!(res.is_err());
+    assert_eq!(usdc.balance(&recipient), before);
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Funded);
+}
+
+#[test]
+fn an_allowlist_that_names_someone_else_does_not_open_this_trade() {
+    let stranger_env = Env::default();
+    let stranger = Address::generate(&stranger_env);
+    let _ = stranger;
+    let (env, client, _p, _r, _a, usdc) = early_setup_named(crate::types::Flow::TopUp, None);
+    let someone_else = Address::generate(&env);
+    let mut cfg = client.get_config();
+    cfg.early_release_providers = soroban_sdk::vec![&env, someone_else];
+    client.set_config(&cfg);
+    let pool = usdc.balance(&client.address);
+
+    let res = client.try_release_from_funded(&id32(&env, 1));
+
+    assert_eq!(res, Err(Ok(Error::EarlyReleaseNotAllowed)));
+    assert_eq!(usdc.balance(&client.address), pool);
+}
+
+#[test]
+fn a_disputed_trade_may_not_be_released_early() {
+    let (env, client, provider, recipient, _a, _usdc) =
+        early_setup_named(crate::types::Flow::TopUp, None);
+    let mut cfg = client.get_config();
+    cfg.early_release_providers = soroban_sdk::vec![&env, provider.clone()];
+    client.set_config(&cfg);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    client.raise_dispute(&id32(&env, 1), &recipient);
+
+    let res = client.try_release_from_funded(&id32(&env, 1));
+
+    assert_eq!(res, Err(Ok(Error::InvalidState)));
+}
+
+#[test]
+fn early_release_closes_before_the_refund_opens() {
+    let (env, client, provider, _r, _a, _usdc) =
+        early_setup_named(crate::types::Flow::TopUp, None);
+    let mut cfg = client.get_config();
+    cfg.early_release_providers = soroban_sdk::vec![&env, provider.clone()];
+    client.set_config(&cfg);
+
+    env.ledger().with_mut(|l| l.timestamp = 1000 + crate::ATTEST_GRACE_SECS);
+    client.release_from_funded(&id32(&env, 1));
+
+    let (env2, client2, provider2, _r2, _a2, _u2) =
+        early_setup_named(crate::types::Flow::TopUp, None);
+    let mut cfg2 = client2.get_config();
+    cfg2.early_release_providers = soroban_sdk::vec![&env2, provider2.clone()];
+    client2.set_config(&cfg2);
+    env2.ledger().with_mut(|l| l.timestamp = 1000 + crate::ATTEST_GRACE_SECS);
+    assert_eq!(client2.try_refund(&id32(&env2, 1)), Err(Ok(Error::DeadlineNotReached)));
+
+    env2.ledger().with_mut(|l| l.timestamp = 1001 + crate::ATTEST_GRACE_SECS);
+    assert_eq!(
+        client2.try_release_from_funded(&id32(&env2, 1)),
+        Err(Ok(Error::DeadlinePassed))
+    );
+    client2.refund(&id32(&env2, 1));
+}
+
+#[test]
+fn early_release_announces_itself_so_the_indexer_can_see_it() {
+    let (env, client, provider, _r, _a, _usdc) =
+        early_setup_named(crate::types::Flow::TopUp, None);
+    let mut cfg = client.get_config();
+    cfg.early_release_providers = soroban_sdk::vec![&env, provider.clone()];
+    client.set_config(&cfg);
+
+    client.release_from_funded(&id32(&env, 1));
+
+    let expected = crate::events::EarlyReleased {
+        trade_id: id32(&env, 1),
+        net: 985_000_000i128,
+        platform_fee: 3_000_000i128,
+        lp_fee: 12_000_000i128,
+    };
+    let raw = env.events().all().filter_by_contract(&client.address);
+    let raw = raw.events();
+    assert_eq!(raw[raw.len() - 1], expected.to_xdr(&env, &client.address));
+}
+
+#[test]
+fn early_release_needs_the_attestor_signature_as_well_as_the_providers() {
+    let (env, client, provider, _r, attestor, _usdc) =
+        early_setup_named(crate::types::Flow::TopUp, None);
+    let mut cfg = client.get_config();
+    cfg.early_release_providers = soroban_sdk::vec![&env, provider.clone()];
+    client.set_config(&cfg);
+
+    env.set_auths(&[]);
+    let without_attestor = client
+        .mock_auths(&[MockAuth {
+            address: &provider,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "release_from_funded",
+                args: (id32(&env, 1),).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_release_from_funded(&id32(&env, 1));
+    assert!(without_attestor.is_err());
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Funded);
+
+    let both = [
+        MockAuth {
+            address: &attestor,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "release_from_funded",
+                args: (id32(&env, 1),).into_val(&env),
+                sub_invokes: &[],
+            },
+        },
+        MockAuth {
+            address: &provider,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "release_from_funded",
+                args: (id32(&env, 1),).into_val(&env),
+                sub_invokes: &[],
+            },
+        },
+    ];
+    client.mock_auths(&both).release_from_funded(&id32(&env, 1));
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Released);
 }

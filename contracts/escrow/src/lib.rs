@@ -273,9 +273,12 @@ impl EscrowContract {
         if !cfg.early_release_providers.contains(&trade.usdc_provider) {
             return Err(Error::EarlyReleaseNotAllowed);
         }
-        if env.ledger().timestamp() > trade.confirm_deadline {
+        let deadline =
+            core::cmp::min(trade.confirm_deadline, trade.pay_deadline + ATTEST_GRACE_SECS);
+        if env.ledger().timestamp() > deadline {
             return Err(Error::DeadlinePassed);
         }
+        cfg.fiat_attestor.require_auth();
         trade.confirmer.require_auth();
 
         let (platform_fee, lp_fee, net) =
