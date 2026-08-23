@@ -1,10 +1,10 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { AppModule } from '../app.module';
 import { AppConfigService } from '../config/app-config.service';
-import { anchorCorsOptions } from './anchor-cors';
+import { configureHttp } from '../http-setup';
 
 const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
@@ -21,15 +21,7 @@ describe('CORS on the anchor surface', () => {
       .useValue(noopStorage)
       .compile();
     app = mod.createNestApplication();
-    const corsOrigins = app.get(AppConfigService).corsOrigins;
-    app.use(
-      require('cors')((req: { path: string }, done: (e: unknown, o: unknown) => void) =>
-        done(null, anchorCorsOptions(req.path, corsOrigins)),
-      ),
-    );
-    app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
-    );
+    configureHttp(app);
     await app.init();
   });
 
@@ -100,5 +92,47 @@ describe('CORS on the anchor surface', () => {
 
     expect(res.headers['access-control-allow-origin']).toBe(allowed);
     expect(res.headers['access-control-allow-credentials']).toBe('true');
+  });
+
+  it('answers a wildcard even when the body never reaches a handler', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/auth')
+      .set('Origin', STRANGER)
+      .set('Content-Type', 'application/json')
+      .send('{"transaction":');
+
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+  });
+
+  it('answers a wildcard when the body is too large to parse', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/auth')
+      .set('Origin', STRANGER)
+      .set('Content-Type', 'application/json')
+      .send(JSON.stringify({ transaction: 'x'.repeat(200_000) }));
+
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+  });
+
+  it('keeps the headers an authenticated browser needs on the internal preflight', async () => {
+    const allowed = app.get(AppConfigService).corsOrigins[0];
+
+    const res = await request(app.getHttpServer())
+      .options('/orders/abc')
+      .set('Origin', allowed)
+      .set('Access-Control-Request-Method', 'PATCH');
+
+    expect(res.headers['access-control-allow-methods']).toContain('PATCH');
+    expect(res.headers['access-control-allow-methods']).toContain('DELETE');
+    expect(res.headers['access-control-allow-headers']).toContain('Authorization');
+  });
+
+  it('applies the ordinary policy to a stranger rather than no policy at all', async () => {
+    const res = await request(app.getHttpServer()).get('/profile').set('Origin', STRANGER);
+
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+    expect(res.headers['vary']).toContain('Origin');
   });
 });

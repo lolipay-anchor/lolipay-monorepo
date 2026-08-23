@@ -7,14 +7,23 @@ export interface AdvertisedAnchor {
 export interface ServedChallenge {
   source: string;
   webAuthDomain: string;
+  homeDomain: string;
   networkPassphrase: string;
 }
 
 export function compareAnchorIdentity(
   toml: AdvertisedAnchor,
   challenge: ServedChallenge,
+  homeDomain: string,
 ): string[] {
   const problems: string[] = [];
+
+  if (challenge.homeDomain !== homeDomain) {
+    problems.push(
+      `the challenge names the home domain ${challenge.homeDomain} but the toml was fetched ` +
+        `from ${homeDomain}, so every wallet will reject it`,
+    );
+  }
 
   if (!toml.SIGNING_KEY) {
     problems.push('the toml advertises no SIGNING_KEY');

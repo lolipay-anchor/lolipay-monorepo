@@ -1,3 +1,4 @@
+import cors from 'cors';
 export interface AnchorCorsOptions {
   origin: string | string[] | false;
   credentials: boolean;
@@ -8,7 +9,8 @@ export interface AnchorCorsOptions {
 const ANCHOR_PATHS = ['/auth'];
 
 export function isAnchorPath(path: string): boolean {
-  const normalised = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+  const lowered = path.toLowerCase();
+  const normalised = lowered.length > 1 && lowered.endsWith('/') ? lowered.slice(0, -1) : lowered;
   return ANCHOR_PATHS.includes(normalised);
 }
 
@@ -27,4 +29,12 @@ export function anchorCorsOptions(path: string, allowlist: string[]): AnchorCors
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   };
+}
+
+export function applyCors(app: { use: (handler: unknown) => void }, allowlist: string[]): void {
+  app.use(
+    cors((req, done) =>
+      done(null, anchorCorsOptions((req as unknown as { path: string }).path, allowlist)),
+    ),
+  );
 }

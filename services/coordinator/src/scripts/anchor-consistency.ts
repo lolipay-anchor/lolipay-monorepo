@@ -1,4 +1,4 @@
-import { Transaction } from '@stellar/stellar-sdk';
+import { StellarToml, Transaction } from '@stellar/stellar-sdk';
 import { compareAnchorIdentity } from '../anchor/consistency';
 
 const domain = process.argv[2];
@@ -9,8 +9,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
-  const tomlText = await fetchText(`https://${domain}/.well-known/stellar.toml`);
-  const toml = parseFlatToml(tomlText);
+  const toml = (await StellarToml.Resolver.resolve(domain)) as Record<string, string>;
   if (!toml.WEB_AUTH_ENDPOINT) {
     console.error('the toml advertises no WEB_AUTH_ENDPOINT — nothing to cross-check');
     process.exit(1);
@@ -23,19 +22,25 @@ async function main(): Promise<void> {
   const webAuthOp = tx.operations.find(
     (op) => (op as { name?: string }).name === 'web_auth_domain',
   ) as { value: Uint8Array } | undefined;
+  const homeDomainKey = (tx.operations[0] as { name?: string }).name ?? '';
 
-  const problems = compareAnchorIdentity(toml, {
-    source: tx.source,
-    webAuthDomain: webAuthOp ? Buffer.from(webAuthOp.value).toString() : '',
-    networkPassphrase: answer.network_passphrase,
-  });
+  const problems = compareAnchorIdentity(
+    toml,
+    {
+      source: tx.source,
+      webAuthDomain: webAuthOp ? Buffer.from(webAuthOp.value).toString() : '',
+      homeDomain: homeDomainKey.replace(/ auth$/, ''),
+      networkPassphrase: answer.network_passphrase,
+    },
+    domain,
+  );
 
   if (problems.length === 0) {
     console.log(`${domain}: the toml and the live challenge agree`);
     return;
   }
   problems.forEach((p) => console.error(`${domain}: ${p}`));
-  process.exit(1);
+  process.exitCode = 1;
 }
 
 async function fetchText(url: string): Promise<string> {
@@ -44,14 +49,6 @@ async function fetchText(url: string): Promise<string> {
   return res.text();
 }
 
-function parseFlatToml(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of text.split('\n')) {
-    const match = /^([A-Z0-9_]+)="(.*)"$/.exec(line.trim());
-    if (match) out[match[1]] = match[2];
-  }
-  return out;
-}
 
 main().catch((err) => {
   console.error(err instanceof Error ? err.message : err);
