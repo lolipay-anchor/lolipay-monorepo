@@ -20,6 +20,7 @@ async function bootstrap() {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   // @ts-ignore
   app.use(require('express').json({ limit: '100kb' }));
+  app.use(require('express').urlencoded({ extended: false, limit: '100kb' }));
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

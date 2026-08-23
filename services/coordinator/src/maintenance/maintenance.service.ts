@@ -87,6 +87,11 @@ export class MaintenanceService {
       where: { expiresAt: { lt: new Date() } },
     });
     if (spent.count > 0) this.log.log(`pruned ${spent.count} spent wallet-link challenge(s)`);
+
+    const anchor = await this.prisma.sep10ConsumedChallenge.deleteMany({
+      where: { expiresAt: { lt: new Date() } },
+    });
+    if (anchor.count > 0) this.log.log(`pruned ${anchor.count} spent SEP-10 challenge(s)`);
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES)

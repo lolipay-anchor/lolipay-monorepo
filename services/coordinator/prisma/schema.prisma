@@ -285,3 +285,11 @@ model WalletLinkChallenge {
   @@index([personId, stellarAddress])
   @@index([expiresAt])
 }
+
+model Sep10ConsumedChallenge {
+  nonce     String   @id
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}

@@ -15,7 +15,13 @@ function makeService(overrides: Record<string, unknown> = {}) {
     networkPassphrase: Networks.TESTNET,
     ...overrides,
   } as any;
-  return new Sep10Service(cfg);
+  return new Sep10Service(
+    cfg,
+    { load: jest.fn() } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
 }
 
 function challengeFor(account = CLIENT.publicKey(), opts = {}) {

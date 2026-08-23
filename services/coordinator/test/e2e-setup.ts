@@ -30,3 +30,8 @@ process.env.MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY || 'e2eminioadmin';
 process.env.MINIO_SECRET_KEY =
   process.env.MINIO_SECRET_KEY || 'e2eminiopassword123';
 process.env.MINIO_BUCKET = process.env.MINIO_BUCKET || 'lolipay-uploads-e2e';
+
+const { Keypair } = require('@stellar/stellar-sdk');
+process.env.SEP10_SIGNING_KEY = process.env.SEP10_SIGNING_KEY ?? Keypair.random().secret();
+process.env.ANCHOR_HOME_DOMAIN = process.env.ANCHOR_HOME_DOMAIN ?? 'lolipay.app';
+process.env.SEP10_WEB_AUTH_DOMAIN = process.env.SEP10_WEB_AUTH_DOMAIN ?? 'api.lolipay.app';
