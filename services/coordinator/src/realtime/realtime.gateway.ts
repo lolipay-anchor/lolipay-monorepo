@@ -66,6 +66,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private presenceInterval?: ReturnType<typeof setInterval>;
   private expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+  private clearExpiryTimer(socketId: string): void {
+    const timer = this.expiryTimers.get(socketId);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.expiryTimers.delete(socketId);
+  }
+
   constructor(
     private jwt: JwtService,
     private cfg: AppConfigService,
@@ -83,6 +90,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   onModuleDestroy(): void {
     if (this.presenceInterval) clearInterval(this.presenceInterval);
+    this.expiryTimers.forEach((timer) => clearTimeout(timer));
+    this.expiryTimers.clear();
   }
 
   async handleConnection(socket: Socket): Promise<void> {
@@ -183,6 +192,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   async handleDisconnect(socket: Socket): Promise<void> {
     this.joinAttempts.delete(socket.id);
+    this.clearExpiryTimer(socket.id);
     const data = socket.data as SocketData | undefined;
     if (!data?.address) return;
 

@@ -649,3 +649,32 @@ describe('joining an order re-asks whether the caller is still who they were', (
   });
 });
 
+describe('the expiry timer does not outlive the socket it guards', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('forgets the timer when the socket disconnects on its own', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 900;
+    const { gw } = makeGateway({ verifyImpl: () => ({ sub: USER, cls: 'session', exp }) });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+    await gw.handleConnection(socket);
+    expect((gw as any).expiryTimers.size).toBe(1);
+
+    await gw.handleDisconnect(socket);
+
+    expect((gw as any).expiryTimers.size).toBe(0);
+  });
+
+  it('does not disconnect a socket that already left', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 900;
+    const { gw } = makeGateway({ verifyImpl: () => ({ sub: USER, cls: 'session', exp }) });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+    await gw.handleConnection(socket);
+    await gw.handleDisconnect(socket);
+
+    jest.advanceTimersByTime(1_000_000);
+
+    expect(socket.disconnect).not.toHaveBeenCalled();
+  });
+});
+
