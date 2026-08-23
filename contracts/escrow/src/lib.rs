@@ -370,7 +370,15 @@ impl EscrowContract {
         let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
         let prior_status: Option<Status> = match trade.status {
             Status::FiatPaid => None,
-            Status::Funded => None,
+            Status::Funded => {
+                if cfg.paused {
+                    return Err(Error::Paused);
+                }
+                if now > trade.dispute_deadline {
+                    return Err(Error::DeadlinePassed);
+                }
+                Some(Status::Funded)
+            }
             Status::Released | Status::Refunded => {
                 if trade.settled_at == 0 {
                     return Err(Error::InvalidState);
@@ -425,14 +433,21 @@ impl EscrowContract {
         }
         caller.require_auth();
 
-        if let Some(prior) = trade.pre_dispute_status() {
-            trade.status = prior;
-            trade.set_pre_dispute_status(None);
-            trade.post_settle_resolved = true;
-            set_trade(&env, &trade_id, &trade);
-            let released = outcome == ResolveOutcome::Release;
-            Resolved { trade_id, released, post_settle: true }.publish(&env);
-            return Ok(());
+        match trade.pre_dispute_status() {
+            Some(Status::Funded) => {
+                cfg.fiat_attestor.require_auth();
+                trade.set_pre_dispute_status(None);
+            }
+            Some(prior) => {
+                trade.status = prior;
+                trade.set_pre_dispute_status(None);
+                trade.post_settle_resolved = true;
+                set_trade(&env, &trade_id, &trade);
+                let released = outcome == ResolveOutcome::Release;
+                Resolved { trade_id, released, post_settle: true }.publish(&env);
+                return Ok(());
+            }
+            None => {}
         }
 
         let token_addr = trade.usdc_token.clone();

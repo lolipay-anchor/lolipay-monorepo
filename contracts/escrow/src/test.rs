@@ -2465,3 +2465,115 @@ fn naming_a_party_is_not_the_same_as_being_one() {
     assert!(res.is_err());
     assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::FiatPaid);
 }
+
+fn disputed_from_funded() -> (
+    Env, EscrowContractClient<'static>, Address, Address, Address, Address, token::TokenClient<'static>,
+) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (usdc, usdc_admin) = create_usdc(&env, &admin);
+    let resolver = Address::generate(&env);
+    let pw = Address::generate(&env);
+    let attestor = Address::generate(&env);
+    let contract_id = env.register(
+        EscrowContract,
+        (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, attestor.clone()),
+    );
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let provider = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let lw = Address::generate(&env);
+    usdc_admin.mint(&provider, &100_0000000i128);
+    client.create_trade(
+        &id32(&env, 1), &provider, &recipient, &provider, &100_0000000i128, &1i128,
+        &Symbol::new(&env, "IDR"), &crate::types::Flow::TopUp, &30u32, &120u32,
+        &pw, &lw, &1000u64, &2000u64, &3000u64,
+    );
+    client.raise_dispute(&id32(&env, 1), &resolver);
+    (env, client, resolver, attestor, provider, recipient, usdc)
+}
+
+
+#[test]
+fn the_resolver_alone_cannot_settle_a_trade_it_disputed_from_funded() {
+    let (env, client, resolver, _attestor, provider, recipient, usdc) = disputed_from_funded();
+    let before = (usdc.balance(&provider), usdc.balance(&recipient), usdc.balance(&client.address));
+
+    env.set_auths(&[]);
+    let released = client
+        .mock_auths(&[MockAuth {
+            address: &resolver,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "resolve",
+                args: (id32(&env, 1), crate::types::ResolveOutcome::Release, resolver.clone())
+                    .into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
+
+    assert!(released.is_err());
+    assert_eq!(
+        (usdc.balance(&provider), usdc.balance(&recipient), usdc.balance(&client.address)),
+        before
+    );
+}
+
+#[test]
+fn the_attestor_and_the_resolver_together_may_settle_it() {
+    let (env, client, resolver, _attestor, _provider, recipient, usdc) = disputed_from_funded();
+
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Released);
+    assert_eq!(usdc.balance(&recipient), 985_000_000i128);
+}
+
+#[test]
+fn refunding_a_funded_origin_dispute_returns_the_provider_their_capital() {
+    let (env, client, resolver, _a, provider, _r, usdc) = disputed_from_funded();
+
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Refunded);
+    assert_eq!(usdc.balance(&provider), 100_0000000i128);
+}
+
+#[test]
+fn pausing_stops_a_funded_trade_being_dragged_into_dispute() {
+    let (env, client, resolver, _p, _r, _usdc) = resolver_setup();
+    client.set_paused(&true);
+
+    assert_eq!(
+        client.try_raise_dispute(&id32(&env, 1), &resolver),
+        Err(Ok(Error::Paused))
+    );
+}
+
+#[test]
+fn a_funded_trade_cannot_be_disputed_once_its_dispute_deadline_has_passed() {
+    let (env, client, resolver, _p, _r, _usdc) = resolver_setup();
+    env.ledger().with_mut(|l| l.timestamp = 3001);
+
+    assert_eq!(
+        client.try_raise_dispute(&id32(&env, 1), &resolver),
+        Err(Ok(Error::DeadlinePassed))
+    );
+}
+
+#[test]
+fn a_post_settlement_dispute_is_still_verdict_only() {
+    let (env, client, resolver, _p, recipient, usdc) = resolver_setup();
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+    let after = usdc.balance(&recipient);
+
+    client.raise_dispute(&id32(&env, 1), &resolver);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
+
+    assert_eq!(usdc.balance(&recipient), after);
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Released);
+}
