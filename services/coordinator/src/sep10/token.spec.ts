@@ -1,5 +1,12 @@
 import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
-import { Keypair, Networks, Transaction, TransactionBuilder } from '@stellar/stellar-sdk';
+import {
+  Account as StellarAccount,
+  Keypair,
+  MuxedAccount,
+  Networks,
+  Transaction,
+  TransactionBuilder,
+} from '@stellar/stellar-sdk';
 import { Sep10Service } from './sep10.service';
 
 const SERVER = Keypair.random();
@@ -16,7 +23,10 @@ function makeDeps(account: Account | null | Error = null) {
       return account;
     }),
   };
-  const people = { proveWallet: jest.fn().mockResolvedValue({ id: 'person-1' }) };
+  const people = {
+    proveWallet: jest.fn().mockResolvedValue({ id: 'person-1' }),
+    lookupPerson: jest.fn().mockResolvedValue({ id: 'person-1' }),
+  };
   const jwt = { signAsync: jest.fn().mockResolvedValue('a-token') };
   const consumed = { consume: jest.fn().mockResolvedValue(true) };
   return { accounts, people, jwt, consumed };
@@ -261,3 +271,50 @@ describe('the token names who proved what', () => {
     expect(deps.jwt.signAsync).not.toHaveBeenCalled();
   });
 });
+
+describe('a muxed address is many names for one set of keys', () => {
+  const MUXED = new MuxedAccount(new StellarAccount(CLIENT.publicKey(), '0'), '17').accountId();
+
+  it('binds identity to the account that holds the keys, not to the muxed name', async () => {
+    const deps = makeDeps(null);
+    const svc = makeService(deps);
+
+    await svc.issueToken(signedBy(challenge(svc, MUXED), CLIENT));
+
+    expect(deps.people.proveWallet).toHaveBeenCalledWith(CLIENT.publicKey(), 'SEP10');
+  });
+
+  it('still names the muxed address as the subject, which is what SEP-10 asks for', async () => {
+    const deps = makeDeps(null);
+    const svc = makeService(deps);
+
+    await svc.issueToken(signedBy(challenge(svc, MUXED), CLIENT));
+
+    expect(deps.people.proveWallet).toHaveBeenCalledWith(CLIENT.publicKey(), 'SEP10');
+    expect(deps.jwt.signAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: MUXED }),
+      expect.anything(),
+    );
+  });
+
+  it('authenticates a muxed address whose base account has never been funded', async () => {
+    const deps = makeDeps(null);
+    const svc = makeService(deps);
+
+    await expect(svc.issueToken(signedBy(challenge(svc, MUXED), CLIENT))).resolves.toBe(
+      'a-token',
+    );
+  });
+});
+
+describe('a revoked wallet does not get a fresh token', () => {
+  it('refuses to mint for an address whose link is no longer active', async () => {
+    const deps = makeDeps(null);
+    deps.people.lookupPerson = jest.fn().mockResolvedValue(null);
+    const svc = makeService(deps);
+
+    await expect(svc.issueToken(signedBy(challenge(svc), CLIENT))).rejects.toThrow();
+    expect(deps.jwt.signAsync).not.toHaveBeenCalled();
+  });
+});
+

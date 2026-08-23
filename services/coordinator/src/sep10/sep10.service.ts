@@ -3,12 +3,13 @@ import {
   Injectable,
   Logger,
   ServiceUnavailableException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Keypair, StrKey, Transaction, WebAuth } from '@stellar/stellar-sdk';
 import { JwtService } from '@nestjs/jwt';
 import { PersonService } from '../person/person.service';
 import { jwtSignOptions } from '../auth/jwt-options';
-import { AccountSignersService } from './account-signers.service';
+import { AccountSignersService, baseStellarAccount } from './account-signers.service';
 import { ConsumedChallengeService } from './consumed-challenge.service';
 import { AppConfigService } from '../config/app-config.service';
 
@@ -96,7 +97,7 @@ export class Sep10Service {
           transactionXdr,
           signer.publicKey(),
           this.cfg.networkPassphrase,
-          [read.clientAccountID],
+          [baseStellarAccount(read.clientAccountID)],
           [this.cfg.anchorHomeDomain as string],
           this.cfg.sep10WebAuthDomain as string,
         );
@@ -122,7 +123,12 @@ export class Sep10Service {
       throw new BadRequestException('this challenge has already been used');
     }
 
-    await this.people.proveWallet(read.clientAccountID, 'SEP10');
+    const baseAccount = baseStellarAccount(read.clientAccountID);
+    await this.people.proveWallet(baseAccount, 'SEP10');
+    const person = await this.people.lookupPerson(baseAccount);
+    if (!person) {
+      throw new UnauthorizedException('this wallet is no longer permitted to authenticate');
+    }
 
     const sub = read.memo ? `${read.clientAccountID}:${read.memo}` : read.clientAccountID;
     return this.jwt.signAsync({ sub, cls: 'sep10', role: 'user' }, jwtSignOptions(this.cfg));

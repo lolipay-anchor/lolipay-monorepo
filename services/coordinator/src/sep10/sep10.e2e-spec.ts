@@ -24,7 +24,7 @@ describe('SEP-10 over HTTP', () => {
     app = mod.createNestApplication();
     app.use(require('express').json({ limit: '100kb' }));
     app.use(require('express').urlencoded({ extended: false, limit: '100kb' }));
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
     await app.init();
   });
 
