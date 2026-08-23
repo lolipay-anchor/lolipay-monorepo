@@ -18,7 +18,7 @@ export function compareAnchorIdentity(
 ): string[] {
   const problems: string[] = [];
 
-  if (challenge.homeDomain !== homeDomain) {
+  if (challenge.homeDomain.toLowerCase() !== homeDomain.toLowerCase()) {
     problems.push(
       `the challenge names the home domain ${challenge.homeDomain} but the toml was fetched ` +
         `from ${homeDomain}, so every wallet will reject it`,

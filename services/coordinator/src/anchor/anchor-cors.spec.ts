@@ -3,7 +3,7 @@ import { anchorCorsOptions, isAnchorPath } from './anchor-cors';
 import { Sep10Controller } from '../sep10/sep10.controller';
 
 describe('the anchor surface is known by path, not by guesswork', () => {
-  it.each(['/auth', '/auth/'])('treats %s as anchor surface', (p) => {
+  it.each(['/auth', '/auth/', '/AUTH', '/Auth/', '/AuTh'])('treats %s as anchor surface', (p) => {
     expect(isAnchorPath(p)).toBe(true);
   });
 

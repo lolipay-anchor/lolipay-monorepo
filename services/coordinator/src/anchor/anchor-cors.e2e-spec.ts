@@ -112,8 +112,27 @@ describe('CORS on the anchor surface', () => {
       .set('Content-Type', 'application/json')
       .send(JSON.stringify({ transaction: 'x'.repeat(200_000) }));
 
-    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBe(413);
     expect(res.headers['access-control-allow-origin']).toBe('*');
+  });
+
+  it('refuses a body carrying a property no dto declares', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/auth')
+      .set('Origin', STRANGER)
+      .send({ transaction: 'abc', evil: 'yes' });
+
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body.message)).toContain('property evil should not exist');
+  });
+
+  it('carries the hardening headers the browser relies on', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/auth?account=GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF')
+      .set('Origin', STRANGER);
+
+    expect(res.headers['content-security-policy']).toContain("object-src 'none'");
+    expect(res.headers['strict-transport-security']).toBeTruthy();
   });
 
   it('keeps the headers an authenticated browser needs on the internal preflight', async () => {

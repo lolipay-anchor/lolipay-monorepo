@@ -15,9 +15,9 @@
     "test:all": "npm test && npm run e2e:up && npm run test:e2e; npm run e2e:down",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "anchor:test:sep1": "stellar-anchor-tests --home-domain ${ANCHOR_TEST_DOMAIN:-lolipay.app} --seps 1",
-    "anchor:test:sep10": "stellar-anchor-tests --home-domain ${ANCHOR_TEST_DOMAIN:-lolipay.app} --seps 10",
-    "anchor:consistency": "ts-node -T src/scripts/anchor-consistency.ts ${ANCHOR_TEST_DOMAIN:-lolipay.app}"
+    "anchor:test:sep1": "stellar-anchor-tests --home-domain \"${ANCHOR_TEST_DOMAIN:-lolipay.app}\" --seps 1",
+    "anchor:test:sep10": "stellar-anchor-tests --home-domain \"${ANCHOR_TEST_DOMAIN:-lolipay.app}\" --seps 10",
+    "anchor:consistency": "ts-node -T src/scripts/anchor-consistency.ts \"${ANCHOR_TEST_DOMAIN:-lolipay.app}\""
   },
   "dependencies": {
     "@nestjs/common": "^11.2.1",

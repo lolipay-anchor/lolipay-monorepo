@@ -74,7 +74,7 @@ describe('the two processes must be saying the same thing', () => {
   it('refuses a toml with no signing key rather than reporting agreement', () => {
     const problems = compareAnchorIdentity({ ...TOML, SIGNING_KEY: undefined }, CHALLENGE, DOMAIN);
 
-    expect(problems[0]).toMatch(/advertises no SIGNING_KEY/);
+    expect(problems).toContainEqual(expect.stringMatching(/advertises no SIGNING_KEY/));
   });
 
   it('refuses a toml whose web auth endpoint is not a url', () => {
@@ -84,6 +84,6 @@ describe('the two processes must be saying the same thing', () => {
       DOMAIN,
     );
 
-    expect(problems[0]).toMatch(/no usable WEB_AUTH_ENDPOINT/);
+    expect(problems).toContainEqual(expect.stringMatching(/no usable WEB_AUTH_ENDPOINT/));
   });
 });

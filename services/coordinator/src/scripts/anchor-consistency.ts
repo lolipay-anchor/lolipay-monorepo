@@ -9,7 +9,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
-  const toml = (await StellarToml.Resolver.resolve(domain)) as Record<string, string>;
+  const toml = (await StellarToml.Resolver.resolve(domain, { timeout: 15000, allowedRedirects: 3 })) as Record<string, string>;
   if (!toml.WEB_AUTH_ENDPOINT) {
     console.error('the toml advertises no WEB_AUTH_ENDPOINT — nothing to cross-check');
     process.exit(1);
@@ -51,6 +51,6 @@ async function fetchText(url: string): Promise<string> {
 
 
 main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
+  console.error(`${domain}: ${err instanceof Error ? err.message : err}`);
   process.exit(1);
 });
