@@ -76,7 +76,7 @@ fn test_set_config_updates_fields() {
         default_platform_fee_bps: 55,
         default_platform_wallet: platform_wallet.clone(),
         paused: false,
-        fiat_attestor: Address::generate(&env),
+        fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 3600,
     };
     client.set_config(&new_cfg);
@@ -94,7 +94,7 @@ fn test_set_config_updates_fields() {
         default_platform_fee_bps: 99,
         default_platform_wallet: platform_wallet.clone(),
         paused: false,
-        fiat_attestor: Address::generate(&env),
+        fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 3600,
     };
     let res = client.try_set_config(&rejected);
@@ -114,7 +114,7 @@ fn test_set_config_handoff_requires_new_admin_auth() {
         default_platform_fee_bps: 30,
         default_platform_wallet: platform_wallet.clone(),
         paused: false,
-        fiat_attestor: Address::generate(&env),
+        fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 3600,
     };
 
@@ -129,7 +129,7 @@ fn test_set_config_handoff_requires_new_admin_auth() {
         default_platform_fee_bps: 30,
         default_platform_wallet: platform_wallet.clone(),
         paused: false,
-        fiat_attestor: Address::generate(&env),
+        fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 3600,
     };
     let res = client.try_set_config(&revert);
@@ -421,7 +421,7 @@ fn test_refund_after_pay_deadline() {
 
     assert_eq!(client.try_refund(&id32(&env,1)), Err(Ok(Error::DeadlineNotReached)));
 
-    env.ledger().with_mut(|li| { li.timestamp = 1500; });
+    env.ledger().with_mut(|li| { li.timestamp = 5000; });
     client.refund(&id32(&env,1));
     assert_eq!(usdc.balance(&p), 100_0000000i128);
     assert_eq!(client.get_trade(&id32(&env,1)).status, crate::types::Status::Refunded);
@@ -694,7 +694,7 @@ fn test_set_config_token_is_immutable() {
         default_platform_fee_bps: 30,
         default_platform_wallet: pw.clone(),
         paused: false,
-        fiat_attestor: Address::generate(&env),
+        fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 3600,
     };
     assert_eq!(client.try_set_config(&new_cfg), Err(Ok(Error::TokenImmutable)));
@@ -727,7 +727,7 @@ fn test_set_config_platform_wallet_immutable_and_fee_capped() {
         default_platform_fee_bps: 30,
         default_platform_wallet: evil_pw,
         paused: false,
-        fiat_attestor: Address::generate(&env),
+        fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 3600,
     };
     assert_eq!(client.try_set_config(&cfg_wallet), Err(Ok(Error::WalletImmutable)));
@@ -739,7 +739,7 @@ fn test_set_config_platform_wallet_immutable_and_fee_capped() {
         default_platform_fee_bps: 9000,
         default_platform_wallet: pw.clone(),
         paused: false,
-        fiat_attestor: Address::generate(&env),
+        fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 3600,
     };
     assert_eq!(client.try_set_config(&cfg_fee), Err(Ok(Error::InvalidFee)));
@@ -985,12 +985,12 @@ fn test_refund_sets_settled_at() {
     client.create_trade(&id32(&env,1), &p, &r, &p, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
 
-    env.ledger().with_mut(|li| { li.timestamp = 1500; });
+    env.ledger().with_mut(|li| { li.timestamp = 5000; });
     client.refund(&id32(&env,1));
 
     let t = client.get_trade(&id32(&env,1));
     assert_eq!(t.status, crate::types::Status::Refunded);
-    assert_eq!(t.settled_at, 1500);
+    assert_eq!(t.settled_at, 5000);
 }
 
 #[test]
@@ -1108,7 +1108,7 @@ fn test_set_config_validates_dispute_window_bounds() {
         default_platform_fee_bps: 30,
         default_platform_wallet: pw.clone(),
         paused: false,
-        fiat_attestor: Address::generate(&_env),
+        fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 0,
     };
     assert_eq!(client.try_set_config(&zero_window), Err(Ok(Error::InvalidConfig)));
@@ -1120,7 +1120,7 @@ fn test_set_config_validates_dispute_window_bounds() {
         default_platform_fee_bps: 30,
         default_platform_wallet: pw.clone(),
         paused: false,
-        fiat_attestor: Address::generate(&_env),
+        fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 604_801,
     };
     assert_eq!(client.try_set_config(&too_large_window), Err(Ok(Error::InvalidConfig)));
@@ -1134,7 +1134,7 @@ fn test_set_config_validates_dispute_window_bounds() {
         default_platform_fee_bps: 30,
         default_platform_wallet: pw.clone(),
         paused: false,
-        fiat_attestor: Address::generate(&_env),
+        fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 604_800,
     };
     client.set_config(&valid_window);
@@ -1204,7 +1204,7 @@ fn test_raise_dispute_post_settle_from_refunded_within_window() {
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
 
-    env.ledger().with_mut(|li| { li.timestamp = 1500; });
+    env.ledger().with_mut(|li| { li.timestamp = 5000; });
     client.refund(&id32(&env,1));
     let provider_bal = usdc.balance(&provider);
 
@@ -1372,7 +1372,7 @@ fn test_resolve_post_settle_refunded_origin_restores_refunded() {
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
 
-    env.ledger().with_mut(|li| { li.timestamp = 1500; });
+    env.ledger().with_mut(|li| { li.timestamp = 5000; });
     client.refund(&id32(&env,1));
 
     env.ledger().with_mut(|li| { li.timestamp = 3000; });
@@ -1457,9 +1457,9 @@ fn test_post_settle_resolved_trade_blocks_confirm_and_refund() {
     usdc_admin.mint(&provider_b, &100_0000000i128);
     client.create_trade(&id32(&env,2), &provider_b, &recipient_b, &provider_b, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    env.ledger().with_mut(|li| { li.timestamp = 1500; });
+    env.ledger().with_mut(|li| { li.timestamp = 5000; });
     client.refund(&id32(&env,2));
-    env.ledger().with_mut(|li| { li.timestamp = 2000; });
+    env.ledger().with_mut(|li| { li.timestamp = 5000; });
     client.raise_dispute(&id32(&env,2), &provider_b);
     client.resolve(&id32(&env,2), &crate::types::ResolveOutcome::Refund, &resolver);
     assert_eq!(
@@ -1703,4 +1703,181 @@ fn naming_the_recipient_is_not_the_same_as_being_the_recipient() {
 
     assert!(res.is_err());
     assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Funded);
+}
+
+fn withdraw_setup() -> (Env, EscrowContractClient<'static>, Address, Address, Address) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (usdc, usdc_admin) = create_usdc(&env, &admin);
+    let resolver = Address::generate(&env);
+    let pw = Address::generate(&env);
+    let attestor = Address::generate(&env);
+    let contract_id = env.register(
+        EscrowContract,
+        (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, attestor.clone()),
+    );
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let provider = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let lw = Address::generate(&env);
+    usdc_admin.mint(&provider, &100_0000000i128);
+    client.create_trade(
+        &id32(&env, 1), &provider, &recipient, &provider, &100_0000000i128, &1i128,
+        &Symbol::new(&env, "IDR"), &crate::types::Flow::Withdraw, &30u32, &120u32,
+        &pw, &lw, &1000u64, &2000u64, &3000u64,
+    );
+    (env, client, attestor, provider, recipient)
+}
+
+#[test]
+fn attestation_is_refused_from_every_status_but_funded() {
+    let (env, client, attestor, _p, recipient, _res, _usdc) = attested_setup();
+    client.mark_fiat_paid(&id32(&env, 1), &attestor);
+
+    for caller in [&attestor, &recipient] {
+        let res = client.try_mark_fiat_paid(&id32(&env, 1), caller);
+        assert_eq!(res, Err(Ok(Error::InvalidState)));
+    }
+}
+
+#[test]
+fn attestation_is_refused_on_a_refunded_trade_so_the_pool_cannot_be_drained() {
+    let (env, client, attestor, _p, _r, _res, _usdc) = attested_setup();
+    env.ledger().with_mut(|l| l.timestamp = 5000);
+    client.refund(&id32(&env, 1));
+
+    let res = client.try_mark_fiat_paid(&id32(&env, 1), &attestor);
+
+    assert_eq!(res, Err(Ok(Error::InvalidState)));
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Refunded);
+}
+
+#[test]
+fn neither_the_provider_nor_the_admin_may_attest() {
+    let (env, client, _attestor, provider, _r, _res, _usdc) = attested_setup();
+    let admin = client.get_config().admin;
+
+    assert_eq!(client.try_mark_fiat_paid(&id32(&env, 1), &provider), Err(Ok(Error::Unauthorized)));
+    assert_eq!(client.try_mark_fiat_paid(&id32(&env, 1), &admin), Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn the_deadline_is_inclusive_to_the_exact_second_for_both_callers() {
+    let (env, client, _attestor, _p, recipient, _res, _usdc) = attested_setup();
+    env.ledger().with_mut(|l| l.timestamp = 1000);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+
+    let (env2, client2, attestor2, _p2, _r2, _res2, _u2) = attested_setup();
+    env2.ledger().with_mut(|l| l.timestamp = 1001);
+    assert_eq!(
+        client2.try_mark_fiat_paid(&id32(&env2, 1), &_r2),
+        Err(Ok(Error::DeadlinePassed))
+    );
+    client2.mark_fiat_paid(&id32(&env2, 1), &attestor2);
+}
+
+#[test]
+fn pausing_stops_the_attestor() {
+    let (env, client, attestor, _p, _r, _res, _usdc) = attested_setup();
+    client.set_paused(&true);
+
+    assert_eq!(client.try_mark_fiat_paid(&id32(&env, 1), &attestor), Err(Ok(Error::Paused)));
+
+    client.set_paused(&false);
+    client.mark_fiat_paid(&id32(&env, 1), &attestor);
+}
+
+#[test]
+fn the_attestor_has_no_authority_over_a_withdrawal() {
+    let (env, client, attestor, _p, recipient) = withdraw_setup();
+
+    assert_eq!(client.try_mark_fiat_paid(&id32(&env, 1), &attestor), Err(Ok(Error::Unauthorized)));
+
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+}
+
+fn long_window_setup() -> (Env, EscrowContractClient<'static>, Address) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (usdc, usdc_admin) = create_usdc(&env, &admin);
+    let resolver = Address::generate(&env);
+    let pw = Address::generate(&env);
+    let attestor = Address::generate(&env);
+    let contract_id = env.register(
+        EscrowContract,
+        (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, attestor.clone()),
+    );
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let provider = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let lw = Address::generate(&env);
+    usdc_admin.mint(&provider, &100_0000000i128);
+    client.create_trade(
+        &id32(&env, 1), &provider, &recipient, &provider, &100_0000000i128, &1i128,
+        &Symbol::new(&env, "IDR"), &crate::types::Flow::TopUp, &30u32, &120u32,
+        &pw, &lw, &1000u64, &1_000_000u64, &2_000_000u64,
+    );
+    (env, client, attestor)
+}
+
+#[test]
+fn the_attestor_window_is_bounded_by_a_grace_not_by_a_month_long_confirm_deadline() {
+    let (env, client, attestor) = long_window_setup();
+    env.ledger().with_mut(|l| l.timestamp = 1000 + crate::ATTEST_GRACE_SECS);
+    client.mark_fiat_paid(&id32(&env, 1), &attestor);
+
+    let (env2, client2, attestor2) = long_window_setup();
+    env2.ledger().with_mut(|l| l.timestamp = 1001 + crate::ATTEST_GRACE_SECS);
+    assert_eq!(
+        client2.try_mark_fiat_paid(&id32(&env2, 1), &attestor2),
+        Err(Ok(Error::DeadlinePassed))
+    );
+}
+
+#[test]
+fn the_attestor_window_never_outlasts_the_confirm_deadline_either() {
+    let (env, client, attestor, _p, _r, _res, _usdc) = attested_setup();
+    env.ledger().with_mut(|l| l.timestamp = 2001);
+
+    assert_eq!(
+        client.try_mark_fiat_paid(&id32(&env, 1), &attestor),
+        Err(Ok(Error::DeadlinePassed))
+    );
+}
+
+#[test]
+fn a_refund_may_not_front_run_the_attestor_on_a_deposit() {
+    let (env, client, attestor, provider, _r, _res, usdc) = attested_setup();
+    env.ledger().with_mut(|l| l.timestamp = 1001);
+
+    assert_eq!(client.try_refund(&id32(&env, 1)), Err(Ok(Error::DeadlineNotReached)));
+    assert_eq!(usdc.balance(&provider), 0);
+
+    client.mark_fiat_paid(&id32(&env, 1), &attestor);
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::FiatPaid);
+}
+
+#[test]
+fn a_withdrawal_refund_still_opens_at_the_pay_deadline() {
+    let (env, client, _attestor, provider, _r) = withdraw_setup();
+    env.ledger().with_mut(|l| l.timestamp = 1001);
+
+    client.refund(&id32(&env, 1));
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Refunded);
+    let _ = provider;
+}
+
+#[test]
+fn the_attestor_may_not_be_rotated_by_configuration() {
+    let (env, client, attestor, _p, _r, _res, _usdc) = attested_setup();
+    let mut cfg = client.get_config();
+    cfg.fiat_attestor = Address::generate(&env);
+
+    let res = client.try_set_config(&cfg);
+
+    assert_eq!(res, Err(Ok(Error::InvalidConfig)));
+    assert_eq!(client.get_config().fiat_attestor, attestor);
 }

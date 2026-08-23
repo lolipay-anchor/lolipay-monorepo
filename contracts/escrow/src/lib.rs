@@ -26,6 +26,7 @@ const MAX_TOTAL_WINDOW: u64 = 2_592_000;
 
 const MAX_LP_FEE_BPS: u32 = 500;
 
+pub const ATTEST_GRACE_SECS: u64 = 3600;
 const MAX_PLATFORM_FEE_BPS: u32 = 500;
 
 const MAX_DISPUTE_WINDOW: u64 = 604_800;
@@ -79,6 +80,9 @@ impl EscrowContract {
         }
         if new_config.default_platform_wallet != cfg.default_platform_wallet {
             return Err(Error::WalletImmutable);
+        }
+        if new_config.fiat_attestor != cfg.fiat_attestor {
+            return Err(Error::InvalidConfig);
         }
         if new_config.default_platform_fee_bps > MAX_PLATFORM_FEE_BPS {
             return Err(Error::InvalidFee);
@@ -227,13 +231,16 @@ impl EscrowContract {
         if trade.status != Status::Funded {
             return Err(Error::InvalidState);
         }
-        let deadline = if caller == cfg.fiat_attestor {
-            trade.confirm_deadline
+        let deadline = if caller == cfg.fiat_attestor && trade.flow == Flow::TopUp {
+            core::cmp::min(trade.confirm_deadline, trade.pay_deadline + ATTEST_GRACE_SECS)
         } else if caller == trade.usdc_recipient {
             trade.pay_deadline
         } else {
             return Err(Error::Unauthorized);
         };
+        if cfg.paused {
+            return Err(Error::Paused);
+        }
         if env.ledger().timestamp() > deadline {
             return Err(Error::DeadlinePassed);
         }
@@ -279,7 +286,12 @@ impl EscrowContract {
         if trade.status != Status::Funded {
             return Err(Error::InvalidState);
         }
-        if env.ledger().timestamp() <= trade.pay_deadline {
+        let opens_at = if trade.flow == Flow::TopUp {
+            trade.pay_deadline + ATTEST_GRACE_SECS
+        } else {
+            trade.pay_deadline
+        };
+        if env.ledger().timestamp() <= opens_at {
             return Err(Error::DeadlineNotReached);
         }
         let token = trade.usdc_token.clone();
