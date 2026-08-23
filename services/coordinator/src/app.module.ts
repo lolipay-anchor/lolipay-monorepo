@@ -3,6 +3,7 @@ import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { TokenClassInterceptor } from './auth/token-class.interceptor';
+import { Sep10Module } from './sep10/sep10.module';
 import { AppConfigModule } from './config/config.module';
 import { OutboxModule } from './outbox/outbox.module';
 import { StorageModule } from './storage/storage.module';
@@ -30,6 +31,7 @@ class HealthController {
 
 @Module({
   imports: [
+    Sep10Module,
     OutboxModule,
 
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
