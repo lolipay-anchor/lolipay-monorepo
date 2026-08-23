@@ -78,6 +78,14 @@ describe('CORS on the anchor surface', () => {
     expect(res.headers['access-control-allow-methods']).toContain('POST');
   });
 
+  it('tells caches not to keep a challenge, which is single use', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/auth?account=GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF')
+      .set('Origin', STRANGER);
+
+    expect(res.headers['cache-control']).toMatch(/no-store/);
+  });
+
   it('does not hand a stranger the credentialed policy on an internal route', async () => {
     const res = await request(app.getHttpServer()).get('/profile').set('Origin', STRANGER);
 

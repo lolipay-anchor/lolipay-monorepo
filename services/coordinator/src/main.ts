@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { ObjectStorageService } from './storage/object-storage.service';
 import { AppConfigService } from './config/app-config.service';
+import cors from 'cors';
 import { anchorCorsOptions } from './anchor/anchor-cors';
 
 async function bootstrap() {
@@ -32,8 +33,8 @@ async function bootstrap() {
 
   const corsOrigins = app.get(AppConfigService).corsOrigins;
   app.use(
-    require('cors')((req: { path: string }, done: (e: unknown, o: unknown) => void) =>
-      done(null, anchorCorsOptions(req.path, corsOrigins)),
+    cors((req, done) =>
+      done(null, anchorCorsOptions((req as unknown as { path: string }).path, corsOrigins)),
     ),
   );
   await app.listen(process.env.PORT ?? 3000);

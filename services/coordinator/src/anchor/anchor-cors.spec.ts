@@ -1,7 +1,9 @@
+import 'reflect-metadata';
 import { anchorCorsOptions, isAnchorPath } from './anchor-cors';
+import { Sep10Controller } from '../sep10/sep10.controller';
 
 describe('the anchor surface is known by path, not by guesswork', () => {
-  it.each(['/auth', '/auth/', '/.well-known/stellar.toml'])('treats %s as anchor surface', (p) => {
+  it.each(['/auth', '/auth/'])('treats %s as anchor surface', (p) => {
     expect(isAnchorPath(p)).toBe(true);
   });
 
@@ -11,6 +13,15 @@ describe('the anchor surface is known by path, not by guesswork', () => {
       expect(isAnchorPath(p)).toBe(false);
     },
   );
+});
+
+describe('the list covers the path the controller is actually mounted at', () => {
+  it('matches the SEP-10 controller prefix, so renaming it cannot break CORS silently', () => {
+    const prefix = Reflect.getMetadata('path', Sep10Controller);
+
+    expect(prefix).toBeTruthy();
+    expect(isAnchorPath(`/${prefix}`)).toBe(true);
+  });
 });
 
 describe('anchor endpoints answer every origin, and never with credentials', () => {

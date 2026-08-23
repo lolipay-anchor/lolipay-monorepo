@@ -5,7 +5,7 @@ export interface AnchorCorsOptions {
   allowedHeaders: string[];
 }
 
-const ANCHOR_PATHS = ['/auth', '/.well-known/stellar.toml'];
+const ANCHOR_PATHS = ['/auth'];
 
 export function isAnchorPath(path: string): boolean {
   const normalised = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
