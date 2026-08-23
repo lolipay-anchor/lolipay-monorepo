@@ -76,6 +76,7 @@ fn test_set_config_updates_fields() {
         default_platform_fee_bps: 55,
         default_platform_wallet: platform_wallet.clone(),
         paused: false,
+        early_release_providers: client.get_config().early_release_providers,
         fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 3600,
     };
@@ -94,6 +95,7 @@ fn test_set_config_updates_fields() {
         default_platform_fee_bps: 99,
         default_platform_wallet: platform_wallet.clone(),
         paused: false,
+        early_release_providers: client.get_config().early_release_providers,
         fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 3600,
     };
@@ -114,6 +116,7 @@ fn test_set_config_handoff_requires_new_admin_auth() {
         default_platform_fee_bps: 30,
         default_platform_wallet: platform_wallet.clone(),
         paused: false,
+        early_release_providers: client.get_config().early_release_providers,
         fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 3600,
     };
@@ -129,6 +132,7 @@ fn test_set_config_handoff_requires_new_admin_auth() {
         default_platform_fee_bps: 30,
         default_platform_wallet: platform_wallet.clone(),
         paused: false,
+        early_release_providers: client.get_config().early_release_providers,
         fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 3600,
     };
@@ -694,6 +698,7 @@ fn test_set_config_token_is_immutable() {
         default_platform_fee_bps: 30,
         default_platform_wallet: pw.clone(),
         paused: false,
+        early_release_providers: client.get_config().early_release_providers,
         fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 3600,
     };
@@ -727,6 +732,7 @@ fn test_set_config_platform_wallet_immutable_and_fee_capped() {
         default_platform_fee_bps: 30,
         default_platform_wallet: evil_pw,
         paused: false,
+        early_release_providers: client.get_config().early_release_providers,
         fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 3600,
     };
@@ -739,6 +745,7 @@ fn test_set_config_platform_wallet_immutable_and_fee_capped() {
         default_platform_fee_bps: 9000,
         default_platform_wallet: pw.clone(),
         paused: false,
+        early_release_providers: client.get_config().early_release_providers,
         fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 3600,
     };
@@ -1108,6 +1115,7 @@ fn test_set_config_validates_dispute_window_bounds() {
         default_platform_fee_bps: 30,
         default_platform_wallet: pw.clone(),
         paused: false,
+        early_release_providers: client.get_config().early_release_providers,
         fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 0,
     };
@@ -1120,6 +1128,7 @@ fn test_set_config_validates_dispute_window_bounds() {
         default_platform_fee_bps: 30,
         default_platform_wallet: pw.clone(),
         paused: false,
+        early_release_providers: client.get_config().early_release_providers,
         fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 604_801,
     };
@@ -1134,6 +1143,7 @@ fn test_set_config_validates_dispute_window_bounds() {
         default_platform_fee_bps: 30,
         default_platform_wallet: pw.clone(),
         paused: false,
+        early_release_providers: client.get_config().early_release_providers,
         fiat_attestor: client.get_config().fiat_attestor,
         dispute_window: 604_800,
     };
@@ -1778,6 +1788,16 @@ fn the_deadline_is_inclusive_to_the_exact_second_for_both_callers() {
 }
 
 #[test]
+fn pausing_never_stops_the_party_from_moving_their_own_trade() {
+    let (env, client, _attestor, _p, recipient, _res, _usdc) = attested_setup();
+    client.set_paused(&true);
+
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::FiatPaid);
+}
+
+#[test]
 fn pausing_stops_the_attestor() {
     let (env, client, attestor, _p, _r, _res, _usdc) = attested_setup();
     client.set_paused(&true);
@@ -1880,4 +1900,226 @@ fn the_attestor_may_not_be_rotated_by_configuration() {
 
     assert_eq!(res, Err(Ok(Error::InvalidConfig)));
     assert_eq!(client.get_config().fiat_attestor, attestor);
+}
+
+fn early_setup(
+    flow: crate::types::Flow,
+    allowlist: bool,
+) -> (Env, EscrowContractClient<'static>, Address, Address, Address, Address, token::TokenClient<'static>) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (usdc, usdc_admin) = create_usdc(&env, &admin);
+    let resolver = Address::generate(&env);
+    let pw = Address::generate(&env);
+    let attestor = Address::generate(&env);
+    let contract_id = env.register(
+        EscrowContract,
+        (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, attestor.clone()),
+    );
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let provider = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let lw = Address::generate(&env);
+    usdc_admin.mint(&provider, &100_0000000i128);
+
+    if allowlist {
+        let mut cfg = client.get_config();
+        cfg.early_release_providers = soroban_sdk::vec![&env, provider.clone()];
+        client.set_config(&cfg);
+    }
+
+    client.create_trade(
+        &id32(&env, 1), &provider, &recipient, &provider, &100_0000000i128, &1i128,
+        &Symbol::new(&env, "IDR"), &flow, &30u32, &120u32,
+        &pw, &lw, &1000u64, &2000u64, &3000u64,
+    );
+    (env, client, provider, recipient, pw, lw, usdc)
+}
+
+#[test]
+fn release_from_funded_succeeds_for_top_up() {
+    let (env, client, _p, recipient, pw, lw, usdc) = early_setup(crate::types::Flow::TopUp, true);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+
+    client.release_from_funded(&id32(&env, 1));
+
+    let trade = client.get_trade(&id32(&env, 1));
+    assert_eq!(trade.status, crate::types::Status::Released);
+    assert_eq!(trade.settled_at, 500);
+    assert_eq!(usdc.balance(&client.address), 0);
+    assert_eq!(usdc.balance(&pw), 3_000_000i128);
+    assert_eq!(usdc.balance(&lw), 12_000_000i128);
+    assert_eq!(usdc.balance(&recipient), 100_0000000i128 - 3_000_000i128 - 12_000_000i128);
+}
+
+#[test]
+fn release_from_funded_rejects_the_withdraw_flow_and_the_exit_survives() {
+    let (env, client, provider, recipient, _pw, _lw, usdc) =
+        early_setup(crate::types::Flow::Withdraw, true);
+    let before = (usdc.balance(&provider), usdc.balance(&recipient));
+
+    let res = client.try_release_from_funded(&id32(&env, 1));
+
+    assert_eq!(res, Err(Ok(Error::EarlyReleaseNotAllowed)));
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Funded);
+    assert_eq!((usdc.balance(&provider), usdc.balance(&recipient)), before);
+
+    env.ledger().with_mut(|l| l.timestamp = 1001);
+    client.refund(&id32(&env, 1));
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Refunded);
+}
+
+#[test]
+fn release_from_funded_rejects_a_provider_not_on_the_list() {
+    let (env, client, provider, recipient, _pw, _lw, usdc) =
+        early_setup(crate::types::Flow::TopUp, false);
+    let before = (usdc.balance(&provider), usdc.balance(&recipient));
+
+    let res = client.try_release_from_funded(&id32(&env, 1));
+
+    assert_eq!(res, Err(Ok(Error::EarlyReleaseNotAllowed)));
+    assert_eq!((usdc.balance(&provider), usdc.balance(&recipient)), before);
+}
+
+#[test]
+fn removing_a_provider_disables_early_release_but_not_the_ordinary_path() {
+    let (env, client, _p, recipient, _pw, _lw, _usdc) = early_setup(crate::types::Flow::TopUp, true);
+    let mut cfg = client.get_config();
+    cfg.early_release_providers = soroban_sdk::vec![&env];
+    client.set_config(&cfg);
+
+    assert_eq!(
+        client.try_release_from_funded(&id32(&env, 1)),
+        Err(Ok(Error::EarlyReleaseNotAllowed))
+    );
+
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    client.confirm_and_release(&id32(&env, 1));
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Released);
+}
+
+#[test]
+fn release_from_funded_requires_the_confirmer_signature() {
+    let (env, client, provider, recipient, _pw, _lw, usdc) =
+        early_setup(crate::types::Flow::TopUp, true);
+    let before = (usdc.balance(&provider), usdc.balance(&recipient));
+
+    env.set_auths(&[]);
+    let res = client.try_release_from_funded(&id32(&env, 1));
+
+    assert!(res.is_err());
+    assert_eq!((usdc.balance(&provider), usdc.balance(&recipient)), before);
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Funded);
+}
+
+#[test]
+fn release_from_funded_rejects_after_the_confirm_deadline() {
+    let (env, client, _p, _r, _pw, _lw, _usdc) = early_setup(crate::types::Flow::TopUp, true);
+    env.ledger().with_mut(|l| l.timestamp = 2001);
+
+    assert_eq!(
+        client.try_release_from_funded(&id32(&env, 1)),
+        Err(Ok(Error::DeadlinePassed))
+    );
+
+    env.ledger().with_mut(|l| l.timestamp = 5000);
+    client.refund(&id32(&env, 1));
+}
+
+#[test]
+fn release_from_funded_is_refused_while_paused() {
+    let (env, client, _p, _r, _pw, _lw, _usdc) = early_setup(crate::types::Flow::TopUp, true);
+    client.set_paused(&true);
+
+    assert_eq!(client.try_release_from_funded(&id32(&env, 1)), Err(Ok(Error::Paused)));
+
+    client.set_paused(&false);
+    client.release_from_funded(&id32(&env, 1));
+}
+
+#[test]
+fn pausing_never_traps_funds() {
+    let (env, client, _p, recipient, _pw, _lw, _usdc) = early_setup(crate::types::Flow::TopUp, true);
+    client.set_paused(&true);
+
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    client.confirm_and_release(&id32(&env, 1));
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Released);
+}
+
+#[test]
+fn pausing_never_traps_a_refund_either() {
+    let (env, client, _p, _r, _pw, _lw, _usdc) = early_setup(crate::types::Flow::TopUp, true);
+    client.set_paused(&true);
+    env.ledger().with_mut(|l| l.timestamp = 5000);
+
+    client.refund(&id32(&env, 1));
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Refunded);
+}
+
+#[test]
+fn release_from_funded_is_single_shot() {
+    let (env, client, _p, recipient, _pw, _lw, usdc) = early_setup(crate::types::Flow::TopUp, true);
+    client.release_from_funded(&id32(&env, 1));
+    let after_first = usdc.balance(&recipient);
+
+    let res = client.try_release_from_funded(&id32(&env, 1));
+
+    assert_eq!(res, Err(Ok(Error::InvalidState)));
+    assert_eq!(usdc.balance(&recipient), after_first);
+}
+
+#[test]
+fn confirm_and_release_still_rejects_funded() {
+    let (env, client, _p, _r, _pw, _lw, _usdc) = early_setup(crate::types::Flow::TopUp, true);
+
+    assert_eq!(
+        client.try_confirm_and_release(&id32(&env, 1)),
+        Err(Ok(Error::InvalidState))
+    );
+}
+
+#[test]
+fn release_from_funded_then_refund_is_rejected_and_the_reverse_too() {
+    let (env, client, _p, _r, _pw, _lw, _usdc) = early_setup(crate::types::Flow::TopUp, true);
+    client.release_from_funded(&id32(&env, 1));
+    env.ledger().with_mut(|l| l.timestamp = 5000);
+
+    assert_eq!(client.try_refund(&id32(&env, 1)), Err(Ok(Error::InvalidState)));
+
+    let (env2, client2, _p2, _r2, _pw2, _lw2, _u2) = early_setup(crate::types::Flow::TopUp, true);
+    env2.ledger().with_mut(|l| l.timestamp = 5000);
+    client2.refund(&id32(&env2, 1));
+
+    assert_eq!(
+        client2.try_release_from_funded(&id32(&env2, 1)),
+        Err(Ok(Error::InvalidState))
+    );
+}
+
+#[test]
+fn release_from_funded_then_mark_fiat_paid_is_rejected() {
+    let (env, client, _p, recipient, _pw, _lw, _usdc) = early_setup(crate::types::Flow::TopUp, true);
+    client.release_from_funded(&id32(&env, 1));
+
+    assert_eq!(
+        client.try_mark_fiat_paid(&id32(&env, 1), &recipient),
+        Err(Ok(Error::InvalidState))
+    );
+}
+
+#[test]
+fn the_provider_allowlist_is_capped() {
+    let (env, client, _p, _r, _pw, _lw, _usdc) = early_setup(crate::types::Flow::TopUp, true);
+    let mut cfg = client.get_config();
+    let mut many = soroban_sdk::vec![&env];
+    for _ in 0..(crate::MAX_EARLY_RELEASE_PROVIDERS + 1) {
+        many.push_back(Address::generate(&env));
+    }
+    cfg.early_release_providers = many;
+
+    assert_eq!(client.try_set_config(&cfg), Err(Ok(Error::InvalidConfig)));
 }

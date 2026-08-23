@@ -57,3 +57,12 @@ pub struct Resolved {
     pub released: bool,
     pub post_settle: bool,
 }
+
+#[contractevent]
+pub struct EarlyReleased {
+    #[topic]
+    pub trade_id: BytesN<32>,
+    pub net: i128,
+    pub platform_fee: i128,
+    pub lp_fee: i128,
+}

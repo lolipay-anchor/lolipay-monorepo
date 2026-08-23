@@ -7,9 +7,10 @@ pub mod types;
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{contract, contractimpl, panic_with_error, token, Address, BytesN, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, panic_with_error, token, Address, BytesN, Env, Symbol, Vec};
 
 use crate::events::{
+    EarlyReleased,
     ConfigChanged, Disputed, FiatPaid, PausedSet, Released, Refunded, Resolved, TradeCreated,
 };
 use crate::storage::{
@@ -27,6 +28,7 @@ const MAX_TOTAL_WINDOW: u64 = 2_592_000;
 const MAX_LP_FEE_BPS: u32 = 500;
 
 pub const ATTEST_GRACE_SECS: u64 = 3600;
+pub const MAX_EARLY_RELEASE_PROVIDERS: u32 = 20;
 const MAX_PLATFORM_FEE_BPS: u32 = 500;
 
 const MAX_DISPUTE_WINDOW: u64 = 604_800;
@@ -64,6 +66,7 @@ impl EscrowContract {
                 paused: false,
                 dispute_window,
                 fiat_attestor,
+                early_release_providers: Vec::new(&env),
             },
         );
     }
@@ -82,6 +85,9 @@ impl EscrowContract {
             return Err(Error::WalletImmutable);
         }
         if new_config.fiat_attestor != cfg.fiat_attestor {
+            return Err(Error::InvalidConfig);
+        }
+        if new_config.early_release_providers.len() > MAX_EARLY_RELEASE_PROVIDERS {
             return Err(Error::InvalidConfig);
         }
         if new_config.default_platform_fee_bps > MAX_PLATFORM_FEE_BPS {
@@ -232,15 +238,15 @@ impl EscrowContract {
             return Err(Error::InvalidState);
         }
         let deadline = if caller == cfg.fiat_attestor && trade.flow == Flow::TopUp {
+            if cfg.paused {
+                return Err(Error::Paused);
+            }
             core::cmp::min(trade.confirm_deadline, trade.pay_deadline + ATTEST_GRACE_SECS)
         } else if caller == trade.usdc_recipient {
             trade.pay_deadline
         } else {
             return Err(Error::Unauthorized);
         };
-        if cfg.paused {
-            return Err(Error::Paused);
-        }
         if env.ledger().timestamp() > deadline {
             return Err(Error::DeadlinePassed);
         }
@@ -248,6 +254,48 @@ impl EscrowContract {
         trade.status = Status::FiatPaid;
         set_trade(&env, &trade_id, &trade);
         FiatPaid { trade_id }.publish(&env);
+        Ok(())
+    }
+
+    pub fn release_from_funded(env: Env, trade_id: BytesN<32>) -> Result<(), Error> {
+        bump_instance(&env);
+        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
+        let mut trade = storage_get_trade(&env, &trade_id).ok_or(Error::TradeNotFound)?;
+        if trade.status != Status::Funded {
+            return Err(Error::InvalidState);
+        }
+        if cfg.paused {
+            return Err(Error::Paused);
+        }
+        if trade.flow != Flow::TopUp {
+            return Err(Error::EarlyReleaseNotAllowed);
+        }
+        if !cfg.early_release_providers.contains(&trade.usdc_provider) {
+            return Err(Error::EarlyReleaseNotAllowed);
+        }
+        if env.ledger().timestamp() > trade.confirm_deadline {
+            return Err(Error::DeadlinePassed);
+        }
+        trade.confirmer.require_auth();
+
+        let (platform_fee, lp_fee, net) =
+            split_fees(trade.usdc_amount, trade.platform_fee_bps, trade.lp_fee_bps);
+
+        trade.status = Status::Released;
+        trade.settled_at = env.ledger().timestamp();
+        set_trade(&env, &trade_id, &trade);
+
+        let token = token::TokenClient::new(&env, &trade.usdc_token);
+        let contract = env.current_contract_address();
+        if platform_fee > 0 {
+            token.transfer(&contract, &trade.platform_wallet, &platform_fee);
+        }
+        if lp_fee > 0 {
+            token.transfer(&contract, &trade.lp_wallet, &lp_fee);
+        }
+        token.transfer(&contract, &trade.usdc_recipient, &net);
+
+        EarlyReleased { trade_id, net, platform_fee, lp_fee }.publish(&env);
         Ok(())
     }
 

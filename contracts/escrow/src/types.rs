@@ -1,4 +1,4 @@
-use soroban_sdk::{contracterror, contracttype, Address, BytesN, Symbol};
+use soroban_sdk::{contracterror, contracttype, Address, BytesN, Symbol, Vec};
 
 #[contracttype]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -86,6 +86,7 @@ pub struct Config {
     pub paused: bool,
     pub dispute_window: u64,
     pub fiat_attestor: Address,
+    pub early_release_providers: Vec<Address>,
 }
 
 #[contracttype]
@@ -118,4 +119,5 @@ pub enum Error {
     InvalidConfig = 17,
     DisputeWindowPassed = 18,
     AlreadyResolved = 19,
+    EarlyReleaseNotAllowed = 20,
 }
