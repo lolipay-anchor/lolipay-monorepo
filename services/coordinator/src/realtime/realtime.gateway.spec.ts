@@ -15,7 +15,7 @@ function makeSocket(overrides: Record<string, any> = {}) {
     id: overrides.id ?? `sock-${Math.random().toString(36).slice(2)}`,
     handshake: { auth: {}, headers: {} },
     data: {},
-    join: jest.fn(),
+    leave: jest.fn(), join: jest.fn(),
     disconnect: jest.fn(),
     emit: jest.fn(),
     ...overrides,
@@ -93,7 +93,7 @@ describe('RealtimeGateway — handshake auth', () => {
     const socket = makeSocket({ handshake: { auth: { token: 'valid-user' }, headers: {} } });
     await gw.handleConnection(socket);
     expect(socket.disconnect).not.toHaveBeenCalled();
-    expect(socket.data).toEqual({ address: USER, role: 'user' });
+    expect(socket.data).toEqual({ address: USER, role: 'user', cls: 'session' });
     expect(socket.join).toHaveBeenCalledWith(`user:${USER}`);
   });
 
@@ -104,21 +104,21 @@ describe('RealtimeGateway — handshake auth', () => {
     });
     await gw.handleConnection(socket);
     expect(socket.disconnect).not.toHaveBeenCalled();
-    expect(socket.data).toEqual({ address: USER, role: 'user' });
+    expect(socket.data).toEqual({ address: USER, role: 'user', cls: 'session' });
   });
 
   it('resolves role live: an admin-allowlisted address gets role "admin"', async () => {
     const { gw } = makeGateway();
     const socket = makeSocket({ handshake: { auth: { token: 'valid-admin' }, headers: {} } });
     await gw.handleConnection(socket);
-    expect(socket.data).toEqual({ address: ADMIN, role: 'admin' });
+    expect(socket.data).toEqual({ address: ADMIN, role: 'admin', cls: 'session' });
   });
 
   it('LP connect: joins lp:assignments and bumps liveness WITHOUT touching online (intent)', async () => {
     const { gw, prisma } = makeGateway();
     const socket = makeSocket({ handshake: { auth: { token: 'valid-lp' }, headers: {} } });
     await gw.handleConnection(socket);
-    expect(socket.data).toEqual({ address: LP_ADDR, role: 'lp' });
+    expect(socket.data).toEqual({ address: LP_ADDR, role: 'lp', cls: 'session' });
     expect(socket.join).toHaveBeenCalledWith('lp:assignments');
     expect(prisma.lp.update).toHaveBeenCalledWith({
       where: { stellarAddress: LP_ADDR },
@@ -176,7 +176,7 @@ describe('RealtimeGateway — per-address connect-rate limit (DoS bound, securit
         await gw.handleConnection(socket);
         if (i < CONNECT_RATE_LIMIT) {
           expect(socket.disconnect).not.toHaveBeenCalled();
-          expect(socket.data).toEqual({ address: USER, role: 'user' });
+          expect(socket.data).toEqual({ address: USER, role: 'user', cls: 'session' });
         } else {
           expect(socket.disconnect).toHaveBeenCalledWith(true);
           expect(socket.data).toEqual({});
@@ -205,7 +205,7 @@ describe('RealtimeGateway — per-address connect-rate limit (DoS bound, securit
     const lpSocket = makeSocket({ handshake: { auth: { token: 'valid-lp' }, headers: {} } });
     await gw.handleConnection(lpSocket);
     expect(lpSocket.disconnect).not.toHaveBeenCalled();
-    expect(lpSocket.data).toEqual({ address: LP_ADDR, role: 'lp' });
+    expect(lpSocket.data).toEqual({ address: LP_ADDR, role: 'lp', cls: 'session' });
   });
 
   it('resets after the rate window elapses — churn is bounded per-window, not forever', async () => {
@@ -501,7 +501,7 @@ describe('RealtimeGateway.emitOrderUpdate', () => {
 describe('the socket door honours the token class too', () => {
   it('does not let a sep10 token join the administrator room', async () => {
     const { gw } = makeGateway({
-      verifyImpl: () => ({ sub: ADMIN, cls: 'sep10' }),
+      verifyImpl: () => ({ sub: ADMIN, cls: 'sep10', exp: FAR_FUTURE }),
       adminAddresses: [ADMIN],
     });
     const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
@@ -514,7 +514,7 @@ describe('the socket door honours the token class too', () => {
 
   it('does not let a sep10 token join the provider room', async () => {
     const { gw } = makeGateway({
-      verifyImpl: () => ({ sub: LP_ADDR, cls: 'sep10' }),
+      verifyImpl: () => ({ sub: LP_ADDR, cls: 'sep10', exp: FAR_FUTURE }),
       lpRow: { status: 'APPROVED' },
     });
     const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
@@ -522,6 +522,7 @@ describe('the socket door honours the token class too', () => {
     await gw.handleConnection(socket);
 
     expect(socket.join).not.toHaveBeenCalledWith('lp:assignments');
+    expect(socket.disconnect).toHaveBeenCalledWith(true);
   });
 
   it('still lets a session token into the administrator room', async () => {
@@ -549,7 +550,7 @@ describe('the socket door honours the token class too', () => {
 
 describe('the socket door is a session door', () => {
   it('refuses an anchor token outright rather than admitting it as a user', async () => {
-    const { gw } = makeGateway({ verifyImpl: () => ({ sub: USER, cls: 'sep10' }) });
+    const { gw } = makeGateway({ verifyImpl: () => ({ sub: USER, cls: 'sep10', exp: FAR_FUTURE }) });
     const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
 
     await gw.handleConnection(socket);
@@ -675,6 +676,74 @@ describe('the expiry timer does not outlive the socket it guards', () => {
     jest.advanceTimersByTime(1_000_000);
 
     expect(socket.disconnect).not.toHaveBeenCalled();
+  });
+});
+
+describe('re-authorising a join must not cost more than the rate limit allows', () => {
+  it('checks the join rate before it asks the database anything', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 900;
+    const { gw, prisma } = makeGateway({
+      verifyImpl: () => ({ sub: USER, cls: 'session', exp }),
+    });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+    await gw.handleConnection(socket);
+    prisma.order.findUnique = jest.fn().mockResolvedValue({
+      id: 'ord-1',
+      userAddress: USER,
+      lpWallet: null,
+    });
+    (prisma.walletLink.findUnique as jest.Mock).mockClear();
+
+    for (let i = 0; i < 200; i++) {
+      await gw.handleJoinOrder(socket, { orderId: 'ord-1' });
+    }
+
+    const dbCalls = (prisma.walletLink.findUnique as jest.Mock).mock.calls.length;
+    expect(dbCalls).toBeLessThan(200);
+    expect(dbCalls).toBeLessThanOrEqual(
+      (prisma.order.findUnique as jest.Mock).mock.calls.length,
+    );
+  });
+});
+
+describe('a demoted socket loses the rooms the old role gave it', () => {
+  it('leaves the provider room when the provider is suspended', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 900;
+    const { gw, prisma } = makeGateway({
+      verifyImpl: () => ({ sub: LP_ADDR, cls: 'session', exp }),
+      lpRow: { status: 'APPROVED' },
+    });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+    await gw.handleConnection(socket);
+    expect(socket.join).toHaveBeenCalledWith('lp:assignments');
+    prisma.order.findUnique = jest.fn().mockResolvedValue({
+      id: 'ord-1',
+      userAddress: LP_ADDR,
+      lpWallet: null,
+    });
+
+    (prisma.lp.findUnique as jest.Mock).mockResolvedValue({ status: 'SUSPENDED' });
+    await gw.handleJoinOrder(socket, { orderId: 'ord-1' });
+
+    expect(socket.leave).toHaveBeenCalledWith('lp:assignments');
+    expect((gw as any).lpAddressesOnline.has(LP_ADDR)).toBe(false);
+  });
+});
+
+describe('an absurd expiry does not silently kill the socket', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('survives an expiry beyond what a timer can represent', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+    const { gw } = makeGateway({ verifyImpl: () => ({ sub: USER, cls: 'session', exp }) });
+    const socket = makeSocket({ handshake: { auth: { token: 't' }, headers: {} } });
+
+    await gw.handleConnection(socket);
+    jest.advanceTimersByTime(10);
+
+    expect(socket.disconnect).not.toHaveBeenCalled();
+    expect(socket.join).toHaveBeenCalledWith(`user:${USER}`);
   });
 });
 

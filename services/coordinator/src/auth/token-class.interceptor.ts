@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Observable } from 'rxjs';
-import { isTokenClass, MAY_PROMOTE, TokenClass } from './role.util';
+import { isTokenClass, MAY_USE_INTERNAL_API, TokenClass } from './role.util';
 
 export const ALLOW_TOKEN_CLASSES = 'allowTokenClasses';
 
@@ -24,7 +24,7 @@ export const AllowTokenClasses =
     return SetMetadata(ALLOW_TOKEN_CLASSES, classes)(target, propertyKey, descriptor);
   };
 
-const DEFAULT_ALLOWED: readonly TokenClass[] = MAY_PROMOTE;
+const DEFAULT_ALLOWED: readonly TokenClass[] = MAY_USE_INTERNAL_API;
 
 @Injectable()
 export class TokenClassInterceptor implements NestInterceptor {

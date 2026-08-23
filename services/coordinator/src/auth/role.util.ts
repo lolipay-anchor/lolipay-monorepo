@@ -8,6 +8,7 @@ export type TokenClass = 'session' | 'sep10';
 export const TOKEN_CLASSES: readonly TokenClass[] = ['session', 'sep10'];
 export const MAY_PROMOTE: readonly TokenClass[] = ['session'];
 export const MAY_OPEN_SOCKET: readonly TokenClass[] = ['session'];
+export const MAY_USE_INTERNAL_API: readonly TokenClass[] = ['session'];
 
 export function isTokenClass(value: unknown): value is TokenClass {
   return typeof value === 'string' && (TOKEN_CLASSES as readonly string[]).includes(value);

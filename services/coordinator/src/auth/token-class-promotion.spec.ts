@@ -1,4 +1,10 @@
-import { MAY_PROMOTE, resolveRole, TOKEN_CLASSES } from './role.util';
+import {
+  MAY_OPEN_SOCKET,
+  MAY_PROMOTE,
+  MAY_USE_INTERNAL_API,
+  resolveRole,
+  TOKEN_CLASSES,
+} from './role.util';
 
 const ADMIN = 'GADMIN';
 
@@ -30,3 +36,16 @@ describe('a token class is powerless unless it is explicitly allowed to promote'
     expect(MAY_PROMOTE.every((c) => TOKEN_CLASSES.includes(c))).toBe(true);
   });
 });
+
+describe('the three doors ask three different questions', () => {
+  it('keeps promotion, the internal API and the socket as separate decisions', () => {
+    const lists = [MAY_PROMOTE, MAY_USE_INTERNAL_API, MAY_OPEN_SOCKET];
+
+    for (const list of lists) {
+      expect(list.every((c) => TOKEN_CLASSES.includes(c))).toBe(true);
+    }
+    expect(MAY_USE_INTERNAL_API).not.toBe(MAY_PROMOTE);
+    expect(MAY_OPEN_SOCKET).not.toBe(MAY_PROMOTE);
+  });
+});
+

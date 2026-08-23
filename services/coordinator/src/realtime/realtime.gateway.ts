@@ -7,7 +7,7 @@ import {
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
-import { Logger, OnModuleDestroy } from '@nestjs/common';
+import { Logger, OnModuleDestroy, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { Server, Socket } from 'socket.io';
 import { AppConfigService, parseCorsOrigins } from '../config/app-config.service';
@@ -29,6 +29,7 @@ const JOIN_ORDER_RATE_LIMIT = 30;
 const JOIN_ORDER_RATE_WINDOW_MS = 10_000;
 
 export const MAX_SOCKETS_PER_ADDRESS = 10;
+const MAX_TIMER_MS = 2_147_483_647;
 
 export const CONNECT_RATE_LIMIT = 20;
 const CONNECT_RATE_WINDOW_MS = 10_000;
@@ -44,6 +45,7 @@ export interface OrderForRealtime {
 interface SocketData {
   address: string;
   role: Role;
+  cls: TokenClass;
 }
 
 @WebSocketGateway({
@@ -65,6 +67,20 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private connectAttempts = new Map<string, { count: number; windowStart: number }>();
   private presenceInterval?: ReturnType<typeof setInterval>;
   private expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  private async applyRoleChange(socket: Socket, data: SocketData, role: Role): Promise<void> {
+    if (data.role === 'admin') await socket.leave('admin:orders');
+    if (data.role === 'lp') {
+      await socket.leave('lp:assignments');
+      this.lpAddressesOnline.delete(data.address);
+    }
+    if (role === 'admin') await socket.join('admin:orders');
+    if (role === 'lp') {
+      await socket.join('lp:assignments');
+      this.lpAddressesOnline.add(data.address);
+    }
+    socket.data = { address: data.address, role, cls: data.cls } satisfies SocketData;
+  }
 
   private clearExpiryTimer(socketId: string): void {
     const timer = this.expiryTimers.get(socketId);
@@ -152,9 +168,9 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       return;
     }
 
-    socket.data = { address, role } satisfies SocketData;
+    socket.data = { address, role, cls } satisfies SocketData;
 
-    const remaining = expiresAt - Date.now();
+    const remaining = Math.min(expiresAt - Date.now(), MAX_TIMER_MS);
     if (remaining <= 0) {
       this.releaseSocketSlot(address, socket.id);
       socket.disconnect(true);
@@ -212,19 +228,33 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const data = socket.data as SocketData | undefined;
     if (!data?.address) return;
 
-    try {
-      const role = await resolveRole(data.address, this.prisma, this.cfg.adminAddresses, 'session');
-      if (role !== data.role) {
-        socket.data = { address: data.address, role } satisfies SocketData;
-      }
-    } catch {
-      this.log.warn(`join:order refused: ${data.address} is no longer a proven wallet`);
-      socket.disconnect(true);
+    if (!this.checkJoinRate(socket.id)) {
+      socket.emit('join:order:error', { reason: 'rate_limited' });
       return;
     }
 
-    if (!this.checkJoinRate(socket.id)) {
-      socket.emit('join:order:error', { reason: 'rate_limited' });
+    try {
+      const role = await resolveRole(
+        data.address,
+        this.prisma,
+        this.cfg.adminAddresses,
+        data.cls,
+      );
+      if (role !== data.role) {
+        await this.applyRoleChange(socket, data, role);
+      }
+    } catch (err) {
+      if (err instanceof UnauthorizedException) {
+        this.log.warn(`join:order refused: ${data.address} is no longer a proven wallet`);
+        socket.disconnect(true);
+        return;
+      }
+      this.log.error(
+        `join:order could not re-check ${data.address}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      socket.emit('join:order:error', { reason: 'unavailable' });
       return;
     }
 

@@ -40,7 +40,7 @@ describe('the issuer is normalised, and cannot smuggle a credential', () => {
     expect(jwtVerifyOptions(cfg).issuer).toBe('https://lolipay.app/');
   });
 
-  it('refuses an issuer with trailing whitespace, which passes URL but fails the suite', () => {
+  it('normalises away trailing whitespace, which the suite would otherwise reject', () => {
     const cfg = cfgWith({ JWT_SECRET: 'a'.repeat(32), JWT_ISSUER: 'https://lolipay.app ' });
 
     expect(jwtVerifyOptions(cfg).issuer).toBe('https://lolipay.app/');
@@ -54,5 +54,16 @@ describe('the issuer is normalised, and cannot smuggle a credential', () => {
 
     expect(() => jwtVerifyOptions(cfg)).toThrow(/credential/i);
   });
+});
+
+describe('only an http or https issuer is accepted', () => {
+  it.each(['ftp://lolipay.app', 'javascript:alert(1)', 'file:///etc/passwd'])(
+    'refuses %s',
+    (issuer) => {
+      const cfg = cfgWith({ JWT_SECRET: 'a'.repeat(32), JWT_ISSUER: issuer });
+
+      expect(() => jwtVerifyOptions(cfg)).toThrow(/http/i);
+    },
+  );
 });
 
