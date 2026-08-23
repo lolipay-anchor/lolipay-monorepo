@@ -367,8 +367,10 @@ impl EscrowContract {
         bump_instance(&env);
         let mut trade = storage_get_trade(&env, &trade_id).ok_or(Error::TradeNotFound)?;
         let now = env.ledger().timestamp();
+        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
         let prior_status: Option<Status> = match trade.status {
             Status::FiatPaid => None,
+            Status::Funded => None,
             Status::Released | Status::Refunded => {
                 if trade.settled_at == 0 {
                     return Err(Error::InvalidState);
@@ -376,7 +378,6 @@ impl EscrowContract {
                 if trade.post_settle_resolved {
                     return Err(Error::AlreadyResolved);
                 }
-                let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
                 if now > trade.settled_at + cfg.dispute_window {
                     return Err(Error::DisputeWindowPassed);
                 }
@@ -384,7 +385,12 @@ impl EscrowContract {
             }
             _ => return Err(Error::InvalidState),
         };
-        if by != trade.usdc_provider && by != trade.usdc_recipient {
+        let by_resolver = by == cfg.resolver;
+        if trade.status == Status::Funded {
+            if !by_resolver {
+                return Err(Error::Unauthorized);
+            }
+        } else if !by_resolver && by != trade.usdc_provider && by != trade.usdc_recipient {
             return Err(Error::Unauthorized);
         }
         by.require_auth();
