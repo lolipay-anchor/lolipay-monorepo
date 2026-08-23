@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { ObjectStorageService } from './storage/object-storage.service';
 import { AppConfigService } from './config/app-config.service';
+import { anchorCorsOptions } from './anchor/anchor-cors';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -30,12 +31,11 @@ async function bootstrap() {
   );
 
   const corsOrigins = app.get(AppConfigService).corsOrigins;
-  app.enableCors({
-    origin: corsOrigins.length > 0 ? corsOrigins : false,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
-  });
+  app.use(
+    require('cors')((req: { path: string }, done: (e: unknown, o: unknown) => void) =>
+      done(null, anchorCorsOptions(req.path, corsOrigins)),
+    ),
+  );
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap().catch((err) => {
