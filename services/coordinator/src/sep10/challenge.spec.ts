@@ -35,13 +35,13 @@ describe('the challenge has the shape the acceptance suite reads', () => {
     expect(challengeFor().tx.sequence).toBe('0');
   });
 
-  it('sets a maximum timebound, and a minimum that is not in the past', () => {
+  it('holds the challenge open for the 900 seconds SEP-10 recommends, from now', () => {
     const before = Math.floor(Date.now() / 1000);
     const { tx } = challengeFor();
 
     expect(tx.timeBounds?.maxTime).toBeTruthy();
     expect(Number(tx.timeBounds?.minTime)).toBeGreaterThanOrEqual(before);
-    expect(Number(tx.timeBounds?.maxTime)).toBeGreaterThan(Number(tx.timeBounds?.minTime));
+    expect(Number(tx.timeBounds?.maxTime) - Number(tx.timeBounds?.minTime)).toBe(900);
   });
 
   it('names the home domain in the first operation, sourced by the client', () => {
@@ -156,3 +156,46 @@ describe('the challenge endpoint refuses what it cannot honour', () => {
     );
   });
 });
+
+describe('a memo must be a number the ledger can actually hold', () => {
+  it('accepts the largest unsigned 64-bit value', () => {
+    const { tx } = challengeFor(CLIENT.publicKey(), { memo: '18446744073709551615' });
+
+    expect(tx.source).toBe(SERVER.publicKey());
+  });
+
+  it('refuses one above it with a 400, not a 500 from deep in the SDK', () => {
+    expect(() =>
+      makeService().buildChallenge(CLIENT.publicKey(), { memo: '18446744073709551616' }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('refuses a memo of only zeroes padded past the range', () => {
+    expect(() =>
+      makeService().buildChallenge(CLIENT.publicKey(), { memo: '99999999999999999999' }),
+    ).toThrow(BadRequestException);
+  });
+});
+
+describe('the domains it signs into a challenge must be bare hosts', () => {
+  it.each([
+    ['a scheme', 'https://lolipay.app'],
+    ['a trailing slash', 'lolipay.app/'],
+    ['a path', 'lolipay.app/auth'],
+    ['whitespace', 'lolipay.app '],
+  ])('refuses a home domain carrying %s', (_n, value) => {
+    expect(() => makeService({ anchorHomeDomain: value })).toThrow(/ANCHOR_HOME_DOMAIN/);
+  });
+
+  it.each([
+    ['a scheme', 'https://api.lolipay.app'],
+    ['a trailing slash', 'api.lolipay.app/'],
+  ])('refuses a web auth domain carrying %s', (_n, value) => {
+    expect(() => makeService({ sep10WebAuthDomain: value })).toThrow(/SEP10_WEB_AUTH_DOMAIN/);
+  });
+
+  it('accepts the bare hosts it is meant to have', () => {
+    expect(() => makeService()).not.toThrow();
+  });
+});
+

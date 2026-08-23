@@ -3,10 +3,11 @@ import {
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { Keypair, MuxedAccount, StrKey, WebAuth } from '@stellar/stellar-sdk';
+import { Keypair, StrKey, WebAuth } from '@stellar/stellar-sdk';
 import { AppConfigService } from '../config/app-config.service';
 
 export const CHALLENGE_TIMEOUT_SECONDS = 900;
+const MAX_MEMO_ID = 18446744073709551615n;
 
 export interface ChallengeOptions {
   memo?: string;
@@ -25,6 +26,8 @@ export class Sep10Service {
 
   constructor(private cfg: AppConfigService) {
     this.signer = loadSigner(cfg.sep10SigningKey);
+    requireBareHost('ANCHOR_HOME_DOMAIN', cfg.anchorHomeDomain);
+    requireBareHost('SEP10_WEB_AUTH_DOMAIN', cfg.sep10WebAuthDomain);
   }
 
   buildChallenge(account: string, options: ChallengeOptions): Challenge {
@@ -37,14 +40,10 @@ export class Sep10Service {
       if (muxed) {
         throw new BadRequestException('memo may not be used with a muxed account');
       }
-      if (!/^[0-9]+$/.test(options.memo)) {
+      if (!/^[0-9]+$/.test(options.memo) || BigInt(options.memo) > MAX_MEMO_ID) {
         throw new BadRequestException('memo must be a 64-bit unsigned integer');
       }
     }
-    if (options.clientDomain !== undefined && options.clientSigningKey === undefined) {
-      throw new BadRequestException('client_domain given without a resolvable signing key');
-    }
-
     const transaction = WebAuth.buildChallengeTx(
       signer,
       account,
@@ -87,11 +86,8 @@ function loadSigner(seed: string | undefined): Keypair | null {
   return Keypair.fromSecret(seed);
 }
 
-export function isMuxed(account: string): boolean {
-  try {
-    MuxedAccount.fromAddress(account, '0');
-    return true;
-  } catch {
-    return false;
+function requireBareHost(name: string, value: string): void {
+  if (value !== value.trim() || /[/\\]|:\/\//.test(value) || value === '') {
+    throw new Error(`${name} must be a bare host such as lolipay.app, with no scheme or path`);
   }
 }
