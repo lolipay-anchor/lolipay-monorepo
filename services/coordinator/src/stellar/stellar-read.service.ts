@@ -254,7 +254,10 @@ export class StellarReadService {
           contract: contractId,
           function: 'mark_fiat_paid',
 
-          args: [nativeToScVal(Buffer.from(tradeIdHex, 'hex'))],
+          args: [
+            nativeToScVal(Buffer.from(tradeIdHex, 'hex')),
+            new Address(userAddress).toScVal(),
+          ],
         }),
       )
       .setTimeout(300)
