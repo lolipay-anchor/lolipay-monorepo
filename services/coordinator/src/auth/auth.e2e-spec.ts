@@ -5,6 +5,9 @@ import { Keypair } from '@stellar/stellar-sdk';
 import { createHash } from 'crypto';
 import { AppModule } from '../app.module';
 import { ThrottlerStorage } from '@nestjs/throttler';
+import { JwtService } from '@nestjs/jwt';
+import { AppConfigService } from '../config/app-config.service';
+import { jwtSignOptions } from './jwt-options';
 
 const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
@@ -94,5 +97,51 @@ describe('Auth', () => {
       .post('/auth/verify')
       .send({ address: kp.publicKey(), nonce: fakeNonce, signature: sig })
       .expect(401);
+  });
+
+  it('refuses an anchor token on an internal route, however valid its signature', async () => {
+    const kp = Keypair.random();
+    const ch = await request(app.getHttpServer())
+      .post('/auth/challenge')
+      .send({ address: kp.publicKey() })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post('/auth/verify')
+      .send({
+        address: kp.publicKey(),
+        nonce: ch.body.nonce,
+        signature: signChallenge(kp, ch.body.nonce),
+      })
+      .expect(201);
+
+    const jwt = app.get(JwtService);
+    const cfg = app.get(AppConfigService);
+    const anchorToken = await jwt.signAsync(
+      { sub: kp.publicKey(), role: 'user', cls: 'sep10' },
+      jwtSignOptions(cfg),
+    );
+
+    await request(app.getHttpServer())
+      .get('/profile')
+      .set('Authorization', `Bearer ${anchorToken}`)
+      .expect(403);
+  });
+
+  it('still lets an ordinary session reach that same route', async () => {
+    const kp = Keypair.random();
+    const ch = await request(app.getHttpServer())
+      .post('/auth/challenge')
+      .send({ address: kp.publicKey() })
+      .expect(201);
+    const sig = signChallenge(kp, ch.body.nonce);
+    const res = await request(app.getHttpServer())
+      .post('/auth/verify')
+      .send({ address: kp.publicKey(), nonce: ch.body.nonce, signature: sig })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .get('/profile')
+      .set('Authorization', `Bearer ${res.body.jwt}`)
+      .expect(200);
   });
 });

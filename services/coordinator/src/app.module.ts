@@ -1,7 +1,8 @@
 import { Module, Controller, Get } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { TokenClassInterceptor } from './auth/token-class.interceptor';
 import { AppConfigModule } from './config/config.module';
 import { OutboxModule } from './outbox/outbox.module';
 import { StorageModule } from './storage/storage.module';
@@ -57,6 +58,10 @@ class HealthController {
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TokenClassInterceptor,
     },
   ],
 })
