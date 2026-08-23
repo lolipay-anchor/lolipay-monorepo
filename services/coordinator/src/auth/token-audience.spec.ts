@@ -10,7 +10,7 @@ function makeCfg() {
     jwtSecret: SECRET,
     jwtTtl: 900,
     challengeTtl: 300,
-    jwtIssuer: 'lolipay-coordinator',
+    jwtIssuer: 'https://lolipay.app',
     jwtAudience: 'lolipay-app',
     adminAddresses: [] as string[],
   } as any;
@@ -57,14 +57,14 @@ describe('a token minted for somewhere else is not a token here', () => {
 
     expect(jwt.signAsync).toHaveBeenCalledWith(
       expect.objectContaining({ sub: 'GUSER', cls: 'session' }),
-      expect.objectContaining({ issuer: 'lolipay-coordinator', audience: 'lolipay-app' }),
+      expect.objectContaining({ issuer: 'https://lolipay.app', audience: 'lolipay-app' }),
     );
   });
 
   it('both doors verify against the same issuer and audience', () => {
     const opts = jwtVerifyOptions(makeCfg());
 
-    expect(opts.issuer).toBe('lolipay-coordinator');
+    expect(opts.issuer).toBe('https://lolipay.app');
     expect(opts.audience).toBe('lolipay-app');
     expect(opts.algorithms).toEqual(['HS256']);
   });

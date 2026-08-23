@@ -43,7 +43,7 @@ function makeGateway(opts: {
       throw new Error('invalid token');
     }),
   } as any;
-  const cfg = { jwtSecret: JWT_SECRET, adminAddresses: opts.adminAddresses ?? [ADMIN] } as any;
+  const cfg = { jwtSecret: JWT_SECRET, jwtIssuer: 'https://lolipay.app', jwtAudience: 'lolipay-app', adminAddresses: opts.adminAddresses ?? [ADMIN] } as any;
   const lpFindUnique = jest.fn().mockImplementation(({ where }: any) => {
     if (where.stellarAddress === LP_ADDR) {
       return Promise.resolve(opts.lpRow ?? { stellarAddress: LP_ADDR, status: 'APPROVED' });
@@ -152,6 +152,8 @@ describe('RealtimeGateway — handshake auth', () => {
     expect(jwt.verify).toHaveBeenCalledWith('valid-user', {
       secret: cfg.jwtSecret,
       algorithms: ['HS256'],
+      issuer: cfg.jwtIssuer,
+      audience: cfg.jwtAudience,
     });
   });
 });

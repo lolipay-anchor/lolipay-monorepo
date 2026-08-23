@@ -18,7 +18,7 @@ function prismaWithNoLp() {
   } as any;
 }
 function makeCfg(adminAddresses: string[]) {
-  return { jwtSecret: 'x'.repeat(32), adminAddresses, jwtTtl: 900 } as any;
+  return { jwtSecret: 'x'.repeat(32), jwtIssuer: 'https://lolipay.app', jwtAudience: 'lolipay-app', adminAddresses, jwtTtl: 900 } as any;
 }
 
 describe('a token class decides how far a subject may be promoted', () => {
