@@ -31,7 +31,7 @@ fn setup() -> (Env, EscrowContractClient<'static>, Address, Address, Address, Ad
     let usdc = Address::generate(&env);
     let resolver = Address::generate(&env);
     let platform_wallet = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.clone(), resolver.clone(), 30u32, platform_wallet.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.clone(), resolver.clone(), 30u32, platform_wallet.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     (env, client, admin, usdc, resolver, platform_wallet)
 }
@@ -76,6 +76,7 @@ fn test_set_config_updates_fields() {
         default_platform_fee_bps: 55,
         default_platform_wallet: platform_wallet.clone(),
         paused: false,
+        fiat_attestor: Address::generate(&env),
         dispute_window: 3600,
     };
     client.set_config(&new_cfg);
@@ -93,6 +94,7 @@ fn test_set_config_updates_fields() {
         default_platform_fee_bps: 99,
         default_platform_wallet: platform_wallet.clone(),
         paused: false,
+        fiat_attestor: Address::generate(&env),
         dispute_window: 3600,
     };
     let res = client.try_set_config(&rejected);
@@ -112,6 +114,7 @@ fn test_set_config_handoff_requires_new_admin_auth() {
         default_platform_fee_bps: 30,
         default_platform_wallet: platform_wallet.clone(),
         paused: false,
+        fiat_attestor: Address::generate(&env),
         dispute_window: 3600,
     };
 
@@ -126,6 +129,7 @@ fn test_set_config_handoff_requires_new_admin_auth() {
         default_platform_fee_bps: 30,
         default_platform_wallet: platform_wallet.clone(),
         paused: false,
+        fiat_attestor: Address::generate(&env),
         dispute_window: 3600,
     };
     let res = client.try_set_config(&revert);
@@ -142,7 +146,7 @@ fn test_create_trade_locks_usdc() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let platform_wallet = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, platform_wallet.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, platform_wallet.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
 
     let provider = Address::generate(&env);
@@ -183,7 +187,7 @@ fn test_create_trade_rejects_duplicate_and_bad_input() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
 
     let p = Address::generate(&env);
@@ -294,7 +298,7 @@ fn test_create_trade_rejects_when_paused() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
 
     let p = Address::generate(&env);
@@ -331,7 +335,7 @@ fn test_mark_fiat_paid() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
     let p = Address::generate(&env);
     let r = Address::generate(&env);
@@ -341,7 +345,7 @@ fn test_mark_fiat_paid() {
     client.create_trade(&id32(&env,1), &p, &r, &p, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
 
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &r);
     assert_eq!(client.get_trade(&id32(&env,1)).status, crate::types::Status::FiatPaid);
 }
 
@@ -353,7 +357,7 @@ fn test_mark_fiat_paid_rejects_after_deadline() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
     let p = Address::generate(&env);
     let r = Address::generate(&env);
@@ -364,7 +368,7 @@ fn test_mark_fiat_paid_rejects_after_deadline() {
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
 
     env.ledger().with_mut(|li| { li.timestamp = 1500; });
-    let res = client.try_mark_fiat_paid(&id32(&env,1));
+    let res = client.try_mark_fiat_paid(&id32(&env,1), &r);
     assert_eq!(res, Err(Ok(Error::DeadlinePassed)));
 }
 
@@ -376,7 +380,7 @@ fn test_confirm_and_release_splits_fees() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
 
     let provider = Address::generate(&env);
@@ -386,7 +390,7 @@ fn test_confirm_and_release_splits_fees() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
 
     client.confirm_and_release(&id32(&env,1));
 
@@ -405,7 +409,7 @@ fn test_refund_after_pay_deadline() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
     let p = Address::generate(&env);
     let r = Address::generate(&env);
@@ -431,7 +435,7 @@ fn test_cancel_while_funded() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
     let p = Address::generate(&env);
     let r = Address::generate(&env);
@@ -454,7 +458,7 @@ fn test_dispute_then_resolver_releases() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -463,7 +467,7 @@ fn test_dispute_then_resolver_releases() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
 
     client.raise_dispute(&id32(&env,1), &recipient);
     assert_eq!(client.get_trade(&id32(&env,1)).status, crate::types::Status::Disputed);
@@ -483,7 +487,7 @@ fn test_dispute_then_resolver_refunds() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -492,7 +496,7 @@ fn test_dispute_then_resolver_refunds() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
     client.raise_dispute(&id32(&env,1), &provider);
     client.resolve(&id32(&env,1), &crate::types::ResolveOutcome::Refund, &resolver);
     assert_eq!(usdc.balance(&provider), 100_0000000i128);
@@ -508,7 +512,7 @@ fn test_only_resolver_can_resolve() {
     let pw = Address::generate(&env);
 
     env.mock_all_auths();
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -517,7 +521,7 @@ fn test_only_resolver_can_resolve() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
     client.raise_dispute(&id32(&env,1), &recipient);
 
     let stranger = Address::generate(&env);
@@ -537,7 +541,7 @@ fn test_non_party_cannot_dispute() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
 
     let provider = Address::generate(&env);
@@ -547,7 +551,7 @@ fn test_non_party_cannot_dispute() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env, 1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env, 1));
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
 
     let stranger = Address::generate(&env);
     let res = client.try_raise_dispute(&id32(&env, 1), &stranger);
@@ -562,7 +566,7 @@ fn test_release_requires_fiat_paid_and_no_double_release() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
     let p = Address::generate(&env);
     let r = Address::generate(&env);
@@ -574,7 +578,7 @@ fn test_release_requires_fiat_paid_and_no_double_release() {
 
     assert_eq!(client.try_confirm_and_release(&id32(&env,1)), Err(Ok(Error::InvalidState)));
 
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &r);
     client.confirm_and_release(&id32(&env,1));
     assert_eq!(client.try_confirm_and_release(&id32(&env,1)), Err(Ok(Error::InvalidState)));
 }
@@ -587,7 +591,7 @@ fn test_dispute_available_after_dispute_deadline_no_freeze() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -596,7 +600,7 @@ fn test_dispute_available_after_dispute_deadline_no_freeze() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
 
     env.ledger().with_mut(|li| { li.timestamp = 10_000; });
 
@@ -616,7 +620,7 @@ fn test_admin_fallback_after_resolver_window() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -625,7 +629,7 @@ fn test_admin_fallback_after_resolver_window() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
     client.raise_dispute(&id32(&env,1), &recipient);
 
     let res = client.try_resolve(&id32(&env,1), &crate::types::ResolveOutcome::Refund, &admin);
@@ -646,7 +650,7 @@ fn test_resolver_can_resolve_before_window() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -655,7 +659,7 @@ fn test_resolver_can_resolve_before_window() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
     client.raise_dispute(&id32(&env,1), &recipient);
 
     client.resolve(&id32(&env,1), &crate::types::ResolveOutcome::Release, &resolver);
@@ -671,7 +675,7 @@ fn test_set_config_token_is_immutable() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
 
     let provider = Address::generate(&env);
@@ -690,12 +694,13 @@ fn test_set_config_token_is_immutable() {
         default_platform_fee_bps: 30,
         default_platform_wallet: pw.clone(),
         paused: false,
+        fiat_attestor: Address::generate(&env),
         dispute_window: 3600,
     };
     assert_eq!(client.try_set_config(&new_cfg), Err(Ok(Error::TokenImmutable)));
     assert_eq!(client.get_config().usdc_token, usdc.address);
 
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
     client.confirm_and_release(&id32(&env,1));
     assert_eq!(usdc.balance(&pw), 3000000i128);
     assert_eq!(usdc.balance(&lw), 1_2000000i128);
@@ -711,7 +716,7 @@ fn test_set_config_platform_wallet_immutable_and_fee_capped() {
     let (usdc, _usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
 
     let evil_pw = Address::generate(&env);
@@ -722,6 +727,7 @@ fn test_set_config_platform_wallet_immutable_and_fee_capped() {
         default_platform_fee_bps: 30,
         default_platform_wallet: evil_pw,
         paused: false,
+        fiat_attestor: Address::generate(&env),
         dispute_window: 3600,
     };
     assert_eq!(client.try_set_config(&cfg_wallet), Err(Ok(Error::WalletImmutable)));
@@ -733,6 +739,7 @@ fn test_set_config_platform_wallet_immutable_and_fee_capped() {
         default_platform_fee_bps: 9000,
         default_platform_wallet: pw.clone(),
         paused: false,
+        fiat_attestor: Address::generate(&env),
         dispute_window: 3600,
     };
     assert_eq!(client.try_set_config(&cfg_fee), Err(Ok(Error::InvalidFee)));
@@ -750,7 +757,7 @@ fn test_constructor_rejects_absurd_platform_fee() {
     let (usdc, _usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 6000u32, pw.clone(), 3600u64));
+    env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 6000u32, pw.clone(), 3600u64, Address::generate(&env)));
 }
 
 #[test]
@@ -761,7 +768,7 @@ fn test_create_trade_rejects_far_future_deadline() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
     let p = Address::generate(&env);
     let r = Address::generate(&env);
@@ -784,7 +791,7 @@ fn test_create_trade_enforces_platform_fee_and_caps_lp_fee() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
     let p = Address::generate(&env);
     let r = Address::generate(&env);
@@ -818,7 +825,7 @@ fn test_create_trade_rejects_bad_roles() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let p = Address::generate(&env);
     let r = Address::generate(&env);
@@ -843,7 +850,7 @@ fn test_create_trade_rejects_too_short_pay_window() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let p = Address::generate(&env);
     let r = Address::generate(&env);
@@ -864,7 +871,7 @@ fn test_fee_split_exact_on_non_round_amount() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let p = Address::generate(&env);
     let r = Address::generate(&env);
@@ -873,7 +880,7 @@ fn test_fee_split_exact_on_non_round_amount() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &p, &r, &p, &333i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &r);
     client.confirm_and_release(&id32(&env,1));
     assert_eq!(usdc.balance(&pw), 0);
     assert_eq!(usdc.balance(&lw), 3);
@@ -889,7 +896,7 @@ fn test_resolve_works_while_paused() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -898,7 +905,7 @@ fn test_resolve_works_while_paused() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
     client.raise_dispute(&id32(&env,1), &recipient);
 
     client.set_paused(&true);
@@ -917,7 +924,7 @@ fn test_create_trade_defaults_settled_at_and_pre_dispute_status() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let p = Address::generate(&env);
     let r = Address::generate(&env);
@@ -941,7 +948,7 @@ fn test_confirm_and_release_sets_settled_at() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let p = Address::generate(&env);
     let r = Address::generate(&env);
@@ -950,7 +957,7 @@ fn test_confirm_and_release_sets_settled_at() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &p, &r, &p, &10_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &r);
 
     env.ledger().with_mut(|li| { li.timestamp = 500; });
     client.confirm_and_release(&id32(&env,1));
@@ -968,7 +975,7 @@ fn test_refund_sets_settled_at() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let p = Address::generate(&env);
     let r = Address::generate(&env);
@@ -994,7 +1001,7 @@ fn test_cancel_sets_settled_at() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let p = Address::generate(&env);
     let r = Address::generate(&env);
@@ -1018,7 +1025,7 @@ fn test_resolve_release_sets_settled_at() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1027,7 +1034,7 @@ fn test_resolve_release_sets_settled_at() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
     client.raise_dispute(&id32(&env,1), &recipient);
 
     env.ledger().with_mut(|li| { li.timestamp = 777; });
@@ -1046,7 +1053,7 @@ fn test_resolve_refund_sets_settled_at() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1055,7 +1062,7 @@ fn test_resolve_refund_sets_settled_at() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
     client.raise_dispute(&id32(&env,1), &provider);
 
     env.ledger().with_mut(|li| { li.timestamp = 888; });
@@ -1075,7 +1082,7 @@ fn test_constructor_rejects_zero_dispute_window() {
     let (usdc, _usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 0u64));
+    env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 0u64, Address::generate(&env)));
 }
 
 #[test]
@@ -1087,7 +1094,7 @@ fn test_constructor_rejects_dispute_window_too_large() {
     let (usdc, _usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 604_801u64));
+    env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 604_801u64, Address::generate(&env)));
 }
 
 #[test]
@@ -1101,6 +1108,7 @@ fn test_set_config_validates_dispute_window_bounds() {
         default_platform_fee_bps: 30,
         default_platform_wallet: pw.clone(),
         paused: false,
+        fiat_attestor: Address::generate(&_env),
         dispute_window: 0,
     };
     assert_eq!(client.try_set_config(&zero_window), Err(Ok(Error::InvalidConfig)));
@@ -1112,6 +1120,7 @@ fn test_set_config_validates_dispute_window_bounds() {
         default_platform_fee_bps: 30,
         default_platform_wallet: pw.clone(),
         paused: false,
+        fiat_attestor: Address::generate(&_env),
         dispute_window: 604_801,
     };
     assert_eq!(client.try_set_config(&too_large_window), Err(Ok(Error::InvalidConfig)));
@@ -1125,6 +1134,7 @@ fn test_set_config_validates_dispute_window_bounds() {
         default_platform_fee_bps: 30,
         default_platform_wallet: pw.clone(),
         paused: false,
+        fiat_attestor: Address::generate(&_env),
         dispute_window: 604_800,
     };
     client.set_config(&valid_window);
@@ -1139,7 +1149,7 @@ fn test_raise_dispute_post_settle_from_released_within_window() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1148,7 +1158,7 @@ fn test_raise_dispute_post_settle_from_released_within_window() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
 
     env.ledger().with_mut(|li| { li.timestamp = 500; });
     client.confirm_and_release(&id32(&env,1));
@@ -1184,7 +1194,7 @@ fn test_raise_dispute_post_settle_from_refunded_within_window() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1215,7 +1225,7 @@ fn test_raise_dispute_post_settle_rejected_past_window() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1224,7 +1234,7 @@ fn test_raise_dispute_post_settle_rejected_past_window() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
 
     env.ledger().with_mut(|li| { li.timestamp = 500; });
     client.confirm_and_release(&id32(&env,1));
@@ -1243,7 +1253,7 @@ fn test_raise_dispute_post_settle_boundary_is_inclusive() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1252,7 +1262,7 @@ fn test_raise_dispute_post_settle_boundary_is_inclusive() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
 
     env.ledger().with_mut(|li| { li.timestamp = 500; });
     client.confirm_and_release(&id32(&env,1));
@@ -1270,7 +1280,7 @@ fn test_raise_dispute_post_settle_guards_zero_settled_at() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1279,7 +1289,7 @@ fn test_raise_dispute_post_settle_guards_zero_settled_at() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
     client.confirm_and_release(&id32(&env,1));
     assert_eq!(client.get_trade(&id32(&env,1)).settled_at, 0);
 
@@ -1295,7 +1305,7 @@ fn test_resolve_post_settle_release_origin_is_verdict_only() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1304,7 +1314,7 @@ fn test_resolve_post_settle_release_origin_is_verdict_only() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
 
     env.ledger().with_mut(|li| { li.timestamp = 500; });
     client.confirm_and_release(&id32(&env,1));
@@ -1352,7 +1362,7 @@ fn test_resolve_post_settle_refunded_origin_restores_refunded() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1388,7 +1398,7 @@ fn test_raise_dispute_post_settle_latched_after_resolve() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1397,7 +1407,7 @@ fn test_raise_dispute_post_settle_latched_after_resolve() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
 
     env.ledger().with_mut(|li| { li.timestamp = 500; });
     client.confirm_and_release(&id32(&env,1));
@@ -1420,7 +1430,7 @@ fn test_post_settle_resolved_trade_blocks_confirm_and_refund() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
 
     let provider_a = Address::generate(&env);
@@ -1430,7 +1440,7 @@ fn test_post_settle_resolved_trade_blocks_confirm_and_refund() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider_a, &recipient_a, &provider_a, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient_a);
     env.ledger().with_mut(|li| { li.timestamp = 500; });
     client.confirm_and_release(&id32(&env,1));
     env.ledger().with_mut(|li| { li.timestamp = 1000; });
@@ -1466,7 +1476,7 @@ fn test_resolve_post_settle_admin_fallback_after_resolver_window() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1475,7 +1485,7 @@ fn test_resolve_post_settle_admin_fallback_after_resolver_window() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
 
     env.ledger().with_mut(|li| { li.timestamp = 500; });
     client.confirm_and_release(&id32(&env,1));
@@ -1502,7 +1512,7 @@ fn test_resolve_normal_dispute_event_has_post_settle_false() {
     let (usdc, usdc_admin) = create_usdc(&env, &admin);
     let resolver = Address::generate(&env);
     let pw = Address::generate(&env);
-    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64));
+    let contract_id = env.register(EscrowContract, (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, Address::generate(&env)));
     let client = EscrowContractClient::new(&env, &contract_id);
     let provider = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1511,7 +1521,7 @@ fn test_resolve_normal_dispute_event_has_post_settle_false() {
     let idr = Symbol::new(&env, "IDR");
     client.create_trade(&id32(&env,1), &provider, &recipient, &provider, &100_0000000i128, &1i128, &idr,
         &crate::types::Flow::TopUp, &30u32, &120u32, &pw, &lw, &1000u64, &2000u64, &3000u64);
-    client.mark_fiat_paid(&id32(&env,1));
+    client.mark_fiat_paid(&id32(&env,1), &recipient);
     client.raise_dispute(&id32(&env,1), &recipient);
 
     client.resolve(&id32(&env,1), &crate::types::ResolveOutcome::Release, &resolver);
@@ -1525,4 +1535,172 @@ fn test_resolve_normal_dispute_event_has_post_settle_false() {
     let raw = raw.events();
     assert_eq!(raw.len(), 1);
     assert_eq!(raw[0], expected.to_xdr(&env, &contract_id));
+}
+
+fn attested_setup() -> (
+    Env,
+    EscrowContractClient<'static>,
+    Address,
+    Address,
+    Address,
+    Address,
+    token::TokenClient<'static>,
+) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (usdc, usdc_admin) = create_usdc(&env, &admin);
+    let resolver = Address::generate(&env);
+    let pw = Address::generate(&env);
+    let attestor = Address::generate(&env);
+    let contract_id = env.register(
+        EscrowContract,
+        (
+            admin.clone(),
+            usdc.address.clone(),
+            resolver.clone(),
+            30u32,
+            pw.clone(),
+            3600u64,
+            attestor.clone(),
+        ),
+    );
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let provider = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let lw = Address::generate(&env);
+    usdc_admin.mint(&provider, &100_0000000i128);
+    client.create_trade(
+        &id32(&env, 1),
+        &provider,
+        &recipient,
+        &provider,
+        &100_0000000i128,
+        &1i128,
+        &Symbol::new(&env, "IDR"),
+        &crate::types::Flow::TopUp,
+        &30u32,
+        &120u32,
+        &pw,
+        &lw,
+        &1000u64,
+        &2000u64,
+        &3000u64,
+    );
+    (env, client, attestor, provider, recipient, resolver, usdc)
+}
+
+fn balances(usdc: &token::TokenClient<'static>, a: &Address, b: &Address) -> (i128, i128) {
+    (usdc.balance(a), usdc.balance(b))
+}
+
+#[test]
+fn attestor_may_mark_fiat_paid_and_moves_no_money() {
+    let (env, client, attestor, provider, recipient, _resolver, usdc) = attested_setup();
+    let before = balances(&usdc, &provider, &recipient);
+
+    client.mark_fiat_paid(&id32(&env, 1), &attestor);
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::FiatPaid);
+    assert_eq!(balances(&usdc, &provider, &recipient), before);
+}
+
+#[test]
+fn attestor_may_mark_paid_between_pay_and_confirm_deadline() {
+    let (env, client, attestor, _p, _r, _res, _usdc) = attested_setup();
+    env.ledger().with_mut(|l| l.timestamp = 1500);
+
+    client.mark_fiat_paid(&id32(&env, 1), &attestor);
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::FiatPaid);
+}
+
+#[test]
+fn attestor_is_bounded_by_the_confirm_deadline() {
+    let (env, client, attestor, _p, _r, _res, _usdc) = attested_setup();
+    env.ledger().with_mut(|l| l.timestamp = 2500);
+
+    let res = client.try_mark_fiat_paid(&id32(&env, 1), &attestor);
+
+    assert_eq!(res, Err(Ok(Error::DeadlinePassed)));
+}
+
+#[test]
+fn recipient_is_still_bounded_by_the_pay_deadline() {
+    let (env, client, _attestor, _p, recipient, _res, _usdc) = attested_setup();
+    env.ledger().with_mut(|l| l.timestamp = 1500);
+
+    let res = client.try_mark_fiat_paid(&id32(&env, 1), &recipient);
+
+    assert_eq!(res, Err(Ok(Error::DeadlinePassed)));
+}
+
+#[test]
+fn a_random_address_may_not_mark_fiat_paid() {
+    let (env, client, _attestor, _p, _r, _res, _usdc) = attested_setup();
+    let stranger = Address::generate(&env);
+
+    let res = client.try_mark_fiat_paid(&id32(&env, 1), &stranger);
+
+    assert_eq!(res, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn the_attestor_cannot_resolve_or_dispute() {
+    let (env, client, attestor, _p, _r, _res, _usdc) = attested_setup();
+
+    client.mark_fiat_paid(&id32(&env, 1), &attestor);
+
+    let disputed = client.try_raise_dispute(&id32(&env, 1), &attestor);
+    assert_eq!(disputed, Err(Ok(Error::Unauthorized)));
+
+    client.raise_dispute(&id32(&env, 1), &_p);
+    let resolved = client.try_resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &attestor);
+    assert_eq!(resolved, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn the_attestor_cannot_release_without_the_party_signature() {
+    let (env, client, attestor, provider, recipient, _res, usdc) = attested_setup();
+    client.mark_fiat_paid(&id32(&env, 1), &attestor);
+    let before = balances(&usdc, &provider, &recipient);
+
+    env.set_auths(&[]);
+    let released = client.try_confirm_and_release(&id32(&env, 1));
+
+    assert!(released.is_err());
+    assert_eq!(balances(&usdc, &provider, &recipient), before);
+}
+
+#[test]
+fn marking_fiat_paid_blocks_the_refund() {
+    let (env, client, attestor, _p, _r, _res, _usdc) = attested_setup();
+    client.mark_fiat_paid(&id32(&env, 1), &attestor);
+    env.ledger().with_mut(|l| l.timestamp = 1500);
+
+    let res = client.try_refund(&id32(&env, 1));
+
+    assert_eq!(res, Err(Ok(Error::InvalidState)));
+}
+
+#[test]
+fn naming_the_attestor_is_not_the_same_as_being_the_attestor() {
+    let (env, client, attestor, _p, _r, _res, _usdc) = attested_setup();
+
+    env.set_auths(&[]);
+    let res = client.try_mark_fiat_paid(&id32(&env, 1), &attestor);
+
+    assert!(res.is_err());
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Funded);
+}
+
+#[test]
+fn naming_the_recipient_is_not_the_same_as_being_the_recipient() {
+    let (env, client, _attestor, _p, recipient, _res, _usdc) = attested_setup();
+
+    env.set_auths(&[]);
+    let res = client.try_mark_fiat_paid(&id32(&env, 1), &recipient);
+
+    assert!(res.is_err());
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Funded);
 }

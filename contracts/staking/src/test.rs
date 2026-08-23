@@ -37,7 +37,7 @@ impl SlashEnv {
             &self.platform_wallet, &self.lp_wallet, &1000u64, &2000u64, &3000u64,
         );
         if dispute {
-            self.escrow.mark_fiat_paid(&trade_id);
+            self.escrow.mark_fiat_paid(&trade_id, &self.lp);
             self.escrow.raise_dispute(&trade_id, &self.user);
         }
         trade_id
@@ -51,7 +51,7 @@ impl SlashEnv {
             &Symbol::new(&self.env, "IDR"), &Flow::Withdraw, &30u32, &120u32,
             &self.platform_wallet, &self.lp_wallet, &1000u64, &2000u64, &3000u64,
         );
-        self.escrow.mark_fiat_paid(&trade_id);
+        self.escrow.mark_fiat_paid(&trade_id, &self.lp);
         self.env.ledger().with_mut(|li| {
             li.timestamp = 500;
         });
@@ -73,7 +73,7 @@ fn slash_setup() -> SlashEnv {
 
     let escrow_id = env.register(
         EscrowContract,
-        (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, platform_wallet.clone(), 3600u64),
+        (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, platform_wallet.clone(), 3600u64, Address::generate(&env)),
     );
     let escrow = EscrowContractClient::new(&env, &escrow_id);
     let staking_id = env.register(

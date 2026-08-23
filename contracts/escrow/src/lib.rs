@@ -43,6 +43,7 @@ impl EscrowContract {
         default_platform_fee_bps: u32,
         default_platform_wallet: Address,
         dispute_window: u64,
+        fiat_attestor: Address,
     ) {
         admin.require_auth();
         if default_platform_fee_bps > MAX_PLATFORM_FEE_BPS {
@@ -61,6 +62,7 @@ impl EscrowContract {
                 default_platform_wallet,
                 paused: false,
                 dispute_window,
+                fiat_attestor,
             },
         );
     }
@@ -218,16 +220,24 @@ impl EscrowContract {
         Ok(())
     }
 
-    pub fn mark_fiat_paid(env: Env, trade_id: BytesN<32>) -> Result<(), Error> {
+    pub fn mark_fiat_paid(env: Env, trade_id: BytesN<32>, caller: Address) -> Result<(), Error> {
         bump_instance(&env);
+        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
         let mut trade = storage_get_trade(&env, &trade_id).ok_or(Error::TradeNotFound)?;
         if trade.status != Status::Funded {
             return Err(Error::InvalidState);
         }
-        if env.ledger().timestamp() > trade.pay_deadline {
+        let deadline = if caller == cfg.fiat_attestor {
+            trade.confirm_deadline
+        } else if caller == trade.usdc_recipient {
+            trade.pay_deadline
+        } else {
+            return Err(Error::Unauthorized);
+        };
+        if env.ledger().timestamp() > deadline {
             return Err(Error::DeadlinePassed);
         }
-        trade.usdc_recipient.require_auth();
+        caller.require_auth();
         trade.status = Status::FiatPaid;
         set_trade(&env, &trade_id, &trade);
         FiatPaid { trade_id }.publish(&env);

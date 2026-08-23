@@ -85,6 +85,7 @@ pub struct Config {
     pub default_platform_wallet: Address,
     pub paused: bool,
     pub dispute_window: u64,
+    pub fiat_attestor: Address,
 }
 
 #[contracttype]
