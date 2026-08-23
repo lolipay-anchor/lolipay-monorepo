@@ -51,8 +51,11 @@ describe('the anchor toml is served the way SEP-1 requires', () => {
     expect(res.headers.get('cache-control')).toMatch(/no-store/)
   })
 
-  it('stays far below the 100KB the suite allows', async () => {
-    expect(Buffer.byteLength(await body(), 'utf8')).toBeLessThan(100_000)
+  it('stays far below the 100KB the suite allows, and is not empty', async () => {
+    const size = Buffer.byteLength(await body(), 'utf8')
+
+    expect(size).toBeGreaterThan(0)
+    expect(size).toBeLessThan(100_000)
   })
 })
 
@@ -81,9 +84,24 @@ describe('the toml carries the fields the acceptance suite reads', () => {
 
   it('emits every line as a quoted key and value, so the file parses', async () => {
     const lines = (await body()).split('\n').filter((l) => l.trim() !== '')
+    expect(lines.length).toBeGreaterThan(0)
     for (const line of lines) {
       expect(line).toMatch(/^[A-Z0-9_]+="[^"]*"$/)
     }
+  })
+
+  it('emits exactly the fields it means to, and nothing else', async () => {
+    const keys = (await body())
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+      .map((l) => l.split('=')[0])
+
+    expect(keys).toEqual([
+      'NETWORK_PASSPHRASE',
+      'SIGNING_KEY',
+      'WEB_AUTH_ENDPOINT',
+      'TRANSFER_SERVER_SEP0024',
+    ])
   })
 })
 
@@ -154,5 +172,59 @@ describe('a misconfigured anchor refuses to describe itself', () => {
     process.env.STELLAR_NETWORK_PASSPHRASE = 'Test "SDF" Network'
 
     expect((await GET()).status).toBe(503)
+  })
+
+  it.each([
+    ['a newline', 'https://api.lolipay.app/auth\nSIGNING_KEY="GEVIL"'],
+    ['a carriage return', 'https://api.lolipay.app/auth\r'],
+    ['a tab', 'https://api.lolipay.app/au\tth'],
+    ['a backslash', 'https://api.lolipay.app/au\\th'],
+  ])('refuses %s, which the gate tolerates and a real wallet does not', async (_n, value) => {
+    process.env.WEB_AUTH_ENDPOINT = value
+
+    expect((await GET()).status).toBe(503)
+  })
+
+  it('refuses a trailing space rather than trimming it away silently', async () => {
+    process.env.WEB_AUTH_ENDPOINT = 'https://api.lolipay.app/auth '
+
+    expect((await GET()).status).toBe(503)
+  })
+
+  it('names padding as the fault, so the operator does not hunt the wrong thing', async () => {
+    process.env.STELLAR_NETWORK_PASSPHRASE = 'Test SDF Network ; September 2015 '
+
+    const res = await GET()
+
+    expect(res.status).toBe(503)
+    expect(await res.text()).toMatch(/padded with whitespace/)
+  })
+
+  it('names a control character as the fault rather than blaming the value', async () => {
+    process.env.STELLAR_NETWORK_PASSPHRASE = 'Test SDF Network ; September 2015\u0007'
+
+    const res = await GET()
+
+    expect(res.status).toBe(503)
+    expect(await res.text()).toMatch(/control character/)
+  })
+
+  it.each([
+    ['a query string', 'https://api.lolipay.app/auth?v=1'],
+    ['a fragment', 'https://api.lolipay.app/auth#frag'],
+    ['no host at all', 'https:///auth'],
+  ])('refuses an endpoint with %s, which would destroy the account parameter', async (_n, v) => {
+    process.env.WEB_AUTH_ENDPOINT = v
+
+    expect((await GET()).status).toBe(503)
+  })
+
+  it('answers a refusal with the same headers it answers success with', async () => {
+    delete process.env.SEP10_SIGNING_PUBLIC
+
+    const res = await GET()
+
+    expect(res.headers.get('access-control-allow-origin')).toBe('*')
+    expect(res.headers.get('cache-control')).toMatch(/no-store/)
   })
 })
