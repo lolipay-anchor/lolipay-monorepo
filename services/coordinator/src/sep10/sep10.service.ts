@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Keypair, StrKey, WebAuth } from '@stellar/stellar-sdk';
@@ -24,10 +25,18 @@ export interface Challenge {
 export class Sep10Service {
   private readonly signer: Keypair | null;
 
+  private readonly log = new Logger(Sep10Service.name);
+
   constructor(private cfg: AppConfigService) {
     this.signer = loadSigner(cfg.sep10SigningKey);
     requireBareHost('ANCHOR_HOME_DOMAIN', cfg.anchorHomeDomain);
     requireBareHost('SEP10_WEB_AUTH_DOMAIN', cfg.sep10WebAuthDomain);
+    if (!this.isConfigured) {
+      this.log.warn(
+        'SEP-10 is not configured — GET /auth will answer 503. Set SEP10_SIGNING_KEY, ' +
+          'ANCHOR_HOME_DOMAIN and SEP10_WEB_AUTH_DOMAIN to serve the anchor.',
+      );
+    }
   }
 
   buildChallenge(account: string, options: ChallengeOptions): Challenge {
@@ -47,10 +56,10 @@ export class Sep10Service {
     const transaction = WebAuth.buildChallengeTx(
       signer,
       account,
-      this.cfg.anchorHomeDomain,
+      this.cfg.anchorHomeDomain as string,
       CHALLENGE_TIMEOUT_SECONDS,
       this.cfg.networkPassphrase,
-      this.cfg.sep10WebAuthDomain,
+      this.cfg.sep10WebAuthDomain as string,
       options.memo ?? null,
       options.clientDomain ?? null,
       options.clientSigningKey ?? null,
@@ -64,12 +73,12 @@ export class Sep10Service {
   }
 
   get isConfigured(): boolean {
-    return this.signer !== null;
+    return this.signer !== null && !!this.cfg.anchorHomeDomain && !!this.cfg.sep10WebAuthDomain;
   }
 
   private requireSigner(): Keypair {
-    if (!this.signer) {
-      throw new ServiceUnavailableException('this anchor has no SEP-10 signing key configured');
+    if (!this.isConfigured || !this.signer) {
+      throw new ServiceUnavailableException('this anchor is not configured for SEP-10');
     }
     return this.signer;
   }
@@ -86,8 +95,28 @@ function loadSigner(seed: string | undefined): Keypair | null {
   return Keypair.fromSecret(seed);
 }
 
-function requireBareHost(name: string, value: string): void {
-  if (value !== value.trim() || /[/\\]|:\/\//.test(value) || value === '') {
+const MAX_DATA_KEY_LENGTH = 64;
+const AUTH_KEY_SUFFIX = ' auth';
+
+function requireBareHost(name: string, value: string | undefined): void {
+  if (value === undefined || value === '') return;
+  let parsed: URL;
+  try {
+    parsed = new URL(`https://${value}`);
+  } catch {
     throw new Error(`${name} must be a bare host such as lolipay.app, with no scheme or path`);
+  }
+  const canonical = parsed.host;
+  if (
+    canonical !== value ||
+    parsed.pathname !== '/' ||
+    parsed.search !== '' ||
+    parsed.hash !== '' ||
+    value.length + AUTH_KEY_SUFFIX.length > MAX_DATA_KEY_LENGTH
+  ) {
+    throw new Error(
+      `${name} must be a bare host such as lolipay.app, with no scheme or path, and short ` +
+        `enough that "<host> auth" fits in ${MAX_DATA_KEY_LENGTH} characters`,
+    );
   }
 }

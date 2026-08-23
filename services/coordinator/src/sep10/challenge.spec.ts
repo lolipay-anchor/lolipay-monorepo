@@ -183,6 +183,11 @@ describe('the domains it signs into a challenge must be bare hosts', () => {
     ['a trailing slash', 'lolipay.app/'],
     ['a path', 'lolipay.app/auth'],
     ['whitespace', 'lolipay.app '],
+    ['an uppercase host the suite would lowercase', 'LOLIPAY.APP'],
+    ['an internal space', 'lolipay.app auth'],
+    ['a query marker', 'lolipay.app?x=1'],
+    ['a fragment', 'lolipay.app#f'],
+    ['more characters than a data key can hold', `${'a'.repeat(60)}.app`],
   ])('refuses a home domain carrying %s', (_n, value) => {
     expect(() => makeService({ anchorHomeDomain: value })).toThrow(/ANCHOR_HOME_DOMAIN/);
   });
@@ -196,6 +201,32 @@ describe('the domains it signs into a challenge must be bare hosts', () => {
 
   it('accepts the bare hosts it is meant to have', () => {
     expect(() => makeService()).not.toThrow();
+  });
+});
+
+describe('what the challenge is signed for is pinned, not assumed', () => {
+  it('builds a challenge for a muxed account, sourced by that muxed address', () => {
+    const muxed = 'MA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVAAAAAAAAAAAAAJLK';
+
+    const { tx } = challengeFor(muxed);
+
+    expect(tx.operations[0].source).toBe(muxed);
+  });
+
+  it('writes the memo it accepted into the transaction', () => {
+    const { tx } = challengeFor(CLIENT.publicKey(), { memo: '17509749319012223907' });
+
+    expect(tx.memo.type).toBe('id');
+    expect(tx.memo.value).toBe('17509749319012223907');
+  });
+
+  it('is not configured when a domain is missing, and says so rather than guessing', () => {
+    const svc = makeService({ anchorHomeDomain: undefined });
+
+    expect(svc.isConfigured).toBe(false);
+    expect(() => svc.buildChallenge(CLIENT.publicKey(), {})).toThrow(
+      ServiceUnavailableException,
+    );
   });
 });
 

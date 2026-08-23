@@ -22,8 +22,8 @@ export class AppConfigService {
   get jwtIssuer() { return String(this.c.get('JWT_ISSUER') ?? 'https://lolipay.app'); }
   get jwtAudience() { return String(this.c.get('JWT_AUDIENCE') ?? 'lolipay-app'); }
   get sep10SigningKey() { return this.c.get<string>('SEP10_SIGNING_KEY'); }
-  get anchorHomeDomain() { return String(this.c.get('ANCHOR_HOME_DOMAIN') ?? 'lolipay.app'); }
-  get sep10WebAuthDomain() { return String(this.c.get('SEP10_WEB_AUTH_DOMAIN') ?? 'api.lolipay.app'); }
+  get anchorHomeDomain() { return this.c.get<string>('ANCHOR_HOME_DOMAIN'); }
+  get sep10WebAuthDomain() { return this.c.get<string>('SEP10_WEB_AUTH_DOMAIN'); }
   get challengeTtl() { return Number(this.c.get('AUTH_CHALLENGE_TTL_SECONDS') ?? 120); }
   get adminAddresses() { return (this.c.get<string>('ADMIN_ADDRESSES') ?? '').split(',').map(s => s.trim()).filter(Boolean); }
   get rpcUrl() { return this.req('STELLAR_RPC_URL'); }
