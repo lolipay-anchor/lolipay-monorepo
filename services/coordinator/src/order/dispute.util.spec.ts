@@ -1,4 +1,4 @@
-import { canDispute, postSettleDisputeDeadline, refundOpensAt } from './dispute.util';
+import { canDispute, postSettleDeadlineMs, postSettleDisputeDeadline, refundOpensAt } from './dispute.util';
 
 const CONFIG = { postSettleDisputeWindowSecs: 3600 };
 
@@ -110,5 +110,21 @@ describe('refundOpensAt matches the escrow', () => {
         );
       }
     }
+  });
+});
+
+describe('a latched zero is the pre-settlement sentinel, not a closed window', () => {
+  it('falls back to the configured window when the chain reports zero', () => {
+    const settledAt = new Date(Date.now() - 60_000);
+    expect(
+      postSettleDeadlineMs({ settledAt, postSettleDeadline: 0n }, { postSettleDisputeWindowSecs: 3600 }),
+    ).toBe(settledAt.getTime() + 3600 * 1000);
+  });
+
+  it('still allows a dispute rather than reporting the window already shut', () => {
+    const settledAt = new Date(Date.now() - 60_000);
+    expect(
+      canDispute({ status: 'RELEASED', settledAt, postSettleDeadline: 0n }, { postSettleDisputeWindowSecs: 3600 }),
+    ).toBe(true);
   });
 });

@@ -375,13 +375,11 @@ describe('OrderService — dispute metadata + post-settle window (Phase 5B Task 
       expect(result.post_settle_dispute_until).toBeNull();
     });
 
-    it('one side filing does not close the window on the other', async () => {
+    it('reports no window once a dispute is on file, matching what postDispute will accept', async () => {
       const settledAt = new Date(Date.now() - 60_000);
       const { svc, tx } = makeSvc({ status: 'RELEASED', settledAt, disputeBy: 'user' });
       const result = await svc.getOrder('order-1', USER_ADDR);
-      expect(result.post_settle_dispute_until).toBe(
-        new Date(settledAt.getTime() + CONFIG.postSettleDisputeWindowSecs * 1000).toISOString(),
-      );
+      expect(result.post_settle_dispute_until).toBeNull();
       const _ = tx;
     });
 

@@ -263,7 +263,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
     );
   });
 
-  it('GET /admin/orders → the window stays open for the counterparty after one side files', async () => {
+  it('GET /admin/orders → post_settle_dispute_until is null once a dispute is on file', async () => {
     const settledAt = new Date(Date.now() - 60_000);
     mockAdminService.config.mockResolvedValue({ postSettleDisputeWindowSecs: 3600 });
     mockAdminService.listOrders.mockResolvedValue([
@@ -296,9 +296,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
       .set('Authorization', `Bearer admin`)
       .expect(200);
 
-    expect(res.body[0].post_settle_dispute_until).toBe(
-      new Date(settledAt.getTime() + 3600 * 1000).toISOString(),
-    );
+    expect(res.body[0].post_settle_dispute_until).toBeNull();
   });
 
   const MARKET_ROW = {

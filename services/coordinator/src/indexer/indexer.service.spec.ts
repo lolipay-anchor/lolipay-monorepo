@@ -270,6 +270,22 @@ describe('IndexerService.applyEvent', () => {
     expect(data.settledAt).toEqual(new Date(1_700_000_000 * 1000));
   });
 
+  it('does not persist a zero deadline, which only ever means not yet settled', async () => {
+    const { svc, prisma, stellar } = make('FIAT_PAID');
+    stellar.getTradeStatus.mockResolvedValue({
+      status: 'RELEASED',
+      settledAt: 1_700_000_000,
+      postSettleDeadline: 0n,
+    });
+    await svc.applyEvent({
+      topic: [TOPIC_RELEASED, tradeIdTopic(TRADE_ID_A)],
+      value: VALUE_EMPTY,
+      contractId: 'CXXX',
+    });
+    const { data } = prisma.order.updateMany.mock.calls[0][0];
+    expect('postSettleDeadline' in data).toBe(false);
+  });
+
   it('leaves the latched deadline unset rather than inventing one when the chain read fails', async () => {
     const { svc, prisma, stellar } = make('FIAT_PAID');
     stellar.getTradeStatus.mockRejectedValue(new Error('rpc down'));

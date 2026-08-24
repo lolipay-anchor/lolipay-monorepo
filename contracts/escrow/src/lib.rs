@@ -516,8 +516,12 @@ impl EscrowContract {
                     if !upheld {
                         trade.liability_established = true;
                     }
-                    trade.slash_deadline =
-                        core::cmp::max(trade.slash_deadline, now + ATTEST_GRACE_SECS);
+                    let grace = if is_admin_fallback {
+                        RESOLVER_WINDOW
+                    } else {
+                        ATTEST_GRACE_SECS
+                    };
+                    trade.slash_deadline = core::cmp::max(trade.slash_deadline, now + grace);
                 }
                 trade.status = prior;
                 trade.set_pre_dispute_status(None);

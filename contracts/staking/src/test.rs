@@ -91,7 +91,7 @@ fn slash_setup() -> SlashEnv {
     let escrow = EscrowContractClient::new(&env, &escrow_id);
     let staking_id = env.register(
         StakingContract,
-        (admin.clone(), usdc.address.clone(), resolver.clone(), escrow_id.clone(), 1_000_000_000i128, 100u64),
+        (admin.clone(), usdc.address.clone(), resolver.clone(), escrow_id.clone(), 1_000_000_000i128, 86_400u64),
     );
     let staking = StakingContractClient::new(&env, &staking_id);
 
@@ -123,7 +123,7 @@ fn setup() -> (Env, StakingContractClient<'static>, Address, Address, Address) {
     let escrow = Address::generate(&env);
     let contract_id = env.register(
         StakingContract,
-        (admin.clone(), usdc.clone(), resolver.clone(), escrow.clone(), 1_000_000_000i128, 100u64),
+        (admin.clone(), usdc.clone(), resolver.clone(), escrow.clone(), 1_000_000_000i128, 86_400u64),
     );
     let client = StakingContractClient::new(&env, &contract_id);
     (env, client, admin, usdc, resolver)
@@ -137,7 +137,7 @@ fn test_initialize_and_config() {
     assert_eq!(cfg.usdc_token, usdc);
     assert_eq!(cfg.resolver, resolver);
     assert_eq!(cfg.min_stake, 1_000_000_000i128);
-    assert_eq!(cfg.cooldown_secs, 100);
+    assert_eq!(cfg.cooldown_secs, 86_400);
     assert!(!cfg.paused);
 }
 
@@ -162,14 +162,14 @@ fn test_set_config_updates_fields() {
         resolver: new_resolver.clone(),
         escrow_contract: client.get_config().escrow_contract,
         min_stake: 5_000_000_000i128,
-        cooldown_secs: 200,
+        cooldown_secs: 172_800,
         paused: false,
     };
     client.set_config(&new_config);
     let cfg = client.get_config();
     assert_eq!(cfg.resolver, new_resolver);
     assert_eq!(cfg.min_stake, 5_000_000_000i128);
-    assert_eq!(cfg.cooldown_secs, 200);
+    assert_eq!(cfg.cooldown_secs, 172_800);
     assert_eq!(cfg.admin, admin);
     assert_eq!(cfg.usdc_token, usdc);
 }
@@ -183,7 +183,7 @@ fn test_set_config_non_admin_rejected() {
         resolver: resolver.clone(),
         escrow_contract: client.get_config().escrow_contract,
         min_stake: 5_000_000_000i128,
-        cooldown_secs: 200,
+        cooldown_secs: 172_800,
         paused: false,
     };
     env.set_auths(&[]);
@@ -205,7 +205,7 @@ fn test_set_config_cannot_change_token() {
         resolver: resolver.clone(),
         escrow_contract: client.get_config().escrow_contract,
         min_stake: 1_000_000_000i128,
-        cooldown_secs: 100,
+        cooldown_secs: 86_400,
         paused: false,
     };
     assert_eq!(client.try_set_config(&bad_config), Err(Ok(Error::TokenImmutable)));
@@ -217,7 +217,7 @@ fn test_set_config_cannot_change_token() {
         resolver: resolver.clone(),
         escrow_contract: client.get_config().escrow_contract,
         min_stake: 7_000_000_000i128,
-        cooldown_secs: 100,
+        cooldown_secs: 86_400,
         paused: false,
     };
     client.set_config(&good_config);
@@ -236,7 +236,7 @@ fn test_set_config_handoff_to_new_admin() {
         resolver: new_resolver,
         escrow_contract: client.get_config().escrow_contract,
         min_stake: 1_000_000_000i128,
-        cooldown_secs: 100,
+        cooldown_secs: 86_400,
         paused: false,
     };
     client.set_config(&new_config);
@@ -271,7 +271,7 @@ fn setup_with_usdc() -> (
     let escrow = Address::generate(&env);
     let contract_id = env.register(
         StakingContract,
-        (admin.clone(), usdc.address.clone(), resolver.clone(), escrow.clone(), 1_000_000_000i128, 100u64),
+        (admin.clone(), usdc.address.clone(), resolver.clone(), escrow.clone(), 1_000_000_000i128, 86_400u64),
     );
     let client = StakingContractClient::new(&env, &contract_id);
     (env, client, admin, usdc, usdc_admin, resolver)
@@ -327,7 +327,7 @@ fn test_request_then_claim_after_cooldown() {
 
     assert_eq!(client.try_claim_unstake(&lp), Err(Ok(Error::CooldownActive)));
 
-    env.ledger().with_mut(|li| { li.timestamp = 200; });
+    env.ledger().with_mut(|li| { li.timestamp = 86_500; });
     client.claim_unstake(&lp);
     assert_eq!(usdc.balance(&lp), 1_000_000_000i128);
     let info2 = client.get_stake(&lp);
@@ -619,7 +619,7 @@ fn test_request_unstake_accumulates_and_resets_timer() {
     env.ledger().with_mut(|li| { li.timestamp = t1; });
     client.request_unstake(&lp, &500_000_000i128);
     assert_eq!(client.get_stake(&lp).unbonding, 500_000_000i128);
-    assert_eq!(client.get_stake(&lp).unbond_available_at, t1 + 100);
+    assert_eq!(client.get_stake(&lp).unbond_available_at, t1 + 86_400);
 
     let t2 = 1_050u64;
     env.ledger().with_mut(|li| { li.timestamp = t2; });
@@ -627,7 +627,7 @@ fn test_request_unstake_accumulates_and_resets_timer() {
 
     let info = client.get_stake(&lp);
     assert_eq!(info.unbonding, 1_000_000_000i128);
-    assert_eq!(info.unbond_available_at, t2 + 100);
+    assert_eq!(info.unbond_available_at, t2 + 86_400);
     assert_eq!(info.staked, 1_000_000_000i128);
 }
 
@@ -640,10 +640,13 @@ fn staked_lp() -> (
     let (usdc, usdc_admin) = create_usdc(&env, &token_admin);
     let admin = Address::generate(&env);
     let resolver = Address::generate(&env);
-    let escrow = Address::generate(&env);
+    let escrow = env.register(
+        EscrowContract,
+        (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, Address::generate(&env), 3600u64, Address::generate(&env)),
+    );
     let contract_id = env.register(
         StakingContract,
-        (admin.clone(), usdc.address.clone(), resolver.clone(), escrow.clone(), 1_000_000_000i128, 100u64),
+        (admin.clone(), usdc.address.clone(), resolver.clone(), escrow.clone(), 1_000_000_000i128, 86_400u64),
     );
     let client = StakingContractClient::new(&env, &contract_id);
     let lp = Address::generate(&env);
@@ -1615,7 +1618,7 @@ fn an_escrow_that_answers_anything_but_no_such_trade_keeps_the_collateral() {
     let sulking = env.register(SulkingEscrow, ());
     let staking_id = env.register(
         StakingContract,
-        (admin, usdc.address.clone(), resolver.clone(), sulking, 1_000_000_000i128, 100u64),
+        (admin, usdc.address.clone(), resolver.clone(), sulking, 1_000_000_000i128, 86_400u64),
     );
     let staking = StakingContractClient::new(&env, &staking_id);
     let lp = Address::generate(&env);
@@ -1690,7 +1693,6 @@ fn a_verdict_acted_on_late_still_leaves_time_to_act_on_it() {
     s.staking.slash(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
     assert_eq!(s.usdc.balance(&s.user), victim_before + 500_000_000i128);
 
-    s.env.ledger().with_mut(|li| li.timestamp = resolver_deadline + 3602);
     assert_eq!(
         s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
         Err(Ok(Error::AlreadySlashed))
@@ -1800,6 +1802,61 @@ fn an_unresolved_dispute_is_the_administrators_problem_to_unwind() {
         Err(Ok(Error::SlashWindowOpen))
     );
 
-    s.staking.force_release_reservation(&s.lp, &trade_id, &s.admin);
+    assert_eq!(
+        s.staking.try_force_release_reservation(&s.lp, &trade_id, &s.admin),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 1_000_000_000i128);
+
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
+    let after = s.escrow.dispute_view(&trade_id).collateral_hold_until;
+    s.env.ledger().with_mut(|li| li.timestamp = after + 1);
+    s.staking.release_expired_reservation(&s.lp, &trade_id);
     assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+}
+
+#[test]
+#[should_panic]
+fn a_cooldown_shorter_than_a_day_is_refused_at_construction() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let usdc = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let escrow = Address::generate(&env);
+
+    env.register(
+        StakingContract,
+        (admin, usdc, resolver, escrow, 1_000_000_000i128, 300u64),
+    );
+}
+
+#[test]
+#[should_panic]
+fn a_zero_cooldown_is_refused_too() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let usdc = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let escrow = Address::generate(&env);
+
+    env.register(
+        StakingContract,
+        (admin, usdc, resolver, escrow, 1_000_000_000i128, 0u64),
+    );
+}
+
+#[test]
+fn the_cooldown_can_never_be_configured_below_the_floor_afterwards() {
+    let (_env, client, _admin, _usdc, _resolver) = setup();
+    let mut cfg = client.get_config();
+    cfg.cooldown_secs = 300;
+
+    assert_eq!(client.try_set_config(&cfg), Err(Ok(Error::InvalidCooldown)));
+    assert_eq!(client.get_config().cooldown_secs, 86_400);
+
+    let mut cfg = client.get_config();
+    cfg.cooldown_secs = 0;
+    assert_eq!(client.try_set_config(&cfg), Err(Ok(Error::InvalidCooldown)));
 }

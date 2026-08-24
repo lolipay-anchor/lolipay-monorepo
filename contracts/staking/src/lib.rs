@@ -18,6 +18,7 @@ use crate::storage::{
 use crate::types::{Config, DisputeView, Error, StakeInfo};
 
 const MAX_COOLDOWN_SECS: u64 = 90 * 24 * 60 * 60;
+const MIN_COOLDOWN_SECS: u64 = 24 * 60 * 60;
 pub(crate) const ESCROW_TRADE_NOT_FOUND: u32 = 5;
 
 #[contract]
@@ -35,7 +36,7 @@ impl StakingContract {
         cooldown_secs: u64,
     ) {
         admin.require_auth();
-        if cooldown_secs > MAX_COOLDOWN_SECS {
+        if !(MIN_COOLDOWN_SECS..=MAX_COOLDOWN_SECS).contains(&cooldown_secs) {
             panic_with_error!(&env, Error::InvalidCooldown);
         }
         if min_stake <= 0 {
@@ -69,7 +70,7 @@ impl StakingContract {
         if new_config.escrow_contract != cfg.escrow_contract {
             return Err(Error::TokenImmutable);
         }
-        if new_config.cooldown_secs > MAX_COOLDOWN_SECS {
+        if !(MIN_COOLDOWN_SECS..=MAX_COOLDOWN_SECS).contains(&new_config.cooldown_secs) {
             return Err(Error::InvalidCooldown);
         }
         if new_config.min_stake <= 0 {
@@ -144,7 +145,38 @@ impl StakingContract {
             return Err(Error::Unauthorized);
         }
         caller.require_auth();
+        Self::assert_no_live_dispute(&env, &cfg.escrow_contract, &trade_id)?;
         Self::drop_reservation(&env, &lp, &trade_id)
+    }
+
+    fn assert_no_live_dispute(
+        env: &Env,
+        escrow: &Address,
+        trade_id: &BytesN<32>,
+    ) -> Result<(), Error> {
+        let found: Result<
+            Result<DisputeView, soroban_sdk::ConversionError>,
+            Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
+        > = env.try_invoke_contract(
+            escrow,
+            &Symbol::new(env, "dispute_view"),
+            vec![env, trade_id.into_val(env)],
+        );
+        match found {
+            Ok(Ok(view)) => {
+                if view.is_disputed {
+                    return Err(Error::SlashWindowOpen);
+                }
+                Ok(())
+            }
+            Err(Ok(e))
+                if e.is_type(soroban_sdk::xdr::ScErrorType::Contract)
+                    && e.get_code() == ESCROW_TRADE_NOT_FOUND =>
+            {
+                Ok(())
+            }
+            _ => Err(Error::SlashWindowOpen),
+        }
     }
 
     fn read_dispute(env: &Env, escrow: &Address, trade_id: &BytesN<32>) -> DisputeView {

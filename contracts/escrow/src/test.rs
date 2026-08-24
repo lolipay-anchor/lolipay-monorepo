@@ -3431,7 +3431,7 @@ fn a_dispute_settled_by_verdict_binds_the_collateral_too() {
 
 #[test]
 fn a_party_may_never_judge_its_own_trade_whatever_title_it_holds() {
-    let (env, client, admin, _resolver, _attestor, provider, recipient, usdc) = gate_setup();
+    let (env, client, admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
     gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
     client.mark_fiat_paid(&id32(&env, 1), &recipient);
     env.ledger().with_mut(|l| l.timestamp = 500);
@@ -3452,7 +3452,7 @@ fn a_party_may_never_judge_its_own_trade_whatever_title_it_holds() {
 
     assert_eq!(client.get_trade(&id32(&env, 1)).slash_deadline, before);
     assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Disputed);
-    let _ = usdc;
+
 }
 
 #[test]
@@ -3588,4 +3588,67 @@ fn a_party_holding_the_resolver_title_cannot_dispute_twice_on_its_own_slot() {
     );
     client.raise_dispute(&id32(&env, 1), &provider);
     assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Disputed);
+}
+
+#[test]
+fn a_provider_wearing_the_resolver_title_cannot_exonerate_itself() {
+    let (env, client, admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    env.ledger().with_mut(|l| l.timestamp = 2001);
+    client.refund(&id32(&env, 1));
+
+    let mut cfg = client.get_config();
+    cfg.resolver = provider.clone();
+    cfg.admin = admin.clone();
+    client.set_config(&cfg);
+
+    client.raise_dispute(&id32(&env, 1), &recipient);
+    let before = client.get_trade(&id32(&env, 1)).slash_deadline;
+
+    assert_eq!(
+        client.try_resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &provider),
+        Err(Ok(Error::Unauthorized))
+    );
+    assert_eq!(client.get_trade(&id32(&env, 1)).slash_deadline, before);
+}
+
+#[test]
+fn a_provider_may_not_reach_the_admin_fallback_either() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    env.ledger().with_mut(|l| l.timestamp = 2001);
+    client.refund(&id32(&env, 1));
+    client.raise_dispute(&id32(&env, 1), &recipient);
+
+    let mut cfg = client.get_config();
+    cfg.admin = provider.clone();
+    cfg.resolver = resolver.clone();
+    client.set_config(&cfg);
+    let deadline = client.get_trade(&id32(&env, 1)).resolver_deadline;
+    env.ledger().with_mut(|l| l.timestamp = deadline + 1);
+
+    assert_eq!(
+        client.try_resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &provider),
+        Err(Ok(Error::Unauthorized))
+    );
+}
+
+#[test]
+fn a_verdict_reached_by_the_slow_path_gets_the_slow_paths_grace() {
+    let (env, client, admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+    client.raise_dispute(&id32(&env, 1), &provider);
+    let deadline = client.get_trade(&id32(&env, 1)).resolver_deadline;
+
+    env.ledger().with_mut(|l| l.timestamp = deadline + 1);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &admin);
+
+    assert_eq!(
+        client.get_trade(&id32(&env, 1)).slash_deadline,
+        deadline + 1 + 86_400
+    );
+    let _ = resolver;
 }
