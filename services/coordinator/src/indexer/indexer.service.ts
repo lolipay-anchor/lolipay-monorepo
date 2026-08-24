@@ -11,6 +11,16 @@ import { verifyTradeMatchesOrder } from '../order/trade-binding';
 import { userLostDispute, providerLostDispute } from '../reputation/dispute-outcome';
 import { UserReputationService } from '../reputation/user-reputation.service';
 
+export function attributeDisputer(
+  by: string,
+  userAddress: string,
+  lpWallet: string | null,
+): 'user' | 'lp' | 'resolver' {
+  if (by === userAddress) return 'user';
+  if (lpWallet && by === lpWallet) return 'lp';
+  return 'resolver';
+}
+
 export const EVENT_STATUS: Record<string, string> = {
   trade_created: 'FUNDED',
   fiat_paid: 'FIAT_PAID',
@@ -256,10 +266,8 @@ export class IndexerService {
     const fresh = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!fresh || !fresh.disputeBy) return;
 
-    let actualRole: 'user' | 'lp' | undefined;
-    if (by === fresh.userAddress) actualRole = 'user';
-    else if (fresh.lpWallet && by === fresh.lpWallet) actualRole = 'lp';
-    if (!actualRole || actualRole === fresh.disputeBy) return;
+    const actualRole = attributeDisputer(by, fresh.userAddress, fresh.lpWallet);
+    if (actualRole === fresh.disputeBy) return;
 
     const res = await this.prisma.order.updateMany({
       where: { id: orderId, disputeBy: fresh.disputeBy },

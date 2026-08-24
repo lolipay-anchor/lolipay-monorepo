@@ -52,9 +52,14 @@ pub fn get_reservation(
     lp: &Address,
     trade_id: &soroban_sdk::BytesN<32>,
 ) -> Option<i128> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::Reservation(lp.clone(), trade_id.clone()))
+    let key = DataKey::Reservation(lp.clone(), trade_id.clone());
+    match env.storage().persistent().get::<DataKey, i128>(&key) {
+        Some(amount) => {
+            env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, LIFETIME);
+            Some(amount)
+        }
+        None => None,
+    }
 }
 
 pub fn set_reservation(
@@ -63,9 +68,9 @@ pub fn set_reservation(
     trade_id: &soroban_sdk::BytesN<32>,
     amount: i128,
 ) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Reservation(lp.clone(), trade_id.clone()), &amount);
+    let key = DataKey::Reservation(lp.clone(), trade_id.clone());
+    env.storage().persistent().set(&key, &amount);
+    env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, LIFETIME);
 }
 
 pub fn clear_reservation(env: &Env, lp: &Address, trade_id: &soroban_sdk::BytesN<32>) {

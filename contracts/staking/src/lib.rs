@@ -11,9 +11,10 @@ use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, vec, Address, BytesN, Env, IntoVal, Symbol,
 };
 
-use crate::events::{ConfigChanged, PausedSet, Slashed, Staked, UnstakeRequested, Unstaked};
+use crate::events::{
+    Reserved, ReservationReleased,ConfigChanged, PausedSet, Slashed, Staked, UnstakeRequested, Unstaked};
 use crate::storage::{
-    bump_instance, get_config, get_stake, is_slashed, mark_slashed, set_config, set_stake, get_reservation, set_reservation, clear_reservation};
+    bump_instance, get_config, get_stake, is_slashed, mark_slashed, set_config, set_stake, get_reservation as storage_get_reservation, set_reservation, clear_reservation};
 use crate::types::{Config, Error, StakeInfo};
 
 const MAX_COOLDOWN_SECS: u64 = 90 * 24 * 60 * 60;
@@ -118,7 +119,50 @@ impl StakingContract {
 
     pub fn available(env: Env, lp: Address) -> i128 {
         let info = get_stake(&env, &lp);
-        info.staked - info.reserved
+        let free = info.staked - info.reserved;
+        if free < 0 {
+            0
+        } else {
+            free
+        }
+    }
+
+    pub fn get_reservation(env: Env, lp: Address, trade_id: BytesN<32>) -> Option<i128> {
+        storage_get_reservation(&env, &lp, &trade_id)
+    }
+
+    pub fn force_release_reservation(
+        env: Env,
+        lp: Address,
+        trade_id: BytesN<32>,
+        caller: Address,
+    ) -> Result<(), Error> {
+        bump_instance(&env);
+        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
+        if caller != cfg.admin {
+            return Err(Error::Unauthorized);
+        }
+        caller.require_auth();
+        Self::drop_reservation(&env, &lp, &trade_id)
+    }
+
+    fn drop_reservation(env: &Env, lp: &Address, trade_id: &BytesN<32>) -> Result<(), Error> {
+        let amount = storage_get_reservation(env, lp, trade_id).ok_or(Error::ReservationNotFound)?;
+        let mut info = get_stake(env, lp);
+        info.reserved -= amount;
+        if info.reserved < 0 {
+            info.reserved = 0;
+        }
+        set_stake(env, lp, &info);
+        clear_reservation(env, lp, trade_id);
+        ReservationReleased {
+            lp: lp.clone(),
+            trade_id: trade_id.clone(),
+            amount,
+            total_reserved: info.reserved,
+        }
+        .publish(env);
+        Ok(())
     }
 
     pub fn is_eligible(env: Env, lp: Address) -> Result<bool, Error> {
@@ -140,19 +184,31 @@ impl StakingContract {
             return Err(Error::Unauthorized);
         }
         caller.require_auth();
+        if cfg.paused {
+            return Err(Error::Paused);
+        }
         if amount <= 0 {
             return Err(Error::InvalidAmount);
         }
-        if get_reservation(&env, &lp, &trade_id).is_some() {
+        if is_slashed(&env, &trade_id) {
+            return Err(Error::AlreadySlashed);
+        }
+        let existing = storage_get_reservation(&env, &lp, &trade_id).unwrap_or(0);
+        if existing == amount {
             return Ok(());
         }
+        if existing > amount {
+            return Err(Error::InvalidAmount);
+        }
+        let delta = amount - existing;
         let mut info = get_stake(&env, &lp);
-        if amount > info.staked - info.reserved {
+        if delta > info.staked - info.reserved {
             return Err(Error::InsufficientAvailable);
         }
-        info.reserved += amount;
+        info.reserved += delta;
         set_stake(&env, &lp, &info);
         set_reservation(&env, &lp, &trade_id, amount);
+        Reserved { lp, trade_id, amount, total_reserved: info.reserved }.publish(&env);
         Ok(())
     }
 
@@ -171,15 +227,7 @@ impl StakingContract {
         if cfg.paused {
             return Err(Error::Paused);
         }
-        let amount = get_reservation(&env, &lp, &trade_id).ok_or(Error::ReservationNotFound)?;
-        let mut info = get_stake(&env, &lp);
-        info.reserved -= amount;
-        if info.reserved < 0 {
-            info.reserved = 0;
-        }
-        set_stake(&env, &lp, &info);
-        clear_reservation(&env, &lp, &trade_id);
-        Ok(())
+        Self::drop_reservation(&env, &lp, &trade_id)
     }
 
     pub fn request_unstake(env: Env, lp: Address, amount: i128) -> Result<(), Error> {
@@ -249,7 +297,13 @@ impl StakingContract {
         if is_slashed(&env, &trade_id) {
             return Err(Error::AlreadySlashed);
         }
-        let (is_disputed, provider, recipient, trade_amount): (bool, Address, Address, i128) = env
+        let (is_disputed, provider, recipient, trade_amount, funded_origin): (
+            bool,
+            Address,
+            Address,
+            i128,
+            bool,
+        ) = env
             .invoke_contract(
                 &cfg.escrow_contract,
                 &Symbol::new(&env, "dispute_view"),
@@ -257,6 +311,9 @@ impl StakingContract {
             );
         if !is_disputed {
             return Err(Error::TradeNotDisputed);
+        }
+        if funded_origin {
+            return Err(Error::SlashNotApplicable);
         }
         let victim = if lp == provider {
             recipient
@@ -280,12 +337,9 @@ impl StakingContract {
             info.staked = 0;
             info.unbonding -= from_unbonding;
         }
-        if let Some(reserved) = get_reservation(&env, &lp, &trade_id) {
+        if let Some(reserved) = storage_get_reservation(&env, &lp, &trade_id) {
             info.reserved -= reserved;
             clear_reservation(&env, &lp, &trade_id);
-        }
-        if info.reserved > info.staked {
-            info.reserved = info.staked;
         }
         if info.reserved < 0 {
             info.reserved = 0;

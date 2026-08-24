@@ -1018,7 +1018,7 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
     expect(prisma.order.updateMany).toHaveBeenCalledTimes(1);
   });
 
-  it('`by` matches neither known trade party (should be unreachable given the contract\'s own auth check) -> fail-closed no-op', async () => {
+  it('`by` is the resolver, which the contract now permits -> attributed to the resolver, not to a party', async () => {
     const { svc, order } = makeWithMetadata({
       disputeBy: 'user',
       disputeReason: 'PAYMENT_NOT_RECEIVED',
@@ -1030,8 +1030,8 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
       contractId: 'CXXX',
     });
     expect(advanced).toBe(1);
-    expect(order.disputeBy).toBe('user');
-    expect(order.disputeReason).toBe('PAYMENT_NOT_RECEIVED');
+    expect(order.disputeBy).toBe('resolver');
+    expect(order.disputeReason).toBeNull();
   });
 
   it('post-settlement path (RELEASED -> DISPUTED bypass): reconciliation also applies once on-chain confirms DISPUTED', async () => {

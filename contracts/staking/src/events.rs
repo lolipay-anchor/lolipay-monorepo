@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use soroban_sdk::{contractevent, Address};
+use soroban_sdk::{contractevent, Address, BytesN};
 
 #[contractevent]
 pub struct Staked {
@@ -43,4 +43,24 @@ pub struct ConfigChanged {
 #[contractevent]
 pub struct PausedSet {
     pub paused: bool,
+}
+
+#[contractevent]
+pub struct Reserved {
+    #[topic]
+    pub lp: Address,
+    #[topic]
+    pub trade_id: BytesN<32>,
+    pub amount: i128,
+    pub total_reserved: i128,
+}
+
+#[contractevent]
+pub struct ReservationReleased {
+    #[topic]
+    pub lp: Address,
+    #[topic]
+    pub trade_id: BytesN<32>,
+    pub amount: i128,
+    pub total_reserved: i128,
 }

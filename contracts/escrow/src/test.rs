@@ -1185,7 +1185,7 @@ fn test_raise_dispute_post_settle_from_released_within_window() {
     assert_eq!(t.pre_dispute_status(), Some(crate::types::Status::Released));
     assert_eq!(t.settled_at, 500);
 
-    let (is_disputed, view_provider, view_recipient, view_amount) = client.dispute_view(&id32(&env,1));
+    let (is_disputed, view_provider, view_recipient, view_amount, _origin) = client.dispute_view(&id32(&env,1));
     assert!(is_disputed);
     assert_eq!(view_provider, provider);
     assert_eq!(view_recipient, recipient);
@@ -2576,4 +2576,59 @@ fn a_post_settlement_dispute_is_still_verdict_only() {
 
     assert_eq!(usdc.balance(&recipient), after);
     assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Released);
+}
+
+#[test]
+fn a_resolver_raised_post_settlement_dispute_does_not_burn_the_parties_own_right() {
+    let (env, client, resolver, _p, recipient, _usdc) = resolver_setup();
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+
+    client.raise_dispute(&id32(&env, 1), &resolver);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
+
+    client.raise_dispute(&id32(&env, 1), &recipient);
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Disputed);
+}
+
+#[test]
+fn a_party_raised_post_settlement_dispute_is_still_one_shot() {
+    let (env, client, resolver, _p, recipient, _usdc) = resolver_setup();
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+
+    client.raise_dispute(&id32(&env, 1), &recipient);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
+
+    assert_eq!(
+        client.try_raise_dispute(&id32(&env, 1), &recipient),
+        Err(Ok(Error::AlreadyResolved))
+    );
+}
+
+#[test]
+#[should_panic]
+fn the_admin_and_the_resolver_may_not_be_the_same_key() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let shared = Address::generate(&env);
+    let usdc = Address::generate(&env);
+    let pw = Address::generate(&env);
+    let attestor = Address::generate(&env);
+
+    env.register(
+        EscrowContract,
+        (shared.clone(), usdc.clone(), shared.clone(), 30u32, pw.clone(), 3600u64, attestor.clone()),
+    );
+}
+
+#[test]
+fn configuration_may_not_collapse_the_admin_and_resolver_together() {
+    let (_env, client, admin, _usdc, _resolver, _pw) = setup();
+    let mut cfg = client.get_config();
+    cfg.resolver = admin;
+
+    assert_eq!(client.try_set_config(&cfg), Err(Ok(Error::InvalidConfig)));
 }

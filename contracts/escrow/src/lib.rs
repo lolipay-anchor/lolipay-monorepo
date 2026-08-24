@@ -55,6 +55,9 @@ impl EscrowContract {
         if dispute_window == 0 || dispute_window > MAX_DISPUTE_WINDOW {
             panic_with_error!(&env, Error::InvalidConfig);
         }
+        if admin == resolver {
+            panic_with_error!(&env, Error::InvalidConfig);
+        }
         set_config(
             &env,
             &Config {
@@ -90,6 +93,9 @@ impl EscrowContract {
         if new_config.early_release_providers.len() > MAX_EARLY_RELEASE_PROVIDERS {
             return Err(Error::InvalidConfig);
         }
+        if new_config.admin == new_config.resolver {
+            return Err(Error::InvalidConfig);
+        }
         if new_config.default_platform_fee_bps > MAX_PLATFORM_FEE_BPS {
             return Err(Error::InvalidFee);
         }
@@ -119,13 +125,15 @@ impl EscrowContract {
     pub fn dispute_view(
         env: Env,
         trade_id: BytesN<32>,
-    ) -> Result<(bool, Address, Address, i128), Error> {
+    ) -> Result<(bool, Address, Address, i128, bool), Error> {
         let t = storage_get_trade(&env, &trade_id).ok_or(Error::TradeNotFound)?;
+        let funded_origin = t.pre_dispute_status() == Some(Status::Funded);
         Ok((
             t.status == Status::Disputed,
             t.usdc_provider,
             t.usdc_recipient,
             t.usdc_amount,
+            funded_origin,
         ))
     }
 
@@ -439,9 +447,11 @@ impl EscrowContract {
                 trade.set_pre_dispute_status(None);
             }
             Some(prior) => {
+                let raised_by_a_party = trade.disputed_by == Some(trade.usdc_provider.clone())
+                    || trade.disputed_by == Some(trade.usdc_recipient.clone());
                 trade.status = prior;
                 trade.set_pre_dispute_status(None);
-                trade.post_settle_resolved = true;
+                trade.post_settle_resolved = raised_by_a_party;
                 set_trade(&env, &trade_id, &trade);
                 let released = outcome == ResolveOutcome::Release;
                 Resolved { trade_id, released, post_settle: true }.publish(&env);
