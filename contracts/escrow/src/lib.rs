@@ -128,15 +128,19 @@ impl EscrowContract {
     pub fn dispute_view(
         env: Env,
         trade_id: BytesN<32>,
-    ) -> Result<(bool, Address, Address, i128, bool), Error> {
+    ) -> Result<(bool, Address, Address, i128, bool, bool, u64), Error> {
         let t = storage_get_trade(&env, &trade_id).ok_or(Error::TradeNotFound)?;
-        let pre_settlement = t.settled_at == 0;
+        let effective = t.pre_dispute_status().unwrap_or(t.status);
+        let settled = matches!(effective, Status::Released | Status::Refunded);
+        let released = effective == Status::Released;
         Ok((
             t.status == Status::Disputed,
             t.usdc_provider,
             t.usdc_recipient,
             t.usdc_amount,
-            pre_settlement,
+            !settled,
+            released,
+            t.post_settle_deadline,
         ))
     }
 
@@ -171,6 +175,13 @@ impl EscrowContract {
             return Err(Error::InvalidAmount);
         }
         if confirmer != usdc_provider || usdc_provider == usdc_recipient {
+            return Err(Error::InvalidRoles);
+        }
+        if usdc_provider == cfg.resolver
+            || usdc_recipient == cfg.resolver
+            || usdc_provider == cfg.fiat_attestor
+            || usdc_recipient == cfg.fiat_attestor
+        {
             return Err(Error::InvalidRoles);
         }
         if (platform_fee_bps as i128) + (lp_fee_bps as i128) >= 10_000 {
@@ -467,8 +478,7 @@ impl EscrowContract {
                 trade.set_pre_dispute_status(None);
             }
             Some(prior) => {
-                let raised_by_a_party = trade.disputed_by == Some(trade.usdc_provider.clone())
-                    || trade.disputed_by == Some(trade.usdc_recipient.clone());
+                let raised_by_a_party = trade.disputed_by != Some(cfg.resolver.clone());
                 trade.status = prior;
                 trade.set_pre_dispute_status(None);
                 trade.post_settle_resolved |= raised_by_a_party;

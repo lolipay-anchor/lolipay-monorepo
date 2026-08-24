@@ -51,4 +51,5 @@ pub enum Error {
     InsufficientAvailable = 15,
     ReservationNotFound = 16,
     SlashNotApplicable = 17,
+    SlashWindowPassed = 18,
 }

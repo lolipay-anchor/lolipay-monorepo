@@ -297,12 +297,14 @@ impl StakingContract {
         if is_slashed(&env, &trade_id) {
             return Err(Error::AlreadySlashed);
         }
-        let (is_disputed, provider, recipient, trade_amount, pre_settlement): (
+        let (is_disputed, provider, recipient, trade_amount, pre_settlement, released, slash_deadline): (
             bool,
             Address,
             Address,
             i128,
             bool,
+            bool,
+            u64,
         ) = env
             .invoke_contract(
                 &cfg.escrow_contract,
@@ -315,13 +317,20 @@ impl StakingContract {
         if pre_settlement {
             return Err(Error::SlashNotApplicable);
         }
-        let victim = if lp == provider {
-            recipient
-        } else if lp == recipient {
-            provider
-        } else {
+        if env.ledger().timestamp() > slash_deadline {
+            return Err(Error::SlashWindowPassed);
+        }
+        if lp != provider && lp != recipient {
             return Err(Error::NotTradeParty);
+        }
+        let (culprit, victim) = if released {
+            (recipient, provider)
+        } else {
+            (provider, recipient)
         };
+        if lp != culprit {
+            return Err(Error::SlashNotApplicable);
+        }
         if amount > trade_amount {
             return Err(Error::InvalidAmount);
         }

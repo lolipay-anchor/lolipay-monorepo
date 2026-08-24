@@ -465,7 +465,7 @@ fn test_slash_post_settlement_full_flow_and_one_shot() {
 
     s.escrow.raise_dispute(&trade_id, &s.user);
     assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Disputed);
-    let (is_disputed, provider, recipient, amount, _origin) = s.escrow.dispute_view(&trade_id);
+    let (is_disputed, provider, recipient, amount, _pre, _rel, _dl) = s.escrow.dispute_view(&trade_id);
     assert!(is_disputed);
     assert_eq!(provider, s.user);
     assert_eq!(recipient, s.lp);
@@ -496,7 +496,7 @@ fn test_slash_rejected_after_post_settlement_resolve_proves_ordering() {
 
     s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
     assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Released);
-    let (is_disputed, _, _, _, _) = s.escrow.dispute_view(&trade_id);
+    let (is_disputed, _, _, _, _, _, _) = s.escrow.dispute_view(&trade_id);
     assert!(!is_disputed);
 
     assert_eq!(
@@ -1214,4 +1214,104 @@ fn a_slash_that_covers_every_reservation_reports_no_shortfall() {
     };
     assert_eq!(last, expected.to_xdr(&s.env, &s.staking.address));
     assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+}
+
+#[test]
+fn a_completed_trade_cannot_be_slashed_in_the_direction_the_money_went() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.user, &1_000_000_000i128);
+    s.staking.stake(&s.user, &1_000_000_000i128);
+    let trade_id = s.make_trade(51, true);
+    let lp_before = s.usdc.balance(&s.lp);
+    let user_stake_before = s.staking.get_stake(&s.user).staked;
+
+    let res = s
+        .staking
+        .try_slash(&s.user, &trade_id, &1_000_000_000i128, &s.resolver);
+
+    assert_eq!(res, Err(Ok(Error::SlashNotApplicable)));
+    assert_eq!(s.usdc.balance(&s.lp), lp_before);
+    assert_eq!(s.staking.get_stake(&s.user).staked, user_stake_before);
+}
+
+#[test]
+fn a_released_trade_may_only_slash_whoever_received_the_money() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_trade(52, true);
+    let victim_before = s.usdc.balance(&s.user);
+
+    s.staking.slash(&s.lp, &trade_id, &400_000_000i128, &s.resolver);
+
+    assert_eq!(s.usdc.balance(&s.user), victim_before + 400_000_000i128);
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 600_000_000i128);
+}
+
+#[test]
+fn a_refunded_trade_may_only_slash_whoever_got_their_capital_back() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    s.usdc_admin.mint(&s.user, &1_000_000_000i128);
+    s.staking.stake(&s.user, &1_000_000_000i128);
+    let now = s.env.ledger().timestamp();
+    let trade_id = id32(&s.env, 53);
+    s.usdc_admin.mint(&s.user, &1_000_000_000i128);
+    s.escrow.create_trade(
+        &trade_id, &s.user, &s.lp, &s.user, &1_000_000_000i128, &1_600_000i128,
+        &Symbol::new(&s.env, "IDR"), &Flow::Withdraw, &30u32, &120u32,
+        &s.platform_wallet, &s.lp_wallet, &(now + 1000), &(now + 2000), &(now + 3000),
+    );
+    s.env.ledger().with_mut(|li| li.timestamp = now + 1001);
+    s.escrow.refund(&trade_id);
+    s.escrow.raise_dispute(&trade_id, &s.lp);
+
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &trade_id, &100_000_000i128, &s.resolver),
+        Err(Ok(Error::SlashNotApplicable))
+    );
+    let victim_before = s.usdc.balance(&s.lp);
+    s.staking.slash(&s.user, &trade_id, &100_000_000i128, &s.resolver);
+    assert_eq!(s.usdc.balance(&s.lp), victim_before + 100_000_000i128);
+}
+
+#[test]
+fn the_slash_right_dies_with_the_dispute_window_it_was_raised_in() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_trade(54, true);
+    let (_d, _p, _r, _a, _pre, _rel, deadline) = s.escrow.dispute_view(&trade_id);
+    let victim_before = s.usdc.balance(&s.user);
+
+    s.env.ledger().with_mut(|li| li.timestamp = deadline + 1);
+    let res = s
+        .staking
+        .try_slash(&s.lp, &trade_id, &100_000_000i128, &s.resolver);
+
+    assert_eq!(res, Err(Ok(Error::SlashWindowPassed)));
+    assert_eq!(s.usdc.balance(&s.user), victim_before);
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 1_000_000_000i128);
+
+    s.env.ledger().with_mut(|li| li.timestamp = deadline);
+    s.staking.slash(&s.lp, &trade_id, &100_000_000i128, &s.resolver);
+    assert_eq!(s.usdc.balance(&s.user), victim_before + 100_000_000i128);
+}
+
+#[test]
+fn an_unstake_is_never_frozen_past_the_slash_window() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_trade(55, true);
+    let (_d, _p, _r, _a, _pre, _rel, deadline) = s.escrow.dispute_view(&trade_id);
+
+    s.env.ledger().with_mut(|li| li.timestamp = deadline + 1);
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
+        Err(Ok(Error::SlashWindowPassed))
+    );
+    s.staking.request_unstake(&s.lp, &1_000_000_000i128);
+    assert_eq!(s.staking.get_stake(&s.lp).unbonding, 1_000_000_000i128);
 }
