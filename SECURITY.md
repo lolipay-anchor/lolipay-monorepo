@@ -52,6 +52,11 @@ the key is never logged.
 - **The confirmer must be the provider of USDC.** If the recipient could confirm,
   they could attest payment and release the counterparty's funds unilaterally.
   Self-trades are rejected. Enforced on-chain, not left to the coordinator.
+  **Read this with its qualifier.** It protects the party who is waiting for
+  money, and in a deposit that is the depositor. In a withdrawal the provider is
+  the one being protected *and* the one holding the confirming key, so the rule
+  gives the withdrawing user nothing on its own — their protection is the
+  provider's staked collateral and the dispute that can slash it, not this rule.
 - **Fee rate and fee wallet are not caller-chosen.** Both must match on-chain
   config, so a malicious caller cannot zero the platform fee or redirect it. The
   fee wallet is immutable — rotating it means deploying a fresh contract.
@@ -63,6 +68,13 @@ the key is never logged.
 - **A dispute is always available while a trade is awaiting confirmation.** There
   is deliberately no window check on that path: the guarantee is that a silent
   confirmer can never freeze funds.
+- **A deposit may also be disputed before any fiat is claimed, but only by the
+  resolver**, because a depositor who reaches the anchor through a hosted flow
+  holds no key that can sign for themselves. Neither party may do this: a party
+  who could would block the other's automatic refund at will. Settling such a
+  dispute takes the resolver's signature *and* the attestor's, and it is not
+  grounds to slash — the money is still in escrow, so releasing it is the remedy
+  and a slash on top would be recovering twice.
 - **Disputes raised after settlement are verdict-only and single-shot.** No second
   transfer occurs; the outcome is recorded as a signal for a collateral slash, the
   prior terminal status is restored, and a latch prevents the same settlement
