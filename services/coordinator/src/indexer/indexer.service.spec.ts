@@ -298,6 +298,22 @@ describe('IndexerService.applyEvent', () => {
     expect('postSettleDeadline' in data).toBe(false);
   });
 
+  it('a resolved settlement does not persist a zero deadline either', async () => {
+    const { svc, prisma, stellar } = make('DISPUTED');
+    stellar.getTradeStatus.mockResolvedValue({
+      status: 'RELEASED',
+      settledAt: 1_700_000_500,
+      postSettleDeadline: 0n,
+    });
+    await svc.applyEvent({
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value: nativeToScVal({ released: true, post_settle: false }),
+      contractId: 'CXXX',
+    });
+    const { data } = prisma.order.updateMany.mock.calls[0][0];
+    expect('postSettleDeadline' in data).toBe(false);
+  });
+
   it('a dispute resolved into a settlement latches its deadline too', async () => {
     const { svc, prisma, stellar } = make('DISPUTED');
     stellar.getTradeStatus.mockResolvedValue({

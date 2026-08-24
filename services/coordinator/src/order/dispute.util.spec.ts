@@ -128,3 +128,26 @@ describe('a latched zero is the pre-settlement sentinel, not a closed window', (
     ).toBe(true);
   });
 });
+
+describe('a filing the chain has overruled leaves the window open again', () => {
+  const settledAt = new Date(Date.now() - 60_000);
+  const CFG = { postSettleDisputeWindowSecs: 3600 };
+
+  it('reports the window while a reconciled filing carries no reason yet', () => {
+    expect(
+      postSettleDisputeDeadline(
+        { status: 'RELEASED', settledAt, disputeBy: 'lp', disputeReason: null },
+        CFG,
+      ),
+    ).toBe(new Date(settledAt.getTime() + 3600 * 1000).toISOString());
+  });
+
+  it('reports no window once that filing has a reason on it', () => {
+    expect(
+      postSettleDisputeDeadline(
+        { status: 'RELEASED', settledAt, disputeBy: 'lp', disputeReason: 'WRONG_AMOUNT' },
+        CFG,
+      ),
+    ).toBeNull();
+  });
+});

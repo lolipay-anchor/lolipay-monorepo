@@ -3627,15 +3627,17 @@ fn a_provider_may_not_reach_the_admin_fallback_either() {
     let deadline = client.get_trade(&id32(&env, 1)).resolver_deadline;
     env.ledger().with_mut(|l| l.timestamp = deadline + 1);
 
+    let before = client.get_trade(&id32(&env, 1)).slash_deadline;
     assert_eq!(
         client.try_resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &provider),
         Err(Ok(Error::Unauthorized))
     );
+    assert_eq!(client.get_trade(&id32(&env, 1)).slash_deadline, before);
 }
 
 #[test]
 fn a_verdict_reached_by_the_slow_path_gets_the_slow_paths_grace() {
-    let (env, client, admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    let (env, client, admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
     gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
     client.mark_fiat_paid(&id32(&env, 1), &recipient);
     env.ledger().with_mut(|l| l.timestamp = 500);
@@ -3650,5 +3652,23 @@ fn a_verdict_reached_by_the_slow_path_gets_the_slow_paths_grace() {
         client.get_trade(&id32(&env, 1)).slash_deadline,
         deadline + 1 + 86_400
     );
-    let _ = resolver;
+}
+
+#[test]
+fn a_resolver_verdict_carries_only_the_attestation_hour() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+    client.raise_dispute(&id32(&env, 1), &provider);
+    let deadline = client.get_trade(&id32(&env, 1)).resolver_deadline;
+
+    env.ledger().with_mut(|l| l.timestamp = deadline + 1);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
+
+    assert_eq!(
+        client.get_trade(&id32(&env, 1)).slash_deadline,
+        deadline + 1 + 3600
+    );
 }

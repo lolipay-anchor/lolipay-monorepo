@@ -288,6 +288,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
         createdAt: new Date('2026-07-01T00:00:00.000Z'),
         settledAt,
         disputeBy: 'user',
+        disputeReason: 'PAYMENT_NOT_RECEIVED',
       },
     ]);
 

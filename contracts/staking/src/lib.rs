@@ -145,15 +145,22 @@ impl StakingContract {
             return Err(Error::Unauthorized);
         }
         caller.require_auth();
-        Self::assert_no_live_dispute(&env, &cfg.escrow_contract, &trade_id)?;
+        if let Some(view) = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)? {
+            if view.is_disputed {
+                return Err(Error::SlashWindowOpen);
+            }
+            if !view.pre_settlement && env.ledger().timestamp() <= view.collateral_hold_until {
+                return Err(Error::SlashWindowOpen);
+            }
+        }
         Self::drop_reservation(&env, &lp, &trade_id)
     }
 
-    fn assert_no_live_dispute(
+    fn read_dispute(
         env: &Env,
         escrow: &Address,
         trade_id: &BytesN<32>,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<DisputeView>, Error> {
         let found: Result<
             Result<DisputeView, soroban_sdk::ConversionError>,
             Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
@@ -163,28 +170,15 @@ impl StakingContract {
             vec![env, trade_id.into_val(env)],
         );
         match found {
-            Ok(Ok(view)) => {
-                if view.is_disputed {
-                    return Err(Error::SlashWindowOpen);
-                }
-                Ok(())
-            }
+            Ok(Ok(view)) => Ok(Some(view)),
             Err(Ok(e))
                 if e.is_type(soroban_sdk::xdr::ScErrorType::Contract)
                     && e.get_code() == ESCROW_TRADE_NOT_FOUND =>
             {
-                Ok(())
+                Ok(None)
             }
             _ => Err(Error::SlashWindowOpen),
         }
-    }
-
-    fn read_dispute(env: &Env, escrow: &Address, trade_id: &BytesN<32>) -> DisputeView {
-        env.invoke_contract(
-            escrow,
-            &Symbol::new(env, "dispute_view"),
-            vec![env, trade_id.into_val(env)],
-        )
     }
 
     pub fn release_expired_reservation(
@@ -194,27 +188,13 @@ impl StakingContract {
     ) -> Result<(), Error> {
         bump_instance(&env);
         let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
-        let found: Result<
-            Result<DisputeView, soroban_sdk::ConversionError>,
-            Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
-        > = env.try_invoke_contract(
-            &cfg.escrow_contract,
-            &Symbol::new(&env, "dispute_view"),
-            vec![&env, trade_id.into_val(&env)],
-        );
-        match found {
-            Ok(Ok(view)) => {
-                if view.is_disputed || view.pre_settlement {
-                    return Err(Error::SlashWindowOpen);
-                }
-                if env.ledger().timestamp() <= view.collateral_hold_until {
-                    return Err(Error::SlashWindowOpen);
-                }
+        if let Some(view) = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)? {
+            if view.is_disputed || view.pre_settlement {
+                return Err(Error::SlashWindowOpen);
             }
-            Err(Ok(e))
-                if e.is_type(soroban_sdk::xdr::ScErrorType::Contract)
-                    && e.get_code() == ESCROW_TRADE_NOT_FOUND => {}
-            _ => return Err(Error::SlashWindowOpen),
+            if env.ledger().timestamp() <= view.collateral_hold_until {
+                return Err(Error::SlashWindowOpen);
+            }
         }
         Self::drop_reservation(&env, &lp, &trade_id)
     }
@@ -370,7 +350,8 @@ impl StakingContract {
         if is_slashed(&env, &trade_id) {
             return Err(Error::AlreadySlashed);
         }
-        let view = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id);
+        let view = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)?
+            .ok_or(Error::TradeNotDisputed)?;
         if !view.is_disputed && !view.post_settle_raised {
             return Err(Error::TradeNotDisputed);
         }

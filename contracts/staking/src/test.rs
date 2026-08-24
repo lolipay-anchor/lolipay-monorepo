@@ -1808,11 +1808,17 @@ fn an_unresolved_dispute_is_the_administrators_problem_to_unwind() {
     );
     assert_eq!(s.staking.get_stake(&s.lp).reserved, 1_000_000_000i128);
 
-    s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
-    let after = s.escrow.dispute_view(&trade_id).collateral_hold_until;
-    s.env.ledger().with_mut(|li| li.timestamp = after + 1);
-    s.staking.release_expired_reservation(&s.lp, &trade_id);
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+    let rd = s.escrow.get_trade(&trade_id).resolver_deadline;
+    s.env.ledger().with_mut(|li| li.timestamp = rd + 1);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.admin);
+
+    assert_eq!(
+        s.staking.try_force_release_reservation(&s.lp, &trade_id, &s.admin),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    let victim_before = s.usdc.balance(&s.user);
+    s.staking.slash(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+    assert_eq!(s.usdc.balance(&s.user), victim_before + 1_000_000_000i128);
 }
 
 #[test]
@@ -1858,5 +1864,87 @@ fn the_cooldown_can_never_be_configured_below_the_floor_afterwards() {
 
     let mut cfg = client.get_config();
     cfg.cooldown_secs = 0;
+    assert_eq!(client.try_set_config(&cfg), Err(Ok(Error::InvalidCooldown)));
+}
+
+#[test]
+fn the_admin_door_is_shut_for_as_long_as_a_slash_can_still_land() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_settled_trade(171);
+    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+    s.escrow.raise_dispute(&trade_id, &s.user);
+    let rd = s.escrow.get_trade(&trade_id).resolver_deadline;
+
+    s.env.ledger().with_mut(|li| li.timestamp = rd + 1);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.admin);
+    let hold = s.escrow.dispute_view(&trade_id).collateral_hold_until;
+    assert!(hold > rd + 1);
+
+    assert_eq!(
+        s.staking.try_force_release_reservation(&s.lp, &trade_id, &s.admin),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    assert_eq!(
+        s.staking.try_request_unstake(&s.lp, &1_000_000_000i128),
+        Err(Ok(Error::InsufficientAvailable))
+    );
+
+    s.env.ledger().with_mut(|li| li.timestamp = hold + 1);
+    s.staking.force_release_reservation(&s.lp, &trade_id, &s.admin);
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+}
+
+#[test]
+fn the_admin_door_stays_open_for_a_live_trade_the_coordinator_got_wrong() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let live = s.make_trade(172, false);
+    s.staking.reserve(&s.lp, &live, &600_000_000i128, &s.resolver);
+
+    s.staking.force_release_reservation(&s.lp, &live, &s.admin);
+
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+}
+
+#[test]
+fn an_escrow_that_will_not_answer_shuts_the_admin_door_too() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let token_admin = Address::generate(&env);
+    let (usdc, usdc_admin) = create_usdc(&env, &token_admin);
+    let admin = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let sulking = env.register(SulkingEscrow, ());
+    let staking_id = env.register(
+        StakingContract,
+        (admin.clone(), usdc.address.clone(), resolver.clone(), sulking, 1_000_000_000i128, 86_400u64),
+    );
+    let staking = StakingContractClient::new(&env, &staking_id);
+    let lp = Address::generate(&env);
+    usdc_admin.mint(&lp, &1_000_000_000i128);
+    staking.stake(&lp, &1_000_000_000i128);
+    let trade_id = id32(&env, 211);
+    staking.reserve(&lp, &trade_id, &1_000_000_000i128, &resolver);
+
+    assert_eq!(
+        staking.try_force_release_reservation(&lp, &trade_id, &admin),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    assert_eq!(staking.get_stake(&lp).reserved, 1_000_000_000i128);
+}
+
+#[test]
+fn the_cooldown_ceiling_is_ninety_days() {
+    let (_env, client, _admin, _usdc, _resolver) = setup();
+    let mut cfg = client.get_config();
+    cfg.cooldown_secs = 90 * 24 * 60 * 60;
+    client.set_config(&cfg);
+    assert_eq!(client.get_config().cooldown_secs, 7_776_000);
+
+    let mut cfg = client.get_config();
+    cfg.cooldown_secs = 7_776_001;
     assert_eq!(client.try_set_config(&cfg), Err(Ok(Error::InvalidCooldown)));
 }
