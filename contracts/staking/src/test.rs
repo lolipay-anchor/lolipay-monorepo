@@ -1390,6 +1390,7 @@ fn collateral_is_freed_by_anyone_once_the_slash_window_has_closed() {
     s.staking.stake(&s.lp, &1_000_000_000i128);
     let trade_id = s.make_trade(55, true);
     s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
     let deadline = s.escrow.dispute_view(&trade_id).slash_deadline;
 
     s.env.ledger().with_mut(|li| li.timestamp = deadline);
@@ -1663,11 +1664,11 @@ fn one_party_cannot_spend_the_others_right_to_be_heard() {
     s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
 
     s.escrow.raise_dispute(&trade_id, &s.user);
-    assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Disputed);
-    assert_eq!(
-        s.escrow.try_raise_dispute(&trade_id, &s.lp),
-        Err(Ok(lolipay_escrow::types::Error::InvalidState))
-    );
+
+    let t = s.escrow.get_trade(&trade_id);
+    assert!(t.recipient_post_settle_used);
+    assert!(t.provider_post_settle_used);
+    assert!(!t.resolver_post_settle_used);
 }
 
 #[test]
@@ -1682,11 +1683,18 @@ fn a_verdict_acted_on_late_still_leaves_time_to_act_on_it() {
 
     s.env.ledger().with_mut(|li| li.timestamp = resolver_deadline + 1);
     s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.admin);
+    assert!(s.escrow.dispute_view(&trade_id).slash_deadline >= psd);
 
+    s.env.ledger().with_mut(|li| li.timestamp = resolver_deadline + 3600);
     let victim_before = s.usdc.balance(&s.user);
     s.staking.slash(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
     assert_eq!(s.usdc.balance(&s.user), victim_before + 500_000_000i128);
-    let _ = psd;
+
+    s.env.ledger().with_mut(|li| li.timestamp = resolver_deadline + 3602);
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
+        Err(Ok(Error::AlreadySlashed))
+    );
 }
 
 #[test]
@@ -1718,27 +1726,80 @@ fn every_settlement_route_binds_the_collateral_it_creates() {
     s.staking.stake(&s.lp, &4_000_000_000i128);
 
     let refunded = s.make_trade(240, false);
-    s.staking.reserve(&s.lp, &refunded, &1_000_000_000i128, &s.resolver);
     let now = s.env.ledger().timestamp();
     s.env.ledger().with_mut(|li| li.timestamp = now + 2001);
     s.escrow.refund(&refunded);
-    assert_eq!(
-        s.staking.try_release_expired_reservation(&s.lp, &refunded),
-        Err(Ok(Error::SlashWindowOpen))
-    );
+    let t = s.escrow.get_trade(&refunded);
+    assert_ne!(t.slash_deadline, 0);
+    assert_eq!(t.slash_deadline, t.post_settle_deadline);
 
     let resolved = s.make_trade(241, false);
-    s.staking.reserve(&s.lp, &resolved, &1_000_000_000i128, &s.resolver);
     s.escrow.mark_fiat_paid(&resolved, &s.lp);
     s.escrow.raise_dispute(&resolved, &s.user);
     s.escrow.resolve(&resolved, &ResolveOutcome::Release, &s.resolver);
-    assert_eq!(
-        s.staking.try_release_expired_reservation(&s.lp, &resolved),
-        Err(Ok(Error::SlashWindowOpen))
-    );
+    let t = s.escrow.get_trade(&resolved);
+    assert_ne!(t.slash_deadline, 0);
+    assert_eq!(t.slash_deadline, t.post_settle_deadline);
+
+    let confirmed = s.make_settled_trade(242);
+    let t = s.escrow.get_trade(&confirmed);
+    assert_ne!(t.slash_deadline, 0);
+    assert_eq!(t.slash_deadline, t.post_settle_deadline);
+
+    let cancelled = s.make_trade(243, false);
+    s.escrow.cancel(&cancelled);
+    let t = s.escrow.get_trade(&cancelled);
+    assert_ne!(t.slash_deadline, 0);
+    assert_eq!(t.slash_deadline, t.post_settle_deadline);
 }
 
 #[test]
 fn the_escrow_error_code_this_contract_trusts_is_still_the_one_it_means() {
     assert_eq!(lolipay_escrow::types::Error::TradeNotFound as u32, crate::ESCROW_TRADE_NOT_FOUND);
+}
+
+#[test]
+fn an_open_dispute_holds_the_collateral_however_long_it_stays_open() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_settled_trade(151);
+    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+    s.escrow.raise_dispute(&trade_id, &s.user);
+    let hold = s.escrow.dispute_view(&trade_id).collateral_hold_until;
+
+    s.env.ledger().with_mut(|li| li.timestamp = hold + 10_000_000);
+    assert_eq!(
+        s.staking.try_release_expired_reservation(&s.lp, &trade_id),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    assert_eq!(
+        s.staking.try_request_unstake(&s.lp, &1_000_000_000i128),
+        Err(Ok(Error::InsufficientAvailable))
+    );
+
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
+    let victim_before = s.usdc.balance(&s.user);
+    s.staking.slash(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+    assert_eq!(s.usdc.balance(&s.user), victim_before + 1_000_000_000i128);
+}
+
+#[test]
+fn an_unresolved_dispute_is_the_administrators_problem_to_unwind() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_settled_trade(152);
+    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+    s.escrow.raise_dispute(&trade_id, &s.user);
+    let hold = s.escrow.dispute_view(&trade_id).collateral_hold_until;
+
+    s.env.ledger().with_mut(|li| li.timestamp = hold + 1);
+    assert_eq!(
+        s.staking.try_release_expired_reservation(&s.lp, &trade_id),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+
+    s.staking.force_release_reservation(&s.lp, &trade_id, &s.admin);
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
 }

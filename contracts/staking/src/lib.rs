@@ -172,7 +172,7 @@ impl StakingContract {
         );
         match found {
             Ok(Ok(view)) => {
-                if view.pre_settlement {
+                if view.is_disputed || view.pre_settlement {
                     return Err(Error::SlashWindowOpen);
                 }
                 if env.ledger().timestamp() <= view.collateral_hold_until {

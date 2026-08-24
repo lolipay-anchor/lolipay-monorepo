@@ -375,11 +375,14 @@ describe('OrderService — dispute metadata + post-settle window (Phase 5B Task 
       expect(result.post_settle_dispute_until).toBeNull();
     });
 
-    it('getOrder: RELEASED within window but already disputed (disputeBy set) → null', async () => {
+    it('one side filing does not close the window on the other', async () => {
       const settledAt = new Date(Date.now() - 60_000);
       const { svc, tx } = makeSvc({ status: 'RELEASED', settledAt, disputeBy: 'user' });
       const result = await svc.getOrder('order-1', USER_ADDR);
-      expect(result.post_settle_dispute_until).toBeNull();
+      expect(result.post_settle_dispute_until).toBe(
+        new Date(settledAt.getTime() + CONFIG.postSettleDisputeWindowSecs * 1000).toISOString(),
+      );
+      const _ = tx;
     });
 
     it('getOrder: a non-settled status (e.g. FIAT_PAID) → null', async () => {

@@ -242,6 +242,7 @@ impl EscrowContract {
             resolver_post_settle_used: false,
             post_settle_deadline: 0,
             slash_deadline: 0,
+            liability_established: false,
         };
         set_trade(&env, &trade_id, &trade);
 
@@ -423,12 +424,12 @@ impl EscrowContract {
                 Some(Status::Funded)
             }
             Status::Released | Status::Refunded => {
-                let spent = if by == cfg.resolver {
-                    trade.resolver_post_settle_used
-                } else if by == trade.usdc_provider {
+                let spent = if by == trade.usdc_provider {
                     trade.provider_post_settle_used
-                } else {
+                } else if by == trade.usdc_recipient {
                     trade.recipient_post_settle_used
+                } else {
+                    trade.resolver_post_settle_used
                 };
                 if spent {
                     return Err(Error::AlreadyResolved);
@@ -454,12 +455,12 @@ impl EscrowContract {
         }
         if matches!(prior_status, Some(Status::Released) | Some(Status::Refunded)) {
             trade.slash_deadline = core::cmp::max(trade.slash_deadline, now + RESOLVER_WINDOW);
-            if by == cfg.resolver {
-                trade.resolver_post_settle_used = true;
-            } else if by == trade.usdc_provider {
+            if by == trade.usdc_provider {
                 trade.provider_post_settle_used = true;
-            } else {
+            } else if by == trade.usdc_recipient {
                 trade.recipient_post_settle_used = true;
+            } else {
+                trade.resolver_post_settle_used = true;
             }
         }
         trade.status = Status::Disputed;
@@ -483,6 +484,9 @@ impl EscrowContract {
             return Err(Error::NotDisputed);
         }
         let now = env.ledger().timestamp();
+        if caller == trade.usdc_provider || caller == trade.usdc_recipient {
+            return Err(Error::Unauthorized);
+        }
         let is_resolver = caller == cfg.resolver;
         let is_admin_fallback = now > trade.resolver_deadline && caller == cfg.admin;
         if !(is_resolver || is_admin_fallback) {
@@ -506,9 +510,12 @@ impl EscrowContract {
                     trade.usdc_provider.clone()
                 };
                 let claimed_against_the_holder = trade.disputed_by != Some(holder);
-                if upheld && claimed_against_the_holder {
+                if upheld && claimed_against_the_holder && !trade.liability_established {
                     trade.slash_deadline = 0;
                 } else {
+                    if !upheld {
+                        trade.liability_established = true;
+                    }
                     trade.slash_deadline =
                         core::cmp::max(trade.slash_deadline, now + ATTEST_GRACE_SECS);
                 }
