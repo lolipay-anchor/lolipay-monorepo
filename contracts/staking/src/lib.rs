@@ -15,7 +15,7 @@ use crate::events::{
     Reserved, ReservationReleased,ConfigChanged, PausedSet, Slashed, Staked, UnstakeRequested, Unstaked};
 use crate::storage::{
     bump_instance, get_config, get_stake, is_slashed, mark_slashed, set_config, set_stake, get_reservation as storage_get_reservation, set_reservation, clear_reservation};
-use crate::types::{Config, Error, StakeInfo};
+use crate::types::{Config, DisputeView, Error, StakeInfo};
 
 const MAX_COOLDOWN_SECS: u64 = 90 * 24 * 60 * 60;
 
@@ -143,6 +143,31 @@ impl StakingContract {
             return Err(Error::Unauthorized);
         }
         caller.require_auth();
+        Self::drop_reservation(&env, &lp, &trade_id)
+    }
+
+    fn read_dispute(env: &Env, escrow: &Address, trade_id: &BytesN<32>) -> DisputeView {
+        env.invoke_contract(
+            escrow,
+            &Symbol::new(env, "dispute_view"),
+            vec![env, trade_id.into_val(env)],
+        )
+    }
+
+    pub fn release_expired_reservation(
+        env: Env,
+        lp: Address,
+        trade_id: BytesN<32>,
+    ) -> Result<(), Error> {
+        bump_instance(&env);
+        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
+        let view = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id);
+        if view.is_disputed && env.ledger().timestamp() <= view.slash_deadline {
+            return Err(Error::SlashWindowOpen);
+        }
+        if !view.is_disputed && view.pre_settlement {
+            return Err(Error::SlashWindowOpen);
+        }
         Self::drop_reservation(&env, &lp, &trade_id)
     }
 
@@ -297,36 +322,24 @@ impl StakingContract {
         if is_slashed(&env, &trade_id) {
             return Err(Error::AlreadySlashed);
         }
-        let (is_disputed, provider, recipient, trade_amount, pre_settlement, released, slash_deadline): (
-            bool,
-            Address,
-            Address,
-            i128,
-            bool,
-            bool,
-            u64,
-        ) = env
-            .invoke_contract(
-                &cfg.escrow_contract,
-                &Symbol::new(&env, "dispute_view"),
-                vec![&env, trade_id.into_val(&env)],
-            );
-        if !is_disputed {
+        let view = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id);
+        if !view.is_disputed {
             return Err(Error::TradeNotDisputed);
         }
-        if pre_settlement {
+        if view.pre_settlement {
             return Err(Error::SlashNotApplicable);
         }
-        if env.ledger().timestamp() > slash_deadline {
+        if env.ledger().timestamp() > view.slash_deadline {
             return Err(Error::SlashWindowPassed);
         }
-        if lp != provider && lp != recipient {
+        let trade_amount = view.amount;
+        if lp != view.provider && lp != view.recipient {
             return Err(Error::NotTradeParty);
         }
-        let (culprit, victim) = if released {
-            (recipient, provider)
+        let (culprit, victim) = if view.released {
+            (view.recipient.clone(), view.provider.clone())
         } else {
-            (provider, recipient)
+            (view.provider.clone(), view.recipient.clone())
         };
         if lp != culprit {
             return Err(Error::SlashNotApplicable);

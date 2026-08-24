@@ -17,7 +17,7 @@ use crate::storage::{
     bump_instance, get_config, has_trade, set_config, set_trade, split_fees,
 };
 use crate::storage::get_trade as storage_get_trade;
-use crate::types::{Config, Error, Flow, ResolveOutcome, Status, Trade};
+use crate::types::{DisputeView, Config, Error, Flow, ResolveOutcome, Status, Trade};
 
 const RESOLVER_WINDOW: u64 = 86_400;
 
@@ -128,20 +128,25 @@ impl EscrowContract {
     pub fn dispute_view(
         env: Env,
         trade_id: BytesN<32>,
-    ) -> Result<(bool, Address, Address, i128, bool, bool, u64), Error> {
+    ) -> Result<DisputeView, Error> {
         let t = storage_get_trade(&env, &trade_id).ok_or(Error::TradeNotFound)?;
         let effective = t.pre_dispute_status().unwrap_or(t.status);
         let settled = matches!(effective, Status::Released | Status::Refunded);
-        let released = effective == Status::Released;
-        Ok((
-            t.status == Status::Disputed,
-            t.usdc_provider,
-            t.usdc_recipient,
-            t.usdc_amount,
-            !settled,
-            released,
-            t.post_settle_deadline,
-        ))
+        let is_disputed = t.status == Status::Disputed;
+        let slash_deadline = if is_disputed {
+            core::cmp::max(t.post_settle_deadline, t.resolver_deadline)
+        } else {
+            t.post_settle_deadline
+        };
+        Ok(DisputeView {
+            is_disputed,
+            provider: t.usdc_provider,
+            recipient: t.usdc_recipient,
+            amount: t.usdc_amount,
+            pre_settlement: !settled,
+            released: effective == Status::Released,
+            slash_deadline,
+        })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -177,12 +182,10 @@ impl EscrowContract {
         if confirmer != usdc_provider || usdc_provider == usdc_recipient {
             return Err(Error::InvalidRoles);
         }
-        if usdc_provider == cfg.resolver
-            || usdc_recipient == cfg.resolver
-            || usdc_provider == cfg.fiat_attestor
-            || usdc_recipient == cfg.fiat_attestor
-        {
-            return Err(Error::InvalidRoles);
+        for party in [&usdc_provider, &usdc_recipient] {
+            if *party == cfg.resolver || *party == cfg.fiat_attestor || *party == cfg.admin {
+                return Err(Error::InvalidRoles);
+            }
         }
         if (platform_fee_bps as i128) + (lp_fee_bps as i128) >= 10_000 {
             return Err(Error::InvalidFee);
@@ -416,9 +419,6 @@ impl EscrowContract {
                 Some(Status::Funded)
             }
             Status::Released | Status::Refunded => {
-                if trade.settled_at == 0 {
-                    return Err(Error::InvalidState);
-                }
                 if by == cfg.resolver {
                     if trade.resolver_post_settle_used {
                         return Err(Error::AlreadyResolved);
@@ -444,6 +444,13 @@ impl EscrowContract {
         by.require_auth();
         if let Some(prior) = prior_status {
             trade.set_pre_dispute_status(Some(prior));
+        }
+        if matches!(prior_status, Some(Status::Released) | Some(Status::Refunded)) {
+            if by == cfg.resolver {
+                trade.resolver_post_settle_used = true;
+            } else {
+                trade.post_settle_resolved = true;
+            }
         }
         trade.status = Status::Disputed;
         trade.disputed_by = Some(by.clone());
@@ -482,11 +489,8 @@ impl EscrowContract {
                 trade.set_pre_dispute_status(None);
             }
             Some(prior) => {
-                let raised_by_a_party = trade.disputed_by != Some(cfg.resolver.clone());
                 trade.status = prior;
                 trade.set_pre_dispute_status(None);
-                trade.post_settle_resolved |= raised_by_a_party;
-                trade.resolver_post_settle_used |= !raised_by_a_party;
                 set_trade(&env, &trade_id, &trade);
                 let released = outcome == ResolveOutcome::Release;
                 Resolved { trade_id, released, post_settle: true }.publish(&env);

@@ -1185,7 +1185,8 @@ fn test_raise_dispute_post_settle_from_released_within_window() {
     assert_eq!(t.pre_dispute_status(), Some(crate::types::Status::Released));
     assert_eq!(t.settled_at, 500);
 
-    let (is_disputed, view_provider, view_recipient, view_amount, _pre, _rel, _dl) = client.dispute_view(&id32(&env,1));
+    let v = client.dispute_view(&id32(&env,1));
+    let (is_disputed, view_provider, view_recipient, view_amount) = (v.is_disputed, v.provider, v.recipient, v.amount);
     assert!(is_disputed);
     assert_eq!(view_provider, provider);
     assert_eq!(view_recipient, recipient);
@@ -1283,7 +1284,7 @@ fn test_raise_dispute_post_settle_boundary_is_inclusive() {
 }
 
 #[test]
-fn test_raise_dispute_post_settle_guards_zero_settled_at() {
+fn a_settlement_at_ledger_time_zero_is_still_disputable() {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
@@ -1303,8 +1304,22 @@ fn test_raise_dispute_post_settle_guards_zero_settled_at() {
     client.confirm_and_release(&id32(&env,1));
     assert_eq!(client.get_trade(&id32(&env,1)).settled_at, 0);
 
-    let res = client.try_raise_dispute(&id32(&env,1), &recipient);
-    assert_eq!(res, Err(Ok(Error::InvalidState)));
+    assert_eq!(client.get_trade(&id32(&env,1)).post_settle_deadline, 3600);
+
+    client.raise_dispute(&id32(&env,1), &recipient);
+    assert_eq!(client.get_trade(&id32(&env,1)).status, crate::types::Status::Disputed);
+
+    client.resolve(&id32(&env,1), &crate::types::ResolveOutcome::Release, &resolver);
+    assert_eq!(
+        client.try_raise_dispute(&id32(&env,1), &provider),
+        Err(Ok(Error::AlreadyResolved))
+    );
+
+    env.ledger().with_mut(|l| l.timestamp = 3601);
+    assert_eq!(
+        client.try_raise_dispute(&id32(&env,1), &resolver),
+        Err(Ok(Error::DisputeWindowPassed))
+    );
 }
 
 #[test]
@@ -1396,7 +1411,7 @@ fn test_resolve_post_settle_refunded_origin_restores_refunded() {
     assert_eq!(t.status, crate::types::Status::Refunded);
     assert_eq!(t.pre_dispute_status(), None);
     assert!(t.post_settle_resolved);
-    let (is_disputed, ..) = client.dispute_view(&id32(&env,1));
+    let is_disputed = client.dispute_view(&id32(&env,1)).is_disputed;
     assert!(!is_disputed);
 }
 
@@ -1881,7 +1896,7 @@ fn a_refund_may_not_front_run_the_attestor_on_a_deposit() {
 
 #[test]
 fn a_withdrawal_refund_waits_for_the_confirm_deadline() {
-    let (env, client, _attestor, provider, _r) = withdraw_setup();
+    let (env, client, _attestor, _provider, _r) = withdraw_setup();
     env.ledger().with_mut(|l| l.timestamp = 2000);
 
     assert_eq!(
@@ -1892,7 +1907,6 @@ fn a_withdrawal_refund_waits_for_the_confirm_deadline() {
     env.ledger().with_mut(|l| l.timestamp = 2001);
     client.refund(&id32(&env, 1));
     assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Refunded);
-    let _ = provider;
 }
 
 #[test]
@@ -2761,7 +2775,7 @@ fn a_funded_dispute_leaves_no_origin_latched_behind_it() {
 
     let trade = client.get_trade(&id32(&env, 1));
     assert!(!trade.has_pre_dispute_status);
-    let (_d, _p, _r, _a, pre_settlement, _rel, _dl) = client.dispute_view(&id32(&env, 1));
+    let pre_settlement = client.dispute_view(&id32(&env, 1)).pre_settlement;
     assert!(!pre_settlement);
 }
 
@@ -3181,13 +3195,14 @@ fn a_resolver_rotated_onto_a_party_still_spends_its_own_dispute_slot() {
 }
 
 #[test]
-fn the_resolver_window_is_a_full_day() {
+fn the_resolver_window_is_a_full_day_from_the_moment_of_the_dispute() {
     let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
     gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    env.ledger().with_mut(|l| l.timestamp = 900);
 
     client.raise_dispute(&id32(&env, 1), &resolver);
 
-    assert_eq!(client.get_trade(&id32(&env, 1)).resolver_deadline, 86_400);
+    assert_eq!(client.get_trade(&id32(&env, 1)).resolver_deadline, 900 + 86_400);
 }
 
 #[test]
@@ -3238,7 +3253,8 @@ fn a_settlement_is_recognised_by_its_status_not_by_the_clock() {
     let trade = client.get_trade(&id32(&env, 1));
     assert_eq!(trade.status, crate::types::Status::Released);
     assert_eq!(trade.settled_at, 0);
-    let (_d, _p, _r, _a, pre_settlement, released, _dl) = client.dispute_view(&id32(&env, 1));
+    let v = client.dispute_view(&id32(&env, 1));
+    let (pre_settlement, released) = (v.pre_settlement, v.released);
     assert!(!pre_settlement);
     assert!(released);
 }
@@ -3264,19 +3280,90 @@ fn a_late_paying_provider_of_rupiah_is_not_robbed_by_the_clock() {
 #[test]
 fn the_withdrawal_marking_window_closes_exactly_where_its_refund_opens() {
     let (env, client, _admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
-    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::Withdraw, 1);
+    let pw = client.get_config().default_platform_wallet;
+    let lw = Address::generate(&env);
+    for id in [1u8, 2u8] {
+        client.create_trade(
+            &id32(&env, id), &provider, &recipient, &provider, &10_0000000i128, &1i128,
+            &Symbol::new(&env, "IDR"), &crate::types::Flow::Withdraw, &30u32, &120u32,
+            &pw, &lw, &1000u64, &2000u64, &3000u64,
+        );
+    }
 
     env.ledger().with_mut(|l| l.timestamp = 2000);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::FiatPaid);
     assert_eq!(
-        client.try_refund(&id32(&env, 1)),
+        client.try_refund(&id32(&env, 2)),
         Err(Ok(Error::DeadlineNotReached))
     );
 
     env.ledger().with_mut(|l| l.timestamp = 2001);
     assert_eq!(
-        client.try_mark_fiat_paid(&id32(&env, 1), &recipient),
+        client.try_mark_fiat_paid(&id32(&env, 2), &recipient),
         Err(Ok(Error::DeadlinePassed))
     );
-    client.refund(&id32(&env, 1));
-    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Refunded);
+    client.refund(&id32(&env, 2));
+    assert_eq!(client.get_trade(&id32(&env, 2)).status, crate::types::Status::Refunded);
+}
+
+#[test]
+fn no_privileged_role_may_stand_on_either_side_of_a_trade() {
+    let (env, client, admin, resolver, attestor, provider, recipient, _usdc) = gate_setup();
+    let pw = client.get_config().default_platform_wallet;
+    let lw = Address::generate(&env);
+
+    for privileged in [admin, resolver, attestor] {
+        let as_provider = client.try_create_trade(
+            &id32(&env, 9), &privileged, &recipient, &privileged, &100_0000000i128, &1i128,
+            &Symbol::new(&env, "IDR"), &crate::types::Flow::TopUp, &30u32, &120u32,
+            &pw, &lw, &1000u64, &2000u64, &3000u64,
+        );
+        assert_eq!(as_provider, Err(Ok(Error::InvalidRoles)));
+
+        let as_recipient = client.try_create_trade(
+            &id32(&env, 9), &provider, &privileged, &provider, &100_0000000i128, &1i128,
+            &Symbol::new(&env, "IDR"), &crate::types::Flow::TopUp, &30u32, &120u32,
+            &pw, &lw, &1000u64, &2000u64, &3000u64,
+        );
+        assert_eq!(as_recipient, Err(Ok(Error::InvalidRoles)));
+    }
+}
+
+#[test]
+fn the_view_reports_the_trades_own_settlement_deadline_not_its_dispute_deadline() {
+    let (env, client, _admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+
+    let trade = client.get_trade(&id32(&env, 1));
+    let view = client.dispute_view(&id32(&env, 1));
+
+    assert_eq!(view.slash_deadline, trade.post_settle_deadline);
+    assert_ne!(view.slash_deadline, trade.dispute_deadline);
+}
+
+#[test]
+fn a_resolver_rotated_in_mid_dispute_cannot_spend_the_parties_right() {
+    let (env, client, admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+
+    client.raise_dispute(&id32(&env, 1), &resolver);
+    let successor = Address::generate(&env);
+    let mut cfg = client.get_config();
+    cfg.resolver = successor.clone();
+    cfg.admin = admin.clone();
+    client.set_config(&cfg);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &successor);
+
+    let trade = client.get_trade(&id32(&env, 1));
+    assert!(trade.resolver_post_settle_used);
+    assert!(!trade.post_settle_resolved);
+    client.raise_dispute(&id32(&env, 1), &provider);
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Disputed);
 }

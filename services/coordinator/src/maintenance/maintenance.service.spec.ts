@@ -307,7 +307,12 @@ describe('MaintenanceService.autoRefundExpired', () => {
     const arg = prisma.order.findMany.mock.calls[0][0];
     expect(arg.where.status).toBe('FUNDED');
     expect(arg.where.payDeadline).toBeUndefined();
-    expect(typeof arg.where.confirmDeadline.lt).toBe('bigint');
+    const nowSecs = BigInt(Math.floor(Date.now() / 1000));
+    const [byConfirm, byGrace] = arg.where.OR;
+    expect(byConfirm.confirmDeadline.lt).toBeGreaterThan(nowSecs - 5n);
+    expect(byConfirm.confirmDeadline.lt).toBeLessThanOrEqual(nowSecs);
+    expect(byGrace.flow).toBe('TOP_UP');
+    expect(byGrace.payDeadline.lt).toBe(byConfirm.confirmDeadline.lt - 3600n);
     expect(arg.take).toBe(20);
   });
 

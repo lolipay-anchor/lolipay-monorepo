@@ -52,7 +52,7 @@ function activeCountdown(order: {
     case 'FUNDED':
 
       return {
-        deadline: order.pay_deadline,
+        deadline: lpPaysFiat ? order.confirm_deadline : order.pay_deadline,
         label: lpPaysFiat ? 'Merchant pays within' : 'Pay within',
       }
     case 'FIAT_PAID':

@@ -31,7 +31,15 @@ export class MonitoringService implements OnModuleInit {
         where: { status: 'FIAT_PAID', confirmDeadline: { lt: nowSec } },
       }),
 
-      this.prisma.order.count({ where: { status: 'FUNDED', payDeadline: { lt: nowSec } } }),
+      this.prisma.order.count({
+        where: {
+          status: 'FUNDED',
+          OR: [
+            { flow: 'TOP_UP', payDeadline: { lt: nowSec } },
+            { flow: 'WITHDRAW', confirmDeadline: { lt: nowSec } },
+          ],
+        },
+      }),
       this.prisma.indexerState.findUnique({ where: { id: 1 } }),
     ]);
 

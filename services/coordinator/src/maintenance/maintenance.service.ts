@@ -6,6 +6,7 @@ import { RefundSignerService } from '../stellar/refund-signer.service';
 import { AppConfigService } from '../config/app-config.service';
 import { NotificationService } from '../notification/notification.service';
 import { contractIdFor } from '../order/order.params';
+import { ATTEST_GRACE_SECS, refundOpensAt } from '../order/dispute.util';
 
 const AUTO_REFUND_BATCH_SIZE = 20;
 
@@ -113,7 +114,13 @@ export class MaintenanceService {
 
     const nowSecs = BigInt(Math.floor(Date.now() / 1000));
     const candidates = await this.prisma.order.findMany({
-      where: { status: 'FUNDED', confirmDeadline: { lt: nowSecs } },
+      where: {
+        status: 'FUNDED',
+        OR: [
+          { confirmDeadline: { lt: nowSecs } },
+          { flow: 'TOP_UP', payDeadline: { lt: nowSecs - ATTEST_GRACE_SECS } },
+        ],
+      },
       select: { id: true, tradeId: true, contractId: true },
       take: AUTO_REFUND_BATCH_SIZE,
     });
@@ -176,7 +183,15 @@ export class MaintenanceService {
         status: { in: ['CANCELLED', 'EXPIRED'] },
         createdAt: { gt: new Date(Date.now() - ORPHAN_LOOKBACK_MS) },
       },
-      select: { id: true, tradeId: true, contractId: true, status: true, payDeadline: true },
+      select: {
+        id: true,
+        tradeId: true,
+        contractId: true,
+        status: true,
+        flow: true,
+        payDeadline: true,
+        confirmDeadline: true,
+      },
       take: AUTO_REFUND_BATCH_SIZE,
     });
 
@@ -202,7 +217,7 @@ export class MaintenanceService {
         continue;
       }
 
-      if (o.payDeadline >= nowSecs) continue;
+      if (refundOpensAt(o) >= nowSecs) continue;
 
       try {
         const result = await this.refundSigner.submitRefund(contractId, o.tradeId);

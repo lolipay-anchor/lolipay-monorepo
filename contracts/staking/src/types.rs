@@ -30,6 +30,18 @@ pub enum DataKey {
     Reservation(Address, BytesN<32>),
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct DisputeView {
+    pub is_disputed: bool,
+    pub provider: Address,
+    pub recipient: Address,
+    pub amount: i128,
+    pub pre_settlement: bool,
+    pub released: bool,
+    pub slash_deadline: u64,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -52,4 +64,5 @@ pub enum Error {
     ReservationNotFound = 16,
     SlashNotApplicable = 17,
     SlashWindowPassed = 18,
+    SlashWindowOpen = 19,
 }

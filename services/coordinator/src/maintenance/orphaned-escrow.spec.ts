@@ -41,7 +41,9 @@ const cancelledOrder = (over: any = {}) => ({
   tradeId: 'a'.repeat(64),
   contractId: 'CESCROW',
   status: 'CANCELLED',
+  flow: 'WITHDRAW',
   payDeadline: PAST,
+  confirmDeadline: PAST,
   ...over,
 });
 
@@ -71,9 +73,9 @@ describe('MaintenanceService.reconcileOrphanedEscrows (X3)', () => {
     expect(statusWrites).not.toContain('FUNDED');
   });
 
-  it('leaves an orphan alone until its pay deadline passes, since refund would revert', async () => {
+  it('leaves an orphan alone until the escrow would accept a refund, since it would revert', async () => {
     const { svc, refundSigner } = make({
-      orders: [cancelledOrder({ payDeadline: FUTURE })],
+      orders: [cancelledOrder({ payDeadline: FUTURE, confirmDeadline: FUTURE })],
       onChain: { status: 'FUNDED', settledAt: 0 },
     });
 

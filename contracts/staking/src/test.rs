@@ -465,7 +465,8 @@ fn test_slash_post_settlement_full_flow_and_one_shot() {
 
     s.escrow.raise_dispute(&trade_id, &s.user);
     assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Disputed);
-    let (is_disputed, provider, recipient, amount, _pre, _rel, _dl) = s.escrow.dispute_view(&trade_id);
+    let v = s.escrow.dispute_view(&trade_id);
+    let (is_disputed, provider, recipient, amount) = (v.is_disputed, v.provider, v.recipient, v.amount);
     assert!(is_disputed);
     assert_eq!(provider, s.user);
     assert_eq!(recipient, s.lp);
@@ -496,7 +497,7 @@ fn test_slash_rejected_after_post_settlement_resolve_proves_ordering() {
 
     s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
     assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Released);
-    let (is_disputed, _, _, _, _, _, _) = s.escrow.dispute_view(&trade_id);
+    let is_disputed = s.escrow.dispute_view(&trade_id).is_disputed;
     assert!(!is_disputed);
 
     assert_eq!(
@@ -1180,7 +1181,7 @@ fn a_slash_reports_the_collateral_it_leaves_uncovered() {
     s.staking.slash(&s.lp, &s.trade_id, &1_000_000_000i128, &s.resolver);
     let raw = s.env.events().all().filter_by_contract(&s.staking.address);
     let raw = raw.events();
-    let last = raw.get(raw.len() - 1).unwrap().clone();
+    let last = raw.last().unwrap().clone();
 
     let expected = crate::events::Slashed {
         lp: s.lp.clone(),
@@ -1204,7 +1205,7 @@ fn a_slash_that_covers_every_reservation_reports_no_shortfall() {
     s.staking.slash(&s.lp, &s.trade_id, &500_000_000i128, &s.resolver);
     let raw = s.env.events().all().filter_by_contract(&s.staking.address);
     let raw = raw.events();
-    let last = raw.get(raw.len() - 1).unwrap().clone();
+    let last = raw.last().unwrap().clone();
 
     let expected = crate::events::Slashed {
         lp: s.lp.clone(),
@@ -1282,7 +1283,7 @@ fn the_slash_right_dies_with_the_dispute_window_it_was_raised_in() {
     s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
     s.staking.stake(&s.lp, &1_000_000_000i128);
     let trade_id = s.make_trade(54, true);
-    let (_d, _p, _r, _a, _pre, _rel, deadline) = s.escrow.dispute_view(&trade_id);
+    let deadline = s.escrow.dispute_view(&trade_id).slash_deadline;
     let victim_before = s.usdc.balance(&s.user);
 
     s.env.ledger().with_mut(|li| li.timestamp = deadline + 1);
@@ -1300,18 +1301,66 @@ fn the_slash_right_dies_with_the_dispute_window_it_was_raised_in() {
 }
 
 #[test]
-fn an_unstake_is_never_frozen_past_the_slash_window() {
+fn collateral_is_freed_by_anyone_once_the_slash_window_has_closed() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
     s.staking.stake(&s.lp, &1_000_000_000i128);
     let trade_id = s.make_trade(55, true);
-    let (_d, _p, _r, _a, _pre, _rel, deadline) = s.escrow.dispute_view(&trade_id);
+    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+    let deadline = s.escrow.dispute_view(&trade_id).slash_deadline;
+
+    s.env.ledger().with_mut(|li| li.timestamp = deadline);
+    assert_eq!(
+        s.staking.try_release_expired_reservation(&s.lp, &trade_id),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    assert_eq!(
+        s.staking.try_request_unstake(&s.lp, &1_000_000_000i128),
+        Err(Ok(Error::InsufficientAvailable))
+    );
 
     s.env.ledger().with_mut(|li| li.timestamp = deadline + 1);
-    assert_eq!(
-        s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
-        Err(Ok(Error::SlashWindowPassed))
-    );
+    s.staking.release_expired_reservation(&s.lp, &trade_id);
+
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+    assert_eq!(s.staking.get_reservation(&s.lp, &trade_id), None);
     s.staking.request_unstake(&s.lp, &1_000_000_000i128);
     assert_eq!(s.staking.get_stake(&s.lp).unbonding, 1_000_000_000i128);
+}
+
+#[test]
+fn an_open_reservation_on_a_live_trade_is_never_freed_by_a_stranger() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let live = s.make_trade(56, false);
+    s.staking.reserve(&s.lp, &live, &600_000_000i128, &s.resolver);
+
+    assert_eq!(
+        s.staking.try_release_expired_reservation(&s.lp, &live),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 600_000_000i128);
+}
+
+#[test]
+fn a_slash_survives_a_dispute_raised_at_the_very_last_second() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_trade(57, false);
+    s.escrow.mark_fiat_paid(&trade_id, &s.lp);
+    let now = s.env.ledger().timestamp();
+    s.env.ledger().with_mut(|li| li.timestamp = now + 500);
+    s.escrow.confirm_and_release(&trade_id);
+    let window_end = s.escrow.get_trade(&trade_id).post_settle_deadline;
+
+    s.env.ledger().with_mut(|li| li.timestamp = window_end);
+    s.escrow.raise_dispute(&trade_id, &s.user);
+    let victim_before = s.usdc.balance(&s.user);
+
+    s.env.ledger().with_mut(|li| li.timestamp = window_end + 1);
+    s.staking.slash(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
+
+    assert_eq!(s.usdc.balance(&s.user), victim_before + 500_000_000i128);
 }

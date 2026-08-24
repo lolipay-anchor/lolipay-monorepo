@@ -79,6 +79,18 @@ impl Trade {
 
 #[contracttype]
 #[derive(Clone)]
+pub struct DisputeView {
+    pub is_disputed: bool,
+    pub provider: Address,
+    pub recipient: Address,
+    pub amount: i128,
+    pub pre_settlement: bool,
+    pub released: bool,
+    pub slash_deadline: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
 pub struct Config {
     pub admin: Address,
     pub usdc_token: Address,

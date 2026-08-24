@@ -46,3 +46,16 @@ export function postSettleDisputeDeadline(
   if (Date.now() > deadlineMs) return null;
   return new Date(deadlineMs).toISOString();
 }
+
+export const ATTEST_GRACE_SECS = 3600n;
+
+export function refundOpensAt(order: {
+  flow: string;
+  payDeadline: bigint;
+  confirmDeadline: bigint;
+}): bigint {
+  if (order.flow !== 'TOP_UP') return order.confirmDeadline;
+  const graced = order.payDeadline + ATTEST_GRACE_SECS;
+  return graced < order.confirmDeadline ? graced : order.confirmDeadline;
+}
+
