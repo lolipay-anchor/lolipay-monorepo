@@ -145,6 +145,7 @@ impl EscrowContract {
             amount: t.usdc_amount,
             pre_settlement: !settled,
             released: effective == Status::Released,
+            post_settle_raised: t.post_settle_resolved || t.resolver_post_settle_used,
             slash_deadline,
         })
     }
@@ -240,6 +241,7 @@ impl EscrowContract {
             post_settle_resolved: false,
             resolver_post_settle_used: false,
             post_settle_deadline: 0,
+            settlement_final: false,
         };
         set_trade(&env, &trade_id, &trade);
 
@@ -394,8 +396,10 @@ impl EscrowContract {
         }
         trade.usdc_provider.require_auth();
         trade.usdc_recipient.require_auth();
+        trade.settlement_final = true;
         let token = trade.usdc_token.clone();
-        Self::do_refund(&env, &token, &trade_id, &mut trade, cfg.dispute_window);
+        let _ = cfg;
+        Self::do_refund(&env, &token, &trade_id, &mut trade, 0);
         Ok(())
     }
 
@@ -419,6 +423,9 @@ impl EscrowContract {
                 Some(Status::Funded)
             }
             Status::Released | Status::Refunded => {
+                if trade.settlement_final {
+                    return Err(Error::AlreadyResolved);
+                }
                 if by == cfg.resolver {
                     if trade.resolver_post_settle_used {
                         return Err(Error::AlreadyResolved);

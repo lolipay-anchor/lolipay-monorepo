@@ -39,6 +39,7 @@ pub struct DisputeView {
     pub amount: i128,
     pub pre_settlement: bool,
     pub released: bool,
+    pub post_settle_raised: bool,
     pub slash_deadline: u64,
 }
 

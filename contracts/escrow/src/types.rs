@@ -52,6 +52,7 @@ pub struct Trade {
     pub post_settle_resolved: bool,
     pub resolver_post_settle_used: bool,
     pub post_settle_deadline: u64,
+    pub settlement_final: bool,
 }
 
 impl Trade {
@@ -86,6 +87,7 @@ pub struct DisputeView {
     pub amount: i128,
     pub pre_settlement: bool,
     pub released: bool,
+    pub post_settle_raised: bool,
     pub slash_deadline: u64,
 }
 

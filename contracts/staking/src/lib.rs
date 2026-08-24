@@ -330,7 +330,7 @@ impl StakingContract {
             return Err(Error::AlreadySlashed);
         }
         let view = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id);
-        if !view.is_disputed {
+        if !view.is_disputed && !view.post_settle_raised {
             return Err(Error::TradeNotDisputed);
         }
         if view.pre_settlement {

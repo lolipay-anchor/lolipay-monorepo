@@ -425,15 +425,16 @@ fn test_slash_works_while_paused() {
 }
 
 #[test]
-fn test_slash_rejected_after_trade_resolved() {
+fn a_resolved_dispute_still_leaves_the_counterparty_whole() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
     s.staking.stake(&s.lp, &1_000_000_000i128);
     s.escrow.resolve(&s.trade_id, &ResolveOutcome::Refund, &s.resolver);
-    assert_eq!(
-        s.staking.try_slash(&s.lp, &s.trade_id, &100_000_000i128, &s.resolver),
-        Err(Ok(Error::TradeNotDisputed))
-    );
+    let victim_before = s.usdc.balance(&s.user);
+
+    s.staking.slash(&s.lp, &s.trade_id, &100_000_000i128, &s.resolver);
+
+    assert_eq!(s.usdc.balance(&s.user), victim_before + 100_000_000i128);
 }
 
 #[test]
@@ -486,26 +487,53 @@ fn test_slash_post_settlement_full_flow_and_one_shot() {
 }
 
 #[test]
-fn test_slash_rejected_after_post_settlement_resolve_proves_ordering() {
+fn the_verdict_does_not_have_to_come_after_the_restitution() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
     s.staking.stake(&s.lp, &1_000_000_000i128);
 
     let trade_id = s.make_settled_trade(10);
     s.escrow.raise_dispute(&trade_id, &s.user);
-    assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Disputed);
-
     s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
     assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Released);
-    let is_disputed = s.escrow.dispute_view(&trade_id).is_disputed;
-    assert!(!is_disputed);
+    assert!(!s.escrow.dispute_view(&trade_id).is_disputed);
+
+    s.staking.slash(&s.lp, &trade_id, &100_000_000i128, &s.resolver);
+
+    assert_eq!(s.usdc.balance(&s.user), 100_000_000i128);
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 900_000_000i128);
+}
+
+#[test]
+fn a_trade_that_was_never_disputed_after_settling_is_never_slashable() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_settled_trade(12);
 
     assert_eq!(
-        s.staking.try_slash(&s.lp, &trade_id, &100_000_000i128, &s.resolver),
+        s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
         Err(Ok(Error::TradeNotDisputed))
     );
-    assert_eq!(s.usdc.balance(&s.user), 0);
     assert_eq!(s.staking.get_stake(&s.lp).staked, 1_000_000_000i128);
+}
+
+#[test]
+fn the_slash_right_still_dies_with_the_window_after_a_verdict() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_settled_trade(13);
+    s.escrow.raise_dispute(&trade_id, &s.user);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
+    let deadline = s.escrow.dispute_view(&trade_id).slash_deadline;
+
+    s.env.ledger().with_mut(|li| li.timestamp = deadline + 1);
+
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
+        Err(Ok(Error::SlashWindowPassed))
+    );
 }
 
 #[test]
@@ -1442,4 +1470,45 @@ fn a_reservation_against_a_trade_that_never_existed_is_never_a_hostage() {
 
     assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
     assert_eq!(s.staking.available(&s.lp), 1_000_000_000i128);
+}
+
+#[test]
+fn a_cancelled_trade_leaves_nothing_for_anyone_to_dispute() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let now = s.env.ledger().timestamp();
+    let trade_id = id32(&s.env, 70);
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.escrow.create_trade(
+        &trade_id, &s.lp, &s.user, &s.lp, &1_000_000_000i128, &1_600_000i128,
+        &Symbol::new(&s.env, "IDR"), &Flow::TopUp, &30u32, &120u32,
+        &s.platform_wallet, &s.lp_wallet, &(now + 1000), &(now + 2000), &(now + 3000),
+    );
+    let lp_before = s.usdc.balance(&s.lp);
+
+    s.env.ledger().with_mut(|li| li.timestamp = now + 10);
+    s.escrow.cancel(&trade_id);
+
+    assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Refunded);
+    assert_eq!(s.usdc.balance(&s.lp), lp_before + 1_000_000_000i128);
+    assert_eq!(
+        s.escrow.try_raise_dispute(&trade_id, &s.user),
+        Err(Ok(lolipay_escrow::types::Error::AlreadyResolved))
+    );
+    assert_eq!(
+        s.escrow.try_raise_dispute(&trade_id, &s.resolver),
+        Err(Ok(lolipay_escrow::types::Error::AlreadyResolved))
+    );
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
+        Err(Ok(Error::TradeNotDisputed))
+    );
+
+    let settled = s.escrow.get_trade(&trade_id);
+    assert_eq!(settled.post_settle_deadline, settled.settled_at);
+    s.staking.reserve(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
+    s.env.ledger().with_mut(|li| li.timestamp = now + 11);
+    s.staking.release_expired_reservation(&s.lp, &trade_id);
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
 }
