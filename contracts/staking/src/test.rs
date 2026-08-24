@@ -1530,7 +1530,7 @@ fn a_reservation_against_a_trade_that_never_existed_is_never_a_hostage() {
 }
 
 #[test]
-fn a_cancelled_trade_leaves_nothing_for_anyone_to_dispute() {
+fn a_user_who_paid_before_cosigning_a_cancel_still_has_a_remedy() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
     s.staking.stake(&s.lp, &1_000_000_000i128);
@@ -1546,28 +1546,46 @@ fn a_cancelled_trade_leaves_nothing_for_anyone_to_dispute() {
 
     s.env.ledger().with_mut(|li| li.timestamp = now + 10);
     s.escrow.cancel(&trade_id);
-
     assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Refunded);
     assert_eq!(s.usdc.balance(&s.lp), lp_before + 1_000_000_000i128);
-    assert_eq!(
-        s.escrow.try_raise_dispute(&trade_id, &s.user),
-        Err(Ok(lolipay_escrow::types::Error::AlreadyResolved))
+    let cancelled = s.escrow.get_trade(&trade_id);
+    assert_eq!(cancelled.post_settle_deadline, cancelled.settled_at + 3600);
+
+    s.env.ledger().with_mut(|li| li.timestamp = now + 1800);
+    s.escrow.raise_dispute(&trade_id, &s.user);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
+    let user_before = s.usdc.balance(&s.user);
+    s.staking.slash(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+
+    assert_eq!(s.usdc.balance(&s.user), user_before + 1_000_000_000i128);
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 0);
+}
+
+#[test]
+fn upholding_a_cancellation_clears_the_provider_at_once() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let now = s.env.ledger().timestamp();
+    let trade_id = id32(&s.env, 71);
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.escrow.create_trade(
+        &trade_id, &s.lp, &s.user, &s.lp, &1_000_000_000i128, &1_600_000i128,
+        &Symbol::new(&s.env, "IDR"), &Flow::TopUp, &30u32, &120u32,
+        &s.platform_wallet, &s.lp_wallet, &(now + 1000), &(now + 2000), &(now + 3000),
     );
-    assert_eq!(
-        s.escrow.try_raise_dispute(&trade_id, &s.resolver),
-        Err(Ok(lolipay_escrow::types::Error::AlreadyResolved))
-    );
+    s.env.ledger().with_mut(|li| li.timestamp = now + 10);
+    s.escrow.cancel(&trade_id);
+    s.escrow.raise_dispute(&trade_id, &s.user);
+
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
+
+    assert_eq!(s.escrow.dispute_view(&trade_id).slash_deadline, 0);
     assert_eq!(
         s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
-        Err(Ok(Error::TradeNotDisputed))
+        Err(Ok(Error::SlashWindowPassed))
     );
-
-    let settled = s.escrow.get_trade(&trade_id);
-    assert_eq!(settled.post_settle_deadline, settled.settled_at);
-    s.staking.reserve(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
-    s.env.ledger().with_mut(|li| li.timestamp = now + 11);
-    s.staking.release_expired_reservation(&s.lp, &trade_id);
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 1_000_000_000i128);
 }
 
 #[soroban_sdk::contract]

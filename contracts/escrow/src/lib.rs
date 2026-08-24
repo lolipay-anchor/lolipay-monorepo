@@ -238,7 +238,6 @@ impl EscrowContract {
             resolver_post_settle_used: false,
             post_settle_deadline: 0,
             slash_deadline: 0,
-            settlement_final: false,
         };
         set_trade(&env, &trade_id, &trade);
 
@@ -388,16 +387,15 @@ impl EscrowContract {
 
     pub fn cancel(env: Env, trade_id: BytesN<32>) -> Result<(), Error> {
         bump_instance(&env);
-        get_config(&env).ok_or(Error::NotInitialized)?;
+        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
         let mut trade = storage_get_trade(&env, &trade_id).ok_or(Error::TradeNotFound)?;
         if trade.status != Status::Funded {
             return Err(Error::InvalidState);
         }
         trade.usdc_provider.require_auth();
         trade.usdc_recipient.require_auth();
-        trade.settlement_final = true;
         let token = trade.usdc_token.clone();
-        Self::do_refund(&env, &token, &trade_id, &mut trade, 0);
+        Self::do_refund(&env, &token, &trade_id, &mut trade, cfg.dispute_window);
         Ok(())
     }
 
@@ -421,9 +419,6 @@ impl EscrowContract {
                 Some(Status::Funded)
             }
             Status::Released | Status::Refunded => {
-                if trade.settlement_final {
-                    return Err(Error::AlreadyResolved);
-                }
                 if by == cfg.resolver {
                     if trade.resolver_post_settle_used {
                         return Err(Error::AlreadyResolved);
