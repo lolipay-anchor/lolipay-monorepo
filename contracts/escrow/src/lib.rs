@@ -500,14 +500,13 @@ impl EscrowContract {
             }
             Some(prior) => {
                 let upheld = (prior == Status::Released) == (outcome == ResolveOutcome::Release);
-                let owed = if prior == Status::Released {
-                    trade.usdc_provider.clone()
-                } else {
+                let holder = if prior == Status::Released {
                     trade.usdc_recipient.clone()
+                } else {
+                    trade.usdc_provider.clone()
                 };
-                let claimed_by_the_wronged = trade.disputed_by == Some(owed)
-                    || trade.disputed_by == Some(cfg.resolver.clone());
-                if upheld && claimed_by_the_wronged {
+                let claimed_against_the_holder = trade.disputed_by != Some(holder);
+                if upheld && claimed_against_the_holder {
                     trade.slash_deadline = 0;
                 } else {
                     trade.slash_deadline =

@@ -3435,3 +3435,70 @@ fn a_dispute_settled_by_verdict_binds_the_collateral_too() {
     assert_eq!(trade.slash_deadline, 700 + 604_800);
     assert_eq!(trade.slash_deadline, trade.post_settle_deadline);
 }
+
+#[test]
+fn whoever_holds_the_money_cannot_clear_themselves_by_losing_a_claim() {
+    let (env, client, admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+    let psd = client.get_trade(&id32(&env, 1)).post_settle_deadline;
+
+    let mut cfg = client.get_config();
+    cfg.resolver = recipient.clone();
+    cfg.admin = admin.clone();
+    client.set_config(&cfg);
+
+    env.ledger().with_mut(|l| l.timestamp = psd);
+    client.raise_dispute(&id32(&env, 1), &recipient);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &recipient);
+
+    let trade = client.get_trade(&id32(&env, 1));
+    assert_ne!(trade.slash_deadline, 0);
+    assert!(trade.slash_deadline >= psd);
+}
+
+#[test]
+fn a_disinterested_resolver_can_still_clear_the_holder() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+
+    client.raise_dispute(&id32(&env, 1), &resolver);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).slash_deadline, 0);
+}
+
+#[test]
+fn the_party_who_was_owed_clears_the_holder_when_its_claim_fails() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+
+    client.raise_dispute(&id32(&env, 1), &provider);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).slash_deadline, 0);
+}
+
+#[test]
+fn on_a_refunded_trade_it_is_the_provider_who_cannot_clear_itself() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    env.ledger().with_mut(|l| l.timestamp = 2001);
+    client.refund(&id32(&env, 1));
+
+    client.raise_dispute(&id32(&env, 1), &provider);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
+    assert_ne!(client.get_trade(&id32(&env, 1)).slash_deadline, 0);
+
+    client.raise_dispute(&id32(&env, 1), &recipient);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
+    assert_eq!(client.get_trade(&id32(&env, 1)).slash_deadline, 0);
+}
