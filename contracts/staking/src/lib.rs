@@ -13,8 +13,7 @@ use soroban_sdk::{
 
 use crate::events::{ConfigChanged, PausedSet, Slashed, Staked, UnstakeRequested, Unstaked};
 use crate::storage::{
-    bump_instance, get_config, get_stake, is_slashed, mark_slashed, set_config, set_stake,
-};
+    bump_instance, get_config, get_stake, is_slashed, mark_slashed, set_config, set_stake, get_reservation, set_reservation, clear_reservation};
 use crate::types::{Config, Error, StakeInfo};
 
 const MAX_COOLDOWN_SECS: u64 = 90 * 24 * 60 * 60;
@@ -117,9 +116,70 @@ impl StakingContract {
         Ok(())
     }
 
+    pub fn available(env: Env, lp: Address) -> i128 {
+        let info = get_stake(&env, &lp);
+        info.staked - info.reserved
+    }
+
     pub fn is_eligible(env: Env, lp: Address) -> Result<bool, Error> {
         let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
-        Ok(get_stake(&env, &lp).staked >= cfg.min_stake)
+        let info = get_stake(&env, &lp);
+        Ok(info.staked - info.reserved >= cfg.min_stake)
+    }
+
+    pub fn reserve(
+        env: Env,
+        lp: Address,
+        trade_id: BytesN<32>,
+        amount: i128,
+        caller: Address,
+    ) -> Result<(), Error> {
+        bump_instance(&env);
+        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
+        if caller != cfg.resolver && caller != cfg.admin {
+            return Err(Error::Unauthorized);
+        }
+        caller.require_auth();
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        if get_reservation(&env, &lp, &trade_id).is_some() {
+            return Ok(());
+        }
+        let mut info = get_stake(&env, &lp);
+        if amount > info.staked - info.reserved {
+            return Err(Error::InsufficientAvailable);
+        }
+        info.reserved += amount;
+        set_stake(&env, &lp, &info);
+        set_reservation(&env, &lp, &trade_id, amount);
+        Ok(())
+    }
+
+    pub fn release_reservation(
+        env: Env,
+        lp: Address,
+        trade_id: BytesN<32>,
+        caller: Address,
+    ) -> Result<(), Error> {
+        bump_instance(&env);
+        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
+        if caller != cfg.resolver && caller != cfg.admin {
+            return Err(Error::Unauthorized);
+        }
+        caller.require_auth();
+        if cfg.paused {
+            return Err(Error::Paused);
+        }
+        let amount = get_reservation(&env, &lp, &trade_id).ok_or(Error::ReservationNotFound)?;
+        let mut info = get_stake(&env, &lp);
+        info.reserved -= amount;
+        if info.reserved < 0 {
+            info.reserved = 0;
+        }
+        set_stake(&env, &lp, &info);
+        clear_reservation(&env, &lp, &trade_id);
+        Ok(())
     }
 
     pub fn request_unstake(env: Env, lp: Address, amount: i128) -> Result<(), Error> {
@@ -132,6 +192,9 @@ impl StakingContract {
         let mut info = get_stake(&env, &lp);
         if amount > info.staked {
             return Err(Error::InsufficientStaked);
+        }
+        if amount > info.staked - info.reserved {
+            return Err(Error::InsufficientAvailable);
         }
         info.staked -= amount;
         info.unbonding += amount;
@@ -216,6 +279,16 @@ impl StakingContract {
             let from_unbonding = amount - info.staked;
             info.staked = 0;
             info.unbonding -= from_unbonding;
+        }
+        if let Some(reserved) = get_reservation(&env, &lp, &trade_id) {
+            info.reserved -= reserved;
+            clear_reservation(&env, &lp, &trade_id);
+        }
+        if info.reserved > info.staked {
+            info.reserved = info.staked;
+        }
+        if info.reserved < 0 {
+            info.reserved = 0;
         }
         set_stake(&env, &lp, &info);
         mark_slashed(&env, &trade_id);

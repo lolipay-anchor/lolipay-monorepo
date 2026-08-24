@@ -27,7 +27,7 @@ pub fn get_stake(env: &Env, lp: &Address) -> StakeInfo {
             env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, LIFETIME);
             info
         }
-        None => StakeInfo { staked: 0, unbonding: 0, unbond_available_at: 0 },
+        None => StakeInfo { staked: 0, reserved: 0, unbonding: 0, unbond_available_at: 0 },
     }
 }
 
@@ -45,4 +45,31 @@ pub fn mark_slashed(env: &Env, trade_id: &soroban_sdk::BytesN<32>) {
     let key = DataKey::Slashed(trade_id.clone());
     env.storage().persistent().set(&key, &true);
     env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, LIFETIME);
+}
+
+pub fn get_reservation(
+    env: &Env,
+    lp: &Address,
+    trade_id: &soroban_sdk::BytesN<32>,
+) -> Option<i128> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Reservation(lp.clone(), trade_id.clone()))
+}
+
+pub fn set_reservation(
+    env: &Env,
+    lp: &Address,
+    trade_id: &soroban_sdk::BytesN<32>,
+    amount: i128,
+) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Reservation(lp.clone(), trade_id.clone()), &amount);
+}
+
+pub fn clear_reservation(env: &Env, lp: &Address, trade_id: &soroban_sdk::BytesN<32>) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::Reservation(lp.clone(), trade_id.clone()));
 }

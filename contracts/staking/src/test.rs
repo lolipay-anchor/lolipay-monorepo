@@ -531,3 +531,240 @@ fn test_request_unstake_accumulates_and_resets_timer() {
     assert_eq!(info.unbond_available_at, t2 + 100);
     assert_eq!(info.staked, 1_000_000_000i128);
 }
+
+fn staked_lp() -> (
+    Env, StakingContractClient<'static>, Address, Address, Address, Address,
+) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let token_admin = Address::generate(&env);
+    let (usdc, usdc_admin) = create_usdc(&env, &token_admin);
+    let admin = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let escrow = Address::generate(&env);
+    let contract_id = env.register(
+        StakingContract,
+        (admin.clone(), usdc.address.clone(), resolver.clone(), escrow.clone(), 1_000_000_000i128, 100u64),
+    );
+    let client = StakingContractClient::new(&env, &contract_id);
+    let lp = Address::generate(&env);
+    usdc_admin.mint(&lp, &10_000_000_000i128);
+    client.stake(&lp, &4_000_000_000i128);
+    (env, client, admin, resolver, lp, escrow)
+}
+
+#[test]
+fn a_reservation_reduces_what_is_available() {
+    let (env, client, _a, resolver, lp, _e) = staked_lp();
+    assert_eq!(client.available(&lp), 4_000_000_000i128);
+
+    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
+
+    assert_eq!(client.available(&lp), 3_000_000_000i128);
+    assert_eq!(client.get_stake(&lp).staked, 4_000_000_000i128);
+}
+
+#[test]
+fn two_reservations_cannot_exceed_the_stake() {
+    let (env, client, _a, resolver, lp, _e) = staked_lp();
+    client.reserve(&lp, &id32(&env, 1), &3_000_000_000i128, &resolver);
+
+    let res = client.try_reserve(&lp, &id32(&env, 2), &1_500_000_000i128, &resolver);
+
+    assert_eq!(res, Err(Ok(Error::InsufficientAvailable)));
+    assert_eq!(client.available(&lp), 1_000_000_000i128);
+}
+
+#[test]
+fn a_reservation_may_take_exactly_what_is_left() {
+    let (env, client, _a, resolver, lp, _e) = staked_lp();
+    client.reserve(&lp, &id32(&env, 1), &3_000_000_000i128, &resolver);
+
+    client.reserve(&lp, &id32(&env, 2), &1_000_000_000i128, &resolver);
+
+    assert_eq!(client.available(&lp), 0);
+}
+
+#[test]
+fn releasing_a_reservation_restores_availability() {
+    let (env, client, _a, resolver, lp, _e) = staked_lp();
+    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
+
+    client.release_reservation(&lp, &id32(&env, 1), &resolver);
+
+    assert_eq!(client.available(&lp), 4_000_000_000i128);
+}
+
+#[test]
+fn a_reservation_is_idempotent_per_trade() {
+    let (env, client, _a, resolver, lp, _e) = staked_lp();
+    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
+
+    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
+
+    assert_eq!(client.available(&lp), 3_000_000_000i128);
+}
+
+#[test]
+fn releasing_a_reservation_that_was_never_made_is_refused() {
+    let (env, client, _a, resolver, lp, _e) = staked_lp();
+
+    let res = client.try_release_reservation(&lp, &id32(&env, 9), &resolver);
+
+    assert_eq!(res, Err(Ok(Error::ReservationNotFound)));
+}
+
+#[test]
+fn releasing_twice_is_refused_so_the_total_cannot_go_negative() {
+    let (env, client, _a, resolver, lp, _e) = staked_lp();
+    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
+    client.release_reservation(&lp, &id32(&env, 1), &resolver);
+
+    let res = client.try_release_reservation(&lp, &id32(&env, 1), &resolver);
+
+    assert_eq!(res, Err(Ok(Error::ReservationNotFound)));
+    assert_eq!(client.available(&lp), 4_000_000_000i128);
+}
+
+#[test]
+fn unstaking_cannot_take_reserved_collateral() {
+    let (env, client, _a, resolver, lp, _e) = staked_lp();
+    client.reserve(&lp, &id32(&env, 1), &3_000_000_000i128, &resolver);
+
+    let res = client.try_request_unstake(&lp, &2_000_000_000i128);
+
+    assert_eq!(res, Err(Ok(Error::InsufficientAvailable)));
+    assert_eq!(client.get_stake(&lp).staked, 4_000_000_000i128);
+}
+
+#[test]
+fn unstaking_the_unreserved_part_still_works() {
+    let (env, client, _a, resolver, lp, _e) = staked_lp();
+    client.reserve(&lp, &id32(&env, 1), &3_000_000_000i128, &resolver);
+
+    client.request_unstake(&lp, &1_000_000_000i128);
+
+    assert_eq!(client.get_stake(&lp).staked, 3_000_000_000i128);
+    assert_eq!(client.available(&lp), 0);
+}
+
+#[test]
+fn eligibility_reads_available_not_staked() {
+    let (env, client, _a, resolver, lp, _e) = staked_lp();
+    assert!(client.is_eligible(&lp));
+
+    client.reserve(&lp, &id32(&env, 1), &3_500_000_000i128, &resolver);
+
+    assert!(!client.is_eligible(&lp));
+}
+
+#[test]
+fn a_stranger_cannot_reserve_a_providers_stake() {
+    let (env, client, _a, _resolver, lp, _e) = staked_lp();
+    let stranger = Address::generate(&env);
+
+    let res = client.try_reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &stranger);
+
+    assert_eq!(res, Err(Ok(Error::Unauthorized)));
+    assert_eq!(client.available(&lp), 4_000_000_000i128);
+}
+
+#[test]
+fn a_provider_cannot_reserve_or_release_their_own_collateral() {
+    let (env, client, _a, resolver, lp, _e) = staked_lp();
+    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
+
+    assert_eq!(
+        client.try_reserve(&lp, &id32(&env, 2), &1_000_000_000i128, &lp),
+        Err(Ok(Error::Unauthorized))
+    );
+    assert_eq!(
+        client.try_release_reservation(&lp, &id32(&env, 1), &lp),
+        Err(Ok(Error::Unauthorized))
+    );
+    assert_eq!(client.available(&lp), 3_000_000_000i128);
+}
+
+#[test]
+fn the_admin_may_reserve_and_release_as_well_as_the_resolver() {
+    let (env, client, admin, _resolver, lp, _e) = staked_lp();
+
+    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &admin);
+    assert_eq!(client.available(&lp), 3_000_000_000i128);
+
+    client.release_reservation(&lp, &id32(&env, 1), &admin);
+    assert_eq!(client.available(&lp), 4_000_000_000i128);
+}
+
+#[test]
+fn naming_the_resolver_is_not_the_same_as_being_the_resolver() {
+    let (env, client, _a, resolver, lp, _e) = staked_lp();
+
+    env.set_auths(&[]);
+    let res = client.try_reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
+
+    assert!(res.is_err());
+    assert_eq!(client.available(&lp), 4_000_000_000i128);
+}
+
+#[test]
+fn a_reservation_of_nothing_is_refused() {
+    let (env, client, _a, resolver, lp, _e) = staked_lp();
+
+    assert_eq!(
+        client.try_reserve(&lp, &id32(&env, 1), &0i128, &resolver),
+        Err(Ok(Error::InvalidAmount))
+    );
+    assert_eq!(
+        client.try_reserve(&lp, &id32(&env, 2), &-1i128, &resolver),
+        Err(Ok(Error::InvalidAmount))
+    );
+}
+
+#[test]
+fn pausing_stops_collateral_being_freed_but_not_being_committed() {
+    let (env, client, _a, resolver, lp, _e) = staked_lp();
+    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
+    client.set_paused(&true);
+
+    assert_eq!(
+        client.try_release_reservation(&lp, &id32(&env, 1), &resolver),
+        Err(Ok(Error::Paused))
+    );
+    client.reserve(&lp, &id32(&env, 2), &1_000_000_000i128, &resolver);
+
+    assert_eq!(client.available(&lp), 2_000_000_000i128);
+}
+
+#[test]
+fn slashing_consumes_the_reservation_for_that_trade() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_trade(1, true);
+    s.staking.reserve(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
+    let before = s.staking.available(&s.lp);
+
+    s.staking.slash(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
+
+    let info = s.staking.get_stake(&s.lp);
+    assert_eq!(info.reserved, 0);
+    assert_eq!(s.staking.available(&s.lp), info.staked);
+    let _ = before;
+}
+
+#[test]
+fn a_slash_never_leaves_more_reserved_than_staked() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_trade(1, true);
+    let other = s.make_trade(2, true);
+    s.staking.reserve(&s.lp, &other, &900_000_000i128, &s.resolver);
+
+    s.staking.slash(&s.lp, &trade_id, &900_000_000i128, &s.resolver);
+
+    let info = s.staking.get_stake(&s.lp);
+    assert!(info.reserved <= info.staked);
+    assert!(s.staking.available(&s.lp) >= 0);
+}
