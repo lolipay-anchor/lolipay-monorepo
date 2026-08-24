@@ -1311,9 +1311,11 @@ fn a_settlement_at_ledger_time_zero_is_still_disputable() {
 
     client.resolve(&id32(&env,1), &crate::types::ResolveOutcome::Release, &resolver);
     assert_eq!(
-        client.try_raise_dispute(&id32(&env,1), &provider),
+        client.try_raise_dispute(&id32(&env,1), &recipient),
         Err(Ok(Error::AlreadyResolved))
     );
+    client.raise_dispute(&id32(&env,1), &provider);
+    client.resolve(&id32(&env,1), &crate::types::ResolveOutcome::Release, &resolver);
 
     env.ledger().with_mut(|l| l.timestamp = 3601);
     assert_eq!(
@@ -1375,7 +1377,7 @@ fn test_resolve_post_settle_release_origin_is_verdict_only() {
     let t = client.get_trade(&id32(&env,1));
     assert_eq!(t.status, crate::types::Status::Released);
     assert_eq!(t.pre_dispute_status(), None);
-    assert!(t.post_settle_resolved);
+    assert!(t.recipient_post_settle_used);
     assert_eq!(t.settled_at, 500);
 }
 
@@ -1410,7 +1412,7 @@ fn test_resolve_post_settle_refunded_origin_restores_refunded() {
     let t = client.get_trade(&id32(&env,1));
     assert_eq!(t.status, crate::types::Status::Refunded);
     assert_eq!(t.pre_dispute_status(), None);
-    assert!(t.post_settle_resolved);
+    assert!(t.provider_post_settle_used);
     let is_disputed = client.dispute_view(&id32(&env,1)).is_disputed;
     assert!(!is_disputed);
 }
@@ -1526,7 +1528,7 @@ fn test_resolve_post_settle_admin_fallback_after_resolver_window() {
 
     let t = client.get_trade(&id32(&env,1));
     assert_eq!(t.status, crate::types::Status::Released);
-    assert!(t.post_settle_resolved);
+    assert!(t.recipient_post_settle_used);
 }
 
 #[test]
@@ -2843,7 +2845,7 @@ fn the_resolvers_post_settlement_dispute_does_not_consume_the_parties_own() {
 
     client.raise_dispute(&id32(&env, 1), &resolver);
     client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
-    assert!(!client.get_trade(&id32(&env, 1)).post_settle_resolved);
+    assert!(!client.get_trade(&id32(&env, 1)).recipient_post_settle_used);
     assert!(client.get_trade(&id32(&env, 1)).resolver_post_settle_used);
 
     assert_eq!(
@@ -2853,7 +2855,7 @@ fn the_resolvers_post_settlement_dispute_does_not_consume_the_parties_own() {
 
     client.raise_dispute(&id32(&env, 1), &recipient);
     client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
-    assert!(client.get_trade(&id32(&env, 1)).post_settle_resolved);
+    assert!(client.get_trade(&id32(&env, 1)).recipient_post_settle_used);
 }
 
 #[test]
@@ -2869,7 +2871,7 @@ fn a_partys_spent_dispute_is_not_restored_by_a_later_resolver_one() {
     client.raise_dispute(&id32(&env, 1), &resolver);
     client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
 
-    assert!(client.get_trade(&id32(&env, 1)).post_settle_resolved);
+    assert!(client.get_trade(&id32(&env, 1)).recipient_post_settle_used);
     assert_eq!(
         client.try_raise_dispute(&id32(&env, 1), &recipient),
         Err(Ok(Error::AlreadyResolved))
@@ -3090,7 +3092,7 @@ fn the_resolver_gets_no_second_post_settlement_dispute_after_a_party_took_one() 
 
     let trade = client.get_trade(&id32(&env, 1));
     assert!(trade.resolver_post_settle_used);
-    assert!(trade.post_settle_resolved);
+    assert!(trade.recipient_post_settle_used);
     assert_eq!(
         client.try_raise_dispute(&id32(&env, 1), &resolver),
         Err(Ok(Error::AlreadyResolved))
@@ -3185,7 +3187,7 @@ fn a_resolver_rotated_onto_a_party_still_spends_its_own_dispute_slot() {
 
     let trade = client.get_trade(&id32(&env, 1));
     assert!(trade.resolver_post_settle_used);
-    assert!(!trade.post_settle_resolved);
+    assert!(!trade.recipient_post_settle_used);
     assert_eq!(
         client.try_raise_dispute(&id32(&env, 1), &recipient),
         Err(Ok(Error::AlreadyResolved))
@@ -3363,7 +3365,73 @@ fn a_resolver_rotated_in_mid_dispute_cannot_spend_the_parties_right() {
 
     let trade = client.get_trade(&id32(&env, 1));
     assert!(trade.resolver_post_settle_used);
-    assert!(!trade.post_settle_resolved);
+    assert!(!trade.provider_post_settle_used);
     client.raise_dispute(&id32(&env, 1), &provider);
     assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Disputed);
+}
+
+#[test]
+fn an_early_release_binds_the_collateral_it_creates() {
+    let (env, client, provider, _r, _pw, _lw, _usdc) =
+        early_setup(crate::types::Flow::TopUp, true);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+
+    client.release_from_funded(&id32(&env, 1));
+
+    let trade = client.get_trade(&id32(&env, 1));
+    assert_eq!(trade.slash_deadline, trade.post_settle_deadline);
+    assert_eq!(trade.slash_deadline, 500 + 3600);
+    let _ = provider;
+}
+
+#[test]
+fn raising_a_dispute_never_shortens_the_window_it_inherited() {
+    let (env, client, _admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 604_800;
+    client.set_config(&cfg);
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+    let latched = client.get_trade(&id32(&env, 1)).slash_deadline;
+    assert_eq!(latched, 500 + 604_800);
+
+    client.raise_dispute(&id32(&env, 1), &recipient);
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).slash_deadline, latched);
+}
+
+#[test]
+fn a_refund_binds_the_collateral_for_the_window_in_force() {
+    let (env, client, _admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 604_800;
+    client.set_config(&cfg);
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+
+    env.ledger().with_mut(|l| l.timestamp = 2001);
+    client.refund(&id32(&env, 1));
+
+    let trade = client.get_trade(&id32(&env, 1));
+    assert_eq!(trade.slash_deadline, 2001 + 604_800);
+    assert_eq!(trade.slash_deadline, trade.post_settle_deadline);
+}
+
+#[test]
+fn a_dispute_settled_by_verdict_binds_the_collateral_too() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 604_800;
+    client.set_config(&cfg);
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    client.raise_dispute(&id32(&env, 1), &recipient);
+
+    env.ledger().with_mut(|l| l.timestamp = 700);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
+
+    let trade = client.get_trade(&id32(&env, 1));
+    assert_eq!(trade.slash_deadline, 700 + 604_800);
+    assert_eq!(trade.slash_deadline, trade.post_settle_deadline);
 }

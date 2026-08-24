@@ -49,7 +49,8 @@ pub struct Trade {
     pub settled_at: u64,
     pub has_pre_dispute_status: bool,
     pub pre_dispute_status: Status,
-    pub post_settle_resolved: bool,
+    pub provider_post_settle_used: bool,
+    pub recipient_post_settle_used: bool,
     pub resolver_post_settle_used: bool,
     pub post_settle_deadline: u64,
     pub slash_deadline: u64,
@@ -89,6 +90,7 @@ pub struct DisputeView {
     pub released: bool,
     pub post_settle_raised: bool,
     pub slash_deadline: u64,
+    pub collateral_hold_until: u64,
 }
 
 #[contracttype]

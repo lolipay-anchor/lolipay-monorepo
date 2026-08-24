@@ -15,9 +15,10 @@ use crate::events::{
     Reserved, ReservationReleased,ConfigChanged, PausedSet, Slashed, Staked, UnstakeRequested, Unstaked};
 use crate::storage::{
     bump_instance, get_config, get_stake, is_slashed, mark_slashed, set_config, set_stake, get_reservation as storage_get_reservation, set_reservation, clear_reservation};
-use crate::types::{Config, DisputeView, Error, EscrowError, StakeInfo};
+use crate::types::{Config, DisputeView, Error, StakeInfo};
 
 const MAX_COOLDOWN_SECS: u64 = 90 * 24 * 60 * 60;
+pub(crate) const ESCROW_TRADE_NOT_FOUND: u32 = 5;
 
 #[contract]
 pub struct StakingContract;
@@ -163,7 +164,7 @@ impl StakingContract {
         let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
         let found: Result<
             Result<DisputeView, soroban_sdk::ConversionError>,
-            Result<EscrowError, soroban_sdk::InvokeError>,
+            Result<soroban_sdk::Error, soroban_sdk::InvokeError>,
         > = env.try_invoke_contract(
             &cfg.escrow_contract,
             &Symbol::new(&env, "dispute_view"),
@@ -174,11 +175,13 @@ impl StakingContract {
                 if view.pre_settlement {
                     return Err(Error::SlashWindowOpen);
                 }
-                if env.ledger().timestamp() <= view.slash_deadline {
+                if env.ledger().timestamp() <= view.collateral_hold_until {
                     return Err(Error::SlashWindowOpen);
                 }
             }
-            Err(Ok(EscrowError::TradeNotFound)) => {}
+            Err(Ok(e))
+                if e.is_type(soroban_sdk::xdr::ScErrorType::Contract)
+                    && e.get_code() == ESCROW_TRADE_NOT_FOUND => {}
             _ => return Err(Error::SlashWindowOpen),
         }
         Self::drop_reservation(&env, &lp, &trade_id)

@@ -141,8 +141,11 @@ impl EscrowContract {
             amount: t.usdc_amount,
             pre_settlement: !settled,
             released: effective == Status::Released,
-            post_settle_raised: t.post_settle_resolved || t.resolver_post_settle_used,
+            post_settle_raised: t.provider_post_settle_used
+                || t.recipient_post_settle_used
+                || t.resolver_post_settle_used,
             slash_deadline,
+            collateral_hold_until: core::cmp::max(slash_deadline, t.post_settle_deadline),
         })
     }
 
@@ -234,7 +237,8 @@ impl EscrowContract {
             settled_at: 0,
             has_pre_dispute_status: false,
             pre_dispute_status: Status::Funded,
-            post_settle_resolved: false,
+            provider_post_settle_used: false,
+            recipient_post_settle_used: false,
             resolver_post_settle_used: false,
             post_settle_deadline: 0,
             slash_deadline: 0,
@@ -419,11 +423,14 @@ impl EscrowContract {
                 Some(Status::Funded)
             }
             Status::Released | Status::Refunded => {
-                if by == cfg.resolver {
-                    if trade.resolver_post_settle_used {
-                        return Err(Error::AlreadyResolved);
-                    }
-                } else if trade.post_settle_resolved {
+                let spent = if by == cfg.resolver {
+                    trade.resolver_post_settle_used
+                } else if by == trade.usdc_provider {
+                    trade.provider_post_settle_used
+                } else {
+                    trade.recipient_post_settle_used
+                };
+                if spent {
                     return Err(Error::AlreadyResolved);
                 }
                 if now > trade.post_settle_deadline {
@@ -449,8 +456,10 @@ impl EscrowContract {
             trade.slash_deadline = core::cmp::max(trade.slash_deadline, now + RESOLVER_WINDOW);
             if by == cfg.resolver {
                 trade.resolver_post_settle_used = true;
+            } else if by == trade.usdc_provider {
+                trade.provider_post_settle_used = true;
             } else {
-                trade.post_settle_resolved = true;
+                trade.recipient_post_settle_used = true;
             }
         }
         trade.status = Status::Disputed;
@@ -491,8 +500,18 @@ impl EscrowContract {
             }
             Some(prior) => {
                 let upheld = (prior == Status::Released) == (outcome == ResolveOutcome::Release);
-                if upheld {
+                let owed = if prior == Status::Released {
+                    trade.usdc_provider.clone()
+                } else {
+                    trade.usdc_recipient.clone()
+                };
+                let claimed_by_the_wronged = trade.disputed_by == Some(owed)
+                    || trade.disputed_by == Some(cfg.resolver.clone());
+                if upheld && claimed_by_the_wronged {
                     trade.slash_deadline = 0;
+                } else {
+                    trade.slash_deadline =
+                        core::cmp::max(trade.slash_deadline, now + ATTEST_GRACE_SECS);
                 }
                 trade.status = prior;
                 trade.set_pre_dispute_status(None);

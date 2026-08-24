@@ -30,13 +30,6 @@ pub enum DataKey {
     Reservation(Address, BytesN<32>),
 }
 
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum EscrowError {
-    TradeNotFound = 5,
-}
-
 #[contracttype]
 #[derive(Clone)]
 pub struct DisputeView {
@@ -48,6 +41,7 @@ pub struct DisputeView {
     pub released: bool,
     pub post_settle_raised: bool,
     pub slash_deadline: u64,
+    pub collateral_hold_until: u64,
 }
 
 #[contracterror]

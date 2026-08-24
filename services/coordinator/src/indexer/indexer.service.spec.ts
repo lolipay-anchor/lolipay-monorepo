@@ -1053,7 +1053,7 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
     expect(prisma.order.updateMany).toHaveBeenCalledTimes(1);
   });
 
-  it('a resolver escalating an order nobody filed on is still recorded', async () => {
+  it('a disputer this server cannot place is recorded as an escalation, not as a party', async () => {
     const { svc, order } = makeWithMetadata({ disputeBy: null });
     const value = nativeToScVal({ by: 'GSOMEONE_ELSE_ENTIRELY' });
     const advanced = await svc.applyEvent({

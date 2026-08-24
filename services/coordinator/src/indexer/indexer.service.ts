@@ -181,7 +181,7 @@ export class IndexerService {
           if (onChain && onChain.settledAt > 0) {
             settledAt = new Date(onChain.settledAt * 1000);
           }
-          if (onChain?.postSettleDeadline) {
+          if (onChain?.postSettleDeadline != null) {
             postSettleDeadline = onChain.postSettleDeadline;
           }
         } catch {
@@ -327,9 +327,10 @@ export class IndexerService {
       const resolution = val.released ? 'released' : 'refunded';
       const settledAt =
         onChain && onChain.settledAt > 0 ? new Date(onChain.settledAt * 1000) : new Date();
-      const latched = onChain?.postSettleDeadline
-        ? { postSettleDeadline: onChain.postSettleDeadline }
-        : {};
+      const latched =
+        onChain?.postSettleDeadline != null
+          ? { postSettleDeadline: onChain.postSettleDeadline }
+          : {};
       const res = await this.prisma.order.updateMany({
         where: { id: order.id, status: { in: STATUS_BEFORE[target] as any[] } },
         data: { status: target as any, settledAt, resolution, ...latched },
