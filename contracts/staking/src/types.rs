@@ -30,6 +30,13 @@ pub enum DataKey {
     Reservation(Address, BytesN<32>),
 }
 
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum EscrowError {
+    TradeNotFound = 5,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub struct DisputeView {

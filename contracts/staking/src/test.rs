@@ -487,14 +487,18 @@ fn test_slash_post_settlement_full_flow_and_one_shot() {
 }
 
 #[test]
-fn the_verdict_does_not_have_to_come_after_the_restitution() {
+fn a_verdict_against_the_settlement_still_leaves_the_remedy_hours_later() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
     s.staking.stake(&s.lp, &1_000_000_000i128);
 
     let trade_id = s.make_settled_trade(10);
+    let settled = s.escrow.get_trade(&trade_id).settled_at;
+    s.env.ledger().with_mut(|li| li.timestamp = settled + 3000);
     s.escrow.raise_dispute(&trade_id, &s.user);
-    s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
+
+    s.env.ledger().with_mut(|li| li.timestamp = settled + 40_000);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
     assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Released);
     assert!(!s.escrow.dispute_view(&trade_id).is_disputed);
 
@@ -502,6 +506,59 @@ fn the_verdict_does_not_have_to_come_after_the_restitution() {
 
     assert_eq!(s.usdc.balance(&s.user), 100_000_000i128);
     assert_eq!(s.staking.get_stake(&s.lp).staked, 900_000_000i128);
+}
+
+#[test]
+fn a_verdict_upholding_the_settlement_ends_the_exposure_at_once() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+
+    let trade_id = s.make_settled_trade(11);
+    s.escrow.raise_dispute(&trade_id, &s.user);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
+
+    assert_eq!(s.escrow.dispute_view(&trade_id).slash_deadline, 0);
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
+        Err(Ok(Error::SlashWindowPassed))
+    );
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 1_000_000_000i128);
+}
+
+#[test]
+fn a_resolver_raised_dispute_carries_the_same_remedy_as_a_partys() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_settled_trade(97);
+    let settled = s.escrow.get_trade(&trade_id).settled_at;
+
+    s.escrow.raise_dispute(&trade_id, &s.resolver);
+    s.env.ledger().with_mut(|li| li.timestamp = settled + 40_000);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
+
+    s.staking.slash(&s.lp, &trade_id, &100_000_000i128, &s.resolver);
+    assert_eq!(s.usdc.balance(&s.user), 100_000_000i128);
+}
+
+#[test]
+fn a_dispute_that_happened_before_settlement_never_arms_a_slash() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_trade(98, false);
+    s.escrow.mark_fiat_paid(&trade_id, &s.lp);
+    s.escrow.raise_dispute(&trade_id, &s.user);
+    let now = s.env.ledger().timestamp();
+    s.env.ledger().with_mut(|li| li.timestamp = now + 500);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
+
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
+        Err(Ok(Error::TradeNotDisputed))
+    );
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 1_000_000_000i128);
 }
 
 #[test]
@@ -1511,4 +1568,49 @@ fn a_cancelled_trade_leaves_nothing_for_anyone_to_dispute() {
     s.env.ledger().with_mut(|li| li.timestamp = now + 11);
     s.staking.release_expired_reservation(&s.lp, &trade_id);
     assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+}
+
+#[soroban_sdk::contract]
+pub struct SulkingEscrow;
+
+#[soroban_sdk::contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum SulkError {
+    NotInitialized = 2,
+}
+
+#[soroban_sdk::contractimpl]
+impl SulkingEscrow {
+    pub fn dispute_view(_env: Env, _trade_id: BytesN<32>) -> Result<crate::types::DisputeView, SulkError> {
+        Err(SulkError::NotInitialized)
+    }
+}
+
+#[test]
+fn an_escrow_that_answers_anything_but_no_such_trade_keeps_the_collateral() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let token_admin = Address::generate(&env);
+    let (usdc, usdc_admin) = create_usdc(&env, &token_admin);
+    let admin = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let sulking = env.register(SulkingEscrow, ());
+    let staking_id = env.register(
+        StakingContract,
+        (admin, usdc.address.clone(), resolver.clone(), sulking, 1_000_000_000i128, 100u64),
+    );
+    let staking = StakingContractClient::new(&env, &staking_id);
+    let lp = Address::generate(&env);
+    usdc_admin.mint(&lp, &1_000_000_000i128);
+    staking.stake(&lp, &1_000_000_000i128);
+    let trade_id = id32(&env, 210);
+    staking.reserve(&lp, &trade_id, &1_000_000_000i128, &resolver);
+
+    assert_eq!(
+        staking.try_release_expired_reservation(&lp, &trade_id),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    assert_eq!(staking.get_stake(&lp).reserved, 1_000_000_000i128);
+    assert_eq!(staking.available(&lp), 0);
 }

@@ -15,7 +15,7 @@ use crate::events::{
     Reserved, ReservationReleased,ConfigChanged, PausedSet, Slashed, Staked, UnstakeRequested, Unstaked};
 use crate::storage::{
     bump_instance, get_config, get_stake, is_slashed, mark_slashed, set_config, set_stake, get_reservation as storage_get_reservation, set_reservation, clear_reservation};
-use crate::types::{Config, DisputeView, Error, StakeInfo};
+use crate::types::{Config, DisputeView, Error, EscrowError, StakeInfo};
 
 const MAX_COOLDOWN_SECS: u64 = 90 * 24 * 60 * 60;
 
@@ -161,19 +161,25 @@ impl StakingContract {
     ) -> Result<(), Error> {
         bump_instance(&env);
         let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
-        let found: Result<Result<DisputeView, soroban_sdk::ConversionError>, Result<Error, soroban_sdk::InvokeError>> =
-            env.try_invoke_contract(
-                &cfg.escrow_contract,
-                &Symbol::new(&env, "dispute_view"),
-                vec![&env, trade_id.into_val(&env)],
-            );
-        if let Ok(Ok(view)) = found {
-            if view.pre_settlement {
-                return Err(Error::SlashWindowOpen);
+        let found: Result<
+            Result<DisputeView, soroban_sdk::ConversionError>,
+            Result<EscrowError, soroban_sdk::InvokeError>,
+        > = env.try_invoke_contract(
+            &cfg.escrow_contract,
+            &Symbol::new(&env, "dispute_view"),
+            vec![&env, trade_id.into_val(&env)],
+        );
+        match found {
+            Ok(Ok(view)) => {
+                if view.pre_settlement {
+                    return Err(Error::SlashWindowOpen);
+                }
+                if env.ledger().timestamp() <= view.slash_deadline {
+                    return Err(Error::SlashWindowOpen);
+                }
             }
-            if env.ledger().timestamp() <= view.slash_deadline {
-                return Err(Error::SlashWindowOpen);
-            }
+            Err(Ok(EscrowError::TradeNotFound)) => {}
+            _ => return Err(Error::SlashWindowOpen),
         }
         Self::drop_reservation(&env, &lp, &trade_id)
     }

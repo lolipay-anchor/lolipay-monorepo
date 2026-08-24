@@ -253,6 +253,51 @@ describe('IndexerService.applyEvent', () => {
     expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(expect.anything(), 'RELEASED');
   });
 
+  it('carries the chain-latched dispute deadline into the order on a direct settlement', async () => {
+    const { svc, prisma, stellar } = make('FIAT_PAID');
+    stellar.getTradeStatus.mockResolvedValue({
+      status: 'RELEASED',
+      settledAt: 1_700_000_000,
+      postSettleDeadline: 1_700_003_600n,
+    });
+    await svc.applyEvent({
+      topic: [TOPIC_RELEASED, tradeIdTopic(TRADE_ID_A)],
+      value: VALUE_EMPTY,
+      contractId: 'CXXX',
+    });
+    const { data } = prisma.order.updateMany.mock.calls[0][0];
+    expect(data.postSettleDeadline).toBe(1_700_003_600n);
+    expect(data.settledAt).toEqual(new Date(1_700_000_000 * 1000));
+  });
+
+  it('leaves the latched deadline unset rather than inventing one when the chain read fails', async () => {
+    const { svc, prisma, stellar } = make('FIAT_PAID');
+    stellar.getTradeStatus.mockRejectedValue(new Error('rpc down'));
+    await svc.applyEvent({
+      topic: [TOPIC_RELEASED, tradeIdTopic(TRADE_ID_A)],
+      value: VALUE_EMPTY,
+      contractId: 'CXXX',
+    });
+    const { data } = prisma.order.updateMany.mock.calls[0][0];
+    expect('postSettleDeadline' in data).toBe(false);
+  });
+
+  it('a dispute resolved into a settlement latches its deadline too', async () => {
+    const { svc, prisma, stellar } = make('DISPUTED');
+    stellar.getTradeStatus.mockResolvedValue({
+      status: 'RELEASED',
+      settledAt: 1_700_000_500,
+      postSettleDeadline: 1_700_004_100n,
+    });
+    await svc.applyEvent({
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value: nativeToScVal({ released: true, post_settle: false }),
+      contractId: 'CXXX',
+    });
+    const { data } = prisma.order.updateMany.mock.calls[0][0];
+    expect(data.postSettleDeadline).toBe(1_700_004_100n);
+  });
+
   it('decodes refunded → REFUNDED and stamps settledAt (direct settlement, no dispute)', async () => {
     const { svc, prisma, notifications } = make('FUNDED');
     const advanced = await svc.applyEvent({
@@ -1006,6 +1051,19 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
     expect(order.disputeBy).toBeNull();
 
     expect(prisma.order.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('a resolver escalating an order nobody filed on is still recorded', async () => {
+    const { svc, order } = makeWithMetadata({ disputeBy: null });
+    const value = nativeToScVal({ by: 'GSOMEONE_ELSE_ENTIRELY' });
+    const advanced = await svc.applyEvent({
+      topic: [TOPIC_DISPUTED, tradeIdTopic(TRADE_ID_A)],
+      value,
+      contractId: 'CXXX',
+    });
+    expect(advanced).toBe(1);
+    expect(order.resolverDisputed).toBe(true);
+    expect(order.disputeBy).toBeNull();
   });
 
   it('an undecodable/absent `by` (legacy event shape) is a fail-closed no-op — metadata is left exactly as filed', async () => {

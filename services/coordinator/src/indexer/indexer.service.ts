@@ -270,7 +270,7 @@ export class IndexerService {
   private async reconcileDisputeMetadata(orderId: string, by: string | undefined): Promise<void> {
     if (!by) return;
     const fresh = await this.prisma.order.findUnique({ where: { id: orderId } });
-    if (!fresh || !fresh.disputeBy) return;
+    if (!fresh) return;
 
     const actualRole = attributeDisputer(by, fresh.userAddress, fresh.lpWallet);
     if (actualRole === fresh.disputeBy) return;
@@ -281,10 +281,12 @@ export class IndexerService {
         data: { resolverDisputed: true },
       });
       this.log.log(
-        `order ${orderId}: the resolver raised a dispute of its own; the ${fresh.disputeBy} filing is kept`,
+        `order ${orderId}: the resolver raised a dispute of its own; the ${fresh.disputeBy ?? 'absent'} filing is kept`,
       );
       return;
     }
+
+    if (!fresh.disputeBy) return;
 
     const res = await this.prisma.order.updateMany({
       where: { id: orderId, disputeBy: fresh.disputeBy },

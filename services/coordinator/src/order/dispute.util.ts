@@ -2,7 +2,7 @@ export function postSettleDeadlineMs(
   order: { settledAt: Date | null; postSettleDeadline?: bigint | null },
   config: { postSettleDisputeWindowSecs: number },
 ): number | null {
-  if (order.postSettleDeadline) return Number(order.postSettleDeadline) * 1000;
+  if (order.postSettleDeadline != null) return Number(order.postSettleDeadline) * 1000;
   if (!order.settledAt) return null;
   return order.settledAt.getTime() + config.postSettleDisputeWindowSecs * 1000;
 }

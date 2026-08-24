@@ -52,6 +52,7 @@ pub struct Trade {
     pub post_settle_resolved: bool,
     pub resolver_post_settle_used: bool,
     pub post_settle_deadline: u64,
+    pub slash_deadline: u64,
     pub settlement_final: bool,
 }
 

@@ -133,11 +133,7 @@ impl EscrowContract {
         let effective = t.pre_dispute_status().unwrap_or(t.status);
         let settled = matches!(effective, Status::Released | Status::Refunded);
         let is_disputed = t.status == Status::Disputed;
-        let slash_deadline = if is_disputed {
-            core::cmp::max(t.post_settle_deadline, t.resolver_deadline)
-        } else {
-            t.post_settle_deadline
-        };
+        let slash_deadline = t.slash_deadline;
         Ok(DisputeView {
             is_disputed,
             provider: t.usdc_provider,
@@ -241,6 +237,7 @@ impl EscrowContract {
             post_settle_resolved: false,
             resolver_post_settle_used: false,
             post_settle_deadline: 0,
+            slash_deadline: 0,
             settlement_final: false,
         };
         set_trade(&env, &trade_id, &trade);
@@ -320,6 +317,7 @@ impl EscrowContract {
         trade.status = Status::Released;
         trade.settled_at = env.ledger().timestamp();
         trade.post_settle_deadline = trade.settled_at + cfg.dispute_window;
+        trade.slash_deadline = trade.post_settle_deadline;
         set_trade(&env, &trade_id, &trade);
 
         let token = token::TokenClient::new(&env, &trade.usdc_token);
@@ -351,6 +349,7 @@ impl EscrowContract {
         trade.status = Status::Released;
         trade.settled_at = env.ledger().timestamp();
         trade.post_settle_deadline = trade.settled_at + cfg.dispute_window;
+        trade.slash_deadline = trade.post_settle_deadline;
         set_trade(&env, &trade_id, &trade);
 
         let token = token::TokenClient::new(&env, &trade.usdc_token);
@@ -452,6 +451,7 @@ impl EscrowContract {
             trade.set_pre_dispute_status(Some(prior));
         }
         if matches!(prior_status, Some(Status::Released) | Some(Status::Refunded)) {
+            trade.slash_deadline = core::cmp::max(trade.slash_deadline, now + RESOLVER_WINDOW);
             if by == cfg.resolver {
                 trade.resolver_post_settle_used = true;
             } else {
@@ -495,6 +495,10 @@ impl EscrowContract {
                 trade.set_pre_dispute_status(None);
             }
             Some(prior) => {
+                let upheld = (prior == Status::Released) == (outcome == ResolveOutcome::Release);
+                if upheld {
+                    trade.slash_deadline = 0;
+                }
                 trade.status = prior;
                 trade.set_pre_dispute_status(None);
                 set_trade(&env, &trade_id, &trade);
@@ -517,6 +521,7 @@ impl EscrowContract {
                 trade.status = Status::Released;
                 trade.settled_at = now;
                 trade.post_settle_deadline = now + cfg.dispute_window;
+                trade.slash_deadline = trade.post_settle_deadline;
                 set_trade(&env, &trade_id, &trade);
                 let token = token::TokenClient::new(&env, &token_addr);
                 let contract = env.current_contract_address();
@@ -543,6 +548,7 @@ impl EscrowContract {
         trade.status = Status::Refunded;
         trade.settled_at = env.ledger().timestamp();
         trade.post_settle_deadline = trade.settled_at + dispute_window;
+        trade.slash_deadline = trade.post_settle_deadline;
         set_trade(env, trade_id, trade);
         token::TokenClient::new(env, usdc_token).transfer(
             &env.current_contract_address(),
