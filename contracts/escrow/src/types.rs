@@ -122,4 +122,5 @@ pub enum Error {
     DisputeWindowPassed = 18,
     AlreadyResolved = 19,
     EarlyReleaseNotAllowed = 20,
+    DisputeNotAllowed = 21,
 }

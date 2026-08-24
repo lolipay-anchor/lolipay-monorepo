@@ -1,5 +1,5 @@
 #![cfg(test)]
-use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, testutils::MockAuth, testutils::MockAuthInvoke, token, Address, BytesN, Env, IntoVal, Symbol};
+use soroban_sdk::{testutils::Address as _, testutils::Events as _, testutils::Ledger as _, testutils::MockAuth, testutils::MockAuthInvoke, token, Address, BytesN, Env, Event, IntoVal, Symbol};
 
 use crate::types::{Config, Error};
 use crate::{StakingContract, StakingContractClient};
@@ -31,22 +31,19 @@ impl SlashEnv {
     fn make_trade(&self, id: u8, dispute: bool) -> BytesN<32> {
         self.usdc_admin.mint(&self.user, &1_000_000_000i128);
         let trade_id = id32(&self.env, id);
+        let now = self.env.ledger().timestamp();
         self.escrow.create_trade(
             &trade_id, &self.user, &self.lp, &self.user, &1_000_000_000i128, &1_600_000i128,
             &Symbol::new(&self.env, "IDR"), &Flow::Withdraw, &30u32, &120u32,
-            &self.platform_wallet, &self.lp_wallet, &1000u64, &2000u64, &3000u64,
+            &self.platform_wallet, &self.lp_wallet, &(now + 1000), &(now + 2000), &(now + 3000),
         );
         if dispute {
-            let resume_at = self.env.ledger().timestamp();
             self.escrow.mark_fiat_paid(&trade_id, &self.lp);
             self.env.ledger().with_mut(|li| {
-                li.timestamp = 500;
+                li.timestamp = now + 500;
             });
             self.escrow.confirm_and_release(&trade_id);
             self.escrow.raise_dispute(&trade_id, &self.user);
-            self.env.ledger().with_mut(|li| {
-                li.timestamp = resume_at;
-            });
         }
         trade_id
     }
@@ -54,25 +51,22 @@ impl SlashEnv {
     fn make_topup_trade(&self, id: u8) -> BytesN<32> {
         self.usdc_admin.mint(&self.lp, &1_000_000_000i128);
         let trade_id = id32(&self.env, id);
+        let now = self.env.ledger().timestamp();
         self.escrow.create_trade(
             &trade_id, &self.lp, &self.user, &self.lp, &1_000_000_000i128, &1_600_000i128,
             &Symbol::new(&self.env, "IDR"), &Flow::TopUp, &30u32, &120u32,
-            &self.platform_wallet, &self.lp_wallet, &1000u64, &2000u64, &3000u64,
+            &self.platform_wallet, &self.lp_wallet, &(now + 1000), &(now + 2000), &(now + 3000),
         );
         trade_id
     }
 
     fn make_settled_trade(&self, id: u8) -> BytesN<32> {
-        self.usdc_admin.mint(&self.user, &1_000_000_000i128);
+        let now = self.env.ledger().timestamp();
+        self.make_trade(id, false);
         let trade_id = id32(&self.env, id);
-        self.escrow.create_trade(
-            &trade_id, &self.user, &self.lp, &self.user, &1_000_000_000i128, &1_600_000i128,
-            &Symbol::new(&self.env, "IDR"), &Flow::Withdraw, &30u32, &120u32,
-            &self.platform_wallet, &self.lp_wallet, &1000u64, &2000u64, &3000u64,
-        );
         self.escrow.mark_fiat_paid(&trade_id, &self.lp);
         self.env.ledger().with_mut(|li| {
-            li.timestamp = 500;
+            li.timestamp = now + 500;
         });
         self.escrow.confirm_and_release(&trade_id);
         trade_id
@@ -1052,7 +1046,7 @@ fn naming_the_admin_is_not_the_same_as_being_the_admin_when_freeing_collateral()
 
 #[test]
 fn unstaking_needs_the_lps_own_signature() {
-    let (env, client, _admin, usdc, usdc_admin, _resolver) = setup_with_usdc();
+    let (env, client, _admin, _usdc, usdc_admin, _resolver) = setup_with_usdc();
     let lp = Address::generate(&env);
     usdc_admin.mint(&lp, &2_000_000_000i128);
     client.stake(&lp, &2_000_000_000i128);
@@ -1073,7 +1067,6 @@ fn unstaking_needs_the_lps_own_signature() {
 
     assert!(requested.is_err());
     assert_eq!(client.get_stake(&lp).staked, 2_000_000_000i128);
-    let _ = usdc;
 }
 
 #[test]
@@ -1174,4 +1167,51 @@ fn the_admin_role_cannot_be_pushed_onto_an_address_that_never_consented() {
 
     assert!(res.is_err());
     assert_eq!(client.get_config().admin, admin);
+}
+
+#[test]
+fn a_slash_reports_the_collateral_it_leaves_uncovered() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let other = id32(&s.env, 91);
+    s.staking.reserve(&s.lp, &other, &800_000_000i128, &s.resolver);
+
+    s.staking.slash(&s.lp, &s.trade_id, &1_000_000_000i128, &s.resolver);
+    let raw = s.env.events().all().filter_by_contract(&s.staking.address);
+    let raw = raw.events();
+    let last = raw.get(raw.len() - 1).unwrap().clone();
+
+    let expected = crate::events::Slashed {
+        lp: s.lp.clone(),
+        victim: s.user.clone(),
+        amount: 1_000_000_000i128,
+        reservation_shortfall: 800_000_000i128,
+    };
+    assert_eq!(last, expected.to_xdr(&s.env, &s.staking.address));
+    let info = s.staking.get_stake(&s.lp);
+    assert_eq!(info.staked, 0);
+    assert_eq!(info.reserved, 800_000_000i128);
+}
+
+#[test]
+fn a_slash_that_covers_every_reservation_reports_no_shortfall() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
+    s.staking.stake(&s.lp, &2_000_000_000i128);
+    s.staking.reserve(&s.lp, &s.trade_id, &500_000_000i128, &s.resolver);
+
+    s.staking.slash(&s.lp, &s.trade_id, &500_000_000i128, &s.resolver);
+    let raw = s.env.events().all().filter_by_contract(&s.staking.address);
+    let raw = raw.events();
+    let last = raw.get(raw.len() - 1).unwrap().clone();
+
+    let expected = crate::events::Slashed {
+        lp: s.lp.clone(),
+        victim: s.user.clone(),
+        amount: 500_000_000i128,
+        reservation_shortfall: 0i128,
+    };
+    assert_eq!(last, expected.to_xdr(&s.env, &s.staking.address));
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
 }

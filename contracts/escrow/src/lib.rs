@@ -94,8 +94,8 @@ impl EscrowContract {
             return Err(Error::InvalidConfig);
         }
         if new_config.admin == new_config.resolver
-            || new_config.admin == cfg.fiat_attestor
-            || new_config.resolver == cfg.fiat_attestor
+            || new_config.admin == new_config.fiat_attestor
+            || new_config.resolver == new_config.fiat_attestor
         {
             return Err(Error::InvalidConfig);
         }
@@ -393,7 +393,7 @@ impl EscrowContract {
                     return Err(Error::Paused);
                 }
                 if trade.flow != Flow::TopUp {
-                    return Err(Error::EarlyReleaseNotAllowed);
+                    return Err(Error::DisputeNotAllowed);
                 }
                 if now > trade.dispute_deadline {
                     return Err(Error::DeadlinePassed);
