@@ -1880,12 +1880,17 @@ fn a_refund_may_not_front_run_the_attestor_on_a_deposit() {
 }
 
 #[test]
-fn a_withdrawal_refund_still_opens_at_the_pay_deadline() {
+fn a_withdrawal_refund_waits_for_the_confirm_deadline() {
     let (env, client, _attestor, provider, _r) = withdraw_setup();
-    env.ledger().with_mut(|l| l.timestamp = 1001);
+    env.ledger().with_mut(|l| l.timestamp = 2000);
 
+    assert_eq!(
+        client.try_refund(&id32(&env, 1)),
+        Err(Ok(Error::DeadlineNotReached))
+    );
+
+    env.ledger().with_mut(|l| l.timestamp = 2001);
     client.refund(&id32(&env, 1));
-
     assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Refunded);
     let _ = provider;
 }
@@ -1965,7 +1970,7 @@ fn release_from_funded_rejects_the_withdraw_flow_and_the_exit_survives() {
     assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Funded);
     assert_eq!((usdc.balance(&provider), usdc.balance(&recipient)), before);
 
-    env.ledger().with_mut(|l| l.timestamp = 1001);
+    env.ledger().with_mut(|l| l.timestamp = 2001);
     client.refund(&id32(&env, 1));
     assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Refunded);
 }
@@ -3236,4 +3241,42 @@ fn a_settlement_is_recognised_by_its_status_not_by_the_clock() {
     let (_d, _p, _r, _a, pre_settlement, released, _dl) = client.dispute_view(&id32(&env, 1));
     assert!(!pre_settlement);
     assert!(released);
+}
+
+#[test]
+fn a_late_paying_provider_of_rupiah_is_not_robbed_by_the_clock() {
+    let (env, client, _admin, _resolver, _attestor, provider, recipient, usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::Withdraw, 1);
+    let lp_before = usdc.balance(&recipient);
+
+    env.ledger().with_mut(|l| l.timestamp = 1500);
+    assert_eq!(
+        client.try_refund(&id32(&env, 1)),
+        Err(Ok(Error::DeadlineNotReached))
+    );
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::FiatPaid);
+
+    client.confirm_and_release(&id32(&env, 1));
+    assert_eq!(usdc.balance(&recipient), lp_before + 98_5000000i128);
+}
+
+#[test]
+fn the_withdrawal_marking_window_closes_exactly_where_its_refund_opens() {
+    let (env, client, _admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::Withdraw, 1);
+
+    env.ledger().with_mut(|l| l.timestamp = 2000);
+    assert_eq!(
+        client.try_refund(&id32(&env, 1)),
+        Err(Ok(Error::DeadlineNotReached))
+    );
+
+    env.ledger().with_mut(|l| l.timestamp = 2001);
+    assert_eq!(
+        client.try_mark_fiat_paid(&id32(&env, 1), &recipient),
+        Err(Ok(Error::DeadlinePassed))
+    );
+    client.refund(&id32(&env, 1));
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Refunded);
 }

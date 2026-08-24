@@ -301,12 +301,13 @@ describe('MaintenanceService.autoRefundExpired', () => {
     warnSpy.mockRestore();
   });
 
-  it('queries FUNDED orders past their pay deadline', async () => {
+  it('never asks the chain to refund before the escrow will accept it', async () => {
     const { svc, prisma } = make();
     await svc.autoRefundExpired();
     const arg = prisma.order.findMany.mock.calls[0][0];
     expect(arg.where.status).toBe('FUNDED');
-    expect(typeof arg.where.payDeadline.lt).toBe('bigint');
+    expect(arg.where.payDeadline).toBeUndefined();
+    expect(typeof arg.where.confirmDeadline.lt).toBe('bigint');
     expect(arg.take).toBe(20);
   });
 

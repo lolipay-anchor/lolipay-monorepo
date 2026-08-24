@@ -1263,7 +1263,7 @@ fn a_refunded_trade_may_only_slash_whoever_got_their_capital_back() {
         &Symbol::new(&s.env, "IDR"), &Flow::Withdraw, &30u32, &120u32,
         &s.platform_wallet, &s.lp_wallet, &(now + 1000), &(now + 2000), &(now + 3000),
     );
-    s.env.ledger().with_mut(|li| li.timestamp = now + 1001);
+    s.env.ledger().with_mut(|li| li.timestamp = now + 2001);
     s.escrow.refund(&trade_id);
     s.escrow.raise_dispute(&trade_id, &s.lp);
 

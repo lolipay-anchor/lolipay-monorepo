@@ -113,7 +113,7 @@ export class MaintenanceService {
 
     const nowSecs = BigInt(Math.floor(Date.now() / 1000));
     const candidates = await this.prisma.order.findMany({
-      where: { status: 'FUNDED', payDeadline: { lt: nowSecs } },
+      where: { status: 'FUNDED', confirmDeadline: { lt: nowSecs } },
       select: { id: true, tradeId: true, contractId: true },
       take: AUTO_REFUND_BATCH_SIZE,
     });

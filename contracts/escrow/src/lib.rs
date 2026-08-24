@@ -267,7 +267,11 @@ impl EscrowContract {
             }
             core::cmp::min(trade.confirm_deadline, trade.pay_deadline + ATTEST_GRACE_SECS)
         } else if caller == trade.usdc_recipient {
-            trade.pay_deadline
+            if trade.flow == Flow::TopUp {
+                trade.pay_deadline
+            } else {
+                trade.confirm_deadline
+            }
         } else {
             return Err(Error::Unauthorized);
         };
@@ -368,7 +372,7 @@ impl EscrowContract {
         let opens_at = if trade.flow == Flow::TopUp {
             core::cmp::min(trade.confirm_deadline, trade.pay_deadline + ATTEST_GRACE_SECS)
         } else {
-            trade.pay_deadline
+            trade.confirm_deadline
         };
         if env.ledger().timestamp() <= opens_at {
             return Err(Error::DeadlineNotReached);
