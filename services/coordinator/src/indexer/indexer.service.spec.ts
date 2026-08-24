@@ -908,6 +908,7 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
       disputeReason: null,
       disputeNote: null,
       disputeEvidenceUrl: null,
+      resolverDisputed: false,
       ...orderOverrides,
     };
     const prisma = {
@@ -924,6 +925,13 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
           }
           if ('disputeBy' in where) {
             if (order.disputeBy !== where.disputeBy) return Promise.resolve({ count: 0 });
+            Object.assign(order, data);
+            return Promise.resolve({ count: 1 });
+          }
+          if ('resolverDisputed' in where) {
+            if (order.resolverDisputed !== where.resolverDisputed) {
+              return Promise.resolve({ count: 0 });
+            }
             Object.assign(order, data);
             return Promise.resolve({ count: 1 });
           }
@@ -1018,7 +1026,7 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
     expect(prisma.order.updateMany).toHaveBeenCalledTimes(1);
   });
 
-  it('`by` is the resolver, which the contract now permits -> attributed to the resolver, not to a party', async () => {
+  it("a resolver dispute of its own is recorded without destroying the party's filing", async () => {
     const { svc, order } = makeWithMetadata({
       disputeBy: 'user',
       disputeReason: 'PAYMENT_NOT_RECEIVED',
@@ -1030,8 +1038,9 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
       contractId: 'CXXX',
     });
     expect(advanced).toBe(1);
-    expect(order.disputeBy).toBe('resolver');
-    expect(order.disputeReason).toBeNull();
+    expect(order.resolverDisputed).toBe(true);
+    expect(order.disputeBy).toBe('user');
+    expect(order.disputeReason).toBe('PAYMENT_NOT_RECEIVED');
   });
 
   it('post-settlement path (RELEASED -> DISPUTED bypass): reconciliation also applies once on-chain confirms DISPUTED', async () => {

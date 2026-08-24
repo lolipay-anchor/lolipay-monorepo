@@ -1,4 +1,4 @@
-import { canDispute } from './dispute.util';
+import { canDispute, postSettleDisputeDeadline, refundOpensAt } from './dispute.util';
 
 const CONFIG = { postSettleDisputeWindowSecs: 3600 };
 
@@ -55,4 +55,60 @@ describe('canDispute', () => {
       expect(canDispute({ status, settledAt: new Date() }, CONFIG)).toBe(false);
     },
   );
+});
+
+describe('the window a trade settled under is the window it is judged by', () => {
+  const CONFIG_WIDE = { postSettleDisputeWindowSecs: 604_800 };
+  const settledAt = new Date(Date.now() - 7200 * 1000);
+  const latched = BigInt(Math.floor(settledAt.getTime() / 1000) + 3600);
+
+  it('refuses a dispute past the latched deadline even after the config is widened', () => {
+    expect(canDispute({ status: 'RELEASED', settledAt, postSettleDeadline: latched }, CONFIG_WIDE)).toBe(
+      false,
+    );
+    expect(canDispute({ status: 'RELEASED', settledAt }, CONFIG_WIDE)).toBe(true);
+  });
+
+  it('quotes the latched deadline rather than recomputing it', () => {
+    const open = BigInt(Math.floor(Date.now() / 1000) + 1800);
+    expect(
+      postSettleDisputeDeadline(
+        { status: 'RELEASED', settledAt, disputeBy: null, postSettleDeadline: open },
+        { postSettleDisputeWindowSecs: 1 },
+      ),
+    ).toBe(new Date(Number(open) * 1000).toISOString());
+  });
+
+  it('falls back to the configured window only when the chain never told us', () => {
+    const recent = new Date(Date.now() - 60 * 1000);
+    expect(
+      postSettleDisputeDeadline(
+        { status: 'RELEASED', settledAt: recent, disputeBy: null },
+        { postSettleDisputeWindowSecs: 3600 },
+      ),
+    ).toBe(new Date(recent.getTime() + 3600 * 1000).toISOString());
+  });
+});
+
+describe('refundOpensAt matches the escrow', () => {
+  it('waits for the confirm deadline on a withdrawal', () => {
+    expect(
+      refundOpensAt({ flow: 'WITHDRAW', payDeadline: 1000n, confirmDeadline: 2000n }),
+    ).toBe(2000n);
+  });
+
+  it('takes the earlier of the grace and the confirm deadline on a deposit', () => {
+    expect(refundOpensAt({ flow: 'TOP_UP', payDeadline: 1000n, confirmDeadline: 9000n })).toBe(4600n);
+    expect(refundOpensAt({ flow: 'TOP_UP', payDeadline: 1000n, confirmDeadline: 2000n })).toBe(2000n);
+  });
+
+  it('never opens before the party who must pay has run out of time', () => {
+    for (const flow of ['TOP_UP', 'WITHDRAW']) {
+      for (const confirm of [1001n, 2000n, 4600n, 90_000n]) {
+        expect(refundOpensAt({ flow, payDeadline: 1000n, confirmDeadline: confirm })).toBeGreaterThan(
+          1000n,
+        );
+      }
+    }
+  });
 });

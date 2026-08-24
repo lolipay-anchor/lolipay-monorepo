@@ -17,4 +17,5 @@ export interface TradeOnChain {
   payDeadline?: bigint;
   confirmDeadline?: bigint;
   disputeDeadline?: bigint;
+  postSettleDeadline?: bigint;
 }

@@ -111,6 +111,8 @@ model Order {
   proofAmount         BigInt?
   proofPaidAt         DateTime?
   settledAt           DateTime?
+  postSettleDeadline  BigInt?
+  resolverDisputed    Boolean     @default(false)
   disputeBy           String?
   disputeReason       String?
   disputeNote         String?

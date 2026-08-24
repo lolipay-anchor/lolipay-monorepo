@@ -226,6 +226,7 @@ export class StellarReadService {
       payDeadline: asBigInt(ret.pay_deadline),
       confirmDeadline: asBigInt(ret.confirm_deadline),
       disputeDeadline: asBigInt(ret.dispute_deadline),
+      postSettleDeadline: asBigInt(ret.post_settle_deadline),
     };
   }
 

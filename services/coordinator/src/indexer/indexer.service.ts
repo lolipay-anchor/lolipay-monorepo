@@ -174,17 +174,23 @@ export class IndexerService {
       }
 
       let settledAt = new Date();
+      let postSettleDeadline: bigint | null = null;
       if (target === 'RELEASED' || target === 'REFUNDED') {
         try {
           const onChain = await this.stellar.getTradeStatus(evContractId, order.tradeId);
           if (onChain && onChain.settledAt > 0) {
             settledAt = new Date(onChain.settledAt * 1000);
           }
+          if (onChain?.postSettleDeadline) {
+            postSettleDeadline = onChain.postSettleDeadline;
+          }
         } catch {
         }
       }
       const extra: Record<string, any> =
-        target === 'RELEASED' || target === 'REFUNDED' ? { settledAt } : {};
+        target === 'RELEASED' || target === 'REFUNDED'
+          ? { settledAt, ...(postSettleDeadline === null ? {} : { postSettleDeadline }) }
+          : {};
       const res = await this.prisma.order.updateMany({
         where: { id: order.id, status: { in: STATUS_BEFORE[target] as any[] } },
         data: { status: target as any, ...extra },
@@ -269,6 +275,17 @@ export class IndexerService {
     const actualRole = attributeDisputer(by, fresh.userAddress, fresh.lpWallet);
     if (actualRole === fresh.disputeBy) return;
 
+    if (actualRole === 'resolver') {
+      await this.prisma.order.updateMany({
+        where: { id: orderId, resolverDisputed: false },
+        data: { resolverDisputed: true },
+      });
+      this.log.log(
+        `order ${orderId}: the resolver raised a dispute of its own; the ${fresh.disputeBy} filing is kept`,
+      );
+      return;
+    }
+
     const res = await this.prisma.order.updateMany({
       where: { id: orderId, disputeBy: fresh.disputeBy },
       data: { disputeBy: actualRole, disputeReason: null, disputeNote: null, disputeEvidenceUrl: null },
@@ -308,9 +325,12 @@ export class IndexerService {
       const resolution = val.released ? 'released' : 'refunded';
       const settledAt =
         onChain && onChain.settledAt > 0 ? new Date(onChain.settledAt * 1000) : new Date();
+      const latched = onChain?.postSettleDeadline
+        ? { postSettleDeadline: onChain.postSettleDeadline }
+        : {};
       const res = await this.prisma.order.updateMany({
         where: { id: order.id, status: { in: STATUS_BEFORE[target] as any[] } },
-        data: { status: target as any, settledAt, resolution },
+        data: { status: target as any, settledAt, resolution, ...latched },
       });
       if (res.count === 0) return 0;
       await this.accrueDisputeLossIfApplicable(order, resolution);

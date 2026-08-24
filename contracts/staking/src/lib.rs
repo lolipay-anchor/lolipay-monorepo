@@ -161,12 +161,19 @@ impl StakingContract {
     ) -> Result<(), Error> {
         bump_instance(&env);
         let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
-        let view = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id);
-        if view.is_disputed && env.ledger().timestamp() <= view.slash_deadline {
-            return Err(Error::SlashWindowOpen);
-        }
-        if !view.is_disputed && view.pre_settlement {
-            return Err(Error::SlashWindowOpen);
+        let found: Result<Result<DisputeView, soroban_sdk::ConversionError>, Result<Error, soroban_sdk::InvokeError>> =
+            env.try_invoke_contract(
+                &cfg.escrow_contract,
+                &Symbol::new(&env, "dispute_view"),
+                vec![&env, trade_id.into_val(&env)],
+            );
+        if let Ok(Ok(view)) = found {
+            if view.pre_settlement {
+                return Err(Error::SlashWindowOpen);
+            }
+            if env.ledger().timestamp() <= view.slash_deadline {
+                return Err(Error::SlashWindowOpen);
+            }
         }
         Self::drop_reservation(&env, &lp, &trade_id)
     }

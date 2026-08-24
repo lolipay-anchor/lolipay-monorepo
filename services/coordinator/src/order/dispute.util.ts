@@ -1,11 +1,20 @@
+export function postSettleDeadlineMs(
+  order: { settledAt: Date | null; postSettleDeadline?: bigint | null },
+  config: { postSettleDisputeWindowSecs: number },
+): number | null {
+  if (order.postSettleDeadline) return Number(order.postSettleDeadline) * 1000;
+  if (!order.settledAt) return null;
+  return order.settledAt.getTime() + config.postSettleDisputeWindowSecs * 1000;
+}
+
 export function canDispute(
-  order: { status: string; settledAt: Date | null },
+  order: { status: string; settledAt: Date | null; postSettleDeadline?: bigint | null },
   config: { postSettleDisputeWindowSecs: number },
 ): boolean {
   if (order.status === 'FIAT_PAID') return true;
   if (order.status === 'RELEASED' || order.status === 'REFUNDED') {
-    if (!order.settledAt) return false;
-    const deadlineMs = order.settledAt.getTime() + config.postSettleDisputeWindowSecs * 1000;
+    const deadlineMs = postSettleDeadlineMs(order, config);
+    if (deadlineMs === null) return false;
     return Date.now() <= deadlineMs;
   }
   return false;
@@ -36,13 +45,18 @@ export function isOwnEvidencePath(evidenceUrl: string, orderId: string, role: 'u
 }
 
 export function postSettleDisputeDeadline(
-  order: { status: string; settledAt: Date | null; disputeBy: string | null },
+  order: {
+    status: string;
+    settledAt: Date | null;
+    disputeBy: string | null;
+    postSettleDeadline?: bigint | null;
+  },
   config: { postSettleDisputeWindowSecs: number },
 ): string | null {
   if (order.status !== 'RELEASED' && order.status !== 'REFUNDED') return null;
-  if (!order.settledAt) return null;
   if (order.disputeBy) return null;
-  const deadlineMs = order.settledAt.getTime() + config.postSettleDisputeWindowSecs * 1000;
+  const deadlineMs = postSettleDeadlineMs(order, config);
+  if (deadlineMs === null) return null;
   if (Date.now() > deadlineMs) return null;
   return new Date(deadlineMs).toISOString();
 }

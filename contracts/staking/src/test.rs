@@ -1364,3 +1364,82 @@ fn a_slash_survives_a_dispute_raised_at_the_very_last_second() {
 
     assert_eq!(s.usdc.balance(&s.user), victim_before + 500_000_000i128);
 }
+
+#[test]
+fn collateral_stays_bound_while_a_dispute_can_still_be_raised() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_settled_trade(61);
+    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+    let window_end = s.escrow.get_trade(&trade_id).post_settle_deadline;
+
+    s.env.ledger().with_mut(|li| li.timestamp = window_end);
+    assert_eq!(
+        s.staking.try_release_expired_reservation(&s.lp, &trade_id),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 1_000_000_000i128);
+
+    s.escrow.raise_dispute(&trade_id, &s.user);
+    let victim_before = s.usdc.balance(&s.user);
+    s.staking.slash(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+    assert_eq!(s.usdc.balance(&s.user), victim_before + 1_000_000_000i128);
+}
+
+#[test]
+fn a_freed_reservation_can_never_be_followed_by_a_slash() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_settled_trade(62);
+    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+    let window_end = s.escrow.get_trade(&trade_id).post_settle_deadline;
+
+    s.env.ledger().with_mut(|li| li.timestamp = window_end + 1);
+    s.staking.release_expired_reservation(&s.lp, &trade_id);
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+
+    assert_eq!(
+        s.escrow.try_raise_dispute(&trade_id, &s.user),
+        Err(Ok(lolipay_escrow::types::Error::DisputeWindowPassed))
+    );
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
+        Err(Ok(Error::TradeNotDisputed))
+    );
+}
+
+#[test]
+fn an_unsettled_trade_never_gives_its_collateral_back() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_topup_trade(63);
+    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+    s.escrow.raise_dispute(&trade_id, &s.resolver);
+    let resolver_deadline = s.escrow.get_trade(&trade_id).resolver_deadline;
+
+    s.env.ledger().with_mut(|li| li.timestamp = resolver_deadline + 1);
+
+    assert_eq!(
+        s.staking.try_release_expired_reservation(&s.lp, &trade_id),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 1_000_000_000i128);
+}
+
+#[test]
+fn a_reservation_against_a_trade_that_never_existed_is_never_a_hostage() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let ghost = id32(&s.env, 200);
+    s.staking.reserve(&s.lp, &ghost, &1_000_000_000i128, &s.resolver);
+    assert_eq!(s.staking.available(&s.lp), 0);
+
+    s.staking.release_expired_reservation(&s.lp, &ghost);
+
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+    assert_eq!(s.staking.available(&s.lp), 1_000_000_000i128);
+}
