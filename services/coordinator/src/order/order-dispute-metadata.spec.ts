@@ -397,5 +397,29 @@ describe('OrderService — dispute metadata + post-settle window (Phase 5B Task 
         new Date(settledAt.getTime() + CONFIG.postSettleDisputeWindowSecs * 1000).toISOString(),
       );
     });
+
+    it('a resolver-raised dispute is visible, and does not read as a party filing', async () => {
+      const settledAt = new Date(Date.now() - 60_000);
+      const { svc } = makeSvc({ status: 'RELEASED', settledAt, resolverDisputed: true });
+      const result = await svc.getOrder('order-1', USER_ADDR);
+      expect(result.resolver_disputed).toBe(true);
+      expect(result.dispute_by).toBeNull();
+    });
+
+    it('an order nobody escalated reports the flag as false, never undefined', async () => {
+      const { svc } = makeSvc({ status: 'RELEASED', settledAt: new Date(Date.now() - 60_000) });
+      const result = await svc.getOrder('order-1', USER_ADDR);
+      expect(result.resolver_disputed).toBe(false);
+    });
+
+    it('the deadline the chain latched wins over the configured window', async () => {
+      const settledAt = new Date(Date.now() - 60_000);
+      const latched = BigInt(Math.floor(Date.now() / 1000) + 45);
+      const { svc } = makeSvc({ status: 'RELEASED', settledAt, postSettleDeadline: latched });
+      const result = await svc.getOrder('order-1', USER_ADDR);
+      expect(result.post_settle_dispute_until).toBe(
+        new Date(Number(latched) * 1000).toISOString(),
+      );
+    });
   });
 });

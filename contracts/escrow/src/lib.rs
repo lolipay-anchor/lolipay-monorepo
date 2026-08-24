@@ -389,7 +389,7 @@ impl EscrowContract {
 
     pub fn cancel(env: Env, trade_id: BytesN<32>) -> Result<(), Error> {
         bump_instance(&env);
-        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
+        get_config(&env).ok_or(Error::NotInitialized)?;
         let mut trade = storage_get_trade(&env, &trade_id).ok_or(Error::TradeNotFound)?;
         if trade.status != Status::Funded {
             return Err(Error::InvalidState);
@@ -398,7 +398,6 @@ impl EscrowContract {
         trade.usdc_recipient.require_auth();
         trade.settlement_final = true;
         let token = trade.usdc_token.clone();
-        let _ = cfg;
         Self::do_refund(&env, &token, &trade_id, &mut trade, 0);
         Ok(())
     }
