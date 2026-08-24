@@ -297,7 +297,7 @@ impl StakingContract {
         if is_slashed(&env, &trade_id) {
             return Err(Error::AlreadySlashed);
         }
-        let (is_disputed, provider, recipient, trade_amount, funded_origin): (
+        let (is_disputed, provider, recipient, trade_amount, pre_settlement): (
             bool,
             Address,
             Address,
@@ -312,7 +312,7 @@ impl StakingContract {
         if !is_disputed {
             return Err(Error::TradeNotDisputed);
         }
-        if funded_origin {
+        if pre_settlement {
             return Err(Error::SlashNotApplicable);
         }
         let victim = if lp == provider {
@@ -344,12 +344,17 @@ impl StakingContract {
         if info.reserved < 0 {
             info.reserved = 0;
         }
+        let reservation_shortfall = if info.reserved > info.staked {
+            info.reserved - info.staked
+        } else {
+            0
+        };
         set_stake(&env, &lp, &info);
         mark_slashed(&env, &trade_id);
 
         let contract = env.current_contract_address();
         token::TokenClient::new(&env, &cfg.usdc_token).transfer(&contract, &victim, &amount);
-        Slashed { lp, victim, amount }.publish(&env);
+        Slashed { lp, victim, amount, reservation_shortfall }.publish(&env);
         Ok(())
     }
 }

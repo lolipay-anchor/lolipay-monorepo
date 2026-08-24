@@ -55,7 +55,7 @@ impl EscrowContract {
         if dispute_window == 0 || dispute_window > MAX_DISPUTE_WINDOW {
             panic_with_error!(&env, Error::InvalidConfig);
         }
-        if admin == resolver {
+        if admin == resolver || admin == fiat_attestor || resolver == fiat_attestor {
             panic_with_error!(&env, Error::InvalidConfig);
         }
         set_config(
@@ -93,7 +93,10 @@ impl EscrowContract {
         if new_config.early_release_providers.len() > MAX_EARLY_RELEASE_PROVIDERS {
             return Err(Error::InvalidConfig);
         }
-        if new_config.admin == new_config.resolver {
+        if new_config.admin == new_config.resolver
+            || new_config.admin == cfg.fiat_attestor
+            || new_config.resolver == cfg.fiat_attestor
+        {
             return Err(Error::InvalidConfig);
         }
         if new_config.default_platform_fee_bps > MAX_PLATFORM_FEE_BPS {
@@ -127,13 +130,13 @@ impl EscrowContract {
         trade_id: BytesN<32>,
     ) -> Result<(bool, Address, Address, i128, bool), Error> {
         let t = storage_get_trade(&env, &trade_id).ok_or(Error::TradeNotFound)?;
-        let funded_origin = t.pre_dispute_status() == Some(Status::Funded);
+        let pre_settlement = t.settled_at == 0;
         Ok((
             t.status == Status::Disputed,
             t.usdc_provider,
             t.usdc_recipient,
             t.usdc_amount,
-            funded_origin,
+            pre_settlement,
         ))
     }
 
@@ -221,6 +224,8 @@ impl EscrowContract {
             has_pre_dispute_status: false,
             pre_dispute_status: Status::Funded,
             post_settle_resolved: false,
+            resolver_post_settle_used: false,
+            post_settle_deadline: 0,
         };
         set_trade(&env, &trade_id, &trade);
 
@@ -294,6 +299,7 @@ impl EscrowContract {
 
         trade.status = Status::Released;
         trade.settled_at = env.ledger().timestamp();
+        trade.post_settle_deadline = trade.settled_at + cfg.dispute_window;
         set_trade(&env, &trade_id, &trade);
 
         let token = token::TokenClient::new(&env, &trade.usdc_token);
@@ -312,6 +318,7 @@ impl EscrowContract {
 
     pub fn confirm_and_release(env: Env, trade_id: BytesN<32>) -> Result<(), Error> {
         bump_instance(&env);
+        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
         let mut trade = storage_get_trade(&env, &trade_id).ok_or(Error::TradeNotFound)?;
         if trade.status != Status::FiatPaid {
             return Err(Error::InvalidState);
@@ -323,6 +330,7 @@ impl EscrowContract {
 
         trade.status = Status::Released;
         trade.settled_at = env.ledger().timestamp();
+        trade.post_settle_deadline = trade.settled_at + cfg.dispute_window;
         set_trade(&env, &trade_id, &trade);
 
         let token = token::TokenClient::new(&env, &trade.usdc_token);
@@ -341,12 +349,13 @@ impl EscrowContract {
 
     pub fn refund(env: Env, trade_id: BytesN<32>) -> Result<(), Error> {
         bump_instance(&env);
+        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
         let mut trade = storage_get_trade(&env, &trade_id).ok_or(Error::TradeNotFound)?;
         if trade.status != Status::Funded {
             return Err(Error::InvalidState);
         }
         let opens_at = if trade.flow == Flow::TopUp {
-            trade.pay_deadline + ATTEST_GRACE_SECS
+            core::cmp::min(trade.confirm_deadline, trade.pay_deadline + ATTEST_GRACE_SECS)
         } else {
             trade.pay_deadline
         };
@@ -354,12 +363,13 @@ impl EscrowContract {
             return Err(Error::DeadlineNotReached);
         }
         let token = trade.usdc_token.clone();
-        Self::do_refund(&env, &token, &trade_id, &mut trade);
+        Self::do_refund(&env, &token, &trade_id, &mut trade, cfg.dispute_window);
         Ok(())
     }
 
     pub fn cancel(env: Env, trade_id: BytesN<32>) -> Result<(), Error> {
         bump_instance(&env);
+        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
         let mut trade = storage_get_trade(&env, &trade_id).ok_or(Error::TradeNotFound)?;
         if trade.status != Status::Funded {
             return Err(Error::InvalidState);
@@ -367,7 +377,7 @@ impl EscrowContract {
         trade.usdc_provider.require_auth();
         trade.usdc_recipient.require_auth();
         let token = trade.usdc_token.clone();
-        Self::do_refund(&env, &token, &trade_id, &mut trade);
+        Self::do_refund(&env, &token, &trade_id, &mut trade, cfg.dispute_window);
         Ok(())
     }
 
@@ -382,6 +392,9 @@ impl EscrowContract {
                 if cfg.paused {
                     return Err(Error::Paused);
                 }
+                if trade.flow != Flow::TopUp {
+                    return Err(Error::EarlyReleaseNotAllowed);
+                }
                 if now > trade.dispute_deadline {
                     return Err(Error::DeadlinePassed);
                 }
@@ -391,10 +404,14 @@ impl EscrowContract {
                 if trade.settled_at == 0 {
                     return Err(Error::InvalidState);
                 }
-                if trade.post_settle_resolved {
+                if by == cfg.resolver {
+                    if trade.resolver_post_settle_used {
+                        return Err(Error::AlreadyResolved);
+                    }
+                } else if trade.post_settle_resolved {
                     return Err(Error::AlreadyResolved);
                 }
-                if now > trade.settled_at + cfg.dispute_window {
+                if now > trade.post_settle_deadline {
                     return Err(Error::DisputeWindowPassed);
                 }
                 Some(trade.status)
@@ -443,7 +460,10 @@ impl EscrowContract {
 
         match trade.pre_dispute_status() {
             Some(Status::Funded) => {
-                cfg.fiat_attestor.require_auth();
+                let admin_unwind = is_admin_fallback && outcome == ResolveOutcome::Refund;
+                if !admin_unwind {
+                    cfg.fiat_attestor.require_auth();
+                }
                 trade.set_pre_dispute_status(None);
             }
             Some(prior) => {
@@ -451,7 +471,8 @@ impl EscrowContract {
                     || trade.disputed_by == Some(trade.usdc_recipient.clone());
                 trade.status = prior;
                 trade.set_pre_dispute_status(None);
-                trade.post_settle_resolved = raised_by_a_party;
+                trade.post_settle_resolved |= raised_by_a_party;
+                trade.resolver_post_settle_used |= !raised_by_a_party;
                 set_trade(&env, &trade_id, &trade);
                 let released = outcome == ResolveOutcome::Release;
                 Resolved { trade_id, released, post_settle: true }.publish(&env);
@@ -463,7 +484,7 @@ impl EscrowContract {
         let token_addr = trade.usdc_token.clone();
         match outcome {
             ResolveOutcome::Refund => {
-                Self::do_refund(&env, &token_addr, &trade_id, &mut trade);
+                Self::do_refund(&env, &token_addr, &trade_id, &mut trade, cfg.dispute_window);
                 Resolved { trade_id, released: false, post_settle: false }.publish(&env);
             }
             ResolveOutcome::Release => {
@@ -471,6 +492,7 @@ impl EscrowContract {
                     split_fees(trade.usdc_amount, trade.platform_fee_bps, trade.lp_fee_bps);
                 trade.status = Status::Released;
                 trade.settled_at = now;
+                trade.post_settle_deadline = now + cfg.dispute_window;
                 set_trade(&env, &trade_id, &trade);
                 let token = token::TokenClient::new(&env, &token_addr);
                 let contract = env.current_contract_address();
@@ -487,9 +509,16 @@ impl EscrowContract {
         Ok(())
     }
 
-    fn do_refund(env: &Env, usdc_token: &Address, trade_id: &BytesN<32>, trade: &mut Trade) {
+    fn do_refund(
+        env: &Env,
+        usdc_token: &Address,
+        trade_id: &BytesN<32>,
+        trade: &mut Trade,
+        dispute_window: u64,
+    ) {
         trade.status = Status::Refunded;
         trade.settled_at = env.ledger().timestamp();
+        trade.post_settle_deadline = trade.settled_at + dispute_window;
         set_trade(env, trade_id, trade);
         token::TokenClient::new(env, usdc_token).transfer(
             &env.current_contract_address(),

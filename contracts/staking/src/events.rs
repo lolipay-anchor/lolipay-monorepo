@@ -31,6 +31,7 @@ pub struct Slashed {
     #[topic]
     pub victim: Address,
     pub amount: i128,
+    pub reservation_shortfall: i128,
 }
 
 #[contractevent]

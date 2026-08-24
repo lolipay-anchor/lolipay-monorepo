@@ -1,5 +1,5 @@
 #![cfg(test)]
-use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, token, Address, BytesN, Env, Symbol};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, testutils::MockAuth, testutils::MockAuthInvoke, token, Address, BytesN, Env, IntoVal, Symbol};
 
 use crate::types::{Config, Error};
 use crate::{StakingContract, StakingContractClient};
@@ -37,9 +37,28 @@ impl SlashEnv {
             &self.platform_wallet, &self.lp_wallet, &1000u64, &2000u64, &3000u64,
         );
         if dispute {
+            let resume_at = self.env.ledger().timestamp();
             self.escrow.mark_fiat_paid(&trade_id, &self.lp);
+            self.env.ledger().with_mut(|li| {
+                li.timestamp = 500;
+            });
+            self.escrow.confirm_and_release(&trade_id);
             self.escrow.raise_dispute(&trade_id, &self.user);
+            self.env.ledger().with_mut(|li| {
+                li.timestamp = resume_at;
+            });
         }
+        trade_id
+    }
+
+    fn make_topup_trade(&self, id: u8) -> BytesN<32> {
+        self.usdc_admin.mint(&self.lp, &1_000_000_000i128);
+        let trade_id = id32(&self.env, id);
+        self.escrow.create_trade(
+            &trade_id, &self.lp, &self.user, &self.lp, &1_000_000_000i128, &1_600_000i128,
+            &Symbol::new(&self.env, "IDR"), &Flow::TopUp, &30u32, &120u32,
+            &self.platform_wallet, &self.lp_wallet, &1000u64, &2000u64, &3000u64,
+        );
         trade_id
     }
 
@@ -443,10 +462,12 @@ fn test_slash_post_settlement_full_flow_and_one_shot() {
     s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
     s.staking.stake(&s.lp, &2_000_000_000i128);
 
+    let lp_before = s.usdc.balance(&s.lp);
+    let user_before = s.usdc.balance(&s.user);
     let trade_id = s.make_settled_trade(9);
     assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Released);
-    assert_eq!(s.usdc.balance(&s.lp), 985_000_000i128);
-    assert_eq!(s.usdc.balance(&s.user), 0);
+    assert_eq!(s.usdc.balance(&s.lp), lp_before + 985_000_000i128);
+    assert_eq!(s.usdc.balance(&s.user), user_before);
 
     s.escrow.raise_dispute(&trade_id, &s.user);
     assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Disputed);
@@ -457,7 +478,7 @@ fn test_slash_post_settlement_full_flow_and_one_shot() {
     assert_eq!(amount, 1_000_000_000i128);
 
     s.staking.slash(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
-    assert_eq!(s.usdc.balance(&s.user), 500_000_000i128);
+    assert_eq!(s.usdc.balance(&s.user), user_before + 500_000_000i128);
     assert_eq!(s.staking.get_stake(&s.lp).staked, 1_500_000_000i128);
     assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Disputed);
 
@@ -465,7 +486,7 @@ fn test_slash_post_settlement_full_flow_and_one_shot() {
         s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
         Err(Ok(Error::AlreadySlashed))
     );
-    assert_eq!(s.usdc.balance(&s.user), 500_000_000i128);
+    assert_eq!(s.usdc.balance(&s.user), user_before + 500_000_000i128);
     assert_eq!(s.staking.get_stake(&s.lp).staked, 1_500_000_000i128);
 }
 
@@ -757,7 +778,7 @@ fn a_funded_origin_dispute_is_not_grounds_to_slash() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
     s.staking.stake(&s.lp, &2_000_000_000i128);
-    let trade_id = s.make_trade(77, false);
+    let trade_id = s.make_topup_trade(77);
     s.escrow.raise_dispute(&trade_id, &s.resolver);
     let before = s.usdc.balance(&s.user);
 
@@ -765,6 +786,32 @@ fn a_funded_origin_dispute_is_not_grounds_to_slash() {
 
     assert_eq!(res, Err(Ok(Error::SlashNotApplicable)));
     assert_eq!(s.usdc.balance(&s.user), before);
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 2_000_000_000i128);
+}
+
+#[test]
+fn a_fiat_paid_dispute_is_not_grounds_to_slash_while_the_escrow_still_holds_it() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
+    s.staking.stake(&s.lp, &2_000_000_000i128);
+    let trade_id = s.make_trade(88, false);
+    s.escrow.mark_fiat_paid(&trade_id, &s.lp);
+    s.escrow.raise_dispute(&trade_id, &s.user);
+    let user_before = s.usdc.balance(&s.user);
+    let lp_before = s.usdc.balance(&s.lp);
+    let escrow_before = s.usdc.balance(&s.escrow.address);
+    assert_eq!(escrow_before, 1_000_000_000i128);
+
+    let res = s.staking.try_slash(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+
+    assert_eq!(res, Err(Ok(Error::SlashNotApplicable)));
+    assert_eq!(s.usdc.balance(&s.user), user_before);
+    assert_eq!(s.usdc.balance(&s.escrow.address), escrow_before);
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 2_000_000_000i128);
+
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
+    assert_eq!(s.usdc.balance(&s.lp), lp_before + 985_000_000i128);
+    assert_eq!(s.usdc.balance(&s.escrow.address), 0);
     assert_eq!(s.staking.get_stake(&s.lp).staked, 2_000_000_000i128);
 }
 
@@ -923,4 +970,208 @@ fn a_slashed_trade_can_never_be_reserved_against_again() {
 
     assert_eq!(res, Err(Ok(Error::AlreadySlashed)));
     assert_eq!(s.staking.get_reservation(&s.lp, &trade_id), None);
+}
+
+#[test]
+fn naming_the_resolver_is_not_the_same_as_being_the_resolver_when_slashing() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
+    s.staking.stake(&s.lp, &2_000_000_000i128);
+    let stranger = Address::generate(&s.env);
+    let before = s.usdc.balance(&s.user);
+
+    s.env.set_auths(&[]);
+    let res = s
+        .staking
+        .mock_auths(&[MockAuth {
+            address: &stranger,
+            invoke: &MockAuthInvoke {
+                contract: &s.staking.address,
+                fn_name: "slash",
+                args: (s.lp.clone(), s.trade_id.clone(), 500_000_000i128, s.resolver.clone())
+                    .into_val(&s.env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_slash(&s.lp, &s.trade_id, &500_000_000i128, &s.resolver);
+
+    assert!(res.is_err());
+    assert_eq!(s.usdc.balance(&s.user), before);
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 2_000_000_000i128);
+}
+
+#[test]
+fn set_config_needs_the_sitting_admins_signature_not_the_incoming_ones() {
+    let (env, client, _admin, _usdc, _resolver) = setup();
+    let usurper = Address::generate(&env);
+    let mut cfg = client.get_config();
+    cfg.admin = usurper.clone();
+
+    env.set_auths(&[]);
+    let res = client
+        .mock_auths(&[MockAuth {
+            address: &usurper,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "set_config",
+                args: (cfg.clone(),).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_set_config(&cfg);
+
+    assert!(res.is_err());
+    assert_ne!(client.get_config().admin, usurper);
+}
+
+#[test]
+fn naming_the_admin_is_not_the_same_as_being_the_admin_when_freeing_collateral() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
+    s.staking.stake(&s.lp, &2_000_000_000i128);
+    s.staking.reserve(&s.lp, &s.trade_id, &500_000_000i128, &s.resolver);
+    let stranger = Address::generate(&s.env);
+
+    s.env.set_auths(&[]);
+    let res = s
+        .staking
+        .mock_auths(&[MockAuth {
+            address: &stranger,
+            invoke: &MockAuthInvoke {
+                contract: &s.staking.address,
+                fn_name: "force_release_reservation",
+                args: (s.lp.clone(), s.trade_id.clone(), s.admin.clone()).into_val(&s.env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_force_release_reservation(&s.lp, &s.trade_id, &s.admin);
+
+    assert!(res.is_err());
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 500_000_000i128);
+}
+
+#[test]
+fn unstaking_needs_the_lps_own_signature() {
+    let (env, client, _admin, usdc, usdc_admin, _resolver) = setup_with_usdc();
+    let lp = Address::generate(&env);
+    usdc_admin.mint(&lp, &2_000_000_000i128);
+    client.stake(&lp, &2_000_000_000i128);
+    let stranger = Address::generate(&env);
+
+    env.set_auths(&[]);
+    let requested = client
+        .mock_auths(&[MockAuth {
+            address: &stranger,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "request_unstake",
+                args: (lp.clone(), 1_000_000_000i128).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_request_unstake(&lp, &1_000_000_000i128);
+
+    assert!(requested.is_err());
+    assert_eq!(client.get_stake(&lp).staked, 2_000_000_000i128);
+    let _ = usdc;
+}
+
+#[test]
+fn claiming_an_unstake_needs_the_lps_own_signature() {
+    let (env, client, _admin, _usdc, usdc_admin, _resolver) = setup_with_usdc();
+    let lp = Address::generate(&env);
+    usdc_admin.mint(&lp, &2_000_000_000i128);
+    client.stake(&lp, &2_000_000_000i128);
+    client.request_unstake(&lp, &1_000_000_000i128);
+    env.ledger().with_mut(|li| li.timestamp = 1_000);
+    let stranger = Address::generate(&env);
+
+    env.set_auths(&[]);
+    let claimed = client
+        .mock_auths(&[MockAuth {
+            address: &stranger,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "claim_unstake",
+                args: (lp.clone(),).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_claim_unstake(&lp);
+
+    assert!(claimed.is_err());
+    assert_eq!(client.get_stake(&lp).unbonding, 1_000_000_000i128);
+}
+
+#[test]
+fn the_escrow_the_staking_contract_trusts_can_never_be_repointed() {
+    let (_env, client, _admin, _usdc, _resolver) = setup();
+    let original = client.get_config().escrow_contract.clone();
+    let mut cfg = client.get_config();
+    cfg.escrow_contract = Address::generate(&_env);
+
+    assert!(client.try_set_config(&cfg).is_err());
+    assert_eq!(client.get_config().escrow_contract, original);
+}
+
+#[test]
+fn a_slash_can_never_reach_past_one_lps_own_balance() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &400_000_000i128);
+    s.staking.stake(&s.lp, &400_000_000i128);
+    let other = Address::generate(&s.env);
+    s.usdc_admin.mint(&other, &1_000_000_000i128);
+    s.staking.stake(&other, &1_000_000_000i128);
+    let pool_before = s.usdc.balance(&s.staking.address);
+    let victim_before = s.usdc.balance(&s.user);
+
+    let res = s
+        .staking
+        .try_slash(&s.lp, &s.trade_id, &500_000_000i128, &s.resolver);
+
+    assert_eq!(res, Err(Ok(Error::InsufficientStake)));
+    assert_eq!(s.usdc.balance(&s.staking.address), pool_before);
+    assert_eq!(s.usdc.balance(&s.user), victim_before);
+    assert_eq!(s.staking.get_stake(&other).staked, 1_000_000_000i128);
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 400_000_000i128);
+}
+
+#[test]
+fn topping_a_reservation_up_takes_only_the_difference_at_the_boundary() {
+    let (env, client, _admin, _usdc, usdc_admin, resolver) = setup_with_usdc();
+    let lp = Address::generate(&env);
+    usdc_admin.mint(&lp, &1_000_000_000i128);
+    client.stake(&lp, &1_000_000_000i128);
+    let trade = id32(&env, 5);
+    client.reserve(&lp, &trade, &600_000_000i128, &resolver);
+
+    client.reserve(&lp, &trade, &1_000_000_000i128, &resolver);
+
+    assert_eq!(client.get_stake(&lp).reserved, 1_000_000_000i128);
+    assert_eq!(client.get_reservation(&lp, &trade), Some(1_000_000_000i128));
+    assert_eq!(client.available(&lp), 0);
+}
+
+#[test]
+fn the_admin_role_cannot_be_pushed_onto_an_address_that_never_consented() {
+    let (env, client, admin, _usdc, _resolver) = setup();
+    let unwilling = Address::generate(&env);
+    let mut cfg = client.get_config();
+    cfg.admin = unwilling.clone();
+
+    env.set_auths(&[]);
+    let res = client
+        .mock_auths(&[MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "set_config",
+                args: (cfg.clone(),).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_set_config(&cfg);
+
+    assert!(res.is_err());
+    assert_eq!(client.get_config().admin, admin);
 }

@@ -2632,3 +2632,367 @@ fn configuration_may_not_collapse_the_admin_and_resolver_together() {
 
     assert_eq!(client.try_set_config(&cfg), Err(Ok(Error::InvalidConfig)));
 }
+
+fn gate_setup() -> (
+    Env,
+    EscrowContractClient<'static>,
+    Address,
+    Address,
+    Address,
+    Address,
+    Address,
+    token::TokenClient<'static>,
+) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (usdc, usdc_admin) = create_usdc(&env, &admin);
+    let resolver = Address::generate(&env);
+    let attestor = Address::generate(&env);
+    let pw = Address::generate(&env);
+    let contract_id = env.register(
+        EscrowContract,
+        (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, attestor.clone()),
+    );
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let provider = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    usdc_admin.mint(&provider, &100_0000000i128);
+    (env, client, admin, resolver, attestor, provider, recipient, usdc)
+}
+
+fn gate_trade(
+    env: &Env,
+    client: &EscrowContractClient<'static>,
+    provider: &Address,
+    recipient: &Address,
+    flow: crate::types::Flow,
+    id: u8,
+) {
+    let pw = client.get_config().default_platform_wallet;
+    let lw = Address::generate(env);
+    client.create_trade(
+        &id32(env, id), provider, recipient, provider, &100_0000000i128, &1i128,
+        &Symbol::new(env, "IDR"), &flow, &30u32, &120u32,
+        &pw, &lw, &1000u64, &2000u64, &3000u64,
+    );
+}
+
+#[test]
+#[should_panic]
+fn the_attestor_may_not_be_the_resolver() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let usdc = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let pw = Address::generate(&env);
+
+    env.register(
+        EscrowContract,
+        (admin.clone(), usdc.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, resolver.clone()),
+    );
+}
+
+#[test]
+#[should_panic]
+fn the_attestor_may_not_be_the_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let usdc = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let pw = Address::generate(&env);
+
+    env.register(
+        EscrowContract,
+        (admin.clone(), usdc.clone(), resolver.clone(), 30u32, pw.clone(), 3600u64, admin.clone()),
+    );
+}
+
+#[test]
+fn the_admin_may_not_reappoint_the_resolver_onto_the_attestor() {
+    let (_env, client, _admin, _resolver, attestor, _p, _r, _usdc) = gate_setup();
+    let mut cfg = client.get_config();
+    cfg.resolver = attestor.clone();
+
+    assert_eq!(client.try_set_config(&cfg), Err(Ok(Error::InvalidConfig)));
+    assert_ne!(client.get_config().resolver, attestor);
+}
+
+#[test]
+fn the_admin_may_not_hand_the_admin_role_to_the_attestor() {
+    let (_env, client, _admin, _resolver, attestor, _p, _r, _usdc) = gate_setup();
+    let mut cfg = client.get_config();
+    cfg.admin = attestor.clone();
+
+    assert_eq!(client.try_set_config(&cfg), Err(Ok(Error::InvalidConfig)));
+    assert_ne!(client.get_config().admin, attestor);
+}
+
+#[test]
+fn a_funded_withdrawal_cannot_be_dragged_into_a_dispute() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::Withdraw, 1);
+    let before = usdc.balance(&recipient);
+
+    assert_eq!(
+        client.try_raise_dispute(&id32(&env, 1), &resolver),
+        Err(Ok(Error::EarlyReleaseNotAllowed))
+    );
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Funded);
+    assert_eq!(usdc.balance(&recipient), before);
+}
+
+#[test]
+fn only_the_resolver_may_dispute_a_funded_deposit_not_the_admin() {
+    let (env, client, admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+
+    assert_eq!(
+        client.try_raise_dispute(&id32(&env, 1), &admin),
+        Err(Ok(Error::Unauthorized))
+    );
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Funded);
+}
+
+#[test]
+fn a_funded_dispute_leaves_no_origin_latched_behind_it() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.raise_dispute(&id32(&env, 1), &resolver);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
+
+    let trade = client.get_trade(&id32(&env, 1));
+    assert!(!trade.has_pre_dispute_status);
+    let (_d, _p, _r, _a, pre_settlement) = client.dispute_view(&id32(&env, 1));
+    assert!(!pre_settlement);
+}
+
+#[test]
+fn the_admin_can_unwind_a_funded_dispute_without_the_attestor() {
+    let (env, client, admin, resolver, _attestor, provider, recipient, usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.raise_dispute(&id32(&env, 1), &resolver);
+    let before = usdc.balance(&provider);
+    let deadline = client.get_trade(&id32(&env, 1)).resolver_deadline;
+    env.ledger().with_mut(|l| l.timestamp = deadline + 1);
+
+    env.set_auths(&[]);
+    client
+        .mock_auths(&[MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "resolve",
+                args: (id32(&env, 1), crate::types::ResolveOutcome::Refund, admin.clone()).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &admin);
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Refunded);
+    assert_eq!(usdc.balance(&provider), before + 100_0000000i128);
+    assert_eq!(usdc.balance(&client.address), 0);
+}
+
+#[test]
+fn the_admin_unwind_is_a_refund_only_never_a_release() {
+    let (env, client, admin, resolver, _attestor, provider, recipient, usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.raise_dispute(&id32(&env, 1), &resolver);
+    let before = usdc.balance(&recipient);
+    let deadline = client.get_trade(&id32(&env, 1)).resolver_deadline;
+    env.ledger().with_mut(|l| l.timestamp = deadline + 1);
+
+    env.set_auths(&[]);
+    let res = client
+        .mock_auths(&[MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "resolve",
+                args: (id32(&env, 1), crate::types::ResolveOutcome::Release, admin.clone()).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &admin);
+
+    assert!(res.is_err());
+    assert_eq!(usdc.balance(&recipient), before);
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Disputed);
+}
+
+#[test]
+fn the_resolvers_post_settlement_dispute_does_not_consume_the_parties_own() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+
+    client.raise_dispute(&id32(&env, 1), &resolver);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
+    assert!(!client.get_trade(&id32(&env, 1)).post_settle_resolved);
+    assert!(client.get_trade(&id32(&env, 1)).resolver_post_settle_used);
+
+    assert_eq!(
+        client.try_raise_dispute(&id32(&env, 1), &resolver),
+        Err(Ok(Error::AlreadyResolved))
+    );
+
+    client.raise_dispute(&id32(&env, 1), &recipient);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
+    assert!(client.get_trade(&id32(&env, 1)).post_settle_resolved);
+}
+
+#[test]
+fn a_partys_spent_dispute_is_not_restored_by_a_later_resolver_one() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+
+    client.raise_dispute(&id32(&env, 1), &recipient);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
+    client.raise_dispute(&id32(&env, 1), &resolver);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
+
+    assert!(client.get_trade(&id32(&env, 1)).post_settle_resolved);
+    assert_eq!(
+        client.try_raise_dispute(&id32(&env, 1), &recipient),
+        Err(Ok(Error::AlreadyResolved))
+    );
+}
+
+#[test]
+fn widening_the_dispute_window_does_not_reopen_a_settled_trade() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+    assert_eq!(client.get_trade(&id32(&env, 1)).post_settle_deadline, 4100);
+
+    env.ledger().with_mut(|l| l.timestamp = 4101);
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 604_800;
+    client.set_config(&cfg);
+
+    assert_eq!(
+        client.try_raise_dispute(&id32(&env, 1), &resolver),
+        Err(Ok(Error::DisputeWindowPassed))
+    );
+}
+
+#[test]
+fn a_deposit_refund_opens_the_instant_attestation_closes() {
+    let (env, client, _admin, _resolver, attestor, provider, recipient, usdc) = gate_setup();
+    let pw = client.get_config().default_platform_wallet;
+    let lw = Address::generate(&env);
+    for id in [1u8, 2u8] {
+        client.create_trade(
+            &id32(&env, id), &provider, &recipient, &provider, &10_0000000i128, &1i128,
+            &Symbol::new(&env, "IDR"), &crate::types::Flow::TopUp, &30u32, &120u32,
+            &pw, &lw, &1000u64, &1001u64, &3000u64,
+        );
+    }
+
+    env.ledger().with_mut(|l| l.timestamp = 1001);
+    client.mark_fiat_paid(&id32(&env, 1), &attestor);
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::FiatPaid);
+    assert_eq!(
+        client.try_refund(&id32(&env, 2)),
+        Err(Ok(Error::DeadlineNotReached))
+    );
+
+    env.ledger().with_mut(|l| l.timestamp = 1002);
+    assert_eq!(
+        client.try_mark_fiat_paid(&id32(&env, 2), &attestor),
+        Err(Ok(Error::DeadlinePassed))
+    );
+    let before = usdc.balance(&provider);
+    client.refund(&id32(&env, 2));
+    assert_eq!(usdc.balance(&provider), before + 10_0000000i128);
+}
+
+#[test]
+fn cancel_needs_both_parties_not_just_the_provider() {
+    let (env, client, _admin, _resolver, _attestor, provider, recipient, usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    let before = usdc.balance(&provider);
+
+    env.set_auths(&[]);
+    let res = client
+        .mock_auths(&[MockAuth {
+            address: &provider,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "cancel",
+                args: (id32(&env, 1),).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_cancel(&id32(&env, 1));
+
+    assert!(res.is_err());
+    assert_eq!(usdc.balance(&provider), before);
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Funded);
+}
+
+#[test]
+fn set_config_needs_the_sitting_admins_signature_not_the_incoming_ones() {
+    let (env, client, _admin, _resolver, _attestor, _p, _r, _usdc) = gate_setup();
+    let usurper = Address::generate(&env);
+    let mut cfg = client.get_config();
+    cfg.admin = usurper.clone();
+
+    env.set_auths(&[]);
+    let res = client
+        .mock_auths(&[MockAuth {
+            address: &usurper,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "set_config",
+                args: (cfg.clone(),).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_set_config(&cfg);
+
+    assert!(res.is_err());
+    assert_ne!(client.get_config().admin, usurper);
+}
+
+#[test]
+fn the_provider_allowlist_cap_is_twenty() {
+    assert_eq!(crate::MAX_EARLY_RELEASE_PROVIDERS, 20);
+}
+
+#[test]
+fn the_admin_role_cannot_be_pushed_onto_an_address_that_never_consented() {
+    let (env, client, admin, _resolver, _attestor, _p, _r, _usdc) = gate_setup();
+    let unwilling = Address::generate(&env);
+    let mut cfg = client.get_config();
+    cfg.admin = unwilling.clone();
+
+    env.set_auths(&[]);
+    let res = client
+        .mock_auths(&[MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "set_config",
+                args: (cfg.clone(),).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_set_config(&cfg);
+
+    assert!(res.is_err());
+    assert_eq!(client.get_config().admin, admin);
+}
