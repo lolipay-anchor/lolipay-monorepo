@@ -1816,7 +1816,7 @@ fn an_unresolved_dispute_is_the_administrators_problem_to_unwind() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #11)")]
 fn a_cooldown_shorter_than_a_day_is_refused_at_construction() {
     let env = Env::default();
     env.mock_all_auths();
@@ -1832,7 +1832,7 @@ fn a_cooldown_shorter_than_a_day_is_refused_at_construction() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #11)")]
 fn a_zero_cooldown_is_refused_too() {
     let env = Env::default();
     env.mock_all_auths();

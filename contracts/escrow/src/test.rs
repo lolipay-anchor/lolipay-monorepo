@@ -2700,7 +2700,7 @@ fn gate_trade(
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #17)")]
 fn the_attestor_may_not_be_the_resolver() {
     let env = Env::default();
     env.mock_all_auths();
@@ -2716,7 +2716,7 @@ fn the_attestor_may_not_be_the_resolver() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #17)")]
 fn the_attestor_may_not_be_the_admin() {
     let env = Env::default();
     env.mock_all_auths();
