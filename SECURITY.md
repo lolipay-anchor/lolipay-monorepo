@@ -159,8 +159,10 @@ it can hold.
   complete its exit before a verdict lands.
 - **Pausing does not stop an exit.** The pause prevents new collateral being
   staked; it does not hold an unstake already in flight.
-- **One slash per trade, whatever its size.** A trade that has been slashed for any
-  amount cannot be slashed again, so a partial recovery forecloses the remainder.
+- **Recovery on a trade is capped at the trade value, and may be taken in parts.**
+  A partial slash no longer forecloses the remainder: the contract tracks how much
+  has been taken and refuses only the amount that would carry the total past the
+  trade value.
 - **Restitution exists only where the culprit posted collateral.** When the party
   at fault is the user rather than the provider, there is no bond to draw on. This
   is a property of who stakes, not a defect.

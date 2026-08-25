@@ -14,7 +14,7 @@ use soroban_sdk::{
 use crate::events::{
     ConfigChanged, PausedSet, Slashed, Staked, UnstakeRequested, Unstaked};
 use crate::storage::{
-    bump_instance, get_config, get_stake, is_slashed, mark_slashed, set_config, set_stake};
+    add_slashed, bump_instance, get_config, get_stake, set_config, set_stake, slashed_so_far};
 use crate::types::{Config, DisputeView, Error, StakeInfo};
 
 const MAX_COOLDOWN_SECS: u64 = 90 * 24 * 60 * 60;
@@ -218,9 +218,6 @@ impl StakingContract {
         if amount <= 0 {
             return Err(Error::InvalidAmount);
         }
-        if is_slashed(&env, &trade_id) {
-            return Err(Error::AlreadySlashed);
-        }
         let view = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)?
             .ok_or(Error::TradeNotDisputed)?;
         if view.pre_settlement {
@@ -229,11 +226,12 @@ impl StakingContract {
         if !view.post_settle_raised {
             return Err(Error::TradeNotDisputed);
         }
-        if view.is_disputed {
-            return Err(Error::VerdictPending);
-        }
         if !view.liability_established {
-            return Err(Error::NoLiabilityFound);
+            return Err(if view.is_disputed {
+                Error::VerdictPending
+            } else {
+                Error::NoLiabilityFound
+            });
         }
         if env.ledger().timestamp() > view.slash_deadline {
             return Err(Error::SlashWindowPassed);
@@ -250,7 +248,11 @@ impl StakingContract {
         if lp != culprit {
             return Err(Error::SlashNotApplicable);
         }
-        if amount > trade_amount {
+        let already = slashed_so_far(&env, &trade_id);
+        if already >= trade_amount {
+            return Err(Error::AlreadySlashed);
+        }
+        if already + amount > trade_amount {
             return Err(Error::InvalidAmount);
         }
 
@@ -269,7 +271,7 @@ impl StakingContract {
             info.unbond_available_at = 0;
         }
         set_stake(&env, &lp, &info);
-        mark_slashed(&env, &trade_id);
+        add_slashed(&env, &trade_id, amount);
 
         let contract = env.current_contract_address();
         token::TokenClient::new(&env, &cfg.usdc_token).transfer(&contract, &victim, &amount);

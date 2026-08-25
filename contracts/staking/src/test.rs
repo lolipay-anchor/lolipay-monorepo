@@ -357,10 +357,20 @@ fn test_slash_bound_to_disputed_trade_pays_counterparty() {
     s.staking.slash(&s.lp, &s.trade_id, &500_000_000i128, &s.resolver);
     assert_eq!(s.usdc.balance(&s.user), 500_000_000i128);
     assert_eq!(s.staking.get_stake(&s.lp).staked, 1_500_000_000i128);
+
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &s.trade_id, &500_000_001i128, &s.resolver),
+        Err(Ok(Error::InvalidAmount))
+    );
+    assert_eq!(s.usdc.balance(&s.user), 500_000_000i128);
+
+    s.staking.slash(&s.lp, &s.trade_id, &500_000_000i128, &s.resolver);
+    assert_eq!(s.usdc.balance(&s.user), 1_000_000_000i128);
     assert_eq!(
         s.staking.try_slash(&s.lp, &s.trade_id, &1i128, &s.resolver),
         Err(Ok(Error::AlreadySlashed))
     );
+    assert_eq!(s.usdc.balance(&s.user), 1_000_000_000i128);
 }
 
 #[test]
@@ -480,11 +490,17 @@ fn test_slash_post_settlement_full_flow_and_one_shot() {
     assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Released);
 
     assert_eq!(
+        s.staking.try_slash(&s.lp, &trade_id, &500_000_001i128, &s.resolver),
+        Err(Ok(Error::InvalidAmount))
+    );
+    s.staking.slash(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
+    assert_eq!(s.usdc.balance(&s.user), user_before + 1_000_000_000i128);
+    assert_eq!(
         s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
         Err(Ok(Error::AlreadySlashed))
     );
-    assert_eq!(s.usdc.balance(&s.user), user_before + 500_000_000i128);
-    assert_eq!(s.staking.get_stake(&s.lp).staked, 1_500_000_000i128);
+    assert_eq!(s.usdc.balance(&s.user), user_before + 1_000_000_000i128);
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 1_000_000_000i128);
 }
 
 #[test]
@@ -1110,6 +1126,12 @@ fn a_verdict_acted_on_late_still_leaves_time_to_act_on_it() {
     assert_eq!(s.usdc.balance(&s.user), victim_before + 500_000_000i128);
 
     assert_eq!(
+        s.staking.try_slash(&s.lp, &trade_id, &500_000_001i128, &s.resolver),
+        Err(Ok(Error::InvalidAmount))
+    );
+    s.staking.slash(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
+    assert_eq!(s.usdc.balance(&s.user), victim_before + 1_000_000_000i128);
+    assert_eq!(
         s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
         Err(Ok(Error::AlreadySlashed))
     );
@@ -1424,4 +1446,66 @@ fn a_slash_may_take_the_whole_bond_but_not_one_unit_more() {
     let after = s.staking.get_stake(&s.lp);
     assert_eq!(after.staked, 0i128);
     assert_eq!(after.unbonding, 0i128);
+}
+
+#[test]
+fn a_culprit_cannot_freeze_its_own_remedy_by_disputing_again() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+
+    assert!(s.escrow.dispute_view(&s.trade_id).liability_established);
+
+    s.escrow.raise_dispute(&s.trade_id, &s.lp);
+    let view = s.escrow.dispute_view(&s.trade_id);
+    assert!(view.is_disputed);
+    assert!(view.liability_established);
+
+    let victim_before = s.usdc.balance(&s.user);
+    s.staking.slash(&s.lp, &s.trade_id, &400_000_000i128, &s.resolver);
+    assert_eq!(s.usdc.balance(&s.user), victim_before + 400_000_000i128);
+}
+
+#[test]
+fn a_pending_verdict_still_stops_a_slash_when_no_liability_is_established_yet() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+
+    let trade_id = s.make_settled_trade(240);
+    s.escrow.raise_dispute(&trade_id, &s.user);
+    let view = s.escrow.dispute_view(&trade_id);
+    assert!(view.is_disputed);
+    assert!(!view.liability_established);
+
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
+        Err(Ok(Error::VerdictPending))
+    );
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 1_000_000_000i128);
+}
+
+#[test]
+fn partial_slashes_may_accumulate_but_never_past_the_trade_amount() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &3_000_000_000i128);
+    s.staking.stake(&s.lp, &3_000_000_000i128);
+    let victim_before = s.usdc.balance(&s.user);
+
+    s.staking.slash(&s.lp, &s.trade_id, &400_000_000i128, &s.resolver);
+    s.staking.slash(&s.lp, &s.trade_id, &400_000_000i128, &s.resolver);
+    assert_eq!(s.usdc.balance(&s.user), victim_before + 800_000_000i128);
+
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &s.trade_id, &200_000_001i128, &s.resolver),
+        Err(Ok(Error::InvalidAmount))
+    );
+    s.staking.slash(&s.lp, &s.trade_id, &200_000_000i128, &s.resolver);
+    assert_eq!(s.usdc.balance(&s.user), victim_before + 1_000_000_000i128);
+
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &s.trade_id, &1i128, &s.resolver),
+        Err(Ok(Error::AlreadySlashed))
+    );
+    assert_eq!(s.usdc.balance(&s.user), victim_before + 1_000_000_000i128);
 }

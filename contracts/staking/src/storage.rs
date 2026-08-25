@@ -48,13 +48,28 @@ pub fn set_stake(env: &Env, lp: &Address, info: &StakeInfo) {
         .extend_ttl(&key, STAKE_BUMP_THRESHOLD, STAKE_LIFETIME);
 }
 
-pub fn is_slashed(env: &Env, trade_id: &soroban_sdk::BytesN<32>) -> bool {
-    env.storage().persistent().has(&DataKey::Slashed(trade_id.clone()))
+pub fn slashed_so_far(env: &Env, trade_id: &soroban_sdk::BytesN<32>) -> i128 {
+    let key = DataKey::Slashed(trade_id.clone());
+    match env.storage().persistent().get::<DataKey, i128>(&key) {
+        Some(v) => {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, SLASHED_BUMP_THRESHOLD, SLASHED_LIFETIME);
+            v
+        }
+        None => 0,
+    }
 }
 
-pub fn mark_slashed(env: &Env, trade_id: &soroban_sdk::BytesN<32>) {
+pub fn add_slashed(env: &Env, trade_id: &soroban_sdk::BytesN<32>, amount: i128) {
     let key = DataKey::Slashed(trade_id.clone());
-    env.storage().persistent().set(&key, &true);
+    let total = env
+        .storage()
+        .persistent()
+        .get::<DataKey, i128>(&key)
+        .unwrap_or(0)
+        + amount;
+    env.storage().persistent().set(&key, &total);
     env.storage()
         .persistent()
         .extend_ttl(&key, SLASHED_BUMP_THRESHOLD, SLASHED_LIFETIME);
