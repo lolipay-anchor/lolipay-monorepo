@@ -189,13 +189,13 @@ impl StakingContract {
     ) -> Result<(), Error> {
         bump_instance(&env);
         let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
-        if Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)?.is_some() {
-            return Err(Error::SlashWindowOpen);
-        }
         let reserved_at = storage_get_reservation(&env, &lp, &trade_id)
             .ok_or(Error::ReservationNotFound)?
             .reserved_at;
         if env.ledger().timestamp() <= reserved_at + UNCLAIMED_RESERVATION_SECS {
+            return Err(Error::SlashWindowOpen);
+        }
+        if Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)?.is_some() {
             return Err(Error::SlashWindowOpen);
         }
         Self::drop_reservation(&env, &lp, &trade_id)
@@ -268,9 +268,8 @@ impl StakingContract {
         if is_slashed(&env, &trade_id) {
             return Err(Error::AlreadySlashed);
         }
-        let existing = storage_get_reservation(&env, &lp, &trade_id)
-            .map(|r| r.amount)
-            .unwrap_or(0);
+        let prior = storage_get_reservation(&env, &lp, &trade_id);
+        let existing = prior.as_ref().map(|r| r.amount).unwrap_or(0);
         if existing == amount {
             return Ok(());
         }
@@ -288,7 +287,13 @@ impl StakingContract {
             &env,
             &lp,
             &trade_id,
-            &Reservation { amount, reserved_at: env.ledger().timestamp() },
+            &Reservation {
+                amount,
+                reserved_at: prior
+                    .as_ref()
+                    .map(|r| r.reserved_at)
+                    .unwrap_or_else(|| env.ledger().timestamp()),
+            },
         );
         Reserved { lp, trade_id, amount, total_reserved: info.reserved }.publish(&env);
         Ok(())

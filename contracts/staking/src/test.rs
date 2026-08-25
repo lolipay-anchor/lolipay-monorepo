@@ -2109,3 +2109,85 @@ fn the_unclaimed_door_cannot_be_used_before_the_trade_would_have_arrived() {
         Err(Ok(Error::InsufficientAvailable))
     );
 }
+
+#[test]
+fn topping_up_a_reservation_does_not_restart_its_unclaimed_clock() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
+    s.staking.stake(&s.lp, &2_000_000_000i128);
+    let never = id32(&s.env, 208);
+    s.staking.reserve(&s.lp, &never, &100_000_000i128, &s.resolver);
+    let at = s.env.ledger().timestamp();
+
+    s.env.ledger().with_mut(|li| li.timestamp = at + 80_000);
+    s.staking.reserve(&s.lp, &never, &200_000_000i128, &s.resolver);
+
+    s.env.ledger().with_mut(|li| li.timestamp = at + 86_401);
+    s.staking.release_unclaimed_reservation(&s.lp, &never);
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+}
+
+#[test]
+fn asking_to_free_a_reservation_that_does_not_exist_says_so() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let live = s.make_trade(209, false);
+
+    assert_eq!(
+        s.staking.try_release_unclaimed_reservation(&s.lp, &live),
+        Err(Ok(Error::ReservationNotFound))
+    );
+}
+
+#[test]
+fn each_kind_of_entry_keeps_the_lifetime_its_access_pattern_needs() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_trade(210, false);
+    s.staking.reserve(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
+
+    let day = 17_280u32;
+    let addr = s.staking.address.clone();
+    s.env.as_contract(&addr, || {
+        use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
+        assert_eq!(s.env.storage().instance().get_ttl(), 90 * day);
+        assert_eq!(
+            s.env.storage().persistent().get_ttl(&crate::types::DataKey::Stake(s.lp.clone())),
+            90 * day
+        );
+        assert_eq!(
+            s.env.storage().persistent().get_ttl(&crate::types::DataKey::Reservation(
+                s.lp.clone(),
+                trade_id.clone()
+            )),
+            120 * day
+        );
+    });
+}
+
+#[test]
+fn reading_a_reservation_carries_its_lifetime_forward() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_trade(211, false);
+    s.staking.reserve(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
+
+    let day = 17_280u32;
+    s.env.ledger().with_mut(|li| li.sequence_number += 95 * day);
+    let addr = s.staking.address.clone();
+    let key = crate::types::DataKey::Reservation(s.lp.clone(), trade_id.clone());
+    s.env.as_contract(&addr, || {
+        use soroban_sdk::testutils::storage::Persistent as _;
+        assert_eq!(s.env.storage().persistent().get_ttl(&key), 25 * day);
+    });
+
+    s.staking.get_reservation(&s.lp, &trade_id);
+
+    s.env.as_contract(&addr, || {
+        use soroban_sdk::testutils::storage::Persistent as _;
+        assert_eq!(s.env.storage().persistent().get_ttl(&key), 120 * day);
+    });
+}

@@ -8,6 +8,8 @@ const INSTANCE_BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
 const INSTANCE_LIFETIME: u32 = 90 * DAY_IN_LEDGERS;
 const STAKE_BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
 const STAKE_LIFETIME: u32 = 90 * DAY_IN_LEDGERS;
+const SLASHED_BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
+const SLASHED_LIFETIME: u32 = 90 * DAY_IN_LEDGERS;
 const RESERVATION_BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
 const RESERVATION_LIFETIME: u32 = 120 * DAY_IN_LEDGERS;
 
@@ -58,7 +60,7 @@ pub fn mark_slashed(env: &Env, trade_id: &soroban_sdk::BytesN<32>) {
     env.storage().persistent().set(&key, &true);
     env.storage()
         .persistent()
-        .extend_ttl(&key, STAKE_BUMP_THRESHOLD, STAKE_LIFETIME);
+        .extend_ttl(&key, SLASHED_BUMP_THRESHOLD, SLASHED_LIFETIME);
 }
 
 pub fn get_reservation(
