@@ -155,3 +155,6 @@ export const getRaiseDisputeTx = (c: ApiClient, orderId: string) =>
 
 export const getResolveTx = (c: ApiClient, orderId: string, outcome: 'release' | 'refund') =>
   c.request<TxEnvelope>('GET', `/orders/${orderId}/tx/resolve?outcome=${outcome}`)
+
+export const getSlashTx = (c: ApiClient, orderId: string, amount: string) =>
+  c.request<TxEnvelope>('GET', `/orders/${orderId}/tx/slash?amount=${encodeURIComponent(amount)}`)

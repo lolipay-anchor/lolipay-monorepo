@@ -476,6 +476,47 @@ export class StellarReadService {
     return { xdr: preparedTx.toXdr(), networkPassphrase: this.cfg.networkPassphrase };
   }
 
+  async buildSlashTx(
+    callerAddress: string,
+    lpAddress: string,
+    tradeIdHex: string,
+    amount: bigint,
+  ): Promise<{ xdr: string; networkPassphrase: string }> {
+    const server = this.createRpcServer();
+    let account;
+    try {
+      account = await withRpcRetry(() => server.getAccount(callerAddress), 'getAccount');
+    } catch {
+      throw new Error(`buildSlashTx: could not load account ${callerAddress} from Stellar RPC`);
+    }
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.cfg.networkPassphrase,
+    })
+      .addOperation(
+        Operation.invokeContractFunction({
+          contract: this.cfg.stakingContractId,
+          function: 'slash',
+          args: [
+            nativeToScVal(new Address(lpAddress), { type: 'address' }),
+            nativeToScVal(Buffer.from(tradeIdHex, 'hex')),
+            nativeToScVal(amount, { type: 'i128' }),
+            nativeToScVal(new Address(callerAddress), { type: 'address' }),
+          ],
+        }),
+      )
+      .setTimeout(300)
+      .build();
+    let preparedTx;
+    try {
+      preparedTx = await withRpcRetry(() => server.prepareTransaction(tx, USE_UPGRADED_SOROBAN_AUTH), 'prepareTransaction');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`buildSlashTx: prepareTransaction failed: ${msg}`);
+    }
+    return { xdr: preparedTx.toXdr(), networkPassphrase: this.cfg.networkPassphrase };
+  }
+
   async buildRefundTx(
     contractId: string,
     tradeIdHex: string,

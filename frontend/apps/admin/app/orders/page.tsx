@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { rpc, TransactionBuilder } from '@stellar/stellar-sdk'
-import { getAdminOrders, getResolveTx, downloadOrderProof, downloadDisputeEvidence, getAdminOrderRisk } from '@lolipay/api-client'
+import { getAdminOrders, getResolveTx, getSlashTx, downloadOrderProof, downloadDisputeEvidence, getAdminOrderRisk } from '@lolipay/api-client'
 import type { Order, OrderStatus } from '@lolipay/api-client'
 import { useWallet } from '@lolipay/wallet'
 import { Card, StatusPill, Button, SegmentProgress, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
@@ -94,8 +94,8 @@ export function ResolveActions({
       <p className="text-[11px] leading-relaxed text-lp-muted">
         Resolve first. The staking contract refuses a slash while the dispute is still open, and
         it requires the liability that resolving establishes — so a slash is submitted after this,
-        never before. There is no slash action in this console yet; it is a manual invocation with
-        the resolver key.
+        never before. Once resolved, a recovery panel appears on settlements where the provider is
+        the one that defaulted.
       </p>
     </div>
   )
@@ -533,7 +533,86 @@ function OrderCard({ order, onResolved }: { order: Order; onResolved: () => void
       {order.status === 'DISPUTED' && (
         <ResolveActions order={order} onResolved={onResolved} />
       )}
+
+      {providerDefaulted(order) && <SlashAction order={order} onSlashed={onResolved} />}
     </Card>
+  )
+}
+
+export function providerDefaulted(order: Order): boolean {
+  return (
+    (order.flow === 'TOP_UP' && order.status === 'REFUNDED') ||
+    (order.flow === 'WITHDRAW' && order.status === 'RELEASED')
+  )
+}
+
+export function SlashAction({
+  order,
+  onSlashed,
+  submitFn = defaultSubmit,
+}: {
+  order: Order
+  onSlashed: () => void
+  submitFn?: SubmitFn
+}) {
+  const wallet = useWallet()
+  const full = order.usdc_amount
+  const [amount, setAmount] = React.useState(full)
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  async function slash() {
+    setBusy(true)
+    setError(null)
+    try {
+      const { xdr, networkPassphrase } = await getSlashTx(client, order.id, amount)
+      const signedXdr = await wallet.signTransaction(xdr, networkPassphrase)
+      await submitFn(signedXdr, networkPassphrase)
+      onSlashed()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Slash failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 border-t border-lp-line pt-3 space-y-2">
+      <p className="text-xs font-semibold text-lp-amber">Recover from the provider&apos;s bond</p>
+      {error && (
+        <p className="text-xs text-lp-danger" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2 items-center">
+        <input
+          type="text"
+          inputMode="numeric"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
+          disabled={busy}
+          aria-label="Amount to recover, in USDC base units"
+          data-testid="slash-amount"
+          className="flex-1 rounded bg-lp-surface border border-lp-line px-2 py-1 text-xs text-lp-text"
+        />
+        <Button
+          size="sm"
+          loading={busy}
+          disabled={busy || amount === '' || amount === '0'}
+          onClick={slash}
+          data-testid="slash-submit"
+          aria-label="Recover from bond"
+        >
+          Recover
+        </Button>
+      </div>
+      <p className="text-[11px] leading-relaxed text-lp-muted">
+        Pays the counterparty out of the provider&apos;s staked collateral, up to{' '}
+        {formatUSDC(BigInt(full))} USDC on this trade. Partial recovery is allowed and may be
+        repeated, but the total can never exceed the trade value. Requires the resolver or
+        administrator key, and only works after the dispute has been resolved.
+      </p>
+    </div>
   )
 }
 

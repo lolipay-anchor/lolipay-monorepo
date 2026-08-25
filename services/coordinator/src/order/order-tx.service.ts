@@ -12,7 +12,7 @@ import { AppConfigService } from '../config/app-config.service';
 import { ConfigCache } from '../config/config-cache';
 import { OrderStatusService } from './order-status.service';
 import { mapRoles, Flow, getFiatPayer, requireLp } from './order.params';
-import { describeContractError } from './contract-error';
+import { describeContractError, describeStakingError } from './contract-error';
 import { canDispute } from './dispute.util';
 
 @Injectable()
@@ -228,6 +228,61 @@ export class OrderTxService {
     } catch (err) {
       console.error('buildResolveTx error:', err instanceof Error ? err.message : String(err));
       const contractProblem = describeContractError(err);
+      if (contractProblem) {
+        throw new ConflictException(contractProblem);
+      }
+      throw new ServiceUnavailableException('Stellar RPC unavailable, retry later');
+    }
+  }
+
+  async buildSlashTx(
+    orderId: string,
+    callerAddress: string,
+    amount: bigint,
+  ): Promise<{ xdr: string; networkPassphrase: string }> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { lp: true },
+    });
+    if (!order) throw new NotFoundException('order not found');
+    const lp = requireLp(order);
+
+    if (amount <= 0n) {
+      throw new BadRequestException('amount must be positive');
+    }
+    if (amount > order.usdcAmount) {
+      throw new BadRequestException(
+        'amount exceeds the trade value — a slash can never recover more than the trade was worth',
+      );
+    }
+
+    const current = await this.status.refreshOrderStatus(orderId, order);
+    const flow = current.flow as Flow;
+
+    if (current.status === 'RELEASED' || current.status === 'REFUNDED') {
+      const providerDefaulted = flow === 'TOP_UP' && current.status === 'REFUNDED';
+      const recipientDefaulted = flow === 'WITHDRAW' && current.status === 'RELEASED';
+      if (!providerDefaulted && !recipientDefaulted) {
+        throw new ConflictException(
+          'this settlement left the user holding the money, not the provider — there is no provider bond to draw on',
+        );
+      }
+    } else if (current.status !== 'DISPUTED') {
+      throw new ConflictException(
+        'a slash is restitution after settlement — this order has not settled, and while it has not, releasing or refunding the escrow is the remedy',
+      );
+    }
+
+    try {
+      return await this.stellar.buildSlashTx(
+        callerAddress,
+        lp.stellarAddress,
+        current.tradeId,
+        amount,
+      );
+    } catch (err) {
+      console.error('buildSlashTx error:', err instanceof Error ? err.message : String(err));
+      const contractProblem = describeStakingError(err);
       if (contractProblem) {
         throw new ConflictException(contractProblem);
       }

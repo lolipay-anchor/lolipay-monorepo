@@ -119,6 +119,19 @@ export class OrderController {
     return this.tx.buildResolveTx(id, req.user.address, outcome);
   }
 
+  @Get(':id/tx/slash')
+  @Roles('admin')
+  async slashTx(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Query('amount') amount: string,
+  ) {
+    if (!/^[0-9]+$/.test(amount ?? '')) {
+      throw new BadRequestException('amount must be a whole number of USDC base units');
+    }
+    return this.tx.buildSlashTx(id, req.user.address, BigInt(amount));
+  }
+
   @Post(':id/proof')
   @HttpCode(200)
   @Roles('lp', 'admin')
