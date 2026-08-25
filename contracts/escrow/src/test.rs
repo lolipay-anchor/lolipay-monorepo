@@ -3672,3 +3672,52 @@ fn a_resolver_verdict_carries_only_the_attestation_hour() {
         deadline + 1 + 3600
     );
 }
+
+#[test]
+fn a_dispute_window_shorter_than_the_attestation_grace_is_refused() {
+    let (_env, client, _admin, _resolver, _attestor, _p, _r, _usdc) = gate_setup();
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 1;
+    assert_eq!(client.try_set_config(&cfg), Err(Ok(Error::InvalidConfig)));
+
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 3599;
+    assert_eq!(client.try_set_config(&cfg), Err(Ok(Error::InvalidConfig)));
+
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 3600;
+    client.set_config(&cfg);
+    assert_eq!(client.get_config().dispute_window, 3600);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #17)")]
+fn a_contract_cannot_be_born_with_a_one_second_dispute_window() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let usdc = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let pw = Address::generate(&env);
+
+    env.register(
+        EscrowContract,
+        (admin, usdc, resolver, 30u32, pw, 1u64, Address::generate(&env)),
+    );
+}
+
+#[test]
+fn raising_a_post_settlement_dispute_buys_a_full_day_to_act_on_the_verdict() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+
+    env.ledger().with_mut(|l| l.timestamp = 600);
+    client.raise_dispute(&id32(&env, 1), &provider);
+    env.ledger().with_mut(|l| l.timestamp = 700);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).slash_deadline, 600 + 86_400);
+}

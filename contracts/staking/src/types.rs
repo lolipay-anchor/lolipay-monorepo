@@ -40,6 +40,7 @@ pub struct DisputeView {
     pub pre_settlement: bool,
     pub released: bool,
     pub post_settle_raised: bool,
+    pub liability_established: bool,
     pub slash_deadline: u64,
     pub collateral_hold_until: u64,
 }
@@ -68,4 +69,5 @@ pub enum Error {
     SlashWindowPassed = 18,
     SlashWindowOpen = 19,
     VerdictPending = 20,
+    NoLiabilityFound = 21,
 }

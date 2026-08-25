@@ -188,13 +188,13 @@ impl StakingContract {
     ) -> Result<(), Error> {
         bump_instance(&env);
         let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
-        if let Some(view) = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)? {
-            if view.is_disputed || view.pre_settlement {
-                return Err(Error::SlashWindowOpen);
-            }
-            if env.ledger().timestamp() <= view.collateral_hold_until {
-                return Err(Error::SlashWindowOpen);
-            }
+        let view = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)?
+            .ok_or(Error::SlashWindowOpen)?;
+        if view.is_disputed || view.pre_settlement {
+            return Err(Error::SlashWindowOpen);
+        }
+        if env.ledger().timestamp() <= view.collateral_hold_until {
+            return Err(Error::SlashWindowOpen);
         }
         Self::drop_reservation(&env, &lp, &trade_id)
     }
@@ -342,6 +342,9 @@ impl StakingContract {
         }
         if view.is_disputed {
             return Err(Error::VerdictPending);
+        }
+        if !view.liability_established {
+            return Err(Error::NoLiabilityFound);
         }
         if env.ledger().timestamp() > view.slash_deadline {
             return Err(Error::SlashWindowPassed);

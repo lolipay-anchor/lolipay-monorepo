@@ -28,6 +28,7 @@ const MAX_TOTAL_WINDOW: u64 = 2_592_000;
 const MAX_LP_FEE_BPS: u32 = 500;
 
 pub const ATTEST_GRACE_SECS: u64 = 3600;
+const MIN_DISPUTE_WINDOW: u64 = ATTEST_GRACE_SECS;
 pub const MAX_EARLY_RELEASE_PROVIDERS: u32 = 20;
 const MAX_PLATFORM_FEE_BPS: u32 = 500;
 
@@ -52,7 +53,7 @@ impl EscrowContract {
         if default_platform_fee_bps > MAX_PLATFORM_FEE_BPS {
             panic_with_error!(&env, Error::InvalidFee);
         }
-        if dispute_window == 0 || dispute_window > MAX_DISPUTE_WINDOW {
+        if !(MIN_DISPUTE_WINDOW..=MAX_DISPUTE_WINDOW).contains(&dispute_window) {
             panic_with_error!(&env, Error::InvalidConfig);
         }
         if admin == resolver || admin == fiat_attestor || resolver == fiat_attestor {
@@ -102,7 +103,7 @@ impl EscrowContract {
         if new_config.default_platform_fee_bps > MAX_PLATFORM_FEE_BPS {
             return Err(Error::InvalidFee);
         }
-        if new_config.dispute_window == 0 || new_config.dispute_window > MAX_DISPUTE_WINDOW {
+        if !(MIN_DISPUTE_WINDOW..=MAX_DISPUTE_WINDOW).contains(&new_config.dispute_window) {
             return Err(Error::InvalidConfig);
         }
         new_config.admin.require_auth();
@@ -144,6 +145,7 @@ impl EscrowContract {
             post_settle_raised: t.provider_post_settle_used
                 || t.recipient_post_settle_used
                 || t.resolver_post_settle_used,
+            liability_established: t.liability_established,
             slash_deadline,
             collateral_hold_until: core::cmp::max(slash_deadline, t.post_settle_deadline),
         })
