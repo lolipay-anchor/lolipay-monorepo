@@ -114,7 +114,22 @@ export class MonitoringService implements OnModuleInit {
       this.sample(fiatPaymentOverdueWhere(nowSec)),
     ]);
 
+    const overflow: Alert[] = [];
+    const noteOverflow = (kind: string, sampled: unknown[], label: string) => {
+      if (sampled.length < ALERT_SAMPLE_LIMIT) return;
+      overflow.push({
+        key: `${kind}:overflow`,
+        fingerprint: 'at-limit',
+        urgency: 'routine',
+        text: `more than ${ALERT_SAMPLE_LIMIT} ${label} — only the oldest ${ALERT_SAMPLE_LIMIT} are listed individually`,
+      });
+    };
+    noteOverflow('open_dispute', disputes, 'open disputes');
+    noteOverflow('release_overdue', releaseOverdue, 'orders past their confirm deadline');
+    noteOverflow('fiat_payment_overdue', fiatOverdue, 'funded orders with unpaid fiat');
+
     const alerts: Alert[] = [
+      ...overflow,
       ...disputes.map((o) => ({
         key: `open_dispute:${o.id}`,
         fingerprint: o.id,

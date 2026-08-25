@@ -244,3 +244,53 @@ describe('a new problem is always news, even when the count did not move', () =>
     expect(alerts[0].text).toContain('trade-7');
   });
 });
+
+describe('more problems than the sample can carry', () => {
+  const NOW = new Date('2026-08-25T12:00:00Z');
+
+  function svcWithDisputes(n: number) {
+    const { svc, prisma } = makeSvc([]);
+    prisma.order.findMany = jest
+      .fn()
+      .mockResolvedValueOnce(
+        Array.from({ length: n }, (_, i) => ({ id: `ord-${i}`, tradeId: `tr-${i}` })),
+      )
+      .mockResolvedValue([]);
+    return svc;
+  }
+
+  const metrics = {
+    generated_at: 'now',
+    orders_by_status: {},
+    open_disputes: 0,
+    release_overdue: 0,
+    fiat_payment_overdue: 0,
+    indexer_lag_seconds: 5,
+  };
+
+  it('says so when the list is truncated, rather than hiding the rest', async () => {
+    const alerts = await svcWithDisputes(50).buildAlerts(metrics);
+    const over = alerts.find((a: Alert) => a.key === 'open_dispute:overflow');
+    expect(over).toBeDefined();
+    expect(over.text).toContain('more than 50');
+  });
+
+  it('says nothing about truncation when the list fits', async () => {
+    const alerts = await svcWithDisputes(49).buildAlerts(metrics);
+    expect(alerts.find((a: Alert) => a.key === 'open_dispute:overflow')).toBeUndefined();
+    expect(alerts).toHaveLength(49);
+  });
+
+  it('does not repeat the truncation notice every tick', async () => {
+    const svc = svcWithDisputes(50);
+    const alerts = await svc.buildAlerts(metrics);
+    const known = alerts.map((a: Alert) => ({
+      key: a.key,
+      fingerprint: a.fingerprint,
+      lastSentAt: new Date(NOW.getTime() - 1000),
+    }));
+    const { svc: quiet } = makeSvc(known);
+    const { toSend } = await quiet.reconcileAlerts(alerts, NOW);
+    expect(toSend).toEqual([]);
+  });
+});
