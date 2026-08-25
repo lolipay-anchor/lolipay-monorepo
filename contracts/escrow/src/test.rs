@@ -3515,6 +3515,7 @@ fn on_a_refunded_trade_it_is_the_provider_who_cannot_clear_itself() {
     client.raise_dispute(&id32(&env, 1), &provider);
     client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
     assert_ne!(client.get_trade(&id32(&env, 1)).slash_deadline, 0);
+    assert!(!client.get_trade(&id32(&env, 1)).liability_established);
 
     client.raise_dispute(&id32(&env, 1), &recipient);
     client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
@@ -3714,10 +3715,15 @@ fn raising_a_post_settlement_dispute_buys_a_full_day_to_act_on_the_verdict() {
     env.ledger().with_mut(|l| l.timestamp = 500);
     client.confirm_and_release(&id32(&env, 1));
 
-    env.ledger().with_mut(|l| l.timestamp = 600);
+    let settled = client.get_trade(&id32(&env, 1));
+    assert_eq!(settled.slash_deadline, 4100);
+
+    env.ledger().with_mut(|l| l.timestamp = 4000);
     client.raise_dispute(&id32(&env, 1), &provider);
-    env.ledger().with_mut(|l| l.timestamp = 700);
+    env.ledger().with_mut(|l| l.timestamp = 4050);
     client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
 
-    assert_eq!(client.get_trade(&id32(&env, 1)).slash_deadline, 600 + 86_400);
+    let after = client.get_trade(&id32(&env, 1)).slash_deadline;
+    assert_eq!(after, 4000 + 86_400);
+    assert!(after - 4050 > 86_000);
 }

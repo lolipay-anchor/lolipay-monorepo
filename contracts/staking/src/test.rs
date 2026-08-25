@@ -997,7 +997,7 @@ fn set_config_needs_the_sitting_admins_signature_not_the_incoming_ones() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidAction")]
+#[should_panic(expected = "Error(Auth, InvalidAction)")]
 fn naming_the_admin_is_not_the_same_as_being_the_admin_when_freeing_collateral() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
@@ -1441,6 +1441,11 @@ fn a_provider_cannot_free_its_own_collateral_before_the_trade_exists() {
         Err(Ok(Error::InsufficientAvailable))
     );
 
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &not_yet, &1i128, &s.resolver),
+        Err(Ok(Error::TradeNotDisputed))
+    );
+
     s.staking.force_release_reservation(&s.lp, &not_yet, &s.admin);
     assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
 }
@@ -1583,6 +1588,8 @@ fn a_dismissal_is_not_undone_by_a_later_dispute_the_holder_wins() {
     s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
     assert_eq!(s.escrow.dispute_view(&trade_id).slash_deadline, 0);
 
+    let now = s.env.ledger().timestamp();
+    s.env.ledger().with_mut(|li| li.timestamp = now + 1200);
     s.escrow.raise_dispute(&trade_id, &s.lp);
     s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
 
@@ -2010,6 +2017,10 @@ fn pausing_never_traps_collateral_that_nothing_can_claim() {
     s.staking.release_expired_reservation(&s.lp, &trade_id);
 
     assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+    assert_eq!(
+        s.staking.try_release_expired_reservation(&s.lp, &trade_id),
+        Err(Ok(Error::ReservationNotFound))
+    );
 }
 
 #[test]
