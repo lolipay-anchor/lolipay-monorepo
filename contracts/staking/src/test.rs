@@ -2054,7 +2054,7 @@ fn the_admin_may_reserve_as_well_as_the_resolver() {
 }
 
 #[test]
-fn a_reservation_the_trade_never_claimed_frees_itself_after_a_day() {
+fn a_reservation_the_trade_never_claimed_frees_itself_in_the_end() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
     s.staking.stake(&s.lp, &1_000_000_000i128);
@@ -2062,14 +2062,14 @@ fn a_reservation_the_trade_never_claimed_frees_itself_after_a_day() {
     s.staking.reserve(&s.lp, &never, &1_000_000_000i128, &s.resolver);
     let at = s.env.ledger().timestamp();
 
-    s.env.ledger().with_mut(|li| li.timestamp = at + 86_400);
+    s.env.ledger().with_mut(|li| li.timestamp = at + 172_800);
     assert_eq!(
         s.staking.try_release_unclaimed_reservation(&s.lp, &never),
         Err(Ok(Error::SlashWindowOpen))
     );
     assert_eq!(s.staking.get_stake(&s.lp).reserved, 1_000_000_000i128);
 
-    s.env.ledger().with_mut(|li| li.timestamp = at + 86_401);
+    s.env.ledger().with_mut(|li| li.timestamp = at + 172_801);
     s.staking.release_unclaimed_reservation(&s.lp, &never);
     assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
     assert_eq!(s.staking.available(&s.lp), 1_000_000_000i128);
@@ -2119,12 +2119,64 @@ fn topping_up_a_reservation_does_not_restart_its_unclaimed_clock() {
     s.staking.reserve(&s.lp, &never, &100_000_000i128, &s.resolver);
     let at = s.env.ledger().timestamp();
 
-    s.env.ledger().with_mut(|li| li.timestamp = at + 80_000);
+    s.env.ledger().with_mut(|li| li.timestamp = at + 170_000);
     s.staking.reserve(&s.lp, &never, &200_000_000i128, &s.resolver);
 
-    s.env.ledger().with_mut(|li| li.timestamp = at + 86_401);
+    s.env.ledger().with_mut(|li| li.timestamp = at + 172_801);
     s.staking.release_unclaimed_reservation(&s.lp, &never);
     assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+}
+
+#[test]
+fn collateral_added_after_the_window_has_run_out_is_refused_outright() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
+    s.staking.stake(&s.lp, &2_000_000_000i128);
+    let never = id32(&s.env, 212);
+    s.staking.reserve(&s.lp, &never, &1i128, &s.resolver);
+    let at = s.env.ledger().timestamp();
+
+    s.env.ledger().with_mut(|li| li.timestamp = at + 172_801);
+    assert_eq!(
+        s.staking.try_reserve(&s.lp, &never, &2_000_000_000i128, &s.resolver),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 1i128);
+
+    s.staking.release_unclaimed_reservation(&s.lp, &never);
+    s.staking.reserve(&s.lp, &never, &2_000_000_000i128, &s.resolver);
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 2_000_000_000i128);
+    assert_eq!(
+        s.staking.try_release_unclaimed_reservation(&s.lp, &never),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+}
+
+#[test]
+fn the_unclaimed_window_outlasts_the_longest_delay_a_trade_may_be_created_after() {
+    assert_eq!(lolipay_escrow::MAX_PAY_WINDOW, crate::ESCROW_MAX_PAY_WINDOW);
+}
+
+#[test]
+fn lowering_the_cooldown_never_releases_what_is_already_unbonding() {
+    let (env, client, admin, _usdc, usdc_admin, _resolver) = setup_with_usdc();
+    let lp = Address::generate(&env);
+    usdc_admin.mint(&lp, &2_000_000_000i128);
+    client.stake(&lp, &2_000_000_000i128);
+    let mut cfg = client.get_config();
+    cfg.cooldown_secs = 7_776_000;
+    cfg.admin = admin.clone();
+    client.set_config(&cfg);
+
+    client.request_unstake(&lp, &1_999_999_999i128);
+    let locked_until = client.get_stake(&lp).unbond_available_at;
+
+    let mut cfg = client.get_config();
+    cfg.cooldown_secs = 86_400;
+    client.set_config(&cfg);
+    client.request_unstake(&lp, &1i128);
+
+    assert_eq!(client.get_stake(&lp).unbond_available_at, locked_until);
 }
 
 #[test]

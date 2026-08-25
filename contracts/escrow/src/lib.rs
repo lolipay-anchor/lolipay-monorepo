@@ -22,7 +22,7 @@ use crate::types::{DisputeView, Config, Error, Flow, ResolveOutcome, Status, Tra
 const RESOLVER_WINDOW: u64 = 86_400;
 
 const MIN_PAY_WINDOW: u64 = 600;
-const MAX_PAY_WINDOW: u64 = 86_400;
+pub const MAX_PAY_WINDOW: u64 = 86_400;
 const MAX_TOTAL_WINDOW: u64 = 2_592_000;
 
 const MAX_LP_FEE_BPS: u32 = 500;

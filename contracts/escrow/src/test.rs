@@ -3814,3 +3814,25 @@ fn a_verdict_settlement_is_judged_by_the_window_its_trade_was_created_under() {
     assert_eq!(trade.post_settle_deadline, 700 + 604_800);
     assert_eq!(trade.slash_deadline, trade.post_settle_deadline);
 }
+
+#[test]
+fn reading_a_trade_carries_its_lifetime_forward() {
+    let (env, client, _admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+
+    let day = 17_280u32;
+    env.ledger().with_mut(|l| l.sequence_number += 40 * day);
+    let addr = client.address.clone();
+    let key = crate::types::DataKey::Trade(id32(&env, 1));
+    env.as_contract(&addr, || {
+        use soroban_sdk::testutils::storage::Persistent as _;
+        assert_eq!(env.storage().persistent().get_ttl(&key), 5 * day);
+    });
+
+    client.get_trade(&id32(&env, 1));
+
+    env.as_contract(&addr, || {
+        use soroban_sdk::testutils::storage::Persistent as _;
+        assert_eq!(env.storage().persistent().get_ttl(&key), 45 * day);
+    });
+}

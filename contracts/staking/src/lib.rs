@@ -20,7 +20,9 @@ use crate::types::{Config, DisputeView, Error, Reservation, StakeInfo};
 const MAX_COOLDOWN_SECS: u64 = 90 * 24 * 60 * 60;
 const MIN_COOLDOWN_SECS: u64 = 24 * 60 * 60;
 pub(crate) const ESCROW_TRADE_NOT_FOUND: u32 = 5;
-const UNCLAIMED_RESERVATION_SECS: u64 = 86_400;
+pub(crate) const ESCROW_MAX_PAY_WINDOW: u64 = 86_400;
+pub(crate) const UNCLAIMED_RESERVATION_SECS: u64 = 2 * ESCROW_MAX_PAY_WINDOW;
+const _: () = assert!(UNCLAIMED_RESERVATION_SECS > ESCROW_MAX_PAY_WINDOW);
 
 #[contract]
 pub struct StakingContract;
@@ -276,6 +278,11 @@ impl StakingContract {
         if existing > amount {
             return Err(Error::InvalidAmount);
         }
+        if let Some(r) = prior.as_ref() {
+            if env.ledger().timestamp() > r.reserved_at + UNCLAIMED_RESERVATION_SECS {
+                return Err(Error::SlashWindowOpen);
+            }
+        }
         let delta = amount - existing;
         let mut info = get_stake(&env, &lp);
         if delta > info.staked - info.reserved {
@@ -316,7 +323,7 @@ impl StakingContract {
         info.staked -= amount;
         info.unbonding += amount;
         let available_at = env.ledger().timestamp() + cfg.cooldown_secs;
-        info.unbond_available_at = available_at;
+        info.unbond_available_at = core::cmp::max(info.unbond_available_at, available_at);
         set_stake(&env, &lp, &info);
         UnstakeRequested { lp, amount, available_at }.publish(&env);
         Ok(())
