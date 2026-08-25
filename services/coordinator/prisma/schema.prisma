@@ -295,3 +295,11 @@ model Sep10ConsumedChallenge {
 
   @@index([expiresAt])
 }
+
+model AlertState {
+  key         String   @id
+  fingerprint String
+  firstSeenAt DateTime @default(now())
+  lastSentAt  DateTime
+  sendCount   Int      @default(1)
+}

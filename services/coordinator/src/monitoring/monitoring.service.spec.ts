@@ -1,5 +1,9 @@
 import { MonitoringService } from './monitoring.service';
 
+function rows(prefix: string, n: number) {
+  return Array.from({ length: n }, (_, i) => ({ id: `${prefix}${i}`, tradeId: `t${prefix}${i}` }));
+}
+
 function make(opts: {
   disputes: number;
   releaseOverdue: number;
@@ -20,6 +24,11 @@ function make(opts: {
         .mockResolvedValueOnce(opts.disputes)
         .mockResolvedValueOnce(opts.releaseOverdue)
         .mockResolvedValueOnce(opts.fiatOverdue),
+      findMany: jest
+        .fn()
+        .mockResolvedValueOnce(rows('d', opts.disputes))
+        .mockResolvedValueOnce(rows('r', opts.releaseOverdue))
+        .mockResolvedValueOnce(rows('f', opts.fiatOverdue)),
     },
     indexerState: {
       findUnique: jest.fn().mockResolvedValue(
@@ -27,6 +36,12 @@ function make(opts: {
       ),
     },
   } as any;
+  prisma.alertState = {
+    findMany: jest.fn().mockResolvedValue([]),
+    upsert: jest.fn(),
+    deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+  };
+  prisma.$transaction = jest.fn().mockResolvedValue([]);
   const cfg = { alertWebhookUrl: opts.webhook } as any;
   return { svc: new MonitoringService(prisma, cfg), prisma };
 }
@@ -61,7 +76,9 @@ describe('MonitoringService', () => {
     await svc.checkAndAlert();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.text).toMatch(/open dispute/i);
+    expect(body.text).toMatch(/disputed/i);
+    expect(body.text).toContain('d0');
+    expect(body.text).toContain('td0');
   });
 
   it('checkAndAlert stays quiet (no webhook) when all clear', async () => {

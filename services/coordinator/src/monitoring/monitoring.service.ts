@@ -2,8 +2,27 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/app-config.service';
+import { Prisma } from '../generated/prisma/client';
+import {
+  ALERT_SAMPLE_LIMIT,
+  fiatPaymentOverdueWhere,
+  nowSeconds,
+  openDisputesWhere,
+  releaseOverdueWhere,
+} from './monitoring.conditions';
 
 const INDEXER_LAG_ALERT_SECONDS = 120;
+const REMINDER_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const WEBHOOK_TIMEOUT_MS = 5000;
+
+export type Urgency = 'routine' | 'urgent';
+
+export interface Alert {
+  key: string;
+  fingerprint: string;
+  urgency: Urgency;
+  text: string;
+}
 
 @Injectable()
 export class MonitoringService implements OnModuleInit {
@@ -22,24 +41,12 @@ export class MonitoringService implements OnModuleInit {
   }
 
   async metrics() {
-    const nowSec = BigInt(Math.floor(Date.now() / 1000));
+    const nowSec = nowSeconds();
     const [grouped, openDisputes, stuckFiatPaid, overdueFunded, indexer] = await Promise.all([
       this.prisma.order.groupBy({ by: ['status'], _count: { _all: true } }),
-      this.prisma.order.count({ where: { status: 'DISPUTED' } }),
-
-      this.prisma.order.count({
-        where: { status: 'FIAT_PAID', confirmDeadline: { lt: nowSec } },
-      }),
-
-      this.prisma.order.count({
-        where: {
-          status: 'FUNDED',
-          OR: [
-            { flow: 'TOP_UP', payDeadline: { lt: nowSec } },
-            { flow: 'WITHDRAW', confirmDeadline: { lt: nowSec } },
-          ],
-        },
-      }),
+      this.prisma.order.count({ where: openDisputesWhere() }),
+      this.prisma.order.count({ where: releaseOverdueWhere(nowSec) }),
+      this.prisma.order.count({ where: fiatPaymentOverdueWhere(nowSec) }),
       this.prisma.indexerState.findUnique({ where: { id: 1 } }),
     ]);
 
@@ -69,44 +76,176 @@ export class MonitoringService implements OnModuleInit {
       return;
     }
 
-    const alerts: string[] = [];
-    if (m.open_disputes > 0) {
-      alerts.push(`${m.open_disputes} open dispute(s) awaiting resolution`);
-    }
-    if (m.release_overdue > 0) {
-      alerts.push(`${m.release_overdue} order(s) past confirm deadline (release overdue)`);
-    }
-    if (m.fiat_payment_overdue > 0) {
-      alerts.push(`${m.fiat_payment_overdue} FUNDED order(s) past pay deadline (fiat unpaid)`);
-    }
-    if (m.indexer_lag_seconds == null) {
-      alerts.push('indexer has never run');
-    } else if (m.indexer_lag_seconds > INDEXER_LAG_ALERT_SECONDS) {
-      alerts.push(`indexer lag ${m.indexer_lag_seconds}s (stalled?)`);
-    }
+    const alerts = await this.buildAlerts(m);
+    const { toSend, resolved } = await this.reconcileAlerts(alerts);
 
     if (alerts.length === 0) {
       this.log.log(
         `ok — disputes:${m.open_disputes} release_overdue:${m.release_overdue} indexer_lag:${m.indexer_lag_seconds}s`,
       );
-      return;
+    } else {
+      this.log.warn(`⚠️ lolipay coordinator: ${alerts.map((a) => a.text).join(' · ')}`);
     }
-    const text = `⚠️ lolipay coordinator: ${alerts.join(' · ')}`;
-    this.log.warn(text);
-    await this.sendWebhook(text, m);
+
+    const now = new Date();
+    if (toSend.length > 0) {
+      const urgent = toSend.some((a) => a.urgency === 'urgent');
+      const prefix = urgent ? '🚨 lolipay coordinator' : '⚠️ lolipay coordinator';
+      const delivered = await this.sendWebhook(
+        `${prefix}: ${toSend.map((a) => a.text).join(' · ')}`,
+        m,
+      );
+      if (delivered) await this.recordSent(toSend, now);
+    }
+    if (resolved.length > 0) {
+      const delivered = await this.sendWebhook(
+        `✅ lolipay coordinator: ${resolved.join(' · ')} — cleared`,
+        m,
+      );
+      if (delivered) await this.forgetResolved(resolved);
+    }
   }
 
-  private async sendWebhook(text: string, metrics: unknown) {
-    const url = this.cfg.alertWebhookUrl;
-    if (!url) return;
+  async buildAlerts(m: Awaited<ReturnType<MonitoringService['metrics']>>): Promise<Alert[]> {
+    const nowSec = nowSeconds();
+    const [disputes, releaseOverdue, fiatOverdue] = await Promise.all([
+      this.sample(openDisputesWhere()),
+      this.sample(releaseOverdueWhere(nowSec)),
+      this.sample(fiatPaymentOverdueWhere(nowSec)),
+    ]);
+
+    const alerts: Alert[] = [
+      ...disputes.map((o) => ({
+        key: `open_dispute:${o.id}`,
+        fingerprint: o.id,
+        urgency: 'routine' as Urgency,
+        text: `order ${o.id} (trade ${o.tradeId}) is disputed and awaiting resolution`,
+      })),
+      ...releaseOverdue.map((o) => ({
+        key: `release_overdue:${o.id}`,
+        fingerprint: o.id,
+        urgency: 'routine' as Urgency,
+        text: `order ${o.id} (trade ${o.tradeId}) is past its confirm deadline, release overdue`,
+      })),
+      ...fiatOverdue.map((o) => ({
+        key: `fiat_payment_overdue:${o.id}`,
+        fingerprint: o.id,
+        urgency: 'routine' as Urgency,
+        text: `order ${o.id} (trade ${o.tradeId}) is funded but the fiat is unpaid past its deadline`,
+      })),
+    ];
+
+    if (m.indexer_lag_seconds == null) {
+      alerts.push({
+        key: 'indexer_stalled',
+        fingerprint: 'never',
+        urgency: 'routine',
+        text: 'indexer has never run',
+      });
+    } else if (m.indexer_lag_seconds > INDEXER_LAG_ALERT_SECONDS) {
+      alerts.push({
+        key: 'indexer_stalled',
+        fingerprint: 'lagging',
+        urgency: 'routine',
+        text: `indexer lag ${m.indexer_lag_seconds}s (stalled?)`,
+      });
+    }
+    return alerts;
+  }
+
+  private async sample(
+    where: Prisma.OrderWhereInput,
+  ): Promise<{ id: string; tradeId: string }[]> {
+    return this.prisma.order.findMany({
+      where,
+      select: { id: true, tradeId: true },
+      orderBy: { createdAt: 'asc' },
+      take: ALERT_SAMPLE_LIMIT,
+    });
+  }
+
+  async reconcileAlerts(
+    alerts: Alert[],
+    now: Date = new Date(),
+  ): Promise<{ toSend: Alert[]; resolved: string[] }> {
+    let known: { key: string; fingerprint: string; lastSentAt: Date }[];
     try {
-      await fetch(url, {
+      known = await this.prisma.alertState.findMany({
+        select: { key: true, fingerprint: true, lastSentAt: true },
+      });
+    } catch (e) {
+      this.log.error(
+        `alert state unreadable, sending every alert rather than staying silent: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return { toSend: alerts, resolved: [] };
+    }
+    const byKey = new Map(known.map((k) => [k.key, k]));
+    const live = new Set(alerts.map((a) => a.key));
+
+    const toSend: Alert[] = [];
+    for (const a of alerts) {
+      const seen = byKey.get(a.key);
+      const isNew = !seen;
+      const changed = seen != null && seen.fingerprint !== a.fingerprint;
+      const stale =
+        seen != null && now.getTime() - seen.lastSentAt.getTime() >= REMINDER_INTERVAL_MS;
+      if (a.urgency === 'urgent' || isNew || changed || stale) {
+        toSend.push(a);
+      }
+    }
+
+    const resolved = known.filter((k) => !live.has(k.key)).map((k) => k.key);
+    return { toSend, resolved };
+  }
+
+  private async recordSent(alerts: Alert[], now: Date): Promise<void> {
+    if (alerts.length === 0) return;
+    try {
+      await this.prisma.$transaction(
+        alerts.map((a) =>
+          this.prisma.alertState.upsert({
+            where: { key: a.key },
+            create: { key: a.key, fingerprint: a.fingerprint, lastSentAt: now },
+            update: { fingerprint: a.fingerprint, lastSentAt: now, sendCount: { increment: 1 } },
+          }),
+        ),
+      );
+    } catch (e) {
+      this.log.error(
+        `could not record alert state, the next tick will send these again: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  private async forgetResolved(keys: string[]): Promise<void> {
+    if (keys.length === 0) return;
+    try {
+      await this.prisma.alertState.deleteMany({ where: { key: { in: keys } } });
+    } catch (e) {
+      this.log.error(
+        `could not clear alert state: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  private async sendWebhook(text: string, metrics: unknown): Promise<boolean> {
+    const url = this.cfg.alertWebhookUrl;
+    if (!url) return false;
+    try {
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text, metrics }),
+        signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
       });
+      if (!res.ok) {
+        this.log.error(`alert webhook rejected the alert with ${res.status}`);
+        return false;
+      }
+      return true;
     } catch (e) {
       this.log.error(`alert webhook failed: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
     }
   }
 }
