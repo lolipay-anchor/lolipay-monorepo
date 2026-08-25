@@ -527,3 +527,40 @@ describe('hasUsdcTrustline cache', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('hasUsdcTrustline never fails open', () => {
+  function svcWithCfg() {
+    return new StellarReadService({
+      rpcUrl: 'x',
+      networkPassphrase: 'x',
+      stakingContractId: 'C',
+      escrowContractId: 'C',
+      horizonUrl: 'https://horizon.test',
+      usdcAssetCode: 'USDC',
+      usdcAssetIssuer: 'GISSUER',
+    } as any);
+  }
+
+  afterEach(() => {
+    (global.fetch as any) = undefined;
+  });
+
+  it('refuses rather than assuming a trustline when Horizon rate-limits', async () => {
+    const svc = svcWithCfg();
+    (global as any).fetch = jest.fn().mockResolvedValue({ ok: false, status: 429 });
+    await expect(svc.hasUsdcTrustline(FAKE_LP)).rejects.toThrow(/cannot verify/i);
+  });
+
+  it('refuses rather than assuming a trustline when Horizon is unreachable', async () => {
+    const svc = svcWithCfg();
+    (global as any).fetch = jest.fn().mockRejectedValue(new Error('ECONNRESET'));
+    await expect(svc.hasUsdcTrustline(FAKE_LP)).rejects.toThrow(/cannot verify/i);
+  });
+
+  it('still reports a missing trustline as a plain false, not an error', async () => {
+    const svc = svcWithCfg();
+    (global as any).fetch = jest.fn().mockResolvedValue({ ok: false, status: 404 });
+    expect(await svc.hasUsdcTrustline(FAKE_LP)).toBe(false);
+  });
+});
+

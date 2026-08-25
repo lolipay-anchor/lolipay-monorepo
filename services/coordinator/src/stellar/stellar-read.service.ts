@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import {
   Address,
   Keypair,
@@ -113,9 +113,14 @@ export class StellarReadService {
         if (has) this.trustlineCache.set(address, { has, at: now });
         return has;
       }
-      return true;
-    } catch {
-      return true;
+      throw new ServiceUnavailableException(
+        'cannot verify the USDC trustline right now — please retry in a moment',
+      );
+    } catch (err) {
+      if (err instanceof ServiceUnavailableException) throw err;
+      throw new ServiceUnavailableException(
+        'cannot verify the USDC trustline right now — please retry in a moment',
+      );
     }
   }
 
