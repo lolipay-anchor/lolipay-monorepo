@@ -123,23 +123,49 @@ second creation for the same identifier.
 
 ## Collateral and slashing
 
-A slash is bound to a genuinely disputed trade. The trade must actually be in
-dispute, the provider must be a party to it, funds go to the recorded
-counterparty rather than a free-form address, the amount is capped at the trade
-value, and each trade can be slashed once. Disputed status is read live, so a
-resolved trade cannot be slashed. Deduction takes from staked collateral before
-unbonding collateral, so a provider cannot escape by moving funds into cooldown.
+A slash is restitution after a verdict, not a tool for use during a dispute. The
+staking contract enforces, in order: the trade must have settled (a slash is
+refused while the escrow still holds the principal — releasing it is the remedy
+then); a post-settlement dispute must have been raised; **no verdict may still be
+pending**; liability must have been established; the slash deadline must not have
+passed; the named provider must be the party that ended up holding the money; and
+the amount is capped at both the trade value and the provider's own bond. Funds go
+to the recorded counterparty, never to a free-form address. Deduction takes from
+staked collateral before unbonding collateral.
 
-Every sentence above describes the staking contract, which enforces it. The
-product does not yet reach it: no coordinator endpoint builds a slash
+**The ordering, stated plainly because the opposite is easy to assume.** `slash`
+refuses with `VerdictPending` while a dispute is open, and requires the liability
+that `resolve` establishes. **A slash is therefore submitted after the resolve,
+never before it.** An operator who slashes first will be refused, and will then
+resolve away the state that would have let the slash succeed.
+
+**What the product does not yet do.** No coordinator endpoint builds a slash
 transaction and no admin screen offers one, so a slash today is a manual
-invocation signed by the resolver or admin key.
+invocation signed by the resolver or admin key. Until that exists, the guarantees
+above describe what the contract would enforce if asked, and nothing asks.
 
-The ordering is the part that is easy to get wrong. `slash` reads the escrow's
-dispute status live, and resolving clears that status, so a slash must be
-submitted before the resolve rather than after it. Two contract tests pin this:
-`test_slash_rejected_after_trade_resolved` and
-`test_slash_rejected_after_post_settlement_resolve_proves_ordering`.
+### Known limits of the bond, stated rather than implied
+
+We would rather publish these than let the word "slashable" carry more weight than
+it can hold.
+
+- **The bond deters; it does not guarantee.** A provider's collateral is not
+  reserved against the trades it backs. One bond can back several concurrent
+  trades, so where a provider defaults on more than one at a time, the first
+  adjudicated victim can be made whole and later ones may not be.
+- **A completed unstake is final.** The exit cooldown is a fixed period, while the
+  window in which a remedy can still be adjudicated depends on the dispute
+  timeline and can outlast it. A provider that begins unbonding early enough can
+  complete its exit before a verdict lands.
+- **Pausing does not stop an exit.** The pause prevents new collateral being
+  staked; it does not hold an unstake already in flight.
+- **One slash per trade, whatever its size.** A trade that has been slashed for any
+  amount cannot be slashed again, so a partial recovery forecloses the remainder.
+- **Restitution exists only where the culprit posted collateral.** When the party
+  at fault is the user rather than the provider, there is no bond to draw on. This
+  is a property of who stakes, not a defect.
+
+These are tracked as open work, not as accepted permanent behaviour.
 
 ## Concurrency
 
@@ -231,9 +257,15 @@ Stated plainly rather than omitted.
 - **Advisory locking assumes a single coordinator instance for boot-time
   seeding.** The per-trade money paths are safe across instances; the seed step is
   not guarded by a distributed lock.
-- **Dispute resolution is a trusted role.** It cannot redirect funds, but it does
-  decide outcomes.
-- **Slashing has no path through the product.** The contract implements it and is
-  tested; the coordinator never builds the transaction. Until it does, the
-  economic consequence a dispute is supposed to carry depends on a key holder
-  acting by hand, before the resolve rather than after it.
+- **Dispute resolution is a trusted role.** On the escrow it picks a branch, not a
+  destination: funds go to the trade's own parties either way. On the staking
+  contract the same key chooses the slash amount within the trade value, and a
+  post-settlement dispute can be raised and adjudicated by the resolver alone —
+  the second signature the pre-settlement path requires does not apply there. The
+  mitigation is that the resolver is a multisig, and that is a deployment
+  precondition rather than a later hardening step.
+- **Slashing has no path through the product.** The contract implements it; no
+  coordinator endpoint builds the transaction and no admin screen offers one, so a
+  slash today is a manual invocation signed by the resolver or admin key, after
+  the resolve. Until that path exists, the economic consequence a dispute is
+  supposed to carry is not something the system can actually deliver.
