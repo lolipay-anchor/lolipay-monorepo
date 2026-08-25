@@ -3727,3 +3727,90 @@ fn raising_a_post_settlement_dispute_buys_a_full_day_to_act_on_the_verdict() {
     assert_eq!(after, 4000 + 86_400);
     assert!(after - 4050 > 86_000);
 }
+
+#[test]
+fn a_trade_is_judged_by_the_window_it_was_created_under() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 604_800;
+    client.set_config(&cfg);
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    assert_eq!(client.get_trade(&id32(&env, 1)).dispute_window, 604_800);
+
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 3600;
+    client.set_config(&cfg);
+
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).post_settle_deadline, 500 + 604_800);
+    env.ledger().with_mut(|l| l.timestamp = 400_000);
+    client.raise_dispute(&id32(&env, 1), &provider);
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Disputed);
+    let _ = resolver;
+}
+
+#[test]
+fn a_refund_is_judged_by_the_window_its_trade_was_created_under() {
+    let (env, client, _admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 604_800;
+    client.set_config(&cfg);
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 3600;
+    client.set_config(&cfg);
+
+    env.ledger().with_mut(|l| l.timestamp = 2001);
+    client.refund(&id32(&env, 1));
+
+    let trade = client.get_trade(&id32(&env, 1));
+    assert_eq!(trade.post_settle_deadline, 2001 + 604_800);
+    assert_eq!(trade.slash_deadline, trade.post_settle_deadline);
+}
+
+#[test]
+fn an_early_release_is_judged_by_the_window_its_trade_was_created_under() {
+    let (env, client, _admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 604_800;
+    cfg.early_release_providers = soroban_sdk::vec![&env, provider.clone()];
+    client.set_config(&cfg);
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 3600;
+    client.set_config(&cfg);
+
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.release_from_funded(&id32(&env, 1));
+
+    let trade = client.get_trade(&id32(&env, 1));
+    assert_eq!(trade.post_settle_deadline, 500 + 604_800);
+    assert_eq!(trade.slash_deadline, trade.post_settle_deadline);
+}
+
+#[test]
+fn a_verdict_settlement_is_judged_by_the_window_its_trade_was_created_under() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 604_800;
+    client.set_config(&cfg);
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    client.raise_dispute(&id32(&env, 1), &recipient);
+
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 3600;
+    client.set_config(&cfg);
+
+    env.ledger().with_mut(|l| l.timestamp = 700);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
+
+    let trade = client.get_trade(&id32(&env, 1));
+    assert_eq!(trade.post_settle_deadline, 700 + 604_800);
+    assert_eq!(trade.slash_deadline, trade.post_settle_deadline);
+}

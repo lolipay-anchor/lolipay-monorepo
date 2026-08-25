@@ -4,8 +4,8 @@ use soroban_sdk::{Address, Env};
 use crate::types::{Config, DataKey, StakeInfo};
 
 const DAY_IN_LEDGERS: u32 = 17280;
-const BUMP_THRESHOLD: u32 = 90 * DAY_IN_LEDGERS;
-const LIFETIME: u32 = 120 * DAY_IN_LEDGERS;
+const BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
+const LIFETIME: u32 = 45 * DAY_IN_LEDGERS;
 
 pub fn get_config(env: &Env) -> Option<Config> {
     env.storage().instance().get(&DataKey::Config)

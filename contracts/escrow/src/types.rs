@@ -55,6 +55,7 @@ pub struct Trade {
     pub post_settle_deadline: u64,
     pub slash_deadline: u64,
     pub liability_established: bool,
+    pub dispute_window: u64,
 }
 
 impl Trade {
