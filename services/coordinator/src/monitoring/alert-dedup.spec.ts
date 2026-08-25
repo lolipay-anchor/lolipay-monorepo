@@ -412,3 +412,82 @@ describe('a dispute the poller stamped still ages', () => {
     expect(alerts[0].text).toContain('45 days');
   });
 });
+
+describe('the seam between finding conditions and deciding about them', () => {
+  const metrics = {
+    generated_at: 'now',
+    orders_by_status: {},
+    open_disputes: 0,
+    release_overdue: 0,
+    fiat_payment_overdue: 0,
+    indexer_lag_seconds: 5,
+  };
+
+  function monitoringWith(disputeCount: number, raise = jest.fn()) {
+    const prisma = {
+      order: {
+        findMany: jest
+          .fn()
+          .mockResolvedValueOnce(
+            Array.from({ length: disputeCount }, (_, i) => ({
+              id: `d${i}`,
+              tradeId: `t${i}`,
+              disputeAt: new Date(),
+              createdAt: new Date(),
+            })),
+          )
+          .mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        groupBy: jest.fn().mockResolvedValue([]),
+      },
+      indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
+    } as any;
+    return { svc: new MonitoringService(prisma, { raise } as any), prisma, raise };
+  }
+
+  it('tells the alerts service which families it could not see the whole of', async () => {
+    const { svc, raise } = monitoringWith(ALERT_SAMPLE_LIMIT);
+    await svc.checkAndAlert();
+    const incomplete = (raise.mock.calls[0] as any[])[2];
+    expect(incomplete.has('open_dispute')).toBe(true);
+  });
+
+  it('reports every family as complete when none was truncated', async () => {
+    const { svc, raise } = monitoringWith(3);
+    await svc.checkAndAlert();
+    const incomplete = (raise.mock.calls[0] as any[])[2];
+    expect(incomplete.size).toBe(0);
+  });
+
+  it('raises a truncation notice so the gap is visible, not just guarded', async () => {
+    const { svc } = monitoringWith(ALERT_SAMPLE_LIMIT);
+    const alerts = await svc.buildAlerts(metrics);
+    const over = alerts.find((a: Alert) => a.key === 'open_dispute:overflow');
+    expect(over).toBeDefined();
+    expect(over!.text).toContain('truncated');
+  });
+
+  it('says nothing about truncation when the list fits', async () => {
+    const { svc } = monitoringWith(ALERT_SAMPLE_LIMIT - 1);
+    const alerts = await svc.buildAlerts(metrics);
+    expect(alerts.find((a: Alert) => a.key === 'open_dispute:overflow')).toBeUndefined();
+  });
+
+  it('keeps the indexer fingerprint still while it lags, so it does not shout every tick', async () => {
+    const { svc } = monitoringWith(0);
+    const slow = await svc.buildAlerts({ ...metrics, indexer_lag_seconds: 300 });
+    const { svc: svc2 } = monitoringWith(0);
+    const slower = await svc2.buildAlerts({ ...metrics, indexer_lag_seconds: 9000 });
+    const a = slow.find((x: Alert) => x.key === 'indexer_stalled');
+    const b = slower.find((x: Alert) => x.key === 'indexer_stalled');
+    expect(a!.fingerprint).toBe(b!.fingerprint);
+  });
+
+  it('asks the database for a bounded, deterministically ordered sample', async () => {
+    const { svc, prisma } = monitoringWith(0);
+    await svc.buildAlerts(metrics);
+    const args = prisma.order.findMany.mock.calls[0][0];
+    expect(args.take).toBe(ALERT_SAMPLE_LIMIT);
+    expect(args.orderBy).toEqual([{ createdAt: 'asc' }, { id: 'asc' }]);
+  });
+});

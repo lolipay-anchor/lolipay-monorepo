@@ -158,3 +158,32 @@ describe('an order the chain disagrees about reaches a human', () => {
     expect(raise).not.toHaveBeenCalled();
   });
 });
+
+describe('the reconciler own success is not a divergence', () => {
+  it('says nothing about an escrow the orphan reconciler already refunded', async () => {
+    const { svc, raise } = make({
+      orders: [order()],
+      onChain: { status: 'REFUNDED', settledAt: 0 },
+    });
+    await svc.alertOnEscrowDivergence();
+    expect((raise.mock.calls[0] as any[])[1]).toEqual([]);
+  });
+
+  it('still pages when the money went somewhere the order never authorised', async () => {
+    for (const status of ['RELEASED', 'FIAT_PAID', 'DISPUTED']) {
+      const { svc, raise } = make({ orders: [order()], onChain: { status, settledAt: 0 } });
+      await svc.alertOnEscrowDivergence();
+      const alerts = (raise.mock.calls[0] as any[])[1];
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].text).toContain(status);
+    }
+  });
+
+  it('scans every cancelled order, not a recent window, because it clears by absence', async () => {
+    const { svc, prisma } = make({ orders: [] });
+    await svc.alertOnEscrowDivergence();
+    const where = prisma.order.findMany.mock.calls[0][0].where;
+    expect(where).toEqual({ status: { in: ['CANCELLED', 'EXPIRED'] } });
+    expect(JSON.stringify(where)).not.toContain('createdAt');
+  });
+});

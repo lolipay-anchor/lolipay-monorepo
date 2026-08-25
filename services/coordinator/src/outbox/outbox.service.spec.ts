@@ -45,7 +45,7 @@ describe('OutboxService.enqueue', () => {
     );
   });
 
-  it('never lets a duplicate reach the caller as a thrown error', async () => {
+  it('no longer swallows P2002, because a swallowed one hides an aborted transaction', async () => {
     const svc = new OutboxService(makePrisma().prisma);
     const tx = {
       outboxMessage: {

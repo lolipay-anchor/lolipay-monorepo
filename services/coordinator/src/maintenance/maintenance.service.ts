@@ -36,10 +36,7 @@ export class MaintenanceService {
     let candidates: { id: string; tradeId: string; contractId: string | null; status: string }[];
     try {
       candidates = await this.prisma.order.findMany({
-        where: {
-          status: { in: ['CANCELLED', 'EXPIRED'] },
-          createdAt: { gt: new Date(Date.now() - ORPHAN_LOOKBACK_MS) },
-        },
+        where: { status: { in: ['CANCELLED', 'EXPIRED'] } },
         select: { id: true, tradeId: true, contractId: true, status: true },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         take: DIVERGENCE_SCAN_LIMIT,
@@ -70,7 +67,8 @@ export class MaintenanceService {
         incomplete.add('escrow_divergence');
         continue;
       }
-      if (!onChain || onChain.status === 'FUNDED') continue;
+      if (!onChain) continue;
+      if (onChain.status === 'FUNDED' || onChain.status === 'REFUNDED') continue;
       found.push({
         key: `escrow_divergence:${o.id}`,
         fingerprint: onChain.status,

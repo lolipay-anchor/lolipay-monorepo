@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
+import type { Prisma } from '../generated/prisma/client';
 
 export const OUTBOX_MAX_ATTEMPTS = 5;
 export const OUTBOX_BATCH_SIZE = 50;
@@ -11,14 +12,7 @@ export interface OutboxJob {
   dedupeKey?: string;
 }
 
-export interface OutboxTxClient {
-  outboxMessage: {
-    createMany(args: {
-      data: Record<string, unknown>[];
-      skipDuplicates?: boolean;
-    }): Promise<{ count: number }>;
-  };
-}
+export type OutboxTxClient = Pick<Prisma.TransactionClient, 'outboxMessage'>;
 
 export type OutboxHandler = (payload: Record<string, unknown>) => Promise<void>;
 
@@ -39,7 +33,7 @@ export class OutboxService {
       data: [
         {
           kind: job.kind,
-          payload: job.payload as never,
+          payload: job.payload as Prisma.InputJsonValue,
           dedupeKey: job.dedupeKey ?? null,
         },
       ],

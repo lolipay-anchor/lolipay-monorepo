@@ -1,8 +1,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/app-config.service';
 import { OutboxService } from '../outbox/outbox.service';
-import { ALERT_TEXT_BUDGET, ALERT_TEXT_LIMIT } from './monitoring.conditions';
+import { ALERT_TEXT_BUDGET } from './monitoring.conditions';
 
 export const ALERT_OUTBOX_KIND = 'ops_alert';
 export const REMINDER_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -80,7 +81,11 @@ export class AlertsService implements OnModuleInit {
       this.log.error(
         `alert state unreadable, sending every alert rather than staying silent: ${errMsg(e)}`,
       );
-      await this.publish(mine, [], now);
+      try {
+        await this.publish(mine, [], now, undefined, blindDedupeKey(mine, now));
+      } catch (publishError) {
+        this.log.error(`could not queue the blind alert: ${errMsg(publishError)}`);
+      }
       return { sent: mine, cleared: [] };
     }
 
@@ -148,24 +153,27 @@ export class AlertsService implements OnModuleInit {
     cleared: string[],
     now: Date,
     tx?: Parameters<Parameters<PrismaService['$transaction']>[0]>[0],
+    dedupeKey?: string,
   ): Promise<void> {
     if (!this.cfg.alertWebhookUrl) return;
     const client = tx ?? this.prisma;
     if (sent.length > 0) {
       const urgent = sent.some((a) => a.urgency === 'urgent');
       const prefix = urgent ? '🚨 lolipay coordinator' : '⚠️ lolipay coordinator';
-      await this.outbox.enqueue(client as never, {
+      await this.outbox.enqueue(client, {
         kind: ALERT_OUTBOX_KIND,
         payload: { text: `${prefix}: ${summarise(sent)}`, at: now.toISOString() },
+        dedupeKey,
       });
     }
     if (cleared.length > 0) {
-      const shown = cleared.slice(0, ALERT_TEXT_LIMIT).join(' · ').slice(0, ALERT_TEXT_BUDGET);
-      const rest =
-        cleared.length > ALERT_TEXT_LIMIT ? ` and ${cleared.length - ALERT_TEXT_LIMIT} more` : '';
-      await this.outbox.enqueue(client as never, {
+      const body = summarise(
+        cleared.map((key) => ({ key, fingerprint: key, urgency: 'routine' as Urgency, text: key })),
+      );
+      await this.outbox.enqueue(client, {
         kind: ALERT_OUTBOX_KIND,
-        payload: { text: `✅ lolipay coordinator: ${shown}${rest} — cleared`, at: now.toISOString() },
+        payload: { text: `✅ lolipay coordinator: ${body} — cleared`, at: now.toISOString() },
+        dedupeKey: dedupeKey ? `${dedupeKey}:cleared` : undefined,
       });
     }
   }
@@ -195,4 +203,13 @@ export class AlertsService implements OnModuleInit {
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+function blindDedupeKey(alerts: Alert[], now: Date): string {
+  const shape = alerts
+    .map((a) => `${a.key}=${a.fingerprint}`)
+    .sort()
+    .join('|');
+  const bucket = Math.floor(now.getTime() / REMINDER_INTERVAL_MS);
+  return `${ALERT_OUTBOX_KIND}:blind:${bucket}:${createHash('sha256').update(shape).digest('hex').slice(0, 32)}`;
 }
