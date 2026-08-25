@@ -1882,3 +1882,52 @@ fn the_admin_door_refuses_on_the_last_second_of_the_hold_and_opens_after() {
     s.staking.force_release_reservation(&s.lp, &trade_id, &s.admin);
     assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
 }
+
+#[test]
+fn freeing_a_reservation_that_was_never_made_says_so() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let never = id32(&s.env, 190);
+
+    assert_eq!(
+        s.staking.try_force_release_reservation(&s.lp, &never, &s.admin),
+        Err(Ok(Error::ReservationNotFound))
+    );
+    assert_eq!(
+        s.staking.try_release_expired_reservation(&s.lp, &never),
+        Err(Ok(Error::ReservationNotFound))
+    );
+}
+
+#[test]
+fn freeing_the_same_reservation_twice_is_refused_the_second_time() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let live = s.make_trade(191, false);
+    s.staking.reserve(&s.lp, &live, &500_000_000i128, &s.resolver);
+
+    s.staking.force_release_reservation(&s.lp, &live, &s.admin);
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+
+    assert_eq!(
+        s.staking.try_force_release_reservation(&s.lp, &live, &s.admin),
+        Err(Ok(Error::ReservationNotFound))
+    );
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+}
+
+#[test]
+fn a_paused_contract_still_lets_the_admin_free_a_live_reservation() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let live = s.make_trade(192, false);
+    s.staking.reserve(&s.lp, &live, &500_000_000i128, &s.resolver);
+    s.staking.set_paused(&true);
+
+    s.staking.force_release_reservation(&s.lp, &live, &s.admin);
+
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+}
