@@ -92,9 +92,10 @@ export function ResolveActions({
       </div>
       {}
       <p className="text-[11px] leading-relaxed text-lp-muted">
-        Resolving ends the dispute, and the staking contract accepts a slash only while the trade
-        is still disputed — so a slash has to be submitted before this, not after. There is no
-        slash action in this console yet; it is a manual invocation with the resolver key.
+        Resolve first. The staking contract refuses a slash while the dispute is still open, and
+        it requires the liability that resolving establishes — so a slash is submitted after this,
+        never before. There is no slash action in this console yet; it is a manual invocation with
+        the resolver key.
       </p>
     </div>
   )
