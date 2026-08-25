@@ -10,6 +10,7 @@ import { ATTEST_GRACE_SECS, refundOpensAt } from '../order/dispute.util';
 import { Alert, AlertsService } from '../monitoring/alerts.service';
 
 const AUTO_REFUND_BATCH_SIZE = 20;
+const DIVERGENCE_SCAN_LIMIT = 500;
 
 const ORPHAN_LOOKBACK_MS = 45 * 24 * 60 * 60 * 1000;
 
@@ -40,14 +41,25 @@ export class MaintenanceService {
           createdAt: { gt: new Date(Date.now() - ORPHAN_LOOKBACK_MS) },
         },
         select: { id: true, tradeId: true, contractId: true, status: true },
-        take: AUTO_REFUND_BATCH_SIZE,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: DIVERGENCE_SCAN_LIMIT,
       });
     } catch (err) {
       this.log.error(`alertOnEscrowDivergence: could not read orders: ${errMsg(err)}`);
       return;
     }
 
+    const incomplete = new Set<string>();
     const found: Alert[] = [];
+    if (candidates.length >= DIVERGENCE_SCAN_LIMIT) {
+      incomplete.add('escrow_divergence');
+      found.push({
+        key: 'escrow_divergence:overflow',
+        fingerprint: 'at-limit',
+        urgency: 'urgent',
+        text: `at least ${DIVERGENCE_SCAN_LIMIT} cancelled or expired orders are within the divergence window — the scan is truncated and nothing in this family will be reported as cleared until it is not`,
+      });
+    }
     for (const o of candidates) {
       const contractId = contractIdFor(o, this.cfg);
       let onChain;
@@ -55,7 +67,8 @@ export class MaintenanceService {
         onChain = await this.stellar.getTradeStatusStrict(contractId, o.tradeId);
       } catch (err) {
         this.log.warn(`alertOnEscrowDivergence: order ${o.id} read failed: ${errMsg(err)}`);
-        return;
+        incomplete.add('escrow_divergence');
+        continue;
       }
       if (!onChain || onChain.status === 'FUNDED') continue;
       found.push({
@@ -66,7 +79,7 @@ export class MaintenanceService {
       });
     }
 
-    await this.alerts.raise(['escrow_divergence'], found);
+    await this.alerts.raise(['escrow_divergence'], found, incomplete);
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES)

@@ -193,6 +193,26 @@ describe('delivery is the queue job, not the tick job', () => {
     expect(enqueued).toEqual([]);
   });
 
+  it('records nothing either, so configuring a channel does not begin with hours of silence', async () => {
+    const { svc, state, prisma } = makeAlerts([], NO_WEBHOOK);
+    await svc.raise(SCOPE, [routine('open_dispute:o1', 'o1')], new Set(), NOW);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(state.createMany).not.toHaveBeenCalled();
+    expect(state.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('announces everything that is already open on the first tick after a channel appears', async () => {
+    const live = [routine('open_dispute:o1', 'o1'), routine('release_overdue:o2', 'o2')];
+
+    const dark = makeAlerts([], NO_WEBHOOK);
+    await dark.svc.raise(SCOPE, live, new Set(), NOW);
+
+    const lit = makeAlerts([], 'https://hook.invalid/x');
+    const { sent } = await lit.svc.raise(SCOPE, live, new Set(), NOW);
+    expect(sent.map((a: Alert) => a.key)).toEqual(['open_dispute:o1', 'release_overdue:o2']);
+    expect(lit.enqueued).toHaveLength(1);
+  });
+
   it('registers itself as the handler for its own kind', () => {
     const { svc, outbox } = makeAlerts([]);
     svc.onModuleInit();
@@ -224,7 +244,7 @@ describe('delivery is the queue job, not the tick job', () => {
     const spy = jest.fn().mockResolvedValue({ ok: true, status: 200 });
     global.fetch = spy as any;
     await svc.deliver({ text: 'hello', at: 'now' });
-    expect(JSON.parse(spy.mock.calls[0][1].body)).toEqual({ text: 'hello' });
+    expect(JSON.parse(spy.mock.calls[0][1].body)).toEqual({ text: 'hello', content: 'hello' });
   });
 });
 
@@ -259,16 +279,42 @@ describe('a truncated list never reports anything as cleared', () => {
 });
 
 describe('the message an operator actually receives', () => {
-  it('does not put an unbounded wall of text into one message', () => {
+  it('bounds the message by characters, so the longest alert cannot burst the limit', () => {
+    const longest = (i: number) =>
+      `order ${'0'.repeat(36)}-${i} (trade ${'a'.repeat(64)}) has been disputed for 40 days and nobody has resolved it — the escrow entry expires 45 days after its last write, after which the funds need a ledger restore`;
     const many: Alert[] = Array.from({ length: 300 }, (_, i) => ({
       key: `open_dispute:o${i}`,
       fingerprint: `o${i}`,
-      urgency: 'routine',
-      text: `order o${i} (trade ${'a'.repeat(64)}) is disputed and awaiting resolution`,
+      urgency: 'urgent',
+      text: longest(i),
     }));
     const text = summarise(many);
-    expect(text.length).toBeLessThan(9000);
-    expect(text).toContain('250 more not listed');
+    expect(text.length).toBeLessThan(2000);
+    expect(text).toMatch(/more not listed/);
+  });
+
+  it('sends everything when everything fits inside the budget', () => {
+    const few: Alert[] = Array.from({ length: 4 }, (_, i) => ({
+      key: `k${i}`,
+      fingerprint: `k${i}`,
+      urgency: 'routine',
+      text: `short ${i}`,
+    }));
+    const text = summarise(few);
+    expect(text).not.toMatch(/more not listed/);
+    expect(text).toBe('short 0 · short 1 · short 2 · short 3');
+  });
+
+  it('never returns an empty message when there is something to say', () => {
+    const huge: Alert = {
+      key: 'k',
+      fingerprint: 'k',
+      urgency: 'urgent',
+      text: 'x'.repeat(5000),
+    };
+    const text = summarise([huge]);
+    expect(text.length).toBeGreaterThan(0);
+    expect(text.length).toBeLessThanOrEqual(1800);
   });
 
   it('says nothing about omission when everything fits', () => {
@@ -296,7 +342,7 @@ describe('a dispute nobody resolves stops being routine', () => {
       order: {
         findMany: jest
           .fn()
-          .mockResolvedValueOnce([{ id: 'ord-1', tradeId: 'tr-1', disputeAt }])
+          .mockResolvedValueOnce([{ id: 'ord-1', tradeId: 'tr-1', disputeAt, createdAt: new Date() }])
           .mockResolvedValue([]),
         count: jest.fn().mockResolvedValue(0),
         groupBy: jest.fn().mockResolvedValue([]),
@@ -327,5 +373,42 @@ describe('a dispute nobody resolves stops being routine', () => {
       new Date(Date.now() - 40 * 24 * 60 * 60 * 1000),
     ).buildAlerts(metrics);
     expect(fresh[0].fingerprint).not.toBe(stale[0].fingerprint);
+  });
+});
+
+describe('a dispute the poller stamped still ages', () => {
+  const metrics = {
+    generated_at: 'now',
+    orders_by_status: {},
+    open_disputes: 0,
+    release_overdue: 0,
+    fiat_payment_overdue: 0,
+    indexer_lag_seconds: 5,
+  };
+
+  it('falls back to when the order was created when nothing recorded a dispute time', async () => {
+    const prisma = {
+      order: {
+        findMany: jest
+          .fn()
+          .mockResolvedValueOnce([
+            {
+              id: 'ord-1',
+              tradeId: 'tr-1',
+              disputeAt: null,
+              createdAt: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000),
+            },
+          ])
+          .mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        groupBy: jest.fn().mockResolvedValue([]),
+      },
+      indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
+    } as any;
+    const svc = new MonitoringService(prisma, { raise: jest.fn() } as any);
+
+    const alerts = await svc.buildAlerts(metrics);
+    expect(alerts[0].urgency).toBe('urgent');
+    expect(alerts[0].text).toContain('45 days');
   });
 });

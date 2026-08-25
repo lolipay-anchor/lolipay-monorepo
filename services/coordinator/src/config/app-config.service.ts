@@ -45,7 +45,22 @@ export class AppConfigService {
     return w;
   }
 
-  get alertWebhookUrl() { return this.c.get<string>('ALERT_WEBHOOK_URL') || undefined; }
+  get alertWebhookUrl() {
+    const raw = this.c.get<string>('ALERT_WEBHOOK_URL') || undefined;
+    if (!raw) return undefined;
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      throw new Error('ALERT_WEBHOOK_URL is not a URL — check for a missing scheme or a stray space');
+    }
+    if (parsed.protocol !== 'https:') {
+      throw new Error(
+        'ALERT_WEBHOOK_URL must be https — the path is a bearer credential and would travel in the clear',
+      );
+    }
+    return raw;
+  }
 
   get horizonUrl() { return this.c.get<string>('HORIZON_URL') ?? 'https://horizon-testnet.stellar.org'; }
   get usdcAssetCode() { return this.c.get<string>('USDC_ASSET_CODE') ?? 'TUSDC'; }

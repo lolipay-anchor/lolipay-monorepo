@@ -89,13 +89,66 @@ describe('an order the chain disagrees about reaches a human', () => {
   it('reports a clear sky when nothing diverges, so an earlier alert can be cleared', async () => {
     const { svc, raise } = make({ orders: [] });
     await svc.alertOnEscrowDivergence();
-    expect(raise).toHaveBeenCalledWith(['escrow_divergence'], []);
+    const [scope, alerts, incomplete] = raise.mock.calls[0] as any[];
+    expect(scope).toEqual(['escrow_divergence']);
+    expect(alerts).toEqual([]);
+    expect(incomplete.size).toBe(0);
   });
 
-  it('abandons the tick when the chain cannot be read, rather than clearing everything', async () => {
+  it('marks the family incomplete when a chain read fails, so nothing is cleared on a blind tick', async () => {
     const { svc, raise } = make({ orders: [order()], readThrows: true });
     await svc.alertOnEscrowDivergence();
-    expect(raise).not.toHaveBeenCalled();
+    const [, , incomplete] = raise.mock.calls[0] as any[];
+    expect(incomplete.has('escrow_divergence')).toBe(true);
+  });
+
+  it('keeps going past an unreadable order rather than losing the ones it can see', async () => {
+    const raise = jest.fn(async () => ({ sent: [], cleared: [] }));
+    const prisma = {
+      order: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([order({ id: 'bad' }), order({ id: 'good' })]),
+      },
+      config: { findUnique: jest.fn().mockResolvedValue({ id: 1, autoRefund: false }) },
+    } as any;
+    const stellar = {
+      getTradeStatusStrict: jest
+        .fn()
+        .mockRejectedValueOnce(new Error('rpc down'))
+        .mockResolvedValueOnce({ status: 'RELEASED', settledAt: 0 }),
+    } as any;
+    const svc = new MaintenanceService(
+      prisma,
+      stellar,
+      { isConfigured: false } as any,
+      { escrowContractId: 'CESCROW' } as any,
+      { notifyOrderStatus: jest.fn() } as any,
+      { raise } as any,
+    );
+
+    await svc.alertOnEscrowDivergence();
+
+    const [, alerts, incomplete] = raise.mock.calls[0] as any[];
+    expect(alerts.map((a: any) => a.key)).toEqual(['escrow_divergence:good']);
+    expect(incomplete.has('escrow_divergence')).toBe(true);
+  });
+
+  it('refuses to clear anything when the scan came back full', async () => {
+    const many = Array.from({ length: 500 }, (_, i) => order({ id: `o${i}` }));
+    const { svc, raise } = make({ orders: many, onChain: { status: 'FUNDED', settledAt: 0 } });
+    await svc.alertOnEscrowDivergence();
+    const [, alerts, incomplete] = raise.mock.calls[0] as any[];
+    expect(incomplete.has('escrow_divergence')).toBe(true);
+    expect(alerts.map((a: any) => a.key)).toContain('escrow_divergence:overflow');
+  });
+
+  it('asks the database for a deterministically ordered scan', async () => {
+    const { svc, prisma } = make({ orders: [] });
+    await svc.alertOnEscrowDivergence();
+    const args = prisma.order.findMany.mock.calls[0][0];
+    expect(args.orderBy).toEqual([{ createdAt: 'asc' }, { id: 'asc' }]);
+    expect(args.take).toBe(500);
   });
 
   it('abandons the tick when the orders cannot be read', async () => {

@@ -34,3 +34,26 @@ describe('the alerts service tells an operator when alerts go nowhere', () => {
     err.mockRestore();
   });
 });
+
+describe('the alert webhook URL is treated as a credential', () => {
+  function cfg(value: string | undefined) {
+    const { AppConfigService } = require('../config/app-config.service');
+    return new AppConfigService({ get: () => value } as any);
+  }
+
+  it('refuses a plaintext endpoint, which would put the credential on the wire', () => {
+    expect(() => cfg('http://hooks.slack.com/services/T/B/xxxx').alertWebhookUrl).toThrow(/https/);
+  });
+
+  it('refuses a value that is not a URL at all, rather than failing later per message', () => {
+    expect(() => cfg('hooks.slack.com/services/T/B/xxxx').alertWebhookUrl).toThrow(/not a URL/);
+  });
+
+  it('accepts an https endpoint', () => {
+    expect(cfg('https://hooks.slack.com/services/T/B/xxxx').alertWebhookUrl).toContain('https://');
+  });
+
+  it('stays undefined when unset, so the coordinator still boots', () => {
+    expect(cfg(undefined).alertWebhookUrl).toBeUndefined();
+  });
+});

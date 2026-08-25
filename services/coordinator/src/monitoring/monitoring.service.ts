@@ -114,9 +114,8 @@ export class MonitoringService {
     const alerts: Alert[] = [
       ...overflow,
       ...disputes.map((o) => {
-        const days = o.disputeAt
-          ? Math.floor((Date.now() - o.disputeAt.getTime()) / (24 * 60 * 60 * 1000))
-          : 0;
+        const since = o.disputeAt ?? o.createdAt;
+        const days = Math.floor((Date.now() - since.getTime()) / (24 * 60 * 60 * 1000));
         const stale = days >= DISPUTE_STALE_DAYS;
         return {
           key: `open_dispute:${o.id}`,
@@ -161,10 +160,10 @@ export class MonitoringService {
 
   private async sample(
     where: Prisma.OrderWhereInput,
-  ): Promise<{ id: string; tradeId: string; disputeAt: Date | null }[]> {
+  ): Promise<{ id: string; tradeId: string; disputeAt: Date | null; createdAt: Date }[]> {
     return this.prisma.order.findMany({
       where,
-      select: { id: true, tradeId: true, disputeAt: true },
+      select: { id: true, tradeId: true, disputeAt: true, createdAt: true },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: ALERT_SAMPLE_LIMIT,
     });

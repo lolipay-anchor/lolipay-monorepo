@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/app-config.service';
 import { OutboxService } from '../outbox/outbox.service';
-import { ALERT_TEXT_LIMIT } from './monitoring.conditions';
+import { ALERT_TEXT_BUDGET, ALERT_TEXT_LIMIT } from './monitoring.conditions';
 
 export const ALERT_OUTBOX_KIND = 'ops_alert';
 export const REMINDER_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -22,10 +22,21 @@ export function familyOf(key: string): string {
   return key.split(':')[0];
 }
 
-export function summarise(alerts: Alert[], limit: number = ALERT_TEXT_LIMIT): string {
-  const shown = alerts.slice(0, limit).map((a) => a.text).join(' · ');
-  if (alerts.length <= limit) return shown;
-  return `${shown} · and ${alerts.length - limit} more not listed`;
+export function summarise(alerts: Alert[], budget: number = ALERT_TEXT_BUDGET): string {
+  const shown: string[] = [];
+  let used = 0;
+  for (const a of alerts) {
+    const cost = a.text.length + 3;
+    if (used + cost > budget) break;
+    shown.push(a.text);
+    used += cost;
+  }
+  if (shown.length === 0 && alerts.length > 0) {
+    shown.push(alerts[0].text.slice(0, budget));
+  }
+  const omitted = alerts.length - shown.length;
+  const body = shown.join(' · ');
+  return omitted > 0 ? `${body} · and ${omitted} more not listed` : body;
 }
 
 @Injectable()
@@ -104,6 +115,7 @@ export class AlertsService implements OnModuleInit {
     now: Date,
   ): Promise<void> {
     if (sent.length === 0 && cleared.length === 0) return;
+    if (!this.cfg.alertWebhookUrl) return;
     try {
       await this.prisma.$transaction(async (tx) => {
         if (sent.length > 0) {
@@ -148,7 +160,7 @@ export class AlertsService implements OnModuleInit {
       });
     }
     if (cleared.length > 0) {
-      const shown = cleared.slice(0, ALERT_TEXT_LIMIT).join(' · ');
+      const shown = cleared.slice(0, ALERT_TEXT_LIMIT).join(' · ').slice(0, ALERT_TEXT_BUDGET);
       const rest =
         cleared.length > ALERT_TEXT_LIMIT ? ` and ${cleared.length - ALERT_TEXT_LIMIT} more` : '';
       await this.outbox.enqueue(client as never, {
@@ -161,12 +173,20 @@ export class AlertsService implements OnModuleInit {
   async deliver(payload: Record<string, unknown>): Promise<void> {
     const url = this.cfg.alertWebhookUrl;
     if (!url) throw new Error('ALERT_WEBHOOK_URL is unset');
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: payload.text }),
-      signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: payload.text, content: payload.text }),
+        signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+        redirect: 'error',
+      });
+    } catch (e) {
+      throw new Error(
+        `alert webhook request failed: ${e instanceof Error ? e.name : 'unknown error'}`,
+      );
+    }
     if (!res.ok) {
       throw new Error(`alert webhook responded ${res.status}`);
     }

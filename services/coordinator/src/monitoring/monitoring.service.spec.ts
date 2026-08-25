@@ -1,7 +1,12 @@
 import { MonitoringService, MONITORING_ALERT_SCOPE } from './monitoring.service';
 
 function rows(prefix: string, n: number) {
-  return Array.from({ length: n }, (_, i) => ({ id: `${prefix}${i}`, tradeId: `t${prefix}${i}` }));
+  return Array.from({ length: n }, (_, i) => ({
+    id: `${prefix}${i}`,
+    tradeId: `t${prefix}${i}`,
+    disputeAt: new Date(),
+    createdAt: new Date(),
+  }));
 }
 
 function make(opts: {

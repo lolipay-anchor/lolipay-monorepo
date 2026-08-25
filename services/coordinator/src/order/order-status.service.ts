@@ -74,7 +74,12 @@ export class OrderStatusService {
     if (onChain && isAhead(onChain.status, order.status)) {
       const updated = await this.prisma.order.update({
         where: { id },
-        data: { status: onChain.status as any },
+        data: {
+          status: onChain.status as any,
+          ...(onChain.status === 'DISPUTED' && !order.disputeAt
+            ? { disputeAt: new Date() }
+            : {}),
+        },
         include: { lp: true },
       });
 
