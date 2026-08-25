@@ -334,14 +334,14 @@ impl StakingContract {
         }
         let view = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)?
             .ok_or(Error::TradeNotDisputed)?;
+        if view.pre_settlement {
+            return Err(Error::SlashNotApplicable);
+        }
         if !view.post_settle_raised {
             return Err(Error::TradeNotDisputed);
         }
         if view.is_disputed {
             return Err(Error::VerdictPending);
-        }
-        if view.pre_settlement {
-            return Err(Error::SlashNotApplicable);
         }
         if env.ledger().timestamp() > view.slash_deadline {
             return Err(Error::SlashWindowPassed);

@@ -404,14 +404,14 @@ fn test_slash_guards_amount_party_and_caller() {
 }
 
 #[test]
-fn test_slash_rejects_undisputed_trade() {
+fn a_trade_the_escrow_still_holds_is_never_slashable() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
     s.staking.stake(&s.lp, &1_000_000_000i128);
-    let undisputed = s.make_trade(8, false);
+    let live = s.make_trade(8, false);
     assert_eq!(
-        s.staking.try_slash(&s.lp, &undisputed, &100_000_000i128, &s.resolver),
-        Err(Ok(Error::TradeNotDisputed))
+        s.staking.try_slash(&s.lp, &live, &100_000_000i128, &s.resolver),
+        Err(Ok(Error::SlashNotApplicable))
     );
 }
 
@@ -793,11 +793,10 @@ fn a_funded_origin_dispute_is_not_grounds_to_slash() {
     let trade_id = s.make_topup_trade(77);
     s.escrow.raise_dispute(&trade_id, &s.resolver);
     let before = s.usdc.balance(&s.user);
-    let _ = &before;
 
     let res = s.staking.try_slash(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
 
-    assert_eq!(res, Err(Ok(Error::TradeNotDisputed)));
+    assert_eq!(res, Err(Ok(Error::SlashNotApplicable)));
     assert_eq!(s.usdc.balance(&s.user), before);
     assert_eq!(s.staking.get_stake(&s.lp).staked, 2_000_000_000i128);
 }
@@ -817,7 +816,7 @@ fn a_fiat_paid_dispute_is_not_grounds_to_slash_while_the_escrow_still_holds_it()
 
     let res = s.staking.try_slash(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
 
-    assert_eq!(res, Err(Ok(Error::TradeNotDisputed)));
+    assert_eq!(res, Err(Ok(Error::SlashNotApplicable)));
     assert_eq!(s.usdc.balance(&s.user), user_before);
     assert_eq!(s.usdc.balance(&s.escrow.address), escrow_before);
     assert_eq!(s.staking.get_stake(&s.lp).staked, 2_000_000_000i128);
@@ -1930,4 +1929,64 @@ fn a_paused_contract_still_lets_the_admin_free_a_live_reservation() {
     s.staking.force_release_reservation(&s.lp, &live, &s.admin);
 
     assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+}
+
+#[test]
+fn freeing_one_reservation_leaves_every_other_commitment_standing() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
+    s.staking.stake(&s.lp, &2_000_000_000i128);
+    let first = s.make_trade(193, false);
+    let second = s.make_trade(194, false);
+    s.staking.reserve(&s.lp, &first, &600_000_000i128, &s.resolver);
+    s.staking.reserve(&s.lp, &second, &700_000_000i128, &s.resolver);
+
+    s.staking.force_release_reservation(&s.lp, &first, &s.admin);
+
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 700_000_000i128);
+    assert_eq!(s.staking.get_reservation(&s.lp, &second), Some(700_000_000i128));
+    assert_eq!(s.staking.get_reservation(&s.lp, &first), None);
+    assert_eq!(s.staking.available(&s.lp), 1_300_000_000i128);
+}
+
+#[test]
+fn pausing_never_traps_collateral_that_nothing_can_claim() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_settled_trade(195);
+    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+    let hold = s.escrow.dispute_view(&trade_id).collateral_hold_until;
+    s.staking.set_paused(&true);
+
+    s.env.ledger().with_mut(|li| li.timestamp = hold + 1);
+    s.staking.release_expired_reservation(&s.lp, &trade_id);
+
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+}
+
+#[test]
+fn a_provider_may_never_reserve_its_own_collateral() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_trade(196, false);
+
+    assert_eq!(
+        s.staking.try_reserve(&s.lp, &trade_id, &500_000_000i128, &s.lp),
+        Err(Ok(Error::Unauthorized))
+    );
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+}
+
+#[test]
+fn the_admin_may_reserve_as_well_as_the_resolver() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_trade(197, false);
+
+    s.staking.reserve(&s.lp, &trade_id, &500_000_000i128, &s.admin);
+
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 500_000_000i128);
 }
