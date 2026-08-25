@@ -1,0 +1,145 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - name: the wasm the deploy would use must build
+        run: |
+          rustup target add wasm32v1-none
+          cargo build --release --target wasm32v1-none --locked
+
+  coordinator:
+    name: coordinator
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lolipay
+          POSTGRES_PASSWORD: lolipay
+          POSTGRES_DB: lolipay
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U lolipay"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://lolipay:lolipay@localhost:5432/lolipay?schema=public
+    defaults:
+      run:
+        working-directory: services/coordinator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: services/coordinator/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - name: types, specs included
+        run: npx tsc --noEmit
+      - run: npm test
+      - name: the migrations must reproduce the schema
+        run: |
+          npx prisma migrate deploy
+          npx prisma migrate diff \
+            --from-migrations ./prisma/migrations \
+            --to-schema-datamodel ./prisma/schema.prisma \
+            --shadow-database-url "$DATABASE_URL" \
+            --exit-code
+      - name: production dependencies carry no known high severity advisory
+        run: npm audit --audit-level=high --omit=dev
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm run test
+
+  frontend-lint:
+    name: frontend lint (reporting only — see the backlog note)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: eslint across the apps
+        run: pnpm run lint
+
+  guards:
+    name: guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: no AI working document may be tracked
+        run: |
+          set -euo pipefail
+          bad=$(git ls-files | grep -E '^(CLAUDE\.md|AGENTS\.md|docs/|\.claude/|\.codegraph/)' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::these are local-only and must never be committed:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "clean — no AI documents tracked"
+
+      - name: the working tree must carry no untracked leftovers
+        run: |
+          set -euo pipefail
+          left=$(git status --porcelain -uall | grep '^??' || true)
+          if [ -n "$left" ]; then
+            echo "::error::untracked files present in a clean checkout:"
+            echo "$left"
+            exit 1
+          fi
+
+      - name: no secret anywhere in history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

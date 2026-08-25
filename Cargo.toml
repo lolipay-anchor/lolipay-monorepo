@@ -2,6 +2,9 @@
 resolver = "2"
 members = ["contracts/*"]
 
+[workspace.lints.clippy]
+too_many_arguments = "allow"
+
 [workspace.dependencies]
 soroban-sdk = "26"
 
