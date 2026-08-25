@@ -1322,3 +1322,106 @@ fn an_escrow_that_will_not_answer_stops_a_slash_rather_than_allowing_one() {
     );
     assert_eq!(staking.get_stake(&lp).staked, 1_000_000_000i128);
 }
+
+#[test]
+fn each_kind_of_entry_keeps_the_lifetime_its_access_pattern_needs() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_trade(212, false);
+
+    let day = 17_280u32;
+    let addr = s.staking.address.clone();
+    s.env.as_contract(&addr, || {
+        use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
+        assert_eq!(s.env.storage().instance().get_ttl(), 90 * day);
+        assert_eq!(
+            s.env.storage().persistent().get_ttl(&crate::types::DataKey::Stake(s.lp.clone())),
+            90 * day
+        );
+    });
+
+    s.escrow.mark_fiat_paid(&trade_id, &s.lp);
+    let now = s.env.ledger().timestamp();
+    s.env.ledger().with_mut(|li| li.timestamp = now + 500);
+    s.escrow.confirm_and_release(&trade_id);
+    s.escrow.raise_dispute(&trade_id, &s.user);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
+    s.staking.slash(&s.lp, &trade_id, &100_000_000i128, &s.resolver);
+
+    s.env.as_contract(&addr, || {
+        use soroban_sdk::testutils::storage::Persistent as _;
+        assert_eq!(
+            s.env.storage().persistent().get_ttl(&crate::types::DataKey::Slashed(trade_id.clone())),
+            90 * day
+        );
+    });
+}
+
+#[test]
+fn a_bond_one_unit_below_the_minimum_does_not_make_a_provider_eligible() {
+    let (env, client, _admin, _usdc, usdc_admin, _resolver) = setup_with_usdc();
+    let lp = Address::generate(&env);
+    usdc_admin.mint(&lp, &2_000_000_000i128);
+
+    client.stake(&lp, &999_999_999i128);
+    assert_eq!(client.get_stake(&lp).staked, 999_999_999i128);
+    assert!(!client.is_eligible(&lp));
+
+    client.stake(&lp, &1i128);
+    assert_eq!(client.get_stake(&lp).staked, 1_000_000_000i128);
+    assert!(client.is_eligible(&lp));
+}
+
+#[test]
+fn a_slash_names_the_victim_it_paid_and_the_amount_it_took() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+
+    s.staking.slash(&s.lp, &s.trade_id, &400_000_000i128, &s.resolver);
+    let raw = s.env.events().all().filter_by_contract(&s.staking.address);
+    let raw = raw.events();
+    let last = raw.last().unwrap().clone();
+
+    let expected = crate::events::Slashed {
+        lp: s.lp.clone(),
+        victim: s.user.clone(),
+        amount: 400_000_000i128,
+    };
+    assert_eq!(last, expected.to_xdr(&s.env, &s.staking.address));
+}
+
+#[test]
+fn a_trade_the_escrow_has_never_heard_of_is_refused_rather_than_slashed() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &id32(&s.env, 250), &1i128, &s.resolver),
+        Err(Ok(Error::TradeNotDisputed))
+    );
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 1_000_000_000i128);
+}
+
+#[test]
+fn a_slash_may_take_the_whole_bond_but_not_one_unit_more() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &600_000_000i128);
+    s.staking.request_unstake(&s.lp, &200_000_000i128);
+
+    let info = s.staking.get_stake(&s.lp);
+    let whole_bond = info.staked + info.unbonding;
+    assert_eq!(whole_bond, 600_000_000i128);
+
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &s.trade_id, &(whole_bond + 1), &s.resolver),
+        Err(Ok(Error::InsufficientStake))
+    );
+    s.staking.slash(&s.lp, &s.trade_id, &whole_bond, &s.resolver);
+    let after = s.staking.get_stake(&s.lp);
+    assert_eq!(after.staked, 0i128);
+    assert_eq!(after.unbonding, 0i128);
+}

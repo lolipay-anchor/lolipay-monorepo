@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use soroban_sdk::{contractevent, Address};
 
 #[contractevent]
@@ -44,5 +43,3 @@ pub struct ConfigChanged {
 pub struct PausedSet {
     pub paused: bool,
 }
-
-
