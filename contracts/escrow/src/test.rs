@@ -3729,8 +3729,8 @@ fn raising_a_post_settlement_dispute_buys_a_full_day_to_act_on_the_verdict() {
 }
 
 #[test]
-fn a_trade_is_judged_by_the_window_it_was_created_under() {
-    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+fn a_confirmed_release_is_judged_by_the_window_its_trade_was_created_under() {
+    let (env, client, _admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
     let mut cfg = client.get_config();
     cfg.dispute_window = 604_800;
     client.set_config(&cfg);
@@ -3740,6 +3740,7 @@ fn a_trade_is_judged_by_the_window_it_was_created_under() {
     let mut cfg = client.get_config();
     cfg.dispute_window = 3600;
     client.set_config(&cfg);
+    assert_eq!(client.get_trade(&id32(&env, 1)).dispute_window, 604_800);
 
     client.mark_fiat_paid(&id32(&env, 1), &recipient);
     env.ledger().with_mut(|l| l.timestamp = 500);
@@ -3749,7 +3750,6 @@ fn a_trade_is_judged_by_the_window_it_was_created_under() {
     env.ledger().with_mut(|l| l.timestamp = 400_000);
     client.raise_dispute(&id32(&env, 1), &provider);
     assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Disputed);
-    let _ = resolver;
 }
 
 #[test]

@@ -1578,7 +1578,7 @@ fn a_holder_who_files_and_wins_does_not_thereby_arm_its_own_confiscation() {
 }
 
 #[test]
-fn a_dismissal_is_not_undone_by_a_later_dispute_the_holder_wins() {
+fn a_later_dispute_the_holder_wins_still_establishes_no_liability() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
     s.staking.stake(&s.lp, &1_000_000_000i128);
@@ -1592,6 +1592,10 @@ fn a_dismissal_is_not_undone_by_a_later_dispute_the_holder_wins() {
     s.env.ledger().with_mut(|li| li.timestamp = now + 1200);
     s.escrow.raise_dispute(&trade_id, &s.lp);
     s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
+
+    let view = s.escrow.dispute_view(&trade_id);
+    assert!(!view.liability_established);
+    assert_ne!(view.slash_deadline, 0);
 
     let victim_before = s.usdc.balance(&s.user);
     assert_eq!(
