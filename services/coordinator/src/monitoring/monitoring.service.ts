@@ -5,6 +5,7 @@ import { AppConfigService } from '../config/app-config.service';
 import { Prisma } from '../generated/prisma/client';
 import {
   ALERT_SAMPLE_LIMIT,
+  ALERT_TEXT_LIMIT,
   fiatPaymentOverdueWhere,
   nowSeconds,
   openDisputesWhere,
@@ -13,9 +14,16 @@ import {
 
 const INDEXER_LAG_ALERT_SECONDS = 120;
 const REMINDER_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const URGENT_REMINDER_INTERVAL_MS = 15 * 60 * 1000;
 const WEBHOOK_TIMEOUT_MS = 5000;
 
 export type Urgency = 'routine' | 'urgent';
+
+export function summarise(alerts: Alert[], limit: number = ALERT_TEXT_LIMIT): string {
+  const shown = alerts.slice(0, limit).map((a) => a.text).join(' · ');
+  if (alerts.length <= limit) return shown;
+  return `${shown} · and ${alerts.length - limit} more not listed`;
+}
 
 export interface Alert {
   key: string;
@@ -76,7 +84,15 @@ export class MonitoringService implements OnModuleInit {
       return;
     }
 
-    const alerts = await this.buildAlerts(m);
+    let alerts: Alert[];
+    try {
+      alerts = await this.buildAlerts(m);
+    } catch (e) {
+      this.log.error(
+        `alert conditions could not be read: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return;
+    }
     const { toSend, resolved } = await this.reconcileAlerts(alerts);
 
     if (alerts.length === 0) {
@@ -91,20 +107,22 @@ export class MonitoringService implements OnModuleInit {
     if (toSend.length > 0) {
       const urgent = toSend.some((a) => a.urgency === 'urgent');
       const prefix = urgent ? '🚨 lolipay coordinator' : '⚠️ lolipay coordinator';
-      const delivered = await this.sendWebhook(
-        `${prefix}: ${toSend.map((a) => a.text).join(' · ')}`,
-        m,
-      );
+      const delivered = await this.sendWebhook(`${prefix}: ${summarise(toSend)}`, m);
       if (delivered) await this.recordSent(toSend, now);
     }
     if (resolved.length > 0) {
+      const shown = resolved.slice(0, ALERT_TEXT_LIMIT).join(' · ');
+      const rest =
+        resolved.length > ALERT_TEXT_LIMIT ? ` and ${resolved.length - ALERT_TEXT_LIMIT} more` : '';
       const delivered = await this.sendWebhook(
-        `✅ lolipay coordinator: ${resolved.join(' · ')} — cleared`,
+        `✅ lolipay coordinator: ${shown}${rest} — cleared`,
         m,
       );
       if (delivered) await this.forgetResolved(resolved);
     }
   }
+
+  private truncated = new Set<string>();
 
   async buildAlerts(m: Awaited<ReturnType<MonitoringService['metrics']>>): Promise<Alert[]> {
     const nowSec = nowSeconds();
@@ -115,13 +133,15 @@ export class MonitoringService implements OnModuleInit {
     ]);
 
     const overflow: Alert[] = [];
+    this.truncated = new Set<string>();
     const noteOverflow = (kind: string, sampled: unknown[], label: string) => {
       if (sampled.length < ALERT_SAMPLE_LIMIT) return;
+      this.truncated.add(kind);
       overflow.push({
         key: `${kind}:overflow`,
         fingerprint: 'at-limit',
         urgency: 'routine',
-        text: `more than ${ALERT_SAMPLE_LIMIT} ${label} — only the oldest ${ALERT_SAMPLE_LIMIT} are listed individually`,
+        text: `at least ${ALERT_SAMPLE_LIMIT} ${label} — the list is truncated and nothing in this family will be reported as cleared until it is not`,
       });
     };
     noteOverflow('open_dispute', disputes, 'open disputes');
@@ -174,7 +194,7 @@ export class MonitoringService implements OnModuleInit {
     return this.prisma.order.findMany({
       where,
       select: { id: true, tradeId: true },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: ALERT_SAMPLE_LIMIT,
     });
   }
@@ -204,12 +224,22 @@ export class MonitoringService implements OnModuleInit {
       const changed = seen != null && seen.fingerprint !== a.fingerprint;
       const stale =
         seen != null && now.getTime() - seen.lastSentAt.getTime() >= REMINDER_INTERVAL_MS;
-      if (a.urgency === 'urgent' || isNew || changed || stale) {
+      const urgentDue =
+        a.urgency === 'urgent' &&
+        (seen == null ||
+          now.getTime() - seen.lastSentAt.getTime() >= URGENT_REMINDER_INTERVAL_MS);
+      if (urgentDue || isNew || changed || stale) {
         toSend.push(a);
       }
     }
 
-    const resolved = known.filter((k) => !live.has(k.key)).map((k) => k.key);
+    const resolved = known
+      .filter((k) => !live.has(k.key))
+      .map((k) => k.key)
+      .filter((key) => {
+        const family = key.split(':')[0];
+        return !this.truncated.has(family);
+      });
     return { toSend, resolved };
   }
 

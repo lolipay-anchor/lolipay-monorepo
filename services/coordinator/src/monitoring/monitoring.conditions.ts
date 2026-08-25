@@ -1,6 +1,7 @@
 import { Prisma } from '../generated/prisma/client';
 
-export const ALERT_SAMPLE_LIMIT = 50;
+export const ALERT_SAMPLE_LIMIT = 500;
+export const ALERT_TEXT_LIMIT = 50;
 
 export function nowSeconds(): bigint {
   return BigInt(Math.floor(Date.now() / 1000));
