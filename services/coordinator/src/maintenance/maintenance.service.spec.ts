@@ -28,7 +28,7 @@ describe('MaintenanceService', () => {
     const cfg = { escrowContractId: 'CESCROW' } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
     return {
-      svc: new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications),
+      svc: new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications, { raise: jest.fn(async () => ({ sent: [], cleared: [] })) } as any),
       prisma,
       stellar,
       refundSigner,
@@ -83,7 +83,7 @@ describe('MaintenanceService', () => {
     const refundSigner = { isConfigured: false, publicKey: null, submitRefund: jest.fn() } as any;
     const cfg = { escrowContractId: 'CESCROW' } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
-    const svc = new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications);
+    const svc = new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications, { raise: jest.fn(async () => ({ sent: [], cleared: [] })) } as any);
 
     await svc.expireStaleOrders();
 
@@ -116,7 +116,7 @@ describe('MaintenanceService', () => {
     const refundSigner = { isConfigured: false, publicKey: null, submitRefund: jest.fn() } as any;
     const cfg = { escrowContractId: 'CESCROW' } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
-    const svc = new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications);
+    const svc = new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications, { raise: jest.fn(async () => ({ sent: [], cleared: [] })) } as any);
 
     await svc.expireStaleOrders();
 
@@ -151,7 +151,7 @@ describe('MaintenanceService', () => {
         if (call === 1) throw new Error('notify failed');
       }),
     } as any;
-    const svc = new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications);
+    const svc = new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications, { raise: jest.fn(async () => ({ sent: [], cleared: [] })) } as any);
 
     await svc.expireStaleOrders();
 
@@ -191,7 +191,7 @@ describe('MaintenanceService', () => {
     const refundSigner = { isConfigured: false, publicKey: null, submitRefund: jest.fn() } as any;
     const cfg = { escrowContractId: 'CESCROW' } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
-    const svc = new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications);
+    const svc = new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications, { raise: jest.fn(async () => ({ sent: [], cleared: [] })) } as any);
 
     await svc.expireStaleOrders();
     expect(notifications.notifyOrderStatus).not.toHaveBeenCalled();
@@ -272,7 +272,7 @@ describe('MaintenanceService.autoRefundExpired', () => {
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
 
     return {
-      svc: new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications),
+      svc: new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications, { raise: jest.fn(async () => ({ sent: [], cleared: [] })) } as any),
       prisma,
       stellar,
       refundSigner,
@@ -400,7 +400,7 @@ describe('MaintenanceService.autoRefundExpired', () => {
       } as any;
       const cfg = { escrowContractId: 'CESCROW' } as any;
       const notifications = { notifyOrderStatus: jest.fn() } as any;
-      const svc = new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications);
+      const svc = new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications, { raise: jest.fn(async () => ({ sent: [], cleared: [] })) } as any);
 
       await svc.autoRefundExpired();
 
@@ -441,7 +441,7 @@ describe('MaintenanceService.autoRefundExpired', () => {
     } as any;
     const cfg = { escrowContractId: 'CESCROW' } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
-    const svc = new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications);
+    const svc = new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications, { raise: jest.fn(async () => ({ sent: [], cleared: [] })) } as any);
 
     await svc.autoRefundExpired();
 

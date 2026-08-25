@@ -7,6 +7,7 @@ import { AppConfigService } from '../config/app-config.service';
 import { NotificationService } from '../notification/notification.service';
 import { contractIdFor } from '../order/order.params';
 import { ATTEST_GRACE_SECS, refundOpensAt } from '../order/dispute.util';
+import { Alert, AlertsService } from '../monitoring/alerts.service';
 
 const AUTO_REFUND_BATCH_SIZE = 20;
 
@@ -26,7 +27,47 @@ export class MaintenanceService {
     private refundSigner: RefundSignerService,
     private cfg: AppConfigService,
     private notifications: NotificationService,
+    private alerts: AlertsService,
   ) {}
+
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async alertOnEscrowDivergence(): Promise<void> {
+    let candidates: { id: string; tradeId: string; contractId: string | null; status: string }[];
+    try {
+      candidates = await this.prisma.order.findMany({
+        where: {
+          status: { in: ['CANCELLED', 'EXPIRED'] },
+          createdAt: { gt: new Date(Date.now() - ORPHAN_LOOKBACK_MS) },
+        },
+        select: { id: true, tradeId: true, contractId: true, status: true },
+        take: AUTO_REFUND_BATCH_SIZE,
+      });
+    } catch (err) {
+      this.log.error(`alertOnEscrowDivergence: could not read orders: ${errMsg(err)}`);
+      return;
+    }
+
+    const found: Alert[] = [];
+    for (const o of candidates) {
+      const contractId = contractIdFor(o, this.cfg);
+      let onChain;
+      try {
+        onChain = await this.stellar.getTradeStatusStrict(contractId, o.tradeId);
+      } catch (err) {
+        this.log.warn(`alertOnEscrowDivergence: order ${o.id} read failed: ${errMsg(err)}`);
+        return;
+      }
+      if (!onChain || onChain.status === 'FUNDED') continue;
+      found.push({
+        key: `escrow_divergence:${o.id}`,
+        fingerprint: onChain.status,
+        urgency: 'urgent',
+        text: `order ${o.id} (trade ${o.tradeId}) is ${o.status} off chain but ${onChain.status} on chain — a human must look at this`,
+      });
+    }
+
+    await this.alerts.raise(['escrow_divergence'], found);
+  }
 
   @Cron(CronExpression.EVERY_5_MINUTES)
   async expireStaleOrders() {
@@ -210,12 +251,7 @@ export class MaintenanceService {
       }
       if (!onChain) continue;
 
-      if (onChain.status !== 'FUNDED') {
-        this.log.error(
-          `reconcileOrphanedEscrows: order ${o.id} is ${o.status} off-chain but ${onChain.status} on-chain (tradeId ${o.tradeId}) — a human must look at this`,
-        );
-        continue;
-      }
+      if (onChain.status !== 'FUNDED') continue;
 
       if (refundOpensAt(o) >= nowSecs) continue;
 

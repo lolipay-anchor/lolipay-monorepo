@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { Logger } from '@nestjs/common';
-import { MonitoringService } from './monitoring.service';
+import { AlertsService } from './alerts.service';
 
 describe('the environment template offers every variable the monitor needs', () => {
   const env = readFileSync(join(__dirname, '../../.env.example'), 'utf8');
@@ -15,9 +15,9 @@ describe('the environment template offers every variable the monitor needs', () 
   });
 });
 
-describe('MonitoringService tells an operator when alerts go nowhere', () => {
+describe('the alerts service tells an operator when alerts go nowhere', () => {
   function makeSvc(alertWebhookUrl: string | undefined) {
-    return new MonitoringService({} as any, { alertWebhookUrl } as any);
+    return new AlertsService({} as any, { alertWebhookUrl } as any, { register: jest.fn() } as any);
   }
 
   it('says so at boot when the webhook is unset', () => {

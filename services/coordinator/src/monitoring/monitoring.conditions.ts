@@ -2,6 +2,7 @@ import { Prisma } from '../generated/prisma/client';
 
 export const ALERT_SAMPLE_LIMIT = 500;
 export const ALERT_TEXT_LIMIT = 50;
+export const DISPUTE_STALE_DAYS = 30;
 
 export function nowSeconds(): bigint {
   return BigInt(Math.floor(Date.now() / 1000));

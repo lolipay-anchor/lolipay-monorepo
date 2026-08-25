@@ -1,4 +1,4 @@
-import { MonitoringService } from './monitoring.service';
+import { MonitoringService, MONITORING_ALERT_SCOPE } from './monitoring.service';
 
 function rows(prefix: string, n: number) {
   return Array.from({ length: n }, (_, i) => ({ id: `${prefix}${i}`, tradeId: `t${prefix}${i}` }));
@@ -36,14 +36,14 @@ function make(opts: {
       ),
     },
   } as any;
-  prisma.alertState = {
-    findMany: jest.fn().mockResolvedValue([]),
-    upsert: jest.fn(),
-    deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
-  };
-  prisma.$transaction = jest.fn().mockResolvedValue([]);
-  const cfg = { alertWebhookUrl: opts.webhook } as any;
-  return { svc: new MonitoringService(prisma, cfg), prisma };
+  const raised: any[] = [];
+  const alerts = {
+    raise: jest.fn(async (scope: string[], list: any[], incomplete: Set<string>) => {
+      raised.push({ scope, list, incomplete });
+      return { sent: list, cleared: [] };
+    }),
+  } as any;
+  return { svc: new MonitoringService(prisma, alerts), prisma, alerts, raised };
 }
 
 describe('MonitoringService', () => {
@@ -63,50 +63,67 @@ describe('MonitoringService', () => {
     expect(m.indexer_lag_seconds).toBeLessThanOrEqual(9);
   });
 
-  it('checkAndAlert POSTs the webhook when a threshold trips', async () => {
-    const fetchMock = jest.fn().mockResolvedValue({ ok: true });
-    global.fetch = fetchMock as any;
-    const { svc } = make({
+  it('hands a tripped threshold to the alerts service, naming the order and its trade', async () => {
+    const { svc, alerts, raised } = make({
       disputes: 1,
       releaseOverdue: 0,
       fiatOverdue: 0,
       indexerAgeMs: 5000,
-      webhook: 'https://hooks.example/x',
     });
     await svc.checkAndAlert();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.text).toMatch(/disputed/i);
-    expect(body.text).toContain('d0');
-    expect(body.text).toContain('td0');
+
+    expect(alerts.raise).toHaveBeenCalledTimes(1);
+    const texts = raised[0].list.map((x: any) => x.text).join(' ');
+    expect(texts).toMatch(/disputed/i);
+    expect(texts).toContain('d0');
+    expect(texts).toContain('td0');
+    expect(raised[0].list[0].key).toBe('open_dispute:d0');
   });
 
-  it('checkAndAlert stays quiet (no webhook) when all clear', async () => {
-    const fetchMock = jest.fn();
-    global.fetch = fetchMock as any;
-    const { svc } = make({
+  it('claims only the conditions it owns, so it cannot clear another detector', async () => {
+    const { svc, raised } = make({
+      disputes: 1,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 5000,
+    });
+    await svc.checkAndAlert();
+    expect(raised[0].scope).toEqual(MONITORING_ALERT_SCOPE);
+    expect(raised[0].scope).not.toContain('escrow_divergence');
+  });
+
+  it('still calls the alerts service when all is clear, so a cleared condition is reported', async () => {
+    const { svc, alerts, raised } = make({
       disputes: 0,
       releaseOverdue: 0,
       fiatOverdue: 0,
       indexerAgeMs: 5000,
-      webhook: 'https://hooks.example/x',
     });
     await svc.checkAndAlert();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(alerts.raise).toHaveBeenCalledTimes(1);
+    expect(raised[0].list).toEqual([]);
+  });
+
+  it('raises nothing at all when the conditions cannot be read, rather than an empty set', async () => {
+    const { svc, alerts, prisma } = make({
+      disputes: 1,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 5000,
+    });
+    prisma.order.findMany = jest.fn().mockRejectedValue(new Error('db down'));
+    await svc.checkAndAlert();
+    expect(alerts.raise).not.toHaveBeenCalled();
   });
 
   it('alerts when the indexer has never run', async () => {
-    const fetchMock = jest.fn().mockResolvedValue({ ok: true });
-    global.fetch = fetchMock as any;
-    const { svc } = make({
+    const { svc, raised } = make({
       disputes: 0,
       releaseOverdue: 0,
       fiatOverdue: 0,
       indexerAgeMs: null,
-      webhook: 'https://hooks.example/x',
     });
     await svc.checkAndAlert();
-    expect(fetchMock).toHaveBeenCalled()
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toMatch(/indexer has never run/i);
+    expect(raised[0].list.map((x: any) => x.text).join(' ')).toMatch(/indexer has never run/i);
   });
 });

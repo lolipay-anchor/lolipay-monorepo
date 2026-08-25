@@ -29,7 +29,7 @@ function make(opts: {
   const cfg = { escrowContractId: 'CESCROW' } as any;
   const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
   return {
-    svc: new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications),
+    svc: new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications, { raise: jest.fn(async () => ({ sent: [], cleared: [] })) } as any),
     prisma,
     stellar,
     refundSigner,
@@ -90,8 +90,7 @@ describe('MaintenanceService.reconcileOrphanedEscrows (X3)', () => {
     expect(refundSigner.submitRefund).not.toHaveBeenCalled();
   });
 
-  it('alerts rather than refunding when the escrow has moved past FUNDED', async () => {
-    const errSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+  it('refuses to refund when the escrow has moved past FUNDED', async () => {
     const { svc, refundSigner } = make({
       orders: [cancelledOrder()],
       onChain: { status: 'FIAT_PAID', settledAt: 0 },
@@ -100,8 +99,6 @@ describe('MaintenanceService.reconcileOrphanedEscrows (X3)', () => {
     await svc.reconcileOrphanedEscrows();
 
     expect(refundSigner.submitRefund).not.toHaveBeenCalled();
-    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('FIAT_PAID'));
-    errSpy.mockRestore();
   });
 
   it('is fail-closed when the refund signer is not configured', async () => {
@@ -137,6 +134,7 @@ describe('MaintenanceService.alertOnStaleDisputes (S9)', () => {
       { isConfigured: false } as any,
       { escrowContractId: 'CESCROW' } as any,
       { notifyOrderStatus: jest.fn() } as any,
+      { raise: jest.fn(async () => ({ sent: [], cleared: [] })) } as any,
     );
     return { svc, prisma };
   }
