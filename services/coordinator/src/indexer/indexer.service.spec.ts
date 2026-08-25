@@ -440,7 +440,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
   it('post_settle=true: reads on-chain status via the EVENT\'s own contract id (not cfg.escrowContractId) and bypasses the monotonic guard DISPUTED→RELEASED', async () => {
     const { svc, prisma, notifications, stellar } = make('DISPUTED', {
       cfgOverrides: { escrowContractId: 'CCFGDEFAULT' },
-      stellarOverrides: { getTradeStatus: jest.fn().mockResolvedValue({ status: 'RELEASED' }) },
+      stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'RELEASED' }) },
       orderContractId: 'CEVENTCONTRACT',
     });
 
@@ -451,9 +451,9 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
       contractId: 'CEVENTCONTRACT',
     });
     expect(advanced).toBe(1);
-    expect(stellar.getTradeStatus).toHaveBeenCalledWith('CEVENTCONTRACT', TRADE_ID_A);
+    expect(stellar.getTradeStatusStrict).toHaveBeenCalledWith('CEVENTCONTRACT', TRADE_ID_A);
 
-    expect(stellar.getTradeStatus).toHaveBeenCalledTimes(1);
+    expect(stellar.getTradeStatusStrict).toHaveBeenCalledTimes(1);
 
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', status: 'DISPUTED' },
@@ -479,18 +479,19 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     expect(notifications.notifyOrderStatus).not.toHaveBeenCalled();
   });
 
-  it('post_settle=true, on-chain read fails: does nothing (fail-safe, let strict polling reconcile)', async () => {
-    const { svc, prisma, notifications, stellar } = make('DISPUTED', {
-      stellarOverrides: { getTradeStatus: jest.fn().mockRejectedValue(new Error('rpc down')) },
+  it('post_settle=true, on-chain read fails: throws so the batch replays instead of losing the event', async () => {
+    const { svc, prisma, notifications } = make('DISPUTED', {
+      stellarOverrides: { getTradeStatusStrict: jest.fn().mockRejectedValue(new Error('rpc down')) },
       orderContractId: 'CEVENTCONTRACT',
     });
     const value = nativeToScVal({ released: true, post_settle: true });
-    const advanced = await svc.applyEvent({
-      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
-      value,
-      contractId: 'CEVENTCONTRACT',
-    });
-    expect(advanced).toBe(0);
+    await expect(
+      svc.applyEvent({
+        topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+        value,
+        contractId: 'CEVENTCONTRACT',
+      }),
+    ).rejects.toThrow('rpc down');
     expect(prisma.order.updateMany).not.toHaveBeenCalled();
     expect(notifications.notifyOrderStatus).not.toHaveBeenCalled();
   });
@@ -743,7 +744,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     const { svc, userReputation, stellar } = make('DISPUTED', {
       flow: 'WITHDRAW',
       updateManyCount: 0,
-      stellarOverrides: { getTradeStatus: jest.fn().mockResolvedValue({ status: 'RELEASED' }) },
+      stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'RELEASED' }) },
       orderContractId: 'CEVENTCONTRACT',
     });
     const value = nativeToScVal({ released: true, post_settle: true });
@@ -753,14 +754,14 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
       contractId: 'CEVENTCONTRACT',
     });
     expect(advanced).toBe(0);
-    expect(stellar.getTradeStatus).toHaveBeenCalled();
+    expect(stellar.getTradeStatusStrict).toHaveBeenCalled();
     expect(userReputation.recordDisputeLost).not.toHaveBeenCalled();
   });
 
   it('post-settle branch applies the SAME user-lost mapping: WITHDRAW + on-chain RELEASED → recordDisputeLost called once', async () => {
     const { svc, userReputation, notifications } = make('DISPUTED', {
       flow: 'WITHDRAW',
-      stellarOverrides: { getTradeStatus: jest.fn().mockResolvedValue({ status: 'RELEASED' }) },
+      stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'RELEASED' }) },
       orderContractId: 'CEVENTCONTRACT',
     });
     const value = nativeToScVal({ released: false, post_settle: true });
@@ -778,7 +779,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
   it('post-settle branch: TOP_UP + on-chain REFUNDED → recordDisputeLost called once (user lost)', async () => {
     const { svc, userReputation } = make('DISPUTED', {
       flow: 'TOP_UP',
-      stellarOverrides: { getTradeStatus: jest.fn().mockResolvedValue({ status: 'REFUNDED' }) },
+      stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'REFUNDED' }) },
       orderContractId: 'CEVENTCONTRACT',
     });
     const value = nativeToScVal({ released: true, post_settle: true });
@@ -795,7 +796,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
   it('post-settle branch: TOP_UP + on-chain RELEASED → LP lost, recordDisputeLost NOT called', async () => {
     const { svc, userReputation } = make('DISPUTED', {
       flow: 'TOP_UP',
-      stellarOverrides: { getTradeStatus: jest.fn().mockResolvedValue({ status: 'RELEASED' }) },
+      stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'RELEASED' }) },
       orderContractId: 'CEVENTCONTRACT',
     });
     const value = nativeToScVal({ released: true, post_settle: true });
@@ -863,14 +864,14 @@ describe('IndexerService.applyEvent — disputed (post-settlement raise, Phase 5
 
   it('genuine post-settle raise: RELEASED → DISPUTED bypasses the monotonic guard ONLY after on-chain confirms DISPUTED', async () => {
     const { svc, prisma, notifications, stellar } = make('RELEASED', {
-      stellarOverrides: { getTradeStatus: jest.fn().mockResolvedValue({ status: 'DISPUTED' }) },
+      stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'DISPUTED' }) },
     });
     const advanced = await svc.applyEvent({
       topic: [TOPIC_DISPUTED, tradeIdTopic(TRADE_ID_A)],
       value: nativeToScVal(null),
       contractId: 'CXXX',
     });
-    expect(stellar.getTradeStatus).toHaveBeenCalledWith('CXXX', TRADE_ID_A);
+    expect(stellar.getTradeStatusStrict).toHaveBeenCalledWith('CXXX', TRADE_ID_A);
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', status: { in: ['RELEASED', 'REFUNDED'] } },
@@ -882,7 +883,7 @@ describe('IndexerService.applyEvent — disputed (post-settlement raise, Phase 5
 
   it('genuine post-settle raise from REFUNDED also bypasses the monotonic guard after on-chain confirms DISPUTED', async () => {
     const { svc, prisma, notifications, stellar } = make('REFUNDED', {
-      stellarOverrides: { getTradeStatus: jest.fn().mockResolvedValue({ status: 'DISPUTED' }) },
+      stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'DISPUTED' }) },
     });
     const advanced = await svc.applyEvent({
       topic: [TOPIC_DISPUTED, tradeIdTopic(TRADE_ID_A)],
@@ -900,7 +901,7 @@ describe('IndexerService.applyEvent — disputed (post-settlement raise, Phase 5
   it('post-settlement raise preserves the ORIGINAL disputeAt when the order was already disputed once before (disputeAt "if null")', async () => {
     const originalDisputeAt = new Date('2026-01-01T00:00:00.000Z');
     const { svc, prisma, notifications, stellar } = make('RELEASED', {
-      stellarOverrides: { getTradeStatus: jest.fn().mockResolvedValue({ status: 'DISPUTED' }) },
+      stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'DISPUTED' }) },
     });
 
     prisma.order.findUnique.mockResolvedValue({
@@ -941,14 +942,14 @@ describe('IndexerService.applyEvent — disputed (post-settlement raise, Phase 5
 
   it('REPLAYED disputed event on a settled order: on-chain currently reads RELEASED (not DISPUTED) → no flip, no notification (audit LOW fix)', async () => {
     const { svc, prisma, notifications, stellar } = make('RELEASED', {
-      stellarOverrides: { getTradeStatus: jest.fn().mockResolvedValue({ status: 'RELEASED' }) },
+      stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'RELEASED' }) },
     });
     const advanced = await svc.applyEvent({
       topic: [TOPIC_DISPUTED, tradeIdTopic(TRADE_ID_A)],
       value: nativeToScVal(null),
       contractId: 'CXXX',
     });
-    expect(stellar.getTradeStatus).toHaveBeenCalledWith('CXXX', TRADE_ID_A);
+    expect(stellar.getTradeStatusStrict).toHaveBeenCalledWith('CXXX', TRADE_ID_A);
     expect(advanced).toBe(0);
     expect(prisma.order.updateMany).not.toHaveBeenCalled();
     expect(prisma.order.update).not.toHaveBeenCalled();
@@ -1018,7 +1019,7 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
     } as any;
     const cfg = { rpcUrl: 'x', escrowContractId: 'CXXX', escrowContractIdsExtra: [] } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
-    const stellar = { getTradeStatus: jest.fn() } as any;
+    const stellar = { getTradeStatus: jest.fn(), getTradeStatusStrict: jest.fn() } as any;
     const userReputation = { recordDisputeLost: jest.fn().mockResolvedValue(undefined) } as any;
     return {
       svc: new IndexerService(prisma, cfg, notifications, stellar, userReputation) as any,
@@ -1141,7 +1142,7 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
       disputeNote: 'fabricated by the LP, who never signed',
       disputeEvidenceUrl: 'evidence/ord-1-lp.jpg',
     });
-    stellar.getTradeStatus.mockResolvedValue({ status: 'DISPUTED' });
+    stellar.getTradeStatusStrict.mockResolvedValue({ status: 'DISPUTED' });
     const value = nativeToScVal({ by: 'GUSER' });
     const advanced = await svc.applyEvent({
       topic: [TOPIC_DISPUTED, tradeIdTopic(TRADE_ID_A)],
@@ -1244,7 +1245,7 @@ describe('IndexerService.applyEvent — disputed/resolved split-replay window (s
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
 
     const stellar = {
-      getTradeStatus: jest
+      getTradeStatusStrict: jest
         .fn()
         .mockResolvedValueOnce({ status: 'DISPUTED' })
         .mockResolvedValue({ status: 'RELEASED' }),

@@ -162,16 +162,17 @@ export class IndexerService {
       return 0;
     }
 
+    if (NOT_YET_BOUND_ON_CHAIN.includes(order.status)) {
+      const bound = await this.bindTradeToOrder(evContractId, order);
+      if (!bound) return 0;
+    }
+
     if (name === 'resolved') return this.applyResolvedEvent(ev, order, toScVal);
     if (name === 'disputed') return this.applyDisputedEvent(ev, order, toScVal);
 
     const target = EVENT_STATUS[name];
 
     if ((STATUS_BEFORE[target] as string[]).includes(order.status)) {
-      if (NOT_YET_BOUND_ON_CHAIN.includes(order.status)) {
-        const bound = await this.bindTradeToOrder(evContractId, order);
-        if (!bound) return 0;
-      }
 
       let settledAt = new Date();
       let postSettleDeadline: bigint | null = null;
@@ -236,12 +237,7 @@ export class IndexerService {
 
     if ((POST_SETTLE_TERMINAL as readonly string[]).includes(order.status)) {
       const contractId = eventContractId(ev) ?? this.cfg.escrowContractId;
-      let onChain;
-      try {
-        onChain = await this.stellar.getTradeStatus(contractId, order.tradeId);
-      } catch {
-        onChain = null;
-      }
+      const onChain = await this.stellar.getTradeStatusStrict(contractId, order.tradeId);
       if (!onChain || onChain.status !== 'DISPUTED') {
         return 0;
       }
@@ -314,14 +310,14 @@ export class IndexerService {
     if (typeof val?.released !== 'boolean') return 0;
 
     const contractId = eventContractId(ev) ?? this.cfg.escrowContractId;
-    let onChain;
-    try {
-      onChain = await this.stellar.getTradeStatus(contractId, order.tradeId);
-    } catch {
-      onChain = null;
-    }
 
     if (val.post_settle !== true) {
+      let onChain;
+      try {
+        onChain = await this.stellar.getTradeStatus(contractId, order.tradeId);
+      } catch {
+        onChain = null;
+      }
       const target = val.released ? 'RELEASED' : 'REFUNDED';
 
       const resolution = val.released ? 'released' : 'refunded';
@@ -340,10 +336,11 @@ export class IndexerService {
       return 1;
     }
 
-    if (!onChain || !(POST_SETTLE_TERMINAL as readonly string[]).includes(onChain.status)) {
+    const settled = await this.stellar.getTradeStatusStrict(contractId, order.tradeId);
+    if (!settled || !(POST_SETTLE_TERMINAL as readonly string[]).includes(settled.status)) {
       return 0;
     }
-    const finalStatus = onChain.status;
+    const finalStatus = settled.status;
 
     const resolution = finalStatus === 'RELEASED' ? 'released' : 'refunded';
     const res = await this.prisma.order.updateMany({
