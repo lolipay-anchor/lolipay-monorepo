@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use soroban_sdk::{Address, Env};
 
-use crate::types::{Config, DataKey, StakeInfo};
+use crate::types::{Config, DataKey, Reservation, StakeInfo};
 
 const DAY_IN_LEDGERS: u32 = 17280;
 const INSTANCE_BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
@@ -9,7 +9,7 @@ const INSTANCE_LIFETIME: u32 = 90 * DAY_IN_LEDGERS;
 const STAKE_BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
 const STAKE_LIFETIME: u32 = 90 * DAY_IN_LEDGERS;
 const RESERVATION_BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
-const RESERVATION_LIFETIME: u32 = 45 * DAY_IN_LEDGERS;
+const RESERVATION_LIFETIME: u32 = 120 * DAY_IN_LEDGERS;
 
 pub fn get_config(env: &Env) -> Option<Config> {
     env.storage().instance().get(&DataKey::Config)
@@ -65,19 +65,29 @@ pub fn get_reservation(
     env: &Env,
     lp: &Address,
     trade_id: &soroban_sdk::BytesN<32>,
-) -> Option<i128> {
+) -> Option<Reservation> {
     let key = DataKey::Reservation(lp.clone(), trade_id.clone());
-    env.storage().persistent().get::<DataKey, i128>(&key)
+    match env.storage().persistent().get::<DataKey, Reservation>(&key) {
+        Some(r) => {
+            env.storage().persistent().extend_ttl(
+                &key,
+                RESERVATION_BUMP_THRESHOLD,
+                RESERVATION_LIFETIME,
+            );
+            Some(r)
+        }
+        None => None,
+    }
 }
 
 pub fn set_reservation(
     env: &Env,
     lp: &Address,
     trade_id: &soroban_sdk::BytesN<32>,
-    amount: i128,
+    reservation: &Reservation,
 ) {
     let key = DataKey::Reservation(lp.clone(), trade_id.clone());
-    env.storage().persistent().set(&key, &amount);
+    env.storage().persistent().set(&key, reservation);
     env.storage()
         .persistent()
         .extend_ttl(&key, RESERVATION_BUMP_THRESHOLD, RESERVATION_LIFETIME);

@@ -2052,3 +2052,60 @@ fn the_admin_may_reserve_as_well_as_the_resolver() {
 
     assert_eq!(s.staking.get_stake(&s.lp).reserved, 500_000_000i128);
 }
+
+#[test]
+fn a_reservation_the_trade_never_claimed_frees_itself_after_a_day() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let never = id32(&s.env, 205);
+    s.staking.reserve(&s.lp, &never, &1_000_000_000i128, &s.resolver);
+    let at = s.env.ledger().timestamp();
+
+    s.env.ledger().with_mut(|li| li.timestamp = at + 86_400);
+    assert_eq!(
+        s.staking.try_release_unclaimed_reservation(&s.lp, &never),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 1_000_000_000i128);
+
+    s.env.ledger().with_mut(|li| li.timestamp = at + 86_401);
+    s.staking.release_unclaimed_reservation(&s.lp, &never);
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
+    assert_eq!(s.staking.available(&s.lp), 1_000_000_000i128);
+}
+
+#[test]
+fn once_the_trade_exists_the_unclaimed_door_is_shut_forever() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let claimed = s.make_trade(206, false);
+    s.staking.reserve(&s.lp, &claimed, &1_000_000_000i128, &s.resolver);
+    let at = s.env.ledger().timestamp();
+
+    s.env.ledger().with_mut(|li| li.timestamp = at + 100_000_000);
+    assert_eq!(
+        s.staking.try_release_unclaimed_reservation(&s.lp, &claimed),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 1_000_000_000i128);
+}
+
+#[test]
+fn the_unclaimed_door_cannot_be_used_before_the_trade_would_have_arrived() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let pending = id32(&s.env, 207);
+    s.staking.reserve(&s.lp, &pending, &1_000_000_000i128, &s.resolver);
+
+    assert_eq!(
+        s.staking.try_release_unclaimed_reservation(&s.lp, &pending),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    assert_eq!(
+        s.staking.try_request_unstake(&s.lp, &1_000_000_000i128),
+        Err(Ok(Error::InsufficientAvailable))
+    );
+}

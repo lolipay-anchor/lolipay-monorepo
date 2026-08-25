@@ -15,11 +15,12 @@ use crate::events::{
     Reserved, ReservationReleased,ConfigChanged, PausedSet, Slashed, Staked, UnstakeRequested, Unstaked};
 use crate::storage::{
     bump_instance, get_config, get_stake, is_slashed, mark_slashed, set_config, set_stake, get_reservation as storage_get_reservation, set_reservation, clear_reservation};
-use crate::types::{Config, DisputeView, Error, StakeInfo};
+use crate::types::{Config, DisputeView, Error, Reservation, StakeInfo};
 
 const MAX_COOLDOWN_SECS: u64 = 90 * 24 * 60 * 60;
 const MIN_COOLDOWN_SECS: u64 = 24 * 60 * 60;
 pub(crate) const ESCROW_TRADE_NOT_FOUND: u32 = 5;
+const UNCLAIMED_RESERVATION_SECS: u64 = 86_400;
 
 #[contract]
 pub struct StakingContract;
@@ -130,7 +131,7 @@ impl StakingContract {
     }
 
     pub fn get_reservation(env: Env, lp: Address, trade_id: BytesN<32>) -> Option<i128> {
-        storage_get_reservation(&env, &lp, &trade_id)
+        storage_get_reservation(&env, &lp, &trade_id).map(|r| r.amount)
     }
 
     pub fn force_release_reservation(
@@ -181,6 +182,25 @@ impl StakingContract {
         }
     }
 
+    pub fn release_unclaimed_reservation(
+        env: Env,
+        lp: Address,
+        trade_id: BytesN<32>,
+    ) -> Result<(), Error> {
+        bump_instance(&env);
+        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
+        if Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)?.is_some() {
+            return Err(Error::SlashWindowOpen);
+        }
+        let reserved_at = storage_get_reservation(&env, &lp, &trade_id)
+            .ok_or(Error::ReservationNotFound)?
+            .reserved_at;
+        if env.ledger().timestamp() <= reserved_at + UNCLAIMED_RESERVATION_SECS {
+            return Err(Error::SlashWindowOpen);
+        }
+        Self::drop_reservation(&env, &lp, &trade_id)
+    }
+
     pub fn release_expired_reservation(
         env: Env,
         lp: Address,
@@ -200,7 +220,9 @@ impl StakingContract {
     }
 
     fn drop_reservation(env: &Env, lp: &Address, trade_id: &BytesN<32>) -> Result<(), Error> {
-        let amount = storage_get_reservation(env, lp, trade_id).ok_or(Error::ReservationNotFound)?;
+        let amount = storage_get_reservation(env, lp, trade_id)
+            .ok_or(Error::ReservationNotFound)?
+            .amount;
         let mut info = get_stake(env, lp);
         info.reserved -= amount;
         if info.reserved < 0 {
@@ -246,7 +268,9 @@ impl StakingContract {
         if is_slashed(&env, &trade_id) {
             return Err(Error::AlreadySlashed);
         }
-        let existing = storage_get_reservation(&env, &lp, &trade_id).unwrap_or(0);
+        let existing = storage_get_reservation(&env, &lp, &trade_id)
+            .map(|r| r.amount)
+            .unwrap_or(0);
         if existing == amount {
             return Ok(());
         }
@@ -260,7 +284,12 @@ impl StakingContract {
         }
         info.reserved += delta;
         set_stake(&env, &lp, &info);
-        set_reservation(&env, &lp, &trade_id, amount);
+        set_reservation(
+            &env,
+            &lp,
+            &trade_id,
+            &Reservation { amount, reserved_at: env.ledger().timestamp() },
+        );
         Reserved { lp, trade_id, amount, total_reserved: info.reserved }.publish(&env);
         Ok(())
     }
@@ -376,8 +405,8 @@ impl StakingContract {
             info.staked = 0;
             info.unbonding -= from_unbonding;
         }
-        if let Some(reserved) = storage_get_reservation(&env, &lp, &trade_id) {
-            info.reserved -= reserved;
+        if let Some(r) = storage_get_reservation(&env, &lp, &trade_id) {
+            info.reserved -= r.amount;
             clear_reservation(&env, &lp, &trade_id);
         }
         if info.reserved < 0 {

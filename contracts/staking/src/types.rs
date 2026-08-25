@@ -32,6 +32,13 @@ pub enum DataKey {
 
 #[contracttype]
 #[derive(Clone)]
+pub struct Reservation {
+    pub amount: i128,
+    pub reserved_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
 pub struct DisputeView {
     pub is_disputed: bool,
     pub provider: Address,
