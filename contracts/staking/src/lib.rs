@@ -265,24 +265,6 @@ impl StakingContract {
         Ok(())
     }
 
-    pub fn release_reservation(
-        env: Env,
-        lp: Address,
-        trade_id: BytesN<32>,
-        caller: Address,
-    ) -> Result<(), Error> {
-        bump_instance(&env);
-        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
-        if caller != cfg.resolver && caller != cfg.admin {
-            return Err(Error::Unauthorized);
-        }
-        caller.require_auth();
-        if cfg.paused {
-            return Err(Error::Paused);
-        }
-        Self::drop_reservation(&env, &lp, &trade_id)
-    }
-
     pub fn request_unstake(env: Env, lp: Address, amount: i128) -> Result<(), Error> {
         bump_instance(&env);
         let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
@@ -352,8 +334,11 @@ impl StakingContract {
         }
         let view = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)?
             .ok_or(Error::TradeNotDisputed)?;
-        if !view.is_disputed && !view.post_settle_raised {
+        if !view.post_settle_raised {
             return Err(Error::TradeNotDisputed);
+        }
+        if view.is_disputed {
+            return Err(Error::VerdictPending);
         }
         if view.pre_settlement {
             return Err(Error::SlashNotApplicable);

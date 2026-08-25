@@ -44,6 +44,7 @@ impl SlashEnv {
             });
             self.escrow.confirm_and_release(&trade_id);
             self.escrow.raise_dispute(&trade_id, &self.user);
+            self.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &self.resolver);
         }
         trade_id
     }
@@ -429,7 +430,6 @@ fn a_resolved_dispute_still_leaves_the_counterparty_whole() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
     s.staking.stake(&s.lp, &1_000_000_000i128);
-    s.escrow.resolve(&s.trade_id, &ResolveOutcome::Refund, &s.resolver);
     let victim_before = s.usdc.balance(&s.user);
 
     s.staking.slash(&s.lp, &s.trade_id, &100_000_000i128, &s.resolver);
@@ -465,10 +465,11 @@ fn test_slash_post_settlement_full_flow_and_one_shot() {
     assert_eq!(s.usdc.balance(&s.user), user_before);
 
     s.escrow.raise_dispute(&trade_id, &s.user);
-    assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Disputed);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
+    assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Released);
     let v = s.escrow.dispute_view(&trade_id);
     let (is_disputed, provider, recipient, amount) = (v.is_disputed, v.provider, v.recipient, v.amount);
-    assert!(is_disputed);
+    assert!(!is_disputed);
     assert_eq!(provider, s.user);
     assert_eq!(recipient, s.lp);
     assert_eq!(amount, 1_000_000_000i128);
@@ -476,7 +477,7 @@ fn test_slash_post_settlement_full_flow_and_one_shot() {
     s.staking.slash(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
     assert_eq!(s.usdc.balance(&s.user), user_before + 500_000_000i128);
     assert_eq!(s.staking.get_stake(&s.lp).staked, 1_500_000_000i128);
-    assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Disputed);
+    assert_eq!(s.escrow.get_trade(&trade_id).status, Status::Released);
 
     assert_eq!(
         s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
@@ -599,6 +600,7 @@ fn test_slash_post_settlement_cap_rejects_amount_above_trade_value() {
 
     let trade_id = s.make_settled_trade(11);
     s.escrow.raise_dispute(&trade_id, &s.user);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
 
     assert_eq!(
         s.staking.try_slash(&s.lp, &trade_id, &2_000_000_000i128, &s.resolver),
@@ -688,16 +690,6 @@ fn a_reservation_may_take_exactly_what_is_left() {
 }
 
 #[test]
-fn releasing_a_reservation_restores_availability() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-
-    client.release_reservation(&lp, &id32(&env, 1), &resolver);
-
-    assert_eq!(client.available(&lp), 4_000_000_000i128);
-}
-
-#[test]
 fn a_reservation_is_idempotent_per_trade() {
     let (env, client, _a, resolver, lp, _e) = staked_lp();
     client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
@@ -705,27 +697,6 @@ fn a_reservation_is_idempotent_per_trade() {
     client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
 
     assert_eq!(client.available(&lp), 3_000_000_000i128);
-}
-
-#[test]
-fn releasing_a_reservation_that_was_never_made_is_refused() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-
-    let res = client.try_release_reservation(&lp, &id32(&env, 9), &resolver);
-
-    assert_eq!(res, Err(Ok(Error::ReservationNotFound)));
-}
-
-#[test]
-fn releasing_twice_is_refused_so_the_total_cannot_go_negative() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-    client.release_reservation(&lp, &id32(&env, 1), &resolver);
-
-    let res = client.try_release_reservation(&lp, &id32(&env, 1), &resolver);
-
-    assert_eq!(res, Err(Ok(Error::ReservationNotFound)));
-    assert_eq!(client.available(&lp), 4_000_000_000i128);
 }
 
 #[test]
@@ -772,33 +743,6 @@ fn a_stranger_cannot_reserve_a_providers_stake() {
 }
 
 #[test]
-fn a_provider_cannot_reserve_or_release_their_own_collateral() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-
-    assert_eq!(
-        client.try_reserve(&lp, &id32(&env, 2), &1_000_000_000i128, &lp),
-        Err(Ok(Error::Unauthorized))
-    );
-    assert_eq!(
-        client.try_release_reservation(&lp, &id32(&env, 1), &lp),
-        Err(Ok(Error::Unauthorized))
-    );
-    assert_eq!(client.available(&lp), 3_000_000_000i128);
-}
-
-#[test]
-fn the_admin_may_reserve_and_release_as_well_as_the_resolver() {
-    let (env, client, admin, _resolver, lp, _e) = staked_lp();
-
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &admin);
-    assert_eq!(client.available(&lp), 3_000_000_000i128);
-
-    client.release_reservation(&lp, &id32(&env, 1), &admin);
-    assert_eq!(client.available(&lp), 4_000_000_000i128);
-}
-
-#[test]
 fn naming_the_resolver_is_not_the_same_as_being_the_resolver() {
     let (env, client, _a, resolver, lp, _e) = staked_lp();
 
@@ -821,19 +765,6 @@ fn a_reservation_of_nothing_is_refused() {
         client.try_reserve(&lp, &id32(&env, 2), &-1i128, &resolver),
         Err(Ok(Error::InvalidAmount))
     );
-}
-
-#[test]
-fn pausing_stops_collateral_being_freed_by_the_resolver() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-    client.set_paused(&true);
-
-    assert_eq!(
-        client.try_release_reservation(&lp, &id32(&env, 1), &resolver),
-        Err(Ok(Error::Paused))
-    );
-    assert_eq!(client.available(&lp), 3_000_000_000i128);
 }
 
 #[test]
@@ -862,10 +793,11 @@ fn a_funded_origin_dispute_is_not_grounds_to_slash() {
     let trade_id = s.make_topup_trade(77);
     s.escrow.raise_dispute(&trade_id, &s.resolver);
     let before = s.usdc.balance(&s.user);
+    let _ = &before;
 
     let res = s.staking.try_slash(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
 
-    assert_eq!(res, Err(Ok(Error::SlashNotApplicable)));
+    assert_eq!(res, Err(Ok(Error::TradeNotDisputed)));
     assert_eq!(s.usdc.balance(&s.user), before);
     assert_eq!(s.staking.get_stake(&s.lp).staked, 2_000_000_000i128);
 }
@@ -885,7 +817,7 @@ fn a_fiat_paid_dispute_is_not_grounds_to_slash_while_the_escrow_still_holds_it()
 
     let res = s.staking.try_slash(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
 
-    assert_eq!(res, Err(Ok(Error::SlashNotApplicable)));
+    assert_eq!(res, Err(Ok(Error::TradeNotDisputed)));
     assert_eq!(s.usdc.balance(&s.user), user_before);
     assert_eq!(s.usdc.balance(&s.escrow.address), escrow_before);
     assert_eq!(s.staking.get_stake(&s.lp).staked, 2_000_000_000i128);
@@ -995,47 +927,6 @@ fn only_the_admin_may_force_a_release() {
     assert_eq!(
         client.try_force_release_reservation(&lp, &id32(&env, 1), &lp),
         Err(Ok(Error::Unauthorized))
-    );
-}
-
-#[test]
-fn naming_the_resolver_is_not_enough_to_release_either() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-
-    env.set_auths(&[]);
-    let res = client.try_release_reservation(&lp, &id32(&env, 1), &resolver);
-
-    assert!(res.is_err());
-    assert_eq!(client.available(&lp), 3_000_000_000i128);
-}
-
-#[test]
-fn releasing_one_reservation_leaves_the_other_committed() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-    client.reserve(&lp, &id32(&env, 2), &1_000_000_000i128, &resolver);
-
-    client.release_reservation(&lp, &id32(&env, 1), &resolver);
-
-    assert_eq!(client.get_stake(&lp).reserved, 1_000_000_000i128);
-    assert_eq!(client.get_reservation(&lp, &id32(&env, 2)), Some(1_000_000_000i128));
-}
-
-#[test]
-fn a_slashed_trades_reservation_is_gone_not_merely_uncounted() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
-    s.staking.stake(&s.lp, &2_000_000_000i128);
-    let trade_id = s.make_trade(31, true);
-    s.staking.reserve(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
-
-    s.staking.slash(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
-
-    assert_eq!(s.staking.get_reservation(&s.lp, &trade_id), None);
-    assert_eq!(
-        s.staking.try_release_reservation(&s.lp, &trade_id, &s.resolver),
-        Err(Ok(Error::ReservationNotFound))
     );
 }
 
@@ -1353,6 +1244,7 @@ fn a_refunded_trade_may_only_slash_whoever_got_their_capital_back() {
     s.env.ledger().with_mut(|li| li.timestamp = now + 2001);
     s.escrow.refund(&trade_id);
     s.escrow.raise_dispute(&trade_id, &s.lp);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
 
     assert_eq!(
         s.staking.try_slash(&s.lp, &trade_id, &100_000_000i128, &s.resolver),
@@ -1393,7 +1285,6 @@ fn collateral_is_freed_by_anyone_once_the_slash_window_has_closed() {
     s.staking.stake(&s.lp, &1_000_000_000i128);
     let trade_id = s.make_trade(55, true);
     s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
-    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
     let deadline = s.escrow.dispute_view(&trade_id).slash_deadline;
 
     s.env.ledger().with_mut(|li| li.timestamp = deadline);
@@ -1444,6 +1335,7 @@ fn a_slash_survives_a_dispute_raised_at_the_very_last_second() {
 
     s.env.ledger().with_mut(|li| li.timestamp = window_end);
     s.escrow.raise_dispute(&trade_id, &s.user);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
     let victim_before = s.usdc.balance(&s.user);
 
     s.env.ledger().with_mut(|li| li.timestamp = window_end + 1);
@@ -1469,6 +1361,7 @@ fn collateral_stays_bound_while_a_dispute_can_still_be_raised() {
     assert_eq!(s.staking.get_stake(&s.lp).reserved, 1_000_000_000i128);
 
     s.escrow.raise_dispute(&trade_id, &s.user);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
     let victim_before = s.usdc.balance(&s.user);
     s.staking.slash(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
     assert_eq!(s.usdc.balance(&s.user), victim_before + 1_000_000_000i128);
@@ -1947,4 +1840,45 @@ fn the_cooldown_ceiling_is_ninety_days() {
     let mut cfg = client.get_config();
     cfg.cooldown_secs = 7_776_001;
     assert_eq!(client.try_set_config(&cfg), Err(Ok(Error::InvalidCooldown)));
+}
+
+#[test]
+fn no_stake_moves_before_a_verdict_has_been_rendered() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_settled_trade(180);
+    s.escrow.raise_dispute(&trade_id, &s.resolver);
+    let victim_before = s.usdc.balance(&s.user);
+
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver),
+        Err(Ok(Error::VerdictPending))
+    );
+    assert_eq!(s.usdc.balance(&s.user), victim_before);
+    assert_eq!(s.staking.get_stake(&s.lp).staked, 1_000_000_000i128);
+
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
+    s.staking.slash(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+    assert_eq!(s.usdc.balance(&s.user), victim_before + 1_000_000_000i128);
+}
+
+#[test]
+fn the_admin_door_refuses_on_the_last_second_of_the_hold_and_opens_after() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let trade_id = s.make_settled_trade(181);
+    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+    let hold = s.escrow.dispute_view(&trade_id).collateral_hold_until;
+
+    s.env.ledger().with_mut(|li| li.timestamp = hold);
+    assert_eq!(
+        s.staking.try_force_release_reservation(&s.lp, &trade_id, &s.admin),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+
+    s.env.ledger().with_mut(|li| li.timestamp = hold + 1);
+    s.staking.force_release_reservation(&s.lp, &trade_id, &s.admin);
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
 }

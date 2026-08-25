@@ -67,4 +67,5 @@ pub enum Error {
     SlashNotApplicable = 17,
     SlashWindowPassed = 18,
     SlashWindowOpen = 19,
+    VerdictPending = 20,
 }
