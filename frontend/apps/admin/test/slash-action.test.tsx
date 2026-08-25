@@ -33,8 +33,21 @@ const BASE = {
   created_at: new Date().toISOString(),
 } as unknown as Order
 
+const SETTLED = new Date(Date.now() - 60_000).toISOString()
+const DISPUTED_AFTER = new Date(Date.now() - 30_000).toISOString()
+
 function order(flow: string, status: string): Order {
-  return { ...BASE, flow, status } as unknown as Order
+  return {
+    ...BASE,
+    flow,
+    status,
+    settled_at: SETTLED,
+    dispute_at: DISPUTED_AFTER,
+  } as unknown as Order
+}
+
+function undisputed(flow: string, status: string): Order {
+  return { ...BASE, flow, status, settled_at: SETTLED, dispute_at: null } as unknown as Order
 }
 
 describe('providerDefaulted — who the bond can answer for', () => {
@@ -49,10 +62,31 @@ describe('providerDefaulted — who the bond can answer for', () => {
   })
 
   it('is false before settlement, where the escrow is still the remedy', () => {
-    for (const s of ['MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED']) {
+    for (const s of ['MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID']) {
       expect(providerDefaulted(order('WITHDRAW', s))).toBe(false)
       expect(providerDefaulted(order('TOP_UP', s))).toBe(false)
     }
+  })
+
+  it('is false on a healthy settlement that nobody disputed', () => {
+    expect(providerDefaulted(undisputed('WITHDRAW', 'RELEASED'))).toBe(false)
+    expect(providerDefaulted(undisputed('TOP_UP', 'REFUNDED'))).toBe(false)
+  })
+
+  it('is false when the only dispute happened before settlement', () => {
+    const preSettlement = {
+      ...BASE,
+      flow: 'WITHDRAW',
+      status: 'RELEASED',
+      settled_at: new Date(Date.now() - 10_000).toISOString(),
+      dispute_at: new Date(Date.now() - 60_000).toISOString(),
+    } as unknown as Order
+    expect(providerDefaulted(preSettlement)).toBe(false)
+  })
+
+  it('is true while a settled trade is still being judged, which is the case the contract now allows', () => {
+    expect(providerDefaulted(order('WITHDRAW', 'DISPUTED'))).toBe(true)
+    expect(providerDefaulted(order('TOP_UP', 'DISPUTED'))).toBe(true)
   })
 })
 

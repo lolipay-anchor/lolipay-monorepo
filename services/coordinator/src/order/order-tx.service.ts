@@ -262,6 +262,15 @@ export class OrderTxService {
           'this settlement left the user holding the money, not the provider — there is no provider bond to draw on',
         );
       }
+      const judged =
+        current.disputeAt &&
+        current.settledAt &&
+        current.disputeAt.getTime() > current.settledAt.getTime();
+      if (!judged) {
+        throw new ConflictException(
+          'no post-settlement dispute was raised on this trade, so there is no verdict to enforce',
+        );
+      }
     } else if (current.status !== 'DISPUTED') {
       throw new ConflictException(
         'a slash is restitution after settlement — this order has not settled, and while it has not, releasing or refunding the escrow is the remedy',

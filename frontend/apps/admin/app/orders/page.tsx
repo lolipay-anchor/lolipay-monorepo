@@ -540,9 +540,15 @@ function OrderCard({ order, onResolved }: { order: Order; onResolved: () => void
 }
 
 export function providerDefaulted(order: Order): boolean {
-  return (
+  const settledAgainstProvider =
     (order.flow === 'TOP_UP' && order.status === 'REFUNDED') ||
     (order.flow === 'WITHDRAW' && order.status === 'RELEASED')
+  const stillBeingJudged = order.status === 'DISPUTED' && !!order.settled_at
+  if (!settledAgainstProvider && !stillBeingJudged) return false
+  return !!(
+    order.dispute_at &&
+    order.settled_at &&
+    new Date(order.dispute_at).getTime() > new Date(order.settled_at).getTime()
   )
 }
 

@@ -23,6 +23,8 @@ describe('OrderTxService — the slash caller', () => {
       confirmDeadline: BigInt(2),
       disputeDeadline: BigInt(3),
       createdAt: new Date(),
+      settledAt: new Date(Date.now() - 60_000),
+      disputeAt: new Date(Date.now() - 30_000),
       ...orderOverrides,
     };
     const prisma = {
@@ -113,6 +115,23 @@ describe('OrderTxService — the slash caller', () => {
     );
   });
 
+  it('refuses a healthy settlement that nobody ever disputed', async () => {
+    const { svc } = makeSvc({ disputeAt: null });
+    await expect(svc.buildSlashTx('order-1', 'GADMIN', BigInt('1'))).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('refuses when the only dispute predates the settlement', async () => {
+    const { svc } = makeSvc({
+      settledAt: new Date(Date.now() - 10_000),
+      disputeAt: new Date(Date.now() - 60_000),
+    });
+    await expect(svc.buildSlashTx('order-1', 'GADMIN', BigInt('1'))).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
   it('reports the staking contract failure, not an RPC outage', async () => {
     const { svc } = makeSvc(
       {},
@@ -176,6 +195,8 @@ describe('OrderTxService — recovery already taken on chain', () => {
       confirmDeadline: BigInt(2),
       disputeDeadline: BigInt(3),
       createdAt: new Date(),
+      settledAt: new Date(Date.now() - 60_000),
+      disputeAt: new Date(Date.now() - 30_000),
     };
     const prisma = {
       order: {

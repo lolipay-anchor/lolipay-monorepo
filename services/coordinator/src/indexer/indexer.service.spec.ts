@@ -758,7 +758,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     expect(userReputation.recordDisputeLost).not.toHaveBeenCalled();
   });
 
-  it('post-settle branch applies the SAME user-lost mapping: WITHDRAW + on-chain RELEASED → recordDisputeLost called once', async () => {
+  it('post-settle: a verdict that overturns a released WITHDRAW blames the LP, never the user who won', async () => {
     const { svc, userReputation, notifications } = make('DISPUTED', {
       flow: 'WITHDRAW',
       stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'RELEASED' }) },
@@ -771,12 +771,27 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
       contractId: 'CEVENTCONTRACT',
     });
     expect(advanced).toBe(1);
-    expect(userReputation.recordDisputeLost).toHaveBeenCalledTimes(1);
-    expect(userReputation.recordDisputeLost).toHaveBeenCalledWith('GUSER', 'ord-1');
+    expect(userReputation.recordDisputeLost).not.toHaveBeenCalled();
     expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(expect.anything(), 'RELEASED');
   });
 
-  it('post-settle branch: TOP_UP + on-chain REFUNDED → recordDisputeLost called once (user lost)', async () => {
+  it('post-settle: a verdict that upholds a released WITHDRAW blames the user who lost it', async () => {
+    const { svc, userReputation } = make('DISPUTED', {
+      flow: 'WITHDRAW',
+      stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'RELEASED' }) },
+      orderContractId: 'CEVENTCONTRACT',
+    });
+    const value = nativeToScVal({ released: true, post_settle: true });
+    await svc.applyEvent({
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value,
+      contractId: 'CEVENTCONTRACT',
+    });
+    expect(userReputation.recordDisputeLost).toHaveBeenCalledTimes(1);
+    expect(userReputation.recordDisputeLost).toHaveBeenCalledWith('GUSER', 'ord-1');
+  });
+
+  it('post-settle: a verdict that overturns a refunded TOP_UP blames the LP, never the user who won', async () => {
     const { svc, userReputation } = make('DISPUTED', {
       flow: 'TOP_UP',
       stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'REFUNDED' }) },
@@ -789,8 +804,25 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
       contractId: 'CEVENTCONTRACT',
     });
     expect(advanced).toBe(1);
-    expect(userReputation.recordDisputeLost).toHaveBeenCalledTimes(1);
-    expect(userReputation.recordDisputeLost).toHaveBeenCalledWith('GUSER', 'ord-1');
+    expect(userReputation.recordDisputeLost).not.toHaveBeenCalled();
+  });
+
+  it('post-settle: the settlement direction still drives the order row, only the blame follows the verdict', async () => {
+    const { svc, prisma, userReputation } = make('DISPUTED', {
+      flow: 'TOP_UP',
+      stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'REFUNDED' }) },
+      orderContractId: 'CEVENTCONTRACT',
+    });
+    await svc.applyEvent({
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value: nativeToScVal({ released: true, post_settle: true }),
+      contractId: 'CEVENTCONTRACT',
+    });
+    expect(prisma.order.updateMany).toHaveBeenCalledWith({
+      where: { id: 'ord-1', status: 'DISPUTED' },
+      data: { status: 'REFUNDED', resolution: 'refunded' },
+    });
+    expect(userReputation.recordDisputeLost).not.toHaveBeenCalled();
   });
 
   it('post-settle branch: TOP_UP + on-chain RELEASED → LP lost, recordDisputeLost NOT called', async () => {
