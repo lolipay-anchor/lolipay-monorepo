@@ -21,7 +21,7 @@ const MAX_COOLDOWN_SECS: u64 = 90 * 24 * 60 * 60;
 const MIN_COOLDOWN_SECS: u64 = 24 * 60 * 60;
 pub(crate) const ESCROW_TRADE_NOT_FOUND: u32 = 5;
 pub(crate) const ESCROW_MAX_PAY_WINDOW: u64 = 86_400;
-pub(crate) const UNCLAIMED_RESERVATION_SECS: u64 = 2 * ESCROW_MAX_PAY_WINDOW;
+const UNCLAIMED_RESERVATION_SECS: u64 = 2 * ESCROW_MAX_PAY_WINDOW;
 const _: () = assert!(UNCLAIMED_RESERVATION_SECS > ESCROW_MAX_PAY_WINDOW);
 
 #[contract]
@@ -272,16 +272,18 @@ impl StakingContract {
         }
         let prior = storage_get_reservation(&env, &lp, &trade_id);
         let existing = prior.as_ref().map(|r| r.amount).unwrap_or(0);
+        if let Some(r) = prior.as_ref() {
+            if env.ledger().timestamp() > r.reserved_at + UNCLAIMED_RESERVATION_SECS
+                && Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)?.is_none()
+            {
+                return Err(Error::SlashWindowOpen);
+            }
+        }
         if existing == amount {
             return Ok(());
         }
         if existing > amount {
             return Err(Error::InvalidAmount);
-        }
-        if let Some(r) = prior.as_ref() {
-            if env.ledger().timestamp() > r.reserved_at + UNCLAIMED_RESERVATION_SECS {
-                return Err(Error::SlashWindowOpen);
-            }
         }
         let delta = amount - existing;
         let mut info = get_stake(&env, &lp);
@@ -322,8 +324,11 @@ impl StakingContract {
         }
         info.staked -= amount;
         info.unbonding += amount;
-        let available_at = env.ledger().timestamp() + cfg.cooldown_secs;
-        info.unbond_available_at = core::cmp::max(info.unbond_available_at, available_at);
+        info.unbond_available_at = core::cmp::max(
+            info.unbond_available_at,
+            env.ledger().timestamp() + cfg.cooldown_secs,
+        );
+        let available_at = info.unbond_available_at;
         set_stake(&env, &lp, &info);
         UnstakeRequested { lp, amount, available_at }.publish(&env);
         Ok(())
@@ -420,6 +425,9 @@ impl StakingContract {
         if let Some(r) = storage_get_reservation(&env, &lp, &trade_id) {
             info.reserved -= r.amount;
             clear_reservation(&env, &lp, &trade_id);
+        }
+        if info.unbonding == 0 {
+            info.unbond_available_at = 0;
         }
         if info.reserved < 0 {
             info.reserved = 0;

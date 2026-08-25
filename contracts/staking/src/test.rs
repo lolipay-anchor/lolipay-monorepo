@@ -612,7 +612,7 @@ fn test_slash_post_settlement_cap_rejects_amount_above_trade_value() {
 }
 
 #[test]
-fn test_request_unstake_accumulates_and_resets_timer() {
+fn test_request_unstake_accumulates_and_extends_the_timer() {
     let (env, client, _admin, _usdc, usdc_admin, _resolver) = setup_with_usdc();
     let lp = Address::generate(&env);
     usdc_admin.mint(&lp, &2_000_000_000i128);
@@ -2175,8 +2175,17 @@ fn lowering_the_cooldown_never_releases_what_is_already_unbonding() {
     cfg.cooldown_secs = 86_400;
     client.set_config(&cfg);
     client.request_unstake(&lp, &1i128);
+    let raw = env.events().all().filter_by_contract(&client.address);
+    let raw = raw.events();
+    let last = raw.last().unwrap().clone();
 
     assert_eq!(client.get_stake(&lp).unbond_available_at, locked_until);
+    let expected = crate::events::UnstakeRequested {
+        lp: lp.clone(),
+        amount: 1i128,
+        available_at: locked_until,
+    };
+    assert_eq!(last, expected.to_xdr(&env, &client.address));
 }
 
 #[test]
@@ -2217,6 +2226,21 @@ fn each_kind_of_entry_keeps_the_lifetime_its_access_pattern_needs() {
             120 * day
         );
     });
+
+    s.escrow.mark_fiat_paid(&trade_id, &s.lp);
+    let now = s.env.ledger().timestamp();
+    s.env.ledger().with_mut(|li| li.timestamp = now + 500);
+    s.escrow.confirm_and_release(&trade_id);
+    s.escrow.raise_dispute(&trade_id, &s.user);
+    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
+    s.staking.slash(&s.lp, &trade_id, &100_000_000i128, &s.resolver);
+    s.env.as_contract(&addr, || {
+        use soroban_sdk::testutils::storage::Persistent as _;
+        assert_eq!(
+            s.env.storage().persistent().get_ttl(&crate::types::DataKey::Slashed(trade_id.clone())),
+            90 * day
+        );
+    });
 }
 
 #[test]
@@ -2242,4 +2266,75 @@ fn reading_a_reservation_carries_its_lifetime_forward() {
         use soroban_sdk::testutils::storage::Persistent as _;
         assert_eq!(s.env.storage().persistent().get_ttl(&key), 120 * day);
     });
+}
+
+#[test]
+fn a_raise_on_the_last_second_of_the_window_is_still_allowed() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
+    s.staking.stake(&s.lp, &2_000_000_000i128);
+    let never = id32(&s.env, 213);
+    s.staking.reserve(&s.lp, &never, &1i128, &s.resolver);
+    let at = s.env.ledger().timestamp();
+
+    s.env.ledger().with_mut(|li| li.timestamp = at + 172_800);
+    s.staking.reserve(&s.lp, &never, &500_000_000i128, &s.resolver);
+
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 500_000_000i128);
+}
+
+#[test]
+fn a_reservation_on_a_live_trade_can_still_be_raised_long_afterwards() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
+    s.staking.stake(&s.lp, &2_000_000_000i128);
+    let live = s.make_trade(214, false);
+    s.staking.reserve(&s.lp, &live, &1i128, &s.resolver);
+    let at = s.env.ledger().timestamp();
+
+    s.env.ledger().with_mut(|li| li.timestamp = at + 172_801);
+    s.staking.reserve(&s.lp, &live, &900_000_000i128, &s.resolver);
+
+    assert_eq!(s.staking.get_stake(&s.lp).reserved, 900_000_000i128);
+}
+
+#[test]
+fn a_slash_that_empties_the_unbonding_pool_takes_its_deadline_with_it() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
+    s.staking.stake(&s.lp, &1_000_000_000i128);
+    let mut cfg = s.staking.get_config();
+    cfg.cooldown_secs = 7_776_000;
+    s.staking.set_config(&cfg);
+    let trade_id = s.make_trade(215, true);
+
+    s.staking.request_unstake(&s.lp, &1_000_000_000i128);
+    assert_ne!(s.staking.get_stake(&s.lp).unbond_available_at, 0);
+
+    s.staking.slash(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
+
+    let info = s.staking.get_stake(&s.lp);
+    assert_eq!(info.unbonding, 0);
+    assert_eq!(info.unbond_available_at, 0);
+}
+
+#[test]
+fn re_asserting_a_spent_reservation_does_not_launder_it_into_a_success() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
+    s.staking.stake(&s.lp, &2_000_000_000i128);
+    let never = id32(&s.env, 216);
+    s.staking.reserve(&s.lp, &never, &500_000_000i128, &s.resolver);
+    let at = s.env.ledger().timestamp();
+
+    s.env.ledger().with_mut(|li| li.timestamp = at + 172_801);
+
+    assert_eq!(
+        s.staking.try_reserve(&s.lp, &never, &500_000_000i128, &s.resolver),
+        Err(Ok(Error::SlashWindowOpen))
+    );
+    assert_eq!(
+        s.staking.try_reserve(&s.lp, &never, &500_000_001i128, &s.resolver),
+        Err(Ok(Error::SlashWindowOpen))
+    );
 }
