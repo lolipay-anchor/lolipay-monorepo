@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use soroban_sdk::{Address, Env};
 
-use crate::types::{Config, DataKey, Reservation, StakeInfo};
+use crate::types::{Config, DataKey, StakeInfo};
 
 const DAY_IN_LEDGERS: u32 = 17280;
 const INSTANCE_BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
@@ -10,8 +10,6 @@ const STAKE_BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
 const STAKE_LIFETIME: u32 = 90 * DAY_IN_LEDGERS;
 const SLASHED_BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
 const SLASHED_LIFETIME: u32 = 90 * DAY_IN_LEDGERS;
-const RESERVATION_BUMP_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
-const RESERVATION_LIFETIME: u32 = 120 * DAY_IN_LEDGERS;
 
 pub fn get_config(env: &Env) -> Option<Config> {
     env.storage().instance().get(&DataKey::Config)
@@ -39,7 +37,7 @@ pub fn get_stake(env: &Env, lp: &Address) -> StakeInfo {
                 .extend_ttl(&key, STAKE_BUMP_THRESHOLD, STAKE_LIFETIME);
             info
         }
-        None => StakeInfo { staked: 0, reserved: 0, unbonding: 0, unbond_available_at: 0 },
+        None => StakeInfo { staked: 0, unbonding: 0, unbond_available_at: 0 },
     }
 }
 
@@ -63,40 +61,3 @@ pub fn mark_slashed(env: &Env, trade_id: &soroban_sdk::BytesN<32>) {
         .extend_ttl(&key, SLASHED_BUMP_THRESHOLD, SLASHED_LIFETIME);
 }
 
-pub fn get_reservation(
-    env: &Env,
-    lp: &Address,
-    trade_id: &soroban_sdk::BytesN<32>,
-) -> Option<Reservation> {
-    let key = DataKey::Reservation(lp.clone(), trade_id.clone());
-    match env.storage().persistent().get::<DataKey, Reservation>(&key) {
-        Some(r) => {
-            env.storage().persistent().extend_ttl(
-                &key,
-                RESERVATION_BUMP_THRESHOLD,
-                RESERVATION_LIFETIME,
-            );
-            Some(r)
-        }
-        None => None,
-    }
-}
-
-pub fn set_reservation(
-    env: &Env,
-    lp: &Address,
-    trade_id: &soroban_sdk::BytesN<32>,
-    reservation: &Reservation,
-) {
-    let key = DataKey::Reservation(lp.clone(), trade_id.clone());
-    env.storage().persistent().set(&key, reservation);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, RESERVATION_BUMP_THRESHOLD, RESERVATION_LIFETIME);
-}
-
-pub fn clear_reservation(env: &Env, lp: &Address, trade_id: &soroban_sdk::BytesN<32>) {
-    env.storage()
-        .persistent()
-        .remove(&DataKey::Reservation(lp.clone(), trade_id.clone()));
-}

@@ -4,7 +4,6 @@ use soroban_sdk::{contracterror, contracttype, Address, BytesN};
 #[derive(Clone)]
 pub struct StakeInfo {
     pub staked: i128,
-    pub reserved: i128,
     pub unbonding: i128,
     pub unbond_available_at: u64,
 }
@@ -27,14 +26,6 @@ pub enum DataKey {
     Config,
     Stake(Address),
     Slashed(BytesN<32>),
-    Reservation(Address, BytesN<32>),
-}
-
-#[contracttype]
-#[derive(Clone)]
-pub struct Reservation {
-    pub amount: i128,
-    pub reserved_at: u64,
 }
 
 #[contracttype]
@@ -49,7 +40,6 @@ pub struct DisputeView {
     pub post_settle_raised: bool,
     pub liability_established: bool,
     pub slash_deadline: u64,
-    pub collateral_hold_until: u64,
 }
 
 #[contracterror]
@@ -70,11 +60,9 @@ pub enum Error {
     TradeNotDisputed = 12,
     NotTradeParty = 13,
     AlreadySlashed = 14,
-    InsufficientAvailable = 15,
-    ReservationNotFound = 16,
     SlashNotApplicable = 17,
     SlashWindowPassed = 18,
-    SlashWindowOpen = 19,
+    EscrowUnreadable = 19,
     VerdictPending = 20,
     NoLiabilityFound = 21,
 }

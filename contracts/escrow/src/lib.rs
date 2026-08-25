@@ -147,7 +147,6 @@ impl EscrowContract {
                 || t.resolver_post_settle_used,
             liability_established: t.liability_established,
             slash_deadline,
-            collateral_hold_until: core::cmp::max(slash_deadline, t.post_settle_deadline),
         })
     }
 

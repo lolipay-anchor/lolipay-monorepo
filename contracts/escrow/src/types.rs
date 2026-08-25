@@ -93,7 +93,6 @@ pub struct DisputeView {
     pub post_settle_raised: bool,
     pub liability_established: bool,
     pub slash_deadline: u64,
-    pub collateral_hold_until: u64,
 }
 
 #[contracttype]

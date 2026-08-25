@@ -634,158 +634,6 @@ fn test_request_unstake_accumulates_and_extends_the_timer() {
     assert_eq!(info.staked, 1_000_000_000i128);
 }
 
-fn staked_lp() -> (
-    Env, StakingContractClient<'static>, Address, Address, Address, Address,
-) {
-    let env = Env::default();
-    env.mock_all_auths();
-    let token_admin = Address::generate(&env);
-    let (usdc, usdc_admin) = create_usdc(&env, &token_admin);
-    let admin = Address::generate(&env);
-    let resolver = Address::generate(&env);
-    let escrow = env.register(
-        EscrowContract,
-        (admin.clone(), usdc.address.clone(), resolver.clone(), 30u32, Address::generate(&env), 3600u64, Address::generate(&env)),
-    );
-    let contract_id = env.register(
-        StakingContract,
-        (admin.clone(), usdc.address.clone(), resolver.clone(), escrow.clone(), 1_000_000_000i128, 86_400u64),
-    );
-    let client = StakingContractClient::new(&env, &contract_id);
-    let lp = Address::generate(&env);
-    usdc_admin.mint(&lp, &10_000_000_000i128);
-    client.stake(&lp, &4_000_000_000i128);
-    (env, client, admin, resolver, lp, escrow)
-}
-
-#[test]
-fn a_reservation_reduces_what_is_available() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    assert_eq!(client.available(&lp), 4_000_000_000i128);
-
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-
-    assert_eq!(client.available(&lp), 3_000_000_000i128);
-    assert_eq!(client.get_stake(&lp).staked, 4_000_000_000i128);
-}
-
-#[test]
-fn two_reservations_cannot_exceed_the_stake() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &3_000_000_000i128, &resolver);
-
-    let res = client.try_reserve(&lp, &id32(&env, 2), &1_500_000_000i128, &resolver);
-
-    assert_eq!(res, Err(Ok(Error::InsufficientAvailable)));
-    assert_eq!(client.available(&lp), 1_000_000_000i128);
-}
-
-#[test]
-fn a_reservation_may_take_exactly_what_is_left() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &3_000_000_000i128, &resolver);
-
-    client.reserve(&lp, &id32(&env, 2), &1_000_000_000i128, &resolver);
-
-    assert_eq!(client.available(&lp), 0);
-}
-
-#[test]
-fn a_reservation_is_idempotent_per_trade() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-
-    assert_eq!(client.available(&lp), 3_000_000_000i128);
-}
-
-#[test]
-fn unstaking_cannot_take_reserved_collateral() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &3_000_000_000i128, &resolver);
-
-    let res = client.try_request_unstake(&lp, &2_000_000_000i128);
-
-    assert_eq!(res, Err(Ok(Error::InsufficientAvailable)));
-    assert_eq!(client.get_stake(&lp).staked, 4_000_000_000i128);
-}
-
-#[test]
-fn unstaking_the_unreserved_part_still_works() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &3_000_000_000i128, &resolver);
-
-    client.request_unstake(&lp, &1_000_000_000i128);
-
-    assert_eq!(client.get_stake(&lp).staked, 3_000_000_000i128);
-    assert_eq!(client.available(&lp), 0);
-}
-
-#[test]
-fn eligibility_reads_available_not_staked() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    assert!(client.is_eligible(&lp));
-
-    client.reserve(&lp, &id32(&env, 1), &3_500_000_000i128, &resolver);
-
-    assert!(!client.is_eligible(&lp));
-}
-
-#[test]
-fn a_stranger_cannot_reserve_a_providers_stake() {
-    let (env, client, _a, _resolver, lp, _e) = staked_lp();
-    let stranger = Address::generate(&env);
-
-    let res = client.try_reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &stranger);
-
-    assert_eq!(res, Err(Ok(Error::Unauthorized)));
-    assert_eq!(client.available(&lp), 4_000_000_000i128);
-}
-
-#[test]
-fn naming_the_resolver_is_not_the_same_as_being_the_resolver() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-
-    env.set_auths(&[]);
-    let res = client.try_reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-
-    assert!(res.is_err());
-    assert_eq!(client.available(&lp), 4_000_000_000i128);
-}
-
-#[test]
-fn a_reservation_of_nothing_is_refused() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-
-    assert_eq!(
-        client.try_reserve(&lp, &id32(&env, 1), &0i128, &resolver),
-        Err(Ok(Error::InvalidAmount))
-    );
-    assert_eq!(
-        client.try_reserve(&lp, &id32(&env, 2), &-1i128, &resolver),
-        Err(Ok(Error::InvalidAmount))
-    );
-}
-
-#[test]
-fn slashing_consumes_the_reservation_for_that_trade() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_trade(1, true);
-    s.staking.reserve(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
-    let before = s.staking.available(&s.lp);
-
-    s.staking.slash(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
-
-    let info = s.staking.get_stake(&s.lp);
-    assert_eq!(info.reserved, 0);
-    assert_eq!(s.staking.available(&s.lp), info.staked);
-    let _ = before;
-}
-
-
 #[test]
 fn a_funded_origin_dispute_is_not_grounds_to_slash() {
     let s = slash_setup();
@@ -826,122 +674,6 @@ fn a_fiat_paid_dispute_is_not_grounds_to_slash_while_the_escrow_still_holds_it()
     assert_eq!(s.usdc.balance(&s.lp), lp_before + 985_000_000i128);
     assert_eq!(s.usdc.balance(&s.escrow.address), 0);
     assert_eq!(s.staking.get_stake(&s.lp).staked, 2_000_000_000i128);
-}
-
-#[test]
-fn a_slash_never_forgives_another_trades_commitment() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let a = s.make_trade(11, true);
-    let b = s.make_trade(12, true);
-    s.staking.reserve(&s.lp, &a, &900_000_000i128, &s.resolver);
-
-    s.staking.slash(&s.lp, &b, &900_000_000i128, &s.resolver);
-
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 900_000_000i128);
-    assert_eq!(s.staking.available(&s.lp), 0);
-    assert_eq!(
-        s.staking.try_reserve(&s.lp, &id32(&s.env, 13), &1i128, &s.resolver),
-        Err(Ok(Error::InsufficientAvailable))
-    );
-}
-
-#[test]
-fn availability_never_reports_a_negative_number() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let a = s.make_trade(21, true);
-    let b = s.make_trade(22, true);
-    s.staking.reserve(&s.lp, &a, &900_000_000i128, &s.resolver);
-
-    s.staking.slash(&s.lp, &b, &900_000_000i128, &s.resolver);
-
-    assert_eq!(s.staking.available(&s.lp), 0);
-}
-
-#[test]
-fn a_larger_second_reservation_takes_the_difference_rather_than_being_ignored() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &1i128, &resolver);
-
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-
-    assert_eq!(client.get_reservation(&lp, &id32(&env, 1)), Some(1_000_000_000i128));
-    assert_eq!(client.available(&lp), 3_000_000_000i128);
-}
-
-#[test]
-fn a_smaller_second_reservation_is_refused_rather_than_silently_accepted() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-
-    let res = client.try_reserve(&lp, &id32(&env, 1), &1i128, &resolver);
-
-    assert_eq!(res, Err(Ok(Error::InvalidAmount)));
-    assert_eq!(client.get_reservation(&lp, &id32(&env, 1)), Some(1_000_000_000i128));
-}
-
-#[test]
-fn an_equal_second_reservation_is_still_a_no_op() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-
-    assert_eq!(client.available(&lp), 3_000_000_000i128);
-}
-
-#[test]
-fn pausing_stops_new_commitments_as_well_as_releases() {
-    let (env, client, _a, resolver, lp, _e) = staked_lp();
-    client.set_paused(&true);
-
-    assert_eq!(
-        client.try_reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver),
-        Err(Ok(Error::Paused))
-    );
-}
-
-#[test]
-fn the_admin_can_free_collateral_even_while_paused() {
-    let (env, client, admin, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-    client.set_paused(&true);
-
-    client.force_release_reservation(&lp, &id32(&env, 1), &admin);
-
-    assert_eq!(client.available(&lp), 4_000_000_000i128);
-}
-
-#[test]
-fn only_the_admin_may_force_a_release() {
-    let (env, client, _admin, resolver, lp, _e) = staked_lp();
-    client.reserve(&lp, &id32(&env, 1), &1_000_000_000i128, &resolver);
-
-    assert_eq!(
-        client.try_force_release_reservation(&lp, &id32(&env, 1), &resolver),
-        Err(Ok(Error::Unauthorized))
-    );
-    assert_eq!(
-        client.try_force_release_reservation(&lp, &id32(&env, 1), &lp),
-        Err(Ok(Error::Unauthorized))
-    );
-}
-
-#[test]
-fn a_slashed_trade_can_never_be_reserved_against_again() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
-    s.staking.stake(&s.lp, &2_000_000_000i128);
-    let trade_id = s.make_trade(41, true);
-    s.staking.slash(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
-
-    let res = s.staking.try_reserve(&s.lp, &trade_id, &100_000_000i128, &s.resolver);
-
-    assert_eq!(res, Err(Ok(Error::AlreadySlashed)));
-    assert_eq!(s.staking.get_reservation(&s.lp, &trade_id), None);
 }
 
 #[test]
@@ -994,43 +726,6 @@ fn set_config_needs_the_sitting_admins_signature_not_the_incoming_ones() {
 
     assert!(res.is_err());
     assert_ne!(client.get_config().admin, usurper);
-}
-
-#[test]
-#[should_panic(expected = "Error(Auth, InvalidAction)")]
-fn naming_the_admin_is_not_the_same_as_being_the_admin_when_freeing_collateral() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
-    s.staking.stake(&s.lp, &2_000_000_000i128);
-    let live = s.make_trade(198, false);
-    s.staking.reserve(&s.lp, &live, &500_000_000i128, &s.resolver);
-    let stranger = Address::generate(&s.env);
-
-    s.env.set_auths(&[]);
-    s.staking
-        .mock_auths(&[MockAuth {
-            address: &stranger,
-            invoke: &MockAuthInvoke {
-                contract: &s.staking.address,
-                fn_name: "force_release_reservation",
-                args: (s.lp.clone(), live.clone(), s.admin.clone()).into_val(&s.env),
-                sub_invokes: &[],
-            },
-        }])
-        .force_release_reservation(&s.lp, &live, &s.admin);
-}
-
-#[test]
-fn the_admin_signature_is_what_actually_frees_that_reservation() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
-    s.staking.stake(&s.lp, &2_000_000_000i128);
-    let live = s.make_trade(199, false);
-    s.staking.reserve(&s.lp, &live, &500_000_000i128, &s.resolver);
-
-    s.staking.force_release_reservation(&s.lp, &live, &s.admin);
-
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
 }
 
 #[test]
@@ -1119,22 +814,6 @@ fn a_slash_can_never_reach_past_one_lps_own_balance() {
 }
 
 #[test]
-fn topping_a_reservation_up_takes_only_the_difference_at_the_boundary() {
-    let (env, client, _admin, _usdc, usdc_admin, resolver) = setup_with_usdc();
-    let lp = Address::generate(&env);
-    usdc_admin.mint(&lp, &1_000_000_000i128);
-    client.stake(&lp, &1_000_000_000i128);
-    let trade = id32(&env, 5);
-    client.reserve(&lp, &trade, &600_000_000i128, &resolver);
-
-    client.reserve(&lp, &trade, &1_000_000_000i128, &resolver);
-
-    assert_eq!(client.get_stake(&lp).reserved, 1_000_000_000i128);
-    assert_eq!(client.get_reservation(&lp, &trade), Some(1_000_000_000i128));
-    assert_eq!(client.available(&lp), 0);
-}
-
-#[test]
 fn the_admin_role_cannot_be_pushed_onto_an_address_that_never_consented() {
     let (env, client, admin, _usdc, _resolver) = setup();
     let unwilling = Address::generate(&env);
@@ -1156,53 +835,6 @@ fn the_admin_role_cannot_be_pushed_onto_an_address_that_never_consented() {
 
     assert!(res.is_err());
     assert_eq!(client.get_config().admin, admin);
-}
-
-#[test]
-fn a_slash_reports_the_collateral_it_leaves_uncovered() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let other = id32(&s.env, 91);
-    s.staking.reserve(&s.lp, &other, &800_000_000i128, &s.resolver);
-
-    s.staking.slash(&s.lp, &s.trade_id, &1_000_000_000i128, &s.resolver);
-    let raw = s.env.events().all().filter_by_contract(&s.staking.address);
-    let raw = raw.events();
-    let last = raw.last().unwrap().clone();
-
-    let expected = crate::events::Slashed {
-        lp: s.lp.clone(),
-        victim: s.user.clone(),
-        amount: 1_000_000_000i128,
-        reservation_shortfall: 800_000_000i128,
-    };
-    assert_eq!(last, expected.to_xdr(&s.env, &s.staking.address));
-    let info = s.staking.get_stake(&s.lp);
-    assert_eq!(info.staked, 0);
-    assert_eq!(info.reserved, 800_000_000i128);
-}
-
-#[test]
-fn a_slash_that_covers_every_reservation_reports_no_shortfall() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
-    s.staking.stake(&s.lp, &2_000_000_000i128);
-    s.staking.reserve(&s.lp, &s.trade_id, &500_000_000i128, &s.resolver);
-
-    s.staking.slash(&s.lp, &s.trade_id, &500_000_000i128, &s.resolver);
-    let raw = s.env.events().all().filter_by_contract(&s.staking.address);
-    let raw = raw.events();
-    let last = raw.last().unwrap().clone();
-
-    let expected = crate::events::Slashed {
-        lp: s.lp.clone(),
-        victim: s.user.clone(),
-        amount: 500_000_000i128,
-        reservation_shortfall: 0i128,
-    };
-    assert_eq!(last, expected.to_xdr(&s.env, &s.staking.address));
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
 }
 
 #[test]
@@ -1290,49 +922,6 @@ fn the_slash_right_dies_with_the_dispute_window_it_was_raised_in() {
 }
 
 #[test]
-fn collateral_is_freed_by_anyone_once_the_slash_window_has_closed() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_trade(55, true);
-    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
-    let deadline = s.escrow.dispute_view(&trade_id).slash_deadline;
-
-    s.env.ledger().with_mut(|li| li.timestamp = deadline);
-    assert_eq!(
-        s.staking.try_release_expired_reservation(&s.lp, &trade_id),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    assert_eq!(
-        s.staking.try_request_unstake(&s.lp, &1_000_000_000i128),
-        Err(Ok(Error::InsufficientAvailable))
-    );
-
-    s.env.ledger().with_mut(|li| li.timestamp = deadline + 1);
-    s.staking.release_expired_reservation(&s.lp, &trade_id);
-
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
-    assert_eq!(s.staking.get_reservation(&s.lp, &trade_id), None);
-    s.staking.request_unstake(&s.lp, &1_000_000_000i128);
-    assert_eq!(s.staking.get_stake(&s.lp).unbonding, 1_000_000_000i128);
-}
-
-#[test]
-fn an_open_reservation_on_a_live_trade_is_never_freed_by_a_stranger() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let live = s.make_trade(56, false);
-    s.staking.reserve(&s.lp, &live, &600_000_000i128, &s.resolver);
-
-    assert_eq!(
-        s.staking.try_release_expired_reservation(&s.lp, &live),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 600_000_000i128);
-}
-
-#[test]
 fn a_slash_survives_a_dispute_raised_at_the_very_last_second() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
@@ -1353,101 +942,6 @@ fn a_slash_survives_a_dispute_raised_at_the_very_last_second() {
     s.staking.slash(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
 
     assert_eq!(s.usdc.balance(&s.user), victim_before + 500_000_000i128);
-}
-
-#[test]
-fn collateral_stays_bound_while_a_dispute_can_still_be_raised() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_settled_trade(61);
-    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
-    let window_end = s.escrow.get_trade(&trade_id).post_settle_deadline;
-
-    s.env.ledger().with_mut(|li| li.timestamp = window_end);
-    assert_eq!(
-        s.staking.try_release_expired_reservation(&s.lp, &trade_id),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 1_000_000_000i128);
-
-    s.escrow.raise_dispute(&trade_id, &s.user);
-    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
-    let victim_before = s.usdc.balance(&s.user);
-    s.staking.slash(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
-    assert_eq!(s.usdc.balance(&s.user), victim_before + 1_000_000_000i128);
-}
-
-#[test]
-fn a_freed_reservation_can_never_be_followed_by_a_slash() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_settled_trade(62);
-    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
-    let window_end = s.escrow.get_trade(&trade_id).post_settle_deadline;
-
-    s.env.ledger().with_mut(|li| li.timestamp = window_end + 1);
-    s.staking.release_expired_reservation(&s.lp, &trade_id);
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
-
-    assert_eq!(
-        s.escrow.try_raise_dispute(&trade_id, &s.user),
-        Err(Ok(lolipay_escrow::types::Error::DisputeWindowPassed))
-    );
-    assert_eq!(
-        s.staking.try_slash(&s.lp, &trade_id, &1i128, &s.resolver),
-        Err(Ok(Error::TradeNotDisputed))
-    );
-}
-
-#[test]
-fn an_unsettled_trade_never_gives_its_collateral_back() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_topup_trade(63);
-    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
-    s.escrow.raise_dispute(&trade_id, &s.resolver);
-    let resolver_deadline = s.escrow.get_trade(&trade_id).resolver_deadline;
-
-    s.env.ledger().with_mut(|li| li.timestamp = resolver_deadline + 1);
-
-    assert_eq!(
-        s.staking.try_release_expired_reservation(&s.lp, &trade_id),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 1_000_000_000i128);
-}
-
-#[test]
-fn a_provider_cannot_free_its_own_collateral_before_the_trade_exists() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let not_yet = id32(&s.env, 200);
-    s.staking.reserve(&s.lp, &not_yet, &1_000_000_000i128, &s.resolver);
-    assert_eq!(s.staking.available(&s.lp), 0);
-
-    assert_eq!(
-        s.staking.try_release_expired_reservation(&s.lp, &not_yet),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 1_000_000_000i128);
-    assert_eq!(s.staking.available(&s.lp), 0);
-    assert_eq!(
-        s.staking.try_request_unstake(&s.lp, &1_000_000_000i128),
-        Err(Ok(Error::InsufficientAvailable))
-    );
-
-    assert_eq!(
-        s.staking.try_slash(&s.lp, &not_yet, &1i128, &s.resolver),
-        Err(Ok(Error::TradeNotDisputed))
-    );
-
-    s.staking.force_release_reservation(&s.lp, &not_yet, &s.admin);
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
 }
 
 #[test]
@@ -1524,34 +1018,6 @@ impl SulkingEscrow {
     pub fn dispute_view(_env: Env, _trade_id: BytesN<32>) -> Result<crate::types::DisputeView, SulkError> {
         Err(SulkError::NotInitialized)
     }
-}
-
-#[test]
-fn an_escrow_that_answers_anything_but_no_such_trade_keeps_the_collateral() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let token_admin = Address::generate(&env);
-    let (usdc, usdc_admin) = create_usdc(&env, &token_admin);
-    let admin = Address::generate(&env);
-    let resolver = Address::generate(&env);
-    let sulking = env.register(SulkingEscrow, ());
-    let staking_id = env.register(
-        StakingContract,
-        (admin, usdc.address.clone(), resolver.clone(), sulking, 1_000_000_000i128, 86_400u64),
-    );
-    let staking = StakingContractClient::new(&env, &staking_id);
-    let lp = Address::generate(&env);
-    usdc_admin.mint(&lp, &1_000_000_000i128);
-    staking.stake(&lp, &1_000_000_000i128);
-    let trade_id = id32(&env, 210);
-    staking.reserve(&lp, &trade_id, &1_000_000_000i128, &resolver);
-
-    assert_eq!(
-        staking.try_release_expired_reservation(&lp, &trade_id),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    assert_eq!(staking.get_stake(&lp).reserved, 1_000_000_000i128);
-    assert_eq!(staking.available(&lp), 0);
 }
 
 #[test]
@@ -1650,28 +1116,6 @@ fn a_verdict_acted_on_late_still_leaves_time_to_act_on_it() {
 }
 
 #[test]
-fn an_exonerated_provider_keeps_its_collateral_bound_until_the_window_shuts() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_settled_trade(233);
-    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
-    let psd = s.escrow.get_trade(&trade_id).post_settle_deadline;
-
-    s.escrow.raise_dispute(&trade_id, &s.user);
-    s.escrow.resolve(&trade_id, &ResolveOutcome::Release, &s.resolver);
-    assert_eq!(s.escrow.dispute_view(&trade_id).slash_deadline, 0);
-
-    assert_eq!(
-        s.staking.try_release_expired_reservation(&s.lp, &trade_id),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    s.env.ledger().with_mut(|li| li.timestamp = psd + 1);
-    s.staking.release_expired_reservation(&s.lp, &trade_id);
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
-}
-
-#[test]
 fn every_settlement_route_binds_the_collateral_it_creates() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &4_000_000_000i128);
@@ -1708,67 +1152,6 @@ fn every_settlement_route_binds_the_collateral_it_creates() {
 #[test]
 fn the_escrow_error_code_this_contract_trusts_is_still_the_one_it_means() {
     assert_eq!(lolipay_escrow::types::Error::TradeNotFound as u32, crate::ESCROW_TRADE_NOT_FOUND);
-}
-
-#[test]
-fn an_open_dispute_holds_the_collateral_however_long_it_stays_open() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_settled_trade(151);
-    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
-    s.escrow.raise_dispute(&trade_id, &s.user);
-    let hold = s.escrow.dispute_view(&trade_id).collateral_hold_until;
-
-    s.env.ledger().with_mut(|li| li.timestamp = hold + 10_000_000);
-    assert_eq!(
-        s.staking.try_release_expired_reservation(&s.lp, &trade_id),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    assert_eq!(
-        s.staking.try_request_unstake(&s.lp, &1_000_000_000i128),
-        Err(Ok(Error::InsufficientAvailable))
-    );
-
-    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
-    let victim_before = s.usdc.balance(&s.user);
-    s.staking.slash(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
-    assert_eq!(s.usdc.balance(&s.user), victim_before + 1_000_000_000i128);
-}
-
-#[test]
-fn an_unresolved_dispute_is_the_administrators_problem_to_unwind() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_settled_trade(152);
-    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
-    s.escrow.raise_dispute(&trade_id, &s.user);
-    let hold = s.escrow.dispute_view(&trade_id).collateral_hold_until;
-
-    s.env.ledger().with_mut(|li| li.timestamp = hold + 1);
-    assert_eq!(
-        s.staking.try_release_expired_reservation(&s.lp, &trade_id),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-
-    assert_eq!(
-        s.staking.try_force_release_reservation(&s.lp, &trade_id, &s.admin),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 1_000_000_000i128);
-
-    let rd = s.escrow.get_trade(&trade_id).resolver_deadline;
-    s.env.ledger().with_mut(|li| li.timestamp = rd + 1);
-    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.admin);
-
-    assert_eq!(
-        s.staking.try_force_release_reservation(&s.lp, &trade_id, &s.admin),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    let victim_before = s.usdc.balance(&s.user);
-    s.staking.slash(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
-    assert_eq!(s.usdc.balance(&s.user), victim_before + 1_000_000_000i128);
 }
 
 #[test]
@@ -1818,75 +1201,6 @@ fn the_cooldown_can_never_be_configured_below_the_floor_afterwards() {
 }
 
 #[test]
-fn the_admin_door_is_shut_for_as_long_as_a_slash_can_still_land() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_settled_trade(171);
-    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
-    s.escrow.raise_dispute(&trade_id, &s.user);
-    let rd = s.escrow.get_trade(&trade_id).resolver_deadline;
-
-    s.env.ledger().with_mut(|li| li.timestamp = rd + 1);
-    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.admin);
-    let hold = s.escrow.dispute_view(&trade_id).collateral_hold_until;
-    assert!(hold > rd + 1);
-
-    assert_eq!(
-        s.staking.try_force_release_reservation(&s.lp, &trade_id, &s.admin),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    assert_eq!(
-        s.staking.try_request_unstake(&s.lp, &1_000_000_000i128),
-        Err(Ok(Error::InsufficientAvailable))
-    );
-
-    s.env.ledger().with_mut(|li| li.timestamp = hold + 1);
-    s.staking.force_release_reservation(&s.lp, &trade_id, &s.admin);
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
-}
-
-#[test]
-fn the_admin_door_stays_open_for_a_live_trade_the_coordinator_got_wrong() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let live = s.make_trade(172, false);
-    s.staking.reserve(&s.lp, &live, &600_000_000i128, &s.resolver);
-
-    s.staking.force_release_reservation(&s.lp, &live, &s.admin);
-
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
-}
-
-#[test]
-fn an_escrow_that_will_not_answer_shuts_the_admin_door_too() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let token_admin = Address::generate(&env);
-    let (usdc, usdc_admin) = create_usdc(&env, &token_admin);
-    let admin = Address::generate(&env);
-    let resolver = Address::generate(&env);
-    let sulking = env.register(SulkingEscrow, ());
-    let staking_id = env.register(
-        StakingContract,
-        (admin.clone(), usdc.address.clone(), resolver.clone(), sulking, 1_000_000_000i128, 86_400u64),
-    );
-    let staking = StakingContractClient::new(&env, &staking_id);
-    let lp = Address::generate(&env);
-    usdc_admin.mint(&lp, &1_000_000_000i128);
-    staking.stake(&lp, &1_000_000_000i128);
-    let trade_id = id32(&env, 211);
-    staking.reserve(&lp, &trade_id, &1_000_000_000i128, &resolver);
-
-    assert_eq!(
-        staking.try_force_release_reservation(&lp, &trade_id, &admin),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    assert_eq!(staking.get_stake(&lp).reserved, 1_000_000_000i128);
-}
-
-#[test]
 fn the_cooldown_ceiling_is_ninety_days() {
     let (_env, client, _admin, _usdc, _resolver) = setup();
     let mut cfg = client.get_config();
@@ -1921,243 +1235,6 @@ fn no_stake_moves_before_a_verdict_has_been_rendered() {
 }
 
 #[test]
-fn the_admin_door_refuses_on_the_last_second_of_the_hold_and_opens_after() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_settled_trade(181);
-    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
-    let hold = s.escrow.dispute_view(&trade_id).collateral_hold_until;
-
-    s.env.ledger().with_mut(|li| li.timestamp = hold);
-    assert_eq!(
-        s.staking.try_force_release_reservation(&s.lp, &trade_id, &s.admin),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-
-    s.env.ledger().with_mut(|li| li.timestamp = hold + 1);
-    s.staking.force_release_reservation(&s.lp, &trade_id, &s.admin);
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
-}
-
-#[test]
-fn freeing_a_reservation_that_was_never_made_says_so() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let never = id32(&s.env, 190);
-
-    assert_eq!(
-        s.staking.try_force_release_reservation(&s.lp, &never, &s.admin),
-        Err(Ok(Error::ReservationNotFound))
-    );
-    assert_eq!(
-        s.staking.try_release_expired_reservation(&s.lp, &never),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-}
-
-#[test]
-fn freeing_the_same_reservation_twice_is_refused_the_second_time() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let live = s.make_trade(191, false);
-    s.staking.reserve(&s.lp, &live, &500_000_000i128, &s.resolver);
-
-    s.staking.force_release_reservation(&s.lp, &live, &s.admin);
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
-
-    assert_eq!(
-        s.staking.try_force_release_reservation(&s.lp, &live, &s.admin),
-        Err(Ok(Error::ReservationNotFound))
-    );
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
-}
-
-#[test]
-fn a_paused_contract_still_lets_the_admin_free_a_live_reservation() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let live = s.make_trade(192, false);
-    s.staking.reserve(&s.lp, &live, &500_000_000i128, &s.resolver);
-    s.staking.set_paused(&true);
-
-    s.staking.force_release_reservation(&s.lp, &live, &s.admin);
-
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
-}
-
-#[test]
-fn freeing_one_reservation_leaves_every_other_commitment_standing() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
-    s.staking.stake(&s.lp, &2_000_000_000i128);
-    let first = s.make_trade(193, false);
-    let second = s.make_trade(194, false);
-    s.staking.reserve(&s.lp, &first, &600_000_000i128, &s.resolver);
-    s.staking.reserve(&s.lp, &second, &700_000_000i128, &s.resolver);
-
-    s.staking.force_release_reservation(&s.lp, &first, &s.admin);
-
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 700_000_000i128);
-    assert_eq!(s.staking.get_reservation(&s.lp, &second), Some(700_000_000i128));
-    assert_eq!(s.staking.get_reservation(&s.lp, &first), None);
-    assert_eq!(s.staking.available(&s.lp), 1_300_000_000i128);
-}
-
-#[test]
-fn pausing_never_traps_collateral_that_nothing_can_claim() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_settled_trade(195);
-    s.staking.reserve(&s.lp, &trade_id, &1_000_000_000i128, &s.resolver);
-    let hold = s.escrow.dispute_view(&trade_id).collateral_hold_until;
-    s.staking.set_paused(&true);
-
-    s.env.ledger().with_mut(|li| li.timestamp = hold + 1);
-    s.staking.release_expired_reservation(&s.lp, &trade_id);
-
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
-    assert_eq!(
-        s.staking.try_release_expired_reservation(&s.lp, &trade_id),
-        Err(Ok(Error::ReservationNotFound))
-    );
-}
-
-#[test]
-fn a_provider_may_never_reserve_its_own_collateral() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_trade(196, false);
-
-    assert_eq!(
-        s.staking.try_reserve(&s.lp, &trade_id, &500_000_000i128, &s.lp),
-        Err(Ok(Error::Unauthorized))
-    );
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
-}
-
-#[test]
-fn the_admin_may_reserve_as_well_as_the_resolver() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_trade(197, false);
-
-    s.staking.reserve(&s.lp, &trade_id, &500_000_000i128, &s.admin);
-
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 500_000_000i128);
-}
-
-#[test]
-fn a_reservation_the_trade_never_claimed_frees_itself_in_the_end() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let never = id32(&s.env, 205);
-    s.staking.reserve(&s.lp, &never, &1_000_000_000i128, &s.resolver);
-    let at = s.env.ledger().timestamp();
-
-    s.env.ledger().with_mut(|li| li.timestamp = at + 172_800);
-    assert_eq!(
-        s.staking.try_release_unclaimed_reservation(&s.lp, &never),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 1_000_000_000i128);
-
-    s.env.ledger().with_mut(|li| li.timestamp = at + 172_801);
-    s.staking.release_unclaimed_reservation(&s.lp, &never);
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
-    assert_eq!(s.staking.available(&s.lp), 1_000_000_000i128);
-}
-
-#[test]
-fn once_the_trade_exists_the_unclaimed_door_is_shut_forever() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let claimed = s.make_trade(206, false);
-    s.staking.reserve(&s.lp, &claimed, &1_000_000_000i128, &s.resolver);
-    let at = s.env.ledger().timestamp();
-
-    s.env.ledger().with_mut(|li| li.timestamp = at + 100_000_000);
-    assert_eq!(
-        s.staking.try_release_unclaimed_reservation(&s.lp, &claimed),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 1_000_000_000i128);
-}
-
-#[test]
-fn the_unclaimed_door_cannot_be_used_before_the_trade_would_have_arrived() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let pending = id32(&s.env, 207);
-    s.staking.reserve(&s.lp, &pending, &1_000_000_000i128, &s.resolver);
-
-    assert_eq!(
-        s.staking.try_release_unclaimed_reservation(&s.lp, &pending),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    assert_eq!(
-        s.staking.try_request_unstake(&s.lp, &1_000_000_000i128),
-        Err(Ok(Error::InsufficientAvailable))
-    );
-}
-
-#[test]
-fn topping_up_a_reservation_does_not_restart_its_unclaimed_clock() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
-    s.staking.stake(&s.lp, &2_000_000_000i128);
-    let never = id32(&s.env, 208);
-    s.staking.reserve(&s.lp, &never, &100_000_000i128, &s.resolver);
-    let at = s.env.ledger().timestamp();
-
-    s.env.ledger().with_mut(|li| li.timestamp = at + 170_000);
-    s.staking.reserve(&s.lp, &never, &200_000_000i128, &s.resolver);
-
-    s.env.ledger().with_mut(|li| li.timestamp = at + 172_801);
-    s.staking.release_unclaimed_reservation(&s.lp, &never);
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 0);
-}
-
-#[test]
-fn collateral_added_after_the_window_has_run_out_is_refused_outright() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
-    s.staking.stake(&s.lp, &2_000_000_000i128);
-    let never = id32(&s.env, 212);
-    s.staking.reserve(&s.lp, &never, &1i128, &s.resolver);
-    let at = s.env.ledger().timestamp();
-
-    s.env.ledger().with_mut(|li| li.timestamp = at + 172_801);
-    assert_eq!(
-        s.staking.try_reserve(&s.lp, &never, &2_000_000_000i128, &s.resolver),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 1i128);
-
-    s.staking.release_unclaimed_reservation(&s.lp, &never);
-    s.staking.reserve(&s.lp, &never, &2_000_000_000i128, &s.resolver);
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 2_000_000_000i128);
-    assert_eq!(
-        s.staking.try_release_unclaimed_reservation(&s.lp, &never),
-        Err(Ok(Error::SlashWindowOpen))
-    );
-}
-
-#[test]
-fn the_unclaimed_window_outlasts_the_longest_delay_a_trade_may_be_created_after() {
-    assert_eq!(lolipay_escrow::MAX_PAY_WINDOW, crate::ESCROW_MAX_PAY_WINDOW);
-}
-
-#[test]
 fn lowering_the_cooldown_never_releases_what_is_already_unbonding() {
     let (env, client, admin, _usdc, usdc_admin, _resolver) = setup_with_usdc();
     let lp = Address::generate(&env);
@@ -2189,116 +1266,6 @@ fn lowering_the_cooldown_never_releases_what_is_already_unbonding() {
 }
 
 #[test]
-fn asking_to_free_a_reservation_that_does_not_exist_says_so() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let live = s.make_trade(209, false);
-
-    assert_eq!(
-        s.staking.try_release_unclaimed_reservation(&s.lp, &live),
-        Err(Ok(Error::ReservationNotFound))
-    );
-}
-
-#[test]
-fn each_kind_of_entry_keeps_the_lifetime_its_access_pattern_needs() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_trade(210, false);
-    s.staking.reserve(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
-
-    let day = 17_280u32;
-    let addr = s.staking.address.clone();
-    s.env.as_contract(&addr, || {
-        use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
-        assert_eq!(s.env.storage().instance().get_ttl(), 90 * day);
-        assert_eq!(
-            s.env.storage().persistent().get_ttl(&crate::types::DataKey::Stake(s.lp.clone())),
-            90 * day
-        );
-        assert_eq!(
-            s.env.storage().persistent().get_ttl(&crate::types::DataKey::Reservation(
-                s.lp.clone(),
-                trade_id.clone()
-            )),
-            120 * day
-        );
-    });
-
-    s.escrow.mark_fiat_paid(&trade_id, &s.lp);
-    let now = s.env.ledger().timestamp();
-    s.env.ledger().with_mut(|li| li.timestamp = now + 500);
-    s.escrow.confirm_and_release(&trade_id);
-    s.escrow.raise_dispute(&trade_id, &s.user);
-    s.escrow.resolve(&trade_id, &ResolveOutcome::Refund, &s.resolver);
-    s.staking.slash(&s.lp, &trade_id, &100_000_000i128, &s.resolver);
-    s.env.as_contract(&addr, || {
-        use soroban_sdk::testutils::storage::Persistent as _;
-        assert_eq!(
-            s.env.storage().persistent().get_ttl(&crate::types::DataKey::Slashed(trade_id.clone())),
-            90 * day
-        );
-    });
-}
-
-#[test]
-fn reading_a_reservation_carries_its_lifetime_forward() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
-    s.staking.stake(&s.lp, &1_000_000_000i128);
-    let trade_id = s.make_trade(211, false);
-    s.staking.reserve(&s.lp, &trade_id, &500_000_000i128, &s.resolver);
-
-    let day = 17_280u32;
-    s.env.ledger().with_mut(|li| li.sequence_number += 95 * day);
-    let addr = s.staking.address.clone();
-    let key = crate::types::DataKey::Reservation(s.lp.clone(), trade_id.clone());
-    s.env.as_contract(&addr, || {
-        use soroban_sdk::testutils::storage::Persistent as _;
-        assert_eq!(s.env.storage().persistent().get_ttl(&key), 25 * day);
-    });
-
-    s.staking.get_reservation(&s.lp, &trade_id);
-
-    s.env.as_contract(&addr, || {
-        use soroban_sdk::testutils::storage::Persistent as _;
-        assert_eq!(s.env.storage().persistent().get_ttl(&key), 120 * day);
-    });
-}
-
-#[test]
-fn a_raise_on_the_last_second_of_the_window_is_still_allowed() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
-    s.staking.stake(&s.lp, &2_000_000_000i128);
-    let never = id32(&s.env, 213);
-    s.staking.reserve(&s.lp, &never, &1i128, &s.resolver);
-    let at = s.env.ledger().timestamp();
-
-    s.env.ledger().with_mut(|li| li.timestamp = at + 172_800);
-    s.staking.reserve(&s.lp, &never, &500_000_000i128, &s.resolver);
-
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 500_000_000i128);
-}
-
-#[test]
-fn a_reservation_on_a_live_trade_can_still_be_raised_long_afterwards() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
-    s.staking.stake(&s.lp, &2_000_000_000i128);
-    let live = s.make_trade(214, false);
-    s.staking.reserve(&s.lp, &live, &1i128, &s.resolver);
-    let at = s.env.ledger().timestamp();
-
-    s.env.ledger().with_mut(|li| li.timestamp = at + 172_801);
-    s.staking.reserve(&s.lp, &live, &900_000_000i128, &s.resolver);
-
-    assert_eq!(s.staking.get_stake(&s.lp).reserved, 900_000_000i128);
-}
-
-#[test]
 fn a_slash_that_empties_the_unbonding_pool_takes_its_deadline_with_it() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &1_000_000_000i128);
@@ -2319,22 +1286,39 @@ fn a_slash_that_empties_the_unbonding_pool_takes_its_deadline_with_it() {
 }
 
 #[test]
-fn re_asserting_a_spent_reservation_does_not_launder_it_into_a_success() {
-    let s = slash_setup();
-    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
-    s.staking.stake(&s.lp, &2_000_000_000i128);
-    let never = id32(&s.env, 216);
-    s.staking.reserve(&s.lp, &never, &500_000_000i128, &s.resolver);
-    let at = s.env.ledger().timestamp();
+fn available_is_simply_what_is_staked() {
+    let (env, client, _admin, _usdc, usdc_admin, _resolver) = setup_with_usdc();
+    let lp = Address::generate(&env);
+    usdc_admin.mint(&lp, &3_000_000_000i128);
+    client.stake(&lp, &3_000_000_000i128);
 
-    s.env.ledger().with_mut(|li| li.timestamp = at + 172_801);
+    assert_eq!(client.available(&lp), 3_000_000_000i128);
+    client.request_unstake(&lp, &1_000_000_000i128);
+    assert_eq!(client.available(&lp), 2_000_000_000i128);
+    assert_eq!(client.get_stake(&lp).unbonding, 1_000_000_000i128);
+}
+
+#[test]
+fn an_escrow_that_will_not_answer_stops_a_slash_rather_than_allowing_one() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let token_admin = Address::generate(&env);
+    let (usdc, usdc_admin) = create_usdc(&env, &token_admin);
+    let admin = Address::generate(&env);
+    let resolver = Address::generate(&env);
+    let sulking = env.register(SulkingEscrow, ());
+    let staking_id = env.register(
+        StakingContract,
+        (admin, usdc.address.clone(), resolver.clone(), sulking, 1_000_000_000i128, 86_400u64),
+    );
+    let staking = StakingContractClient::new(&env, &staking_id);
+    let lp = Address::generate(&env);
+    usdc_admin.mint(&lp, &1_000_000_000i128);
+    staking.stake(&lp, &1_000_000_000i128);
 
     assert_eq!(
-        s.staking.try_reserve(&s.lp, &never, &500_000_000i128, &s.resolver),
-        Err(Ok(Error::SlashWindowOpen))
+        staking.try_slash(&lp, &id32(&env, 220), &1i128, &resolver),
+        Err(Ok(Error::EscrowUnreadable))
     );
-    assert_eq!(
-        s.staking.try_reserve(&s.lp, &never, &500_000_001i128, &s.resolver),
-        Err(Ok(Error::SlashWindowOpen))
-    );
+    assert_eq!(staking.get_stake(&lp).staked, 1_000_000_000i128);
 }

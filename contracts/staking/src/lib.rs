@@ -12,17 +12,14 @@ use soroban_sdk::{
 };
 
 use crate::events::{
-    Reserved, ReservationReleased,ConfigChanged, PausedSet, Slashed, Staked, UnstakeRequested, Unstaked};
+    ConfigChanged, PausedSet, Slashed, Staked, UnstakeRequested, Unstaked};
 use crate::storage::{
-    bump_instance, get_config, get_stake, is_slashed, mark_slashed, set_config, set_stake, get_reservation as storage_get_reservation, set_reservation, clear_reservation};
-use crate::types::{Config, DisputeView, Error, Reservation, StakeInfo};
+    bump_instance, get_config, get_stake, is_slashed, mark_slashed, set_config, set_stake};
+use crate::types::{Config, DisputeView, Error, StakeInfo};
 
 const MAX_COOLDOWN_SECS: u64 = 90 * 24 * 60 * 60;
 const MIN_COOLDOWN_SECS: u64 = 24 * 60 * 60;
 pub(crate) const ESCROW_TRADE_NOT_FOUND: u32 = 5;
-pub(crate) const ESCROW_MAX_PAY_WINDOW: u64 = 86_400;
-const UNCLAIMED_RESERVATION_SECS: u64 = 2 * ESCROW_MAX_PAY_WINDOW;
-const _: () = assert!(UNCLAIMED_RESERVATION_SECS > ESCROW_MAX_PAY_WINDOW);
 
 #[contract]
 pub struct StakingContract;
@@ -123,40 +120,7 @@ impl StakingContract {
     }
 
     pub fn available(env: Env, lp: Address) -> i128 {
-        let info = get_stake(&env, &lp);
-        let free = info.staked - info.reserved;
-        if free < 0 {
-            0
-        } else {
-            free
-        }
-    }
-
-    pub fn get_reservation(env: Env, lp: Address, trade_id: BytesN<32>) -> Option<i128> {
-        storage_get_reservation(&env, &lp, &trade_id).map(|r| r.amount)
-    }
-
-    pub fn force_release_reservation(
-        env: Env,
-        lp: Address,
-        trade_id: BytesN<32>,
-        caller: Address,
-    ) -> Result<(), Error> {
-        bump_instance(&env);
-        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
-        if caller != cfg.admin {
-            return Err(Error::Unauthorized);
-        }
-        caller.require_auth();
-        if let Some(view) = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)? {
-            if view.is_disputed {
-                return Err(Error::SlashWindowOpen);
-            }
-            if !view.pre_settlement && env.ledger().timestamp() <= view.collateral_hold_until {
-                return Err(Error::SlashWindowOpen);
-            }
-        }
-        Self::drop_reservation(&env, &lp, &trade_id)
+        get_stake(&env, &lp).staked
     }
 
     fn read_dispute(
@@ -180,132 +144,14 @@ impl StakingContract {
             {
                 Ok(None)
             }
-            _ => Err(Error::SlashWindowOpen),
+            _ => Err(Error::EscrowUnreadable),
         }
-    }
-
-    pub fn release_unclaimed_reservation(
-        env: Env,
-        lp: Address,
-        trade_id: BytesN<32>,
-    ) -> Result<(), Error> {
-        bump_instance(&env);
-        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
-        let reserved_at = storage_get_reservation(&env, &lp, &trade_id)
-            .ok_or(Error::ReservationNotFound)?
-            .reserved_at;
-        if env.ledger().timestamp() <= reserved_at + UNCLAIMED_RESERVATION_SECS {
-            return Err(Error::SlashWindowOpen);
-        }
-        if Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)?.is_some() {
-            return Err(Error::SlashWindowOpen);
-        }
-        Self::drop_reservation(&env, &lp, &trade_id)
-    }
-
-    pub fn release_expired_reservation(
-        env: Env,
-        lp: Address,
-        trade_id: BytesN<32>,
-    ) -> Result<(), Error> {
-        bump_instance(&env);
-        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
-        let view = Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)?
-            .ok_or(Error::SlashWindowOpen)?;
-        if view.is_disputed || view.pre_settlement {
-            return Err(Error::SlashWindowOpen);
-        }
-        if env.ledger().timestamp() <= view.collateral_hold_until {
-            return Err(Error::SlashWindowOpen);
-        }
-        Self::drop_reservation(&env, &lp, &trade_id)
-    }
-
-    fn drop_reservation(env: &Env, lp: &Address, trade_id: &BytesN<32>) -> Result<(), Error> {
-        let amount = storage_get_reservation(env, lp, trade_id)
-            .ok_or(Error::ReservationNotFound)?
-            .amount;
-        let mut info = get_stake(env, lp);
-        info.reserved -= amount;
-        if info.reserved < 0 {
-            info.reserved = 0;
-        }
-        set_stake(env, lp, &info);
-        clear_reservation(env, lp, trade_id);
-        ReservationReleased {
-            lp: lp.clone(),
-            trade_id: trade_id.clone(),
-            amount,
-            total_reserved: info.reserved,
-        }
-        .publish(env);
-        Ok(())
     }
 
     pub fn is_eligible(env: Env, lp: Address) -> Result<bool, Error> {
         let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
         let info = get_stake(&env, &lp);
-        Ok(info.staked - info.reserved >= cfg.min_stake)
-    }
-
-    pub fn reserve(
-        env: Env,
-        lp: Address,
-        trade_id: BytesN<32>,
-        amount: i128,
-        caller: Address,
-    ) -> Result<(), Error> {
-        bump_instance(&env);
-        let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
-        if caller != cfg.resolver && caller != cfg.admin {
-            return Err(Error::Unauthorized);
-        }
-        caller.require_auth();
-        if cfg.paused {
-            return Err(Error::Paused);
-        }
-        if amount <= 0 {
-            return Err(Error::InvalidAmount);
-        }
-        if is_slashed(&env, &trade_id) {
-            return Err(Error::AlreadySlashed);
-        }
-        let prior = storage_get_reservation(&env, &lp, &trade_id);
-        let existing = prior.as_ref().map(|r| r.amount).unwrap_or(0);
-        if let Some(r) = prior.as_ref() {
-            if env.ledger().timestamp() > r.reserved_at + UNCLAIMED_RESERVATION_SECS
-                && Self::read_dispute(&env, &cfg.escrow_contract, &trade_id)?.is_none()
-            {
-                return Err(Error::SlashWindowOpen);
-            }
-        }
-        if existing == amount {
-            return Ok(());
-        }
-        if existing > amount {
-            return Err(Error::InvalidAmount);
-        }
-        let delta = amount - existing;
-        let mut info = get_stake(&env, &lp);
-        if delta > info.staked - info.reserved {
-            return Err(Error::InsufficientAvailable);
-        }
-        info.reserved += delta;
-        set_stake(&env, &lp, &info);
-        set_reservation(
-            &env,
-            &lp,
-            &trade_id,
-            &Reservation {
-                amount,
-                reserved_at: prior
-                    .as_ref()
-                    .map(|r| r.reserved_at)
-                    .unwrap_or_else(|| env.ledger().timestamp()),
-            },
-        );
-        Reserved { lp, trade_id, amount, total_reserved: info.reserved }.publish(&env);
-        Ok(())
+        Ok(info.staked >= cfg.min_stake)
     }
 
     pub fn request_unstake(env: Env, lp: Address, amount: i128) -> Result<(), Error> {
@@ -318,9 +164,6 @@ impl StakingContract {
         let mut info = get_stake(&env, &lp);
         if amount > info.staked {
             return Err(Error::InsufficientStaked);
-        }
-        if amount > info.staked - info.reserved {
-            return Err(Error::InsufficientAvailable);
         }
         info.staked -= amount;
         info.unbonding += amount;
@@ -422,27 +265,15 @@ impl StakingContract {
             info.staked = 0;
             info.unbonding -= from_unbonding;
         }
-        if let Some(r) = storage_get_reservation(&env, &lp, &trade_id) {
-            info.reserved -= r.amount;
-            clear_reservation(&env, &lp, &trade_id);
-        }
         if info.unbonding == 0 {
             info.unbond_available_at = 0;
         }
-        if info.reserved < 0 {
-            info.reserved = 0;
-        }
-        let reservation_shortfall = if info.reserved > info.staked {
-            info.reserved - info.staked
-        } else {
-            0
-        };
         set_stake(&env, &lp, &info);
         mark_slashed(&env, &trade_id);
 
         let contract = env.current_contract_address();
         token::TokenClient::new(&env, &cfg.usdc_token).transfer(&contract, &victim, &amount);
-        Slashed { lp, victim, amount, reservation_shortfall }.publish(&env);
+        Slashed { lp, victim, amount }.publish(&env);
         Ok(())
     }
 }
