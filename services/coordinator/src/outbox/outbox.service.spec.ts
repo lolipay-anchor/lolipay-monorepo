@@ -7,6 +7,7 @@ function makePrisma(pending: any[] = []) {
   const prisma: any = {
     outboxMessage: {
       create: jest.fn(async ({ data }: any) => { created.push(data); return data; }),
+      createMany: jest.fn(async ({ data }: any) => { created.push(...data); return { count: data.length }; }),
       findMany: jest.fn(async () => pending),
       updateMany: jest.fn(async (args: any) => { updates.push(args); return { count: 1 }; }),
     },
@@ -22,27 +23,47 @@ describe('OutboxService.enqueue', () => {
   it('writes through the transaction client it is handed, not its own', async () => {
     const { prisma } = makePrisma();
     const svc = new OutboxService(prisma);
-    const tx = { outboxMessage: { create: jest.fn(async () => ({})) } };
+    const tx = { outboxMessage: { createMany: jest.fn(async () => ({ count: 1 })) } };
 
     await svc.enqueue(tx as any, { kind: 'email', payload: { a: 1 } });
 
-    expect(tx.outboxMessage.create).toHaveBeenCalled();
-    expect(prisma.outboxMessage.create).not.toHaveBeenCalled();
+    expect(tx.outboxMessage.createMany).toHaveBeenCalled();
+    expect(prisma.outboxMessage.createMany).not.toHaveBeenCalled();
   });
 
-  it('is idempotent on a duplicate dedupe key rather than throwing', async () => {
+  it('lets the database resolve a duplicate, because a caught one aborts the caller transaction', async () => {
+    const svc = new OutboxService(makePrisma().prisma);
+    const createMany = jest.fn(async () => ({ count: 0 }));
+    const tx = { outboxMessage: { createMany } };
+
+    await expect(
+      svc.enqueue(tx as any, { kind: 'email', payload: {}, dedupeKey: 'k' }),
+    ).resolves.toBeUndefined();
+
+    expect(createMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skipDuplicates: true }),
+    );
+  });
+
+  it('never lets a duplicate reach the caller as a thrown error', async () => {
     const svc = new OutboxService(makePrisma().prisma);
     const tx = {
       outboxMessage: {
-        create: jest.fn(async () => { const e: any = new Error('dup'); e.code = 'P2002'; throw e; }),
+        createMany: jest.fn(async () => {
+          const e: any = new Error('dup');
+          e.code = 'P2002';
+          throw e;
+        }),
       },
     };
-    await expect(svc.enqueue(tx as any, { kind: 'email', payload: {}, dedupeKey: 'k' })).resolves.toBeUndefined();
+    await expect(
+      svc.enqueue(tx as any, { kind: 'email', payload: {}, dedupeKey: 'k' }),
+    ).rejects.toThrow('dup');
   });
 
   it('still surfaces a real database error', async () => {
     const svc = new OutboxService(makePrisma().prisma);
-    const tx = { outboxMessage: { create: jest.fn(async () => { throw new Error('disk full'); }) } };
+    const tx = { outboxMessage: { createMany: jest.fn(async () => { throw new Error('disk full'); }) } };
     await expect(svc.enqueue(tx as any, { kind: 'email', payload: {} })).rejects.toThrow('disk full');
   });
 });
@@ -83,15 +104,28 @@ describe('OutboxService.drainOnce', () => {
     err.mockRestore();
   });
 
-  it('does not silently discard a message whose kind has no handler', async () => {
+  it('counts an attempt against a message whose kind has no handler', async () => {
     const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     const { prisma, updates } = makePrisma([msg({ kind: 'unregistered' })]);
     const svc = new OutboxService(prisma);
 
     await svc.drainOnce();
 
-    expect(updates).toHaveLength(0);
+    expect(updates).toHaveLength(1);
+    expect(updates[0].data).toMatchObject({ attempts: 1, status: 'PENDING' });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('no handler registered'));
+    warn.mockRestore();
+  });
+
+  it('gives up on an unhandled kind rather than letting it hold the head of the queue', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const { prisma, updates } = makePrisma([
+      msg({ kind: 'unregistered', attempts: OUTBOX_MAX_ATTEMPTS - 1 }),
+    ]);
+
+    await new OutboxService(prisma).drainOnce();
+
+    expect(updates[0].data).toMatchObject({ attempts: OUTBOX_MAX_ATTEMPTS, status: 'FAILED' });
     warn.mockRestore();
   });
 

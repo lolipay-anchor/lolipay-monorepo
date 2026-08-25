@@ -13,7 +13,10 @@ export interface OutboxJob {
 
 export interface OutboxTxClient {
   outboxMessage: {
-    create: (args: { data: Record<string, unknown> }) => Promise<unknown>;
+    createMany(args: {
+      data: Record<string, unknown>[];
+      skipDuplicates?: boolean;
+    }): Promise<{ count: number }>;
   };
 }
 
@@ -32,18 +35,16 @@ export class OutboxService {
   }
 
   async enqueue(tx: OutboxTxClient, job: OutboxJob): Promise<void> {
-    try {
-      await tx.outboxMessage.create({
-        data: {
+    await tx.outboxMessage.createMany({
+      data: [
+        {
           kind: job.kind,
           payload: job.payload as never,
           dedupeKey: job.dedupeKey ?? null,
         },
-      });
-    } catch (err) {
-      if ((err as { code?: string })?.code === 'P2002') return;
-      throw err;
-    }
+      ],
+      skipDuplicates: true,
+    });
   }
 
   @Cron(CronExpression.EVERY_30_SECONDS)
@@ -70,7 +71,19 @@ export class OutboxService {
     for (const msg of pending) {
       const handler = this.handlers.get(msg.kind);
       if (!handler) {
-        this.log.warn(`no handler registered for outbox kind "${msg.kind}" (message ${msg.id})`);
+        const attempts = msg.attempts + 1;
+        const exhausted = attempts >= OUTBOX_MAX_ATTEMPTS;
+        await this.prisma.outboxMessage.updateMany({
+          where: { id: msg.id, status: 'PENDING' },
+          data: {
+            attempts,
+            lastError: `no handler registered for kind "${msg.kind}"`,
+            status: exhausted ? 'FAILED' : 'PENDING',
+          },
+        });
+        this.log.warn(
+          `no handler registered for outbox kind "${msg.kind}" (message ${msg.id}), attempt ${attempts}${exhausted ? ' — giving up so it cannot hold the queue' : ''}`,
+        );
         continue;
       }
 
