@@ -476,6 +476,15 @@ export class StellarReadService {
     return { xdr: preparedTx.toXdr(), networkPassphrase: this.cfg.networkPassphrase };
   }
 
+  async getSlashedSoFar(tradeIdHex: string): Promise<bigint> {
+    const ret = await this.simulateCall(
+      this.cfg.stakingContractId,
+      'slashed',
+      [nativeToScVal(Buffer.from(tradeIdHex, 'hex'))],
+    );
+    return BigInt(ret ?? 0);
+  }
+
   async buildSlashTx(
     callerAddress: string,
     lpAddress: string,

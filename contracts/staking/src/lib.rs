@@ -148,6 +148,10 @@ impl StakingContract {
         }
     }
 
+    pub fn slashed(env: Env, trade_id: BytesN<32>) -> i128 {
+        slashed_so_far(&env, &trade_id)
+    }
+
     pub fn is_eligible(env: Env, lp: Address) -> Result<bool, Error> {
         let cfg = get_config(&env).ok_or(Error::NotInitialized)?;
         let info = get_stake(&env, &lp);
@@ -252,7 +256,7 @@ impl StakingContract {
         if already >= trade_amount {
             return Err(Error::AlreadySlashed);
         }
-        if already + amount > trade_amount {
+        if amount > trade_amount - already {
             return Err(Error::InvalidAmount);
         }
 

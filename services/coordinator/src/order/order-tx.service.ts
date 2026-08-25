@@ -250,11 +250,6 @@ export class OrderTxService {
     if (amount <= 0n) {
       throw new BadRequestException('amount must be positive');
     }
-    if (amount > order.usdcAmount) {
-      throw new BadRequestException(
-        'amount exceeds the trade value — a slash can never recover more than the trade was worth',
-      );
-    }
 
     const current = await this.status.refreshOrderStatus(orderId, order);
     const flow = current.flow as Flow;
@@ -273,6 +268,18 @@ export class OrderTxService {
       );
     }
 
+    const { recovered, remaining } = await this.slashState(current);
+    if (remaining <= 0n) {
+      throw new ConflictException(
+        'this trade has already been recovered in full — nothing is left to take',
+      );
+    }
+    if (amount > remaining) {
+      throw new BadRequestException(
+        `amount exceeds what is left on this trade — ${recovered} of ${order.usdcAmount} base units has already been recovered, leaving ${remaining}`,
+      );
+    }
+
     try {
       return await this.stellar.buildSlashTx(
         callerAddress,
@@ -288,6 +295,33 @@ export class OrderTxService {
       }
       throw new ServiceUnavailableException('Stellar RPC unavailable, retry later');
     }
+  }
+
+  async orderForSlashState(orderId: string): Promise<{ tradeId: string; usdcAmount: bigint }> {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('order not found');
+    return { tradeId: order.tradeId, usdcAmount: order.usdcAmount };
+  }
+
+  async slashState(order: {
+    tradeId: string;
+    usdcAmount: bigint;
+  }): Promise<{ tradeAmount: bigint; recovered: bigint; remaining: bigint }> {
+    let recovered: bigint;
+    try {
+      recovered = await this.stellar.getSlashedSoFar(order.tradeId);
+    } catch (err) {
+      console.error('slashState error:', err instanceof Error ? err.message : String(err));
+      throw new ServiceUnavailableException(
+        'cannot read how much has already been recovered on this trade — refusing rather than risking a double recovery',
+      );
+    }
+    const remaining = order.usdcAmount - recovered;
+    return {
+      tradeAmount: order.usdcAmount,
+      recovered,
+      remaining: remaining > 0n ? remaining : 0n,
+    };
   }
 
   private configCache = new ConfigCache();

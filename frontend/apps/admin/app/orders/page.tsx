@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { rpc, TransactionBuilder } from '@stellar/stellar-sdk'
-import { getAdminOrders, getResolveTx, getSlashTx, downloadOrderProof, downloadDisputeEvidence, getAdminOrderRisk } from '@lolipay/api-client'
+import { getAdminOrders, getResolveTx, getSlashTx, getSlashState, downloadOrderProof, downloadDisputeEvidence, getAdminOrderRisk } from '@lolipay/api-client'
 import type { Order, OrderStatus } from '@lolipay/api-client'
 import { useWallet } from '@lolipay/wallet'
 import { Card, StatusPill, Button, SegmentProgress, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
@@ -92,10 +92,10 @@ export function ResolveActions({
       </div>
       {}
       <p className="text-[11px] leading-relaxed text-lp-muted">
-        Resolve first. The staking contract refuses a slash while the dispute is still open, and
-        it requires the liability that resolving establishes — so a slash is submitted after this,
-        never before. Once resolved, a recovery panel appears on settlements where the provider is
-        the one that defaulted.
+        Resolve first. Resolving is what establishes the liability a slash requires, so a slash is
+        submitted after this, never before. Once liability exists a further dispute can extend the
+        deadline but no longer blocks recovery. A recovery panel appears on settlements where the
+        provider is the one that defaulted.
       </p>
     </div>
   )
@@ -560,6 +560,21 @@ export function SlashAction({
   const [amount, setAmount] = React.useState(full)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [state, setState] = React.useState<{ recovered: string; remaining: string } | null>(null)
+
+  const load = React.useCallback(async () => {
+    try {
+      const st = await getSlashState(client, order.id)
+      setState({ recovered: st.recovered, remaining: st.remaining })
+      setAmount(st.remaining)
+    } catch {
+      setState(null)
+    }
+  }, [order.id])
+
+  React.useEffect(() => {
+    void load()
+  }, [load])
 
   async function slash() {
     setBusy(true)
@@ -568,9 +583,11 @@ export function SlashAction({
       const { xdr, networkPassphrase } = await getSlashTx(client, order.id, amount)
       const signedXdr = await wallet.signTransaction(xdr, networkPassphrase)
       await submitFn(signedXdr, networkPassphrase)
+      await load()
       onSlashed()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Slash failed')
+      await load()
     } finally {
       setBusy(false)
     }
@@ -606,11 +623,14 @@ export function SlashAction({
           Recover
         </Button>
       </div>
-      <p className="text-[11px] leading-relaxed text-lp-muted">
-        Pays the counterparty out of the provider&apos;s staked collateral, up to{' '}
-        {formatUSDC(BigInt(full))} USDC on this trade. Partial recovery is allowed and may be
-        repeated, but the total can never exceed the trade value. Requires the resolver or
-        administrator key, and only works after the dispute has been resolved.
+      <p className="text-[11px] leading-relaxed text-lp-muted" data-testid="slash-state">
+        {state
+          ? `${formatUSDC(BigInt(state.recovered))} of ${formatUSDC(BigInt(full))} USDC already recovered on this trade; ${formatUSDC(BigInt(state.remaining))} left.`
+          : `Up to ${formatUSDC(BigInt(full))} USDC on this trade.`}{' '}
+        Pays the counterparty out of the provider&apos;s staked collateral. Partial recovery is
+        allowed and may be repeated, but the total can never exceed the trade value — check the
+        figure above before signing, because a repeated submission recovers twice. Requires the
+        resolver or administrator key, and only works after the dispute has been resolved.
       </p>
     </div>
   )

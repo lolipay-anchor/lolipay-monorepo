@@ -119,6 +119,18 @@ export class OrderController {
     return this.tx.buildResolveTx(id, req.user.address, outcome);
   }
 
+  @Get(':id/slash-state')
+  @Roles('admin')
+  async slashState(@Param('id') id: string) {
+    const order = await this.tx.orderForSlashState(id);
+    const st = await this.tx.slashState(order);
+    return {
+      trade_amount: st.tradeAmount.toString(),
+      recovered: st.recovered.toString(),
+      remaining: st.remaining.toString(),
+    };
+  }
+
   @Get(':id/tx/slash')
   @Roles('admin')
   async slashTx(

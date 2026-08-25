@@ -127,22 +127,27 @@ A slash is restitution after a verdict, not a tool for use during a dispute. The
 staking contract enforces, in order: the trade must have settled (a slash is
 refused while the escrow still holds the principal — releasing it is the remedy
 then); a post-settlement dispute must have been raised; **no verdict may still be
-pending**; liability must have been established; the slash deadline must not have
-passed; the named provider must be the party that ended up holding the money; and
+pending unless liability has already been established**; liability must have been
+established; the slash deadline must not have passed; the named provider must be the party that ended up holding the money; and
 the amount is capped at both the trade value and the provider's own bond. Funds go
 to the recorded counterparty, never to a free-form address. Deduction takes from
 staked collateral before unbonding collateral.
 
 **The ordering, stated plainly because the opposite is easy to assume.** `slash`
-refuses with `VerdictPending` while a dispute is open, and requires the liability
-that `resolve` establishes. **A slash is therefore submitted after the resolve,
-never before it.** An operator who slashes first will be refused, and will then
-resolve away the state that would have let the slash succeed.
+refuses with `VerdictPending` while a dispute is open **and no liability has been
+established**, and it requires the liability that `resolve` establishes. **A slash
+is therefore submitted after the resolve, never before it.** An operator who
+slashes first will be refused, and will then resolve away the state that would have
+let the slash succeed. Once liability has been established, a later dispute may
+extend the deadline but can no longer suspend the remedy — otherwise the party
+found liable could freeze its own remedy by disputing again.
 
-**What the product does not yet do.** No coordinator endpoint builds a slash
-transaction and no admin screen offers one, so a slash today is a manual
-invocation signed by the resolver or admin key. Until that exists, the guarantees
-above describe what the contract would enforce if asked, and nothing asks.
+**How a slash is executed.** The coordinator builds an unsigned transaction and
+the admin console offers it on the settlements where a provider can be the
+culprit; the resolver or administrator signs with their own browser wallet. No
+signing key for this path exists on the server. Recovery may be taken in parts,
+and the console shows how much has already been taken — a repeated submission
+recovers twice, so the running total is the thing to check before signing.
 
 ### Known limits of the bond, stated rather than implied
 
@@ -266,8 +271,9 @@ Stated plainly rather than omitted.
   the second signature the pre-settlement path requires does not apply there. The
   mitigation is that the resolver is a multisig, and that is a deployment
   precondition rather than a later hardening step.
-- **Slashing has no path through the product.** The contract implements it; no
-  coordinator endpoint builds the transaction and no admin screen offers one, so a
-  slash today is a manual invocation signed by the resolver or admin key, after
-  the resolve. Until that path exists, the economic consequence a dispute is
-  supposed to carry is not something the system can actually deliver.
+- **Slashing depends on an operator, not on a timer.** The coordinator builds the
+  transaction and the admin console offers it, but a person holding the resolver
+  or administrator key must sign it, after the resolve and inside the slash
+  window. Nothing recovers automatically, and nothing yet alerts when that window
+  opens — so the economic consequence a dispute is supposed to carry is only as
+  reliable as the operator watching for it.

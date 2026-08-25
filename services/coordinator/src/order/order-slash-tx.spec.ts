@@ -35,6 +35,7 @@ describe('OrderTxService — the slash caller', () => {
     } as any;
     const stellar = {
       buildSlashTx: jest.fn().mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'NP' }),
+      getSlashedSoFar: jest.fn().mockResolvedValue(0n),
       getTradeStatus: jest.fn().mockResolvedValue(null),
       getTradeStatusStrict: jest.fn().mockResolvedValue(null),
       ...stellarOverrides,
@@ -152,5 +153,89 @@ describe('staking errors are not read with the escrow codebook', () => {
 
   it('still says something useful for a code it does not know', () => {
     expect(describeStakingError(new Error('Error(Contract, #99)'))).toContain('#99');
+  });
+});
+
+describe('OrderTxService — recovery already taken on chain', () => {
+  const LP_ADDR = 'GLP';
+  const TRADE_ID = 'a'.repeat(64);
+
+  function makeSvc(slashed: bigint, stellarOverrides: any = {}) {
+    const order = {
+      id: 'order-1',
+      tradeId: TRADE_ID,
+      contractId: 'CTEST',
+      userAddress: 'GUSER',
+      flow: 'WITHDRAW',
+      status: 'RELEASED',
+      usdcAmount: BigInt('1000000000'),
+      lpWallet: LP_ADDR,
+      lpId: 'lp1',
+      lp: { stellarAddress: LP_ADDR },
+      payDeadline: BigInt(1),
+      confirmDeadline: BigInt(2),
+      disputeDeadline: BigInt(3),
+      createdAt: new Date(),
+    };
+    const prisma = {
+      order: {
+        findUnique: jest.fn().mockResolvedValue({ ...order }),
+        update: jest.fn().mockResolvedValue({ ...order }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      config: { upsert: jest.fn().mockResolvedValue({ id: 1 }) },
+    } as any;
+    const stellar = {
+      buildSlashTx: jest.fn().mockResolvedValue({ xdr: 'X', networkPassphrase: 'NP' }),
+      getSlashedSoFar: jest.fn().mockResolvedValue(slashed),
+      getTradeStatus: jest.fn().mockResolvedValue(null),
+      getTradeStatusStrict: jest.fn().mockResolvedValue(null),
+      ...stellarOverrides,
+    } as any;
+    const cfg = { platformWallet: 'GPLATFORM', escrowContractId: 'CENV' } as any;
+    return { svc: orderTxFor(prisma, stellar, cfg), stellar };
+  }
+
+  let errSpy: jest.SpyInstance;
+  beforeEach(() => {
+    errSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+  afterEach(() => errSpy.mockRestore());
+
+  it('measures the ceiling against what is left, not against the trade value', async () => {
+    const { svc } = makeSvc(BigInt('600000000'));
+    await expect(svc.buildSlashTx('order-1', 'GADMIN', BigInt('400000000'))).resolves.toBeDefined();
+    await expect(
+      svc.buildSlashTx('order-1', 'GADMIN', BigInt('400000001')),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('refuses outright once the trade has been recovered in full', async () => {
+    const { svc } = makeSvc(BigInt('1000000000'));
+    await expect(svc.buildSlashTx('order-1', 'GADMIN', BigInt('1'))).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('refuses rather than risk a double recovery when the running total cannot be read', async () => {
+    const { svc } = makeSvc(0n, {
+      getSlashedSoFar: jest.fn().mockRejectedValue(new Error('rpc down')),
+    });
+    await expect(svc.buildSlashTx('order-1', 'GADMIN', BigInt('1'))).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
+
+  it('reports the remainder so an operator can see what is left', async () => {
+    const { svc } = makeSvc(BigInt('250000000'));
+    const st = await svc.slashState({ tradeId: TRADE_ID, usdcAmount: BigInt('1000000000') });
+    expect(st.recovered).toBe(BigInt('250000000'));
+    expect(st.remaining).toBe(BigInt('750000000'));
+  });
+
+  it('never reports a negative remainder even if the chain says more was taken', async () => {
+    const { svc } = makeSvc(BigInt('1200000000'));
+    const st = await svc.slashState({ tradeId: TRADE_ID, usdcAmount: BigInt('1000000000') });
+    expect(st.remaining).toBe(0n);
   });
 });

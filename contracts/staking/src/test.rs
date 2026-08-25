@@ -462,7 +462,7 @@ fn test_slash_partial_spill_staked_then_unbonding() {
 }
 
 #[test]
-fn test_slash_post_settlement_full_flow_and_one_shot() {
+fn test_slash_post_settlement_full_flow_and_cumulative_ceiling() {
     let s = slash_setup();
     s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
     s.staking.stake(&s.lp, &2_000_000_000i128);
@@ -1508,4 +1508,54 @@ fn partial_slashes_may_accumulate_but_never_past_the_trade_amount() {
         Err(Ok(Error::AlreadySlashed))
     );
     assert_eq!(s.usdc.balance(&s.user), victim_before + 1_000_000_000i128);
+}
+
+#[test]
+fn the_running_total_is_readable_and_starts_at_nothing() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
+    s.staking.stake(&s.lp, &2_000_000_000i128);
+
+    assert_eq!(s.staking.slashed(&s.trade_id), 0i128);
+    assert_eq!(s.staking.slashed(&id32(&s.env, 251)), 0i128);
+
+    s.staking.slash(&s.lp, &s.trade_id, &300_000_000i128, &s.resolver);
+    assert_eq!(s.staking.slashed(&s.trade_id), 300_000_000i128);
+
+    s.staking.slash(&s.lp, &s.trade_id, &200_000_000i128, &s.resolver);
+    assert_eq!(s.staking.slashed(&s.trade_id), 500_000_000i128);
+}
+
+#[test]
+fn one_trades_ceiling_is_never_spent_by_another() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &5_000_000_000i128);
+    s.staking.stake(&s.lp, &5_000_000_000i128);
+
+    let second = s.make_trade(252, true);
+
+    s.staking.slash(&s.lp, &s.trade_id, &1_000_000_000i128, &s.resolver);
+    assert_eq!(s.staking.slashed(&s.trade_id), 1_000_000_000i128);
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &s.trade_id, &1i128, &s.resolver),
+        Err(Ok(Error::AlreadySlashed))
+    );
+
+    assert_eq!(s.staking.slashed(&second), 0i128);
+    s.staking.slash(&s.lp, &second, &1_000_000_000i128, &s.resolver);
+    assert_eq!(s.staking.slashed(&second), 1_000_000_000i128);
+}
+
+#[test]
+fn an_absurd_amount_is_refused_cleanly_rather_than_trapping() {
+    let s = slash_setup();
+    s.usdc_admin.mint(&s.lp, &2_000_000_000i128);
+    s.staking.stake(&s.lp, &2_000_000_000i128);
+
+    s.staking.slash(&s.lp, &s.trade_id, &1i128, &s.resolver);
+    assert_eq!(
+        s.staking.try_slash(&s.lp, &s.trade_id, &i128::MAX, &s.resolver),
+        Err(Ok(Error::InvalidAmount))
+    );
+    assert_eq!(s.staking.slashed(&s.trade_id), 1i128);
 }

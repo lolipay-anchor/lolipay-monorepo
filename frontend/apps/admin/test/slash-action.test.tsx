@@ -7,7 +7,7 @@ vi.mock('@/lib/wallet-kit', () => ({ getDefaultKit: vi.fn(() => ({})) }))
 
 vi.mock('@lolipay/api-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@lolipay/api-client')>()
-  return { ...actual, getSlashTx: vi.fn() }
+  return { ...actual, getSlashTx: vi.fn(), getSlashState: vi.fn() }
 })
 
 import * as apiClient from '@lolipay/api-client'
@@ -151,5 +151,78 @@ describe('SlashAction', () => {
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('Submission failed')
     expect(onSlashed).not.toHaveBeenCalled()
+  })
+})
+
+describe('SlashAction — what has already been recovered', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('defaults the amount to what is left, not to the full trade value', async () => {
+    vi.mocked(apiClient.getSlashState).mockResolvedValue({
+      trade_amount: '1000000000',
+      recovered: '600000000',
+      remaining: '400000000',
+    } as any)
+    render(
+      <TestProviders kit={fakeKit}>
+        <SlashAction order={order('WITHDRAW', 'RELEASED')} onSlashed={vi.fn()} submitFn={vi.fn()} />
+      </TestProviders>,
+    )
+    await waitFor(() => {
+      expect((screen.getByTestId('slash-amount') as HTMLInputElement).value).toBe('400000000')
+    })
+  })
+
+  it('tells the operator how much was already taken, so a repeat is visible', async () => {
+    vi.mocked(apiClient.getSlashState).mockResolvedValue({
+      trade_amount: '1000000000',
+      recovered: '600000000',
+      remaining: '400000000',
+    } as any)
+    render(
+      <TestProviders kit={fakeKit}>
+        <SlashAction order={order('TOP_UP', 'REFUNDED')} onSlashed={vi.fn()} submitFn={vi.fn()} />
+      </TestProviders>,
+    )
+    const note = await screen.findByTestId('slash-state')
+    await waitFor(() => expect(note.textContent).toContain('60.00 of 100.00'))
+    expect(note.textContent).toContain('40.00 left')
+    expect(note.textContent).toContain('recovers twice')
+  })
+
+  it('re-reads the running total after a submission so the next click cannot repeat it', async () => {
+    vi.mocked(apiClient.getSlashState)
+      .mockResolvedValueOnce({ trade_amount: '1000000000', recovered: '0', remaining: '1000000000' } as any)
+      .mockResolvedValueOnce({ trade_amount: '1000000000', recovered: '1000000000', remaining: '0' } as any)
+    vi.mocked(apiClient.getSlashTx).mockResolvedValue({ xdr: 'X', networkPassphrase: 'NP' } as any)
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <SlashAction
+          order={order('WITHDRAW', 'RELEASED')}
+          onSlashed={vi.fn()}
+          submitFn={vi.fn(async () => ({}))}
+        />
+      </TestProviders>,
+    )
+    await waitFor(() =>
+      expect((screen.getByTestId('slash-amount') as HTMLInputElement).value).toBe('1000000000'),
+    )
+    fireEvent.click(screen.getByTestId('slash-submit'))
+    await waitFor(() =>
+      expect((screen.getByTestId('slash-amount') as HTMLInputElement).value).toBe('0'),
+    )
+    expect((screen.getByTestId('slash-submit') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('falls back to the trade value when the running total cannot be read', async () => {
+    vi.mocked(apiClient.getSlashState).mockRejectedValue(new Error('rpc down'))
+    render(
+      <TestProviders kit={fakeKit}>
+        <SlashAction order={order('WITHDRAW', 'RELEASED')} onSlashed={vi.fn()} submitFn={vi.fn()} />
+      </TestProviders>,
+    )
+    const note = await screen.findByTestId('slash-state')
+    expect(note.textContent).toContain('Up to 100.00')
   })
 })
