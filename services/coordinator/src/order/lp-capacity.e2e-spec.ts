@@ -9,7 +9,7 @@ import { StellarReadService } from '../stellar/stellar-read.service';
 import { PRICE_ADAPTER } from '../rate/rate.module';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { invalidateAllConfigCaches } from '../config/config-cache';
-import { lpExposure } from './lp-exposure';
+import { lpExposure, LP_CAPACITY_LOCK_NAMESPACE } from './lp-exposure';
 
 const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
@@ -42,9 +42,7 @@ async function mintJwt(app: INestApplication, kp: Keypair): Promise<string> {
 describe('one provider bond cannot back two trades at once', () => {
   let app: INestApplication;
   let prisma: PrismaService;
-  let lpId: string;
 
-  const lpKp = Keypair.random();
   const fakeAdapter = { name: 'fake', fetchPrices: jest.fn().mockResolvedValue({ IDR: '16000' }) };
 
   beforeAll(async () => {
@@ -92,26 +90,40 @@ describe('one provider bond cannot back two trades at once', () => {
     await prisma.config.upsert({ where: { id: 1 }, update: config, create: { id: 1, ...config } });
     invalidateAllConfigCaches();
 
+  });
+
+  async function seedProviders(count: number): Promise<string[]> {
     await prisma.order.deleteMany({});
     await prisma.paymentMethod.deleteMany({});
     await prisma.lp.deleteMany({});
+    const ids: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const lp = await prisma.lp.create({
+        data: {
+          stellarAddress: Keypair.random().publicKey(),
+          status: 'APPROVED',
+          online: true,
+          lastHeartbeatAt: new Date(),
+          contact: `lp${i}@capacity.test`,
+          liquidityProof: 'proof',
+          approvedAt: new Date(),
+        },
+      });
+      await prisma.paymentMethod.create({
+        data: { lpId: lp.id, rail: 'BANK', label: 'BCA', details: `BCA ${i}`, active: true },
+      });
+      ids.push(lp.id);
+    }
+    expect(await prisma.lp.count()).toBe(count);
+    return ids;
+  }
 
-    const lp = await prisma.lp.create({
-      data: {
-        stellarAddress: lpKp.publicKey(),
-        status: 'APPROVED',
-        online: true,
-        lastHeartbeatAt: new Date(),
-        contact: 'lp@capacity.test',
-        liquidityProof: 'proof',
-        approvedAt: new Date(),
-      },
-    });
-    lpId = lp.id;
-    await prisma.paymentMethod.create({
-      data: { lpId: lp.id, rail: 'BANK', label: 'BCA', details: 'BCA 1', active: true },
-    });
-  });
+  async function ungrantedProviderLocks(): Promise<number> {
+    const rows = await prisma.$queryRaw<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM pg_locks
+       WHERE locktype = 'advisory' AND classid = ${LP_CAPACITY_LOCK_NAMESPACE} AND NOT granted`;
+    return rows[0].n;
+  }
 
   afterAll(async () => {
     await app.close();
@@ -134,36 +146,51 @@ describe('one provider bond cannot back two trades at once', () => {
   }
 
   it('refuses the second of two simultaneous matches that would together exceed the bond', async () => {
-    for (let round = 0; round < 3; round++) {
-      await prisma.order.deleteMany({});
+    const [lpId] = await seedProviders(1);
 
-      const a = Keypair.random();
-      const b = Keypair.random();
-      const [jwtA, jwtB] = [await mintJwt(app, a), await mintJwt(app, b)];
-      const [qA, qB] = [await quoteFor(jwtA), await quoteFor(jwtB)];
+    const a = Keypair.random();
+    const b = Keypair.random();
+    const [jwtA, jwtB] = [await mintJwt(app, a), await mintJwt(app, b)];
+    const [qA, qB] = [await quoteFor(jwtA), await quoteFor(jwtB)];
 
-      const results = await Promise.all([
-        placeOrder(jwtA, qA).then((r) => r.status),
-        placeOrder(jwtB, qB).then((r) => r.status),
-      ]);
+    const holder = new PrismaService();
+    await holder.$connect();
+    let release!: () => void;
+    const releaseSignal = new Promise<void>((r) => {
+      release = r;
+    });
+    const holding = holder.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LP_CAPACITY_LOCK_NAMESPACE}, hashtext(${lpId}))`;
+        await releaseSignal;
+      },
+      { timeout: 60_000 },
+    );
 
-      const accepted = results.filter((s) => s === 201);
-      const refused = results.filter((s) => s === 503);
+    const inFlight = [placeOrder(jwtA, qA).then((r) => r.status), placeOrder(jwtB, qB).then((r) => r.status)];
 
-      expect({ round, accepted: accepted.length, refused: refused.length, results }).toEqual({
-        round,
-        accepted: 1,
-        refused: 1,
-        results: expect.any(Array),
-      });
-
-      const exposure = await lpExposure(prisma, lpId, Math.floor(Date.now() / 1000));
-      expect(exposure).toBeLessThanOrEqual(BigInt(STAKED_BASE_UNITS));
+    const deadline = Date.now() + 30_000;
+    while ((await ungrantedProviderLocks()) < 2) {
+      if (Date.now() > deadline) throw new Error('the two matches never both reached the provider lock');
+      await new Promise((r) => setTimeout(r, 25));
     }
-  }, 60_000);
+
+    release();
+    await holding;
+    await holder.$disconnect();
+
+    const results = await Promise.all(inFlight);
+    expect({
+      accepted: results.filter((x) => x === 201).length,
+      refused: results.filter((x) => x === 503).length,
+    }).toEqual({ accepted: 1, refused: 1 });
+
+    const exposure = await lpExposure(prisma, lpId, Math.floor(Date.now() / 1000));
+    expect(exposure).toBeLessThanOrEqual(BigInt(STAKED_BASE_UNITS));
+  }, 90_000);
 
   it('will not match a provider that has an unstake in flight', async () => {
-    await prisma.order.deleteMany({});
+    await seedProviders(1);
     const stellar = app.get(StellarReadService) as any;
     stellar.getStakeInfo.mockResolvedValueOnce({
       staked: STAKED_BASE_UNITS,
@@ -178,5 +205,60 @@ describe('one provider bond cannot back two trades at once', () => {
     const quoteId = await quoteFor(jwt);
 
     await placeOrder(jwt, quoteId).expect(503);
+  }, 30_000);
+
+  it('a provider with no room left does not block the ones that still have room', async () => {
+    const [saturated] = await seedProviders(2);
+
+    const filler = Keypair.random();
+    const fillerJwt = await mintJwt(app, filler);
+    await prisma.order.create({
+      data: {
+        tradeId: `${Date.now()}saturate`,
+        userAddress: filler.publicKey(),
+        personId: (await prisma.person.create({ data: {} })).id,
+        lpId: saturated,
+        flow: 'WITHDRAW',
+        rail: 'BANK',
+        usdcAmount: BigInt(STAKED_BASE_UNITS),
+        fiatAmount: 1n,
+        rateSnapshot: '16000',
+        platformFeeBps: 10,
+        lpFeeBps: 10,
+        platformWallet: 'GPLATFORM',
+        status: 'RELEASED',
+        settledAt: new Date(),
+        postSettleDeadline: BigInt(Math.floor(Date.now() / 1000) + 86_400),
+        payDeadline: 0n,
+        confirmDeadline: 0n,
+        disputeDeadline: 0n,
+        expiresAt: new Date(),
+      } as any,
+    });
+
+    const quoteId = await quoteFor(fillerJwt);
+    const res = await placeOrder(fillerJwt, quoteId);
+
+    expect(res.status).toBe(201);
+    expect(await lpExposure(prisma, saturated, Math.floor(Date.now() / 1000))).toBe(
+      BigInt(STAKED_BASE_UNITS),
+    );
+  }, 30_000);
+
+  it('accepts a trade that exactly fills the bond, and refuses the next stroop', async () => {
+    await seedProviders(1);
+    const kp = Keypair.random();
+    const jwt = await mintJwt(app, kp);
+
+    const exact = await request(app.getHttpServer())
+      .post('/quotes')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ flow: 'WITHDRAW', rail: 'BANK', usdcAmount: STAKED_BASE_UNITS })
+      .expect(201);
+    await placeOrder(jwt, exact.body.quote_id as string).expect(201);
+
+    const second = Keypair.random();
+    const secondJwt = await mintJwt(app, second);
+    await placeOrder(secondJwt, await quoteFor(secondJwt)).expect(503);
   }, 30_000);
 });

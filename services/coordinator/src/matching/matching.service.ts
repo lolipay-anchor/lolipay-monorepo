@@ -2,12 +2,14 @@ import { ForbiddenException, Injectable, ServiceUnavailableException } from '@ne
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonId, PersonService } from '../person/person.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
+import { lpExposure } from '../order/lp-exposure';
 
 export interface LpMatch {
   id: string;
   stellarAddress: string;
   paymentMethodId: string;
   details: string;
+  staked: bigint;
 }
 
 @Injectable()
@@ -21,6 +23,7 @@ export class MatchingService {
   async pickLp(
     rail: 'BANK' | 'QRIS' | 'EWALLET',
     fiat: string,
+    amount: bigint,
     excludePersonId?: PersonId,
   ): Promise<LpMatch> {
     const staleMs = Number(process.env.HEARTBEAT_STALE_SECONDS ?? 120) * 1000;
@@ -57,26 +60,33 @@ export class MatchingService {
     const others = candidates.filter((lp) => !own.has(lp.stellarAddress));
     const refusedOwn = others.length < candidates.length;
 
+    const nowSec = Math.floor(Date.now() / 1000);
+
     for (const lp of others) {
-      let eligible = false;
+      let stake: { staked: string; unbonding: string; eligible: boolean };
       try {
-        eligible = await this.stellar.isEligible(lp.stellarAddress);
+        stake = await this.stellar.getStakeInfo(lp.stellarAddress);
       } catch {
         continue;
       }
-      if (eligible) {
-        const owner = await this.people.lookupPerson(lp.stellarAddress);
-        if (excludePersonId && owner?.id === excludePersonId) {
-          throw new ForbiddenException('you cannot be matched with your own order');
-        }
-        const pm = lp.paymentMethods[0];
-        return {
-          id: lp.id,
-          stellarAddress: lp.stellarAddress,
-          paymentMethodId: pm.id,
-          details: pm.details,
-        };
+      if (!stake.eligible || BigInt(stake.unbonding) > 0n) continue;
+
+      const staked = BigInt(stake.staked);
+      const committed = await lpExposure(this.prisma, lp.id, nowSec);
+      if (committed + amount > staked) continue;
+
+      const owner = await this.people.lookupPerson(lp.stellarAddress);
+      if (excludePersonId && owner?.id === excludePersonId) {
+        throw new ForbiddenException('you cannot be matched with your own order');
       }
+      const pm = lp.paymentMethods[0];
+      return {
+        id: lp.id,
+        stellarAddress: lp.stellarAddress,
+        paymentMethodId: pm.id,
+        details: pm.details,
+        staked,
+      };
     }
 
     if (refusedOwn && others.length === 0) {

@@ -36,6 +36,18 @@ export function isAhead(newStatus: string, currentStatus: string): boolean {
   return newIdx > curIdx;
 }
 
+export function settlementFieldsFrom(onChain: TradeOnChain): Record<string, unknown> {
+  if (onChain.status !== 'RELEASED' && onChain.status !== 'REFUNDED') return {};
+  return {
+    settledAt: onChain.settledAt > 0 ? new Date(onChain.settledAt * 1000) : new Date(),
+    ...(onChain.postSettleDeadline === undefined ? {} : { postSettleDeadline: onChain.postSettleDeadline }),
+    ...(onChain.slashDeadline === undefined ? {} : { slashDeadline: onChain.slashDeadline }),
+    ...(typeof onChain.liabilityEstablished === 'boolean'
+      ? { liabilityEstablished: onChain.liabilityEstablished }
+      : {}),
+  };
+}
+
 @Injectable()
 export class OrderStatusService {
   private readonly log = new Logger('OrderStatusService');
@@ -79,6 +91,7 @@ export class OrderStatusService {
           ...(onChain.status === 'DISPUTED' && !order.disputeAt
             ? { disputeAt: new Date() }
             : {}),
+          ...settlementFieldsFrom(onChain),
         },
         include: { lp: true },
       });

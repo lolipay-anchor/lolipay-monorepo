@@ -130,7 +130,7 @@ describe('an LP is exposed on a trade for as long as it can still be slashed for
     expect(await lpExposure(prisma, lpId, NOW)).toBe(100n);
   });
 
-  it('prefers the recorded slash deadline over anything derived', async () => {
+  it('counts on the recorded slash deadline when it outlasts the derived one', async () => {
     await order({
       status: 'RELEASED',
       settledAt: new Date((NOW - 7200) * 1000),
@@ -170,6 +170,30 @@ describe('an LP is exposed on a trade for as long as it can still be slashed for
       },
     });
     await order({ status: 'FUNDED', usdcAmount: 999n, lpId: other.id });
+
+    expect(await lpExposure(prisma, lpId, NOW)).toBe(100n);
+  });
+
+  it('keeps counting a trade whose verdict landed while the row was read back as released', async () => {
+    await order({
+      status: 'RELEASED',
+      settledAt: new Date((NOW - 90_000) * 1000),
+      postSettleDeadline: BigInt(NOW - 3600),
+      disputeAt: new Date((NOW - 7200) * 1000),
+      slashDeadline: null,
+    });
+
+    expect(await lpExposure(prisma, lpId, NOW)).toBe(100n);
+  });
+
+  it('does not treat a closed slash window as final once the trade is disputed again', async () => {
+    await order({
+      status: 'DISPUTED',
+      settledAt: new Date((NOW - 7200) * 1000),
+      postSettleDeadline: BigInt(NOW - 60),
+      disputeAt: new Date((NOW - 60) * 1000),
+      slashDeadline: 0n,
+    });
 
     expect(await lpExposure(prisma, lpId, NOW)).toBe(100n);
   });

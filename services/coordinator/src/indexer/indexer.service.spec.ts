@@ -388,6 +388,18 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     return makeBase(orderStatus, opts);
   }
 
+  it('will still heal an order that was cancelled after its trade had reached the chain', async () => {
+    const { svc, prisma } = make('CANCELLED');
+    const value = nativeToScVal({ released: false, post_settle: false });
+    await svc.applyEvent({
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value,
+      contractId: 'CXXX',
+    });
+    const where = (prisma.order.updateMany as jest.Mock).mock.calls[0][0].where;
+    expect(where.status.in).toContain('CANCELLED');
+  });
+
   it('post_settle=false (normal dispute resolve): advances DISPUTED → RELEASED via the ordinary monotonic path', async () => {
     const { svc, prisma, notifications, stellar } = make('DISPUTED');
     const value = nativeToScVal({ released: true, post_settle: false });
@@ -398,7 +410,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     });
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED'] } },
+      where: { id: 'ord-1', status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } },
       data: { status: 'RELEASED', settledAt: expect.any(Date), resolution: 'released' },
     });
     expect(prisma.order.update).not.toHaveBeenCalled();
@@ -417,7 +429,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     });
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED'] } },
+      where: { id: 'ord-1', status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } },
       data: { status: 'REFUNDED', settledAt: expect.any(Date), resolution: 'refunded' },
     });
     expect(stellar.getTradeStatus).toHaveBeenCalledWith('CXXX', TRADE_ID_A);
@@ -623,7 +635,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
 
     expect(stellar.getTradeStatus).toHaveBeenCalledTimes(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED'] } },
+      where: { id: 'ord-1', status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } },
       data: { status: 'RELEASED', settledAt: new Date(ON_CHAIN_SECS * 1000), resolution: 'released' },
     });
   });
@@ -640,7 +652,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
     });
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED'] } },
+      where: { id: 'ord-1', status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } },
       data: { status: 'RELEASED', settledAt: expect.any(Date), resolution: 'released' },
     });
     expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(expect.anything(), 'RELEASED');
@@ -873,7 +885,7 @@ describe('IndexerService.applyEvent — disputed (post-settlement raise, Phase 5
     });
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'EXPIRED'] } },
+      where: { id: 'ord-1', status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'EXPIRED', 'CANCELLED'] } },
       data: { status: 'DISPUTED', disputeAt: expect.any(Date) },
     });
     expect(prisma.order.update).not.toHaveBeenCalled();

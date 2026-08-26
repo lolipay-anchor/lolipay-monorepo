@@ -20,13 +20,20 @@ function makePrisma(candidates: any[]) {
         candidates.map((c) => ({ ...c })),
       ),
     },
+    $queryRaw: jest.fn().mockResolvedValue([{ total: '0' }]),
   } as any;
 }
 
 function makeStellar(eligibility: Record<string, boolean>) {
   return {
-    isEligible: jest.fn().mockImplementation((addr: string) =>
-      Promise.resolve(eligibility[addr] ?? false),
+    getStakeInfo: jest.fn().mockImplementation((addr: string) =>
+      Promise.resolve({
+        staked: '1000000000000',
+        unbonding: '0',
+        unbond_available_at: 0,
+        min_stake: '1',
+        eligible: eligibility[addr] ?? false,
+      }),
     ),
   } as any;
 }
@@ -46,8 +53,8 @@ describe('MatchingService refuses to pair a person with their own provider', () 
     const stellar = makeStellar({ [MINE]: true });
     const svc = new MatchingService(prisma, stellar, makePeople({ [PERSON]: [MINE] }));
 
-    await expect(svc.pickLp('BANK', 'IDR', PERSON)).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(svc.pickLp('BANK', 'IDR', PERSON)).rejects.toThrow(/your own order/i);
+    await expect(svc.pickLp('BANK', 'IDR', 1n, PERSON)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.pickLp('BANK', 'IDR', 1n, PERSON)).rejects.toThrow(/your own order/i);
   });
 
   it('never asks the chain about a provider it has already refused as the caller themselves', async () => {
@@ -55,8 +62,8 @@ describe('MatchingService refuses to pair a person with their own provider', () 
     const stellar = makeStellar({ [MINE]: true });
     const svc = new MatchingService(prisma, stellar, makePeople({ [PERSON]: [MINE] }));
 
-    await expect(svc.pickLp('BANK', 'IDR', PERSON)).rejects.toBeInstanceOf(ForbiddenException);
-    expect(stellar.isEligible).not.toHaveBeenCalled();
+    await expect(svc.pickLp('BANK', 'IDR', 1n, PERSON)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(stellar.getStakeInfo).not.toHaveBeenCalled();
   });
 
   it('picks another eligible provider rather than refusing, when one exists', async () => {
@@ -67,7 +74,7 @@ describe('MatchingService refuses to pair a person with their own provider', () 
     const stellar = makeStellar({ [MINE]: true, [THEIRS]: true });
     const svc = new MatchingService(prisma, stellar, makePeople({ [PERSON]: [MINE] }));
 
-    const match = await svc.pickLp('BANK', 'IDR', PERSON);
+    const match = await svc.pickLp('BANK', 'IDR', 1n, PERSON);
 
     expect(match.stellarAddress).toBe(THEIRS);
   });
@@ -77,7 +84,7 @@ describe('MatchingService refuses to pair a person with their own provider', () 
     const stellar = makeStellar({ [MINE]: true });
     const svc = new MatchingService(prisma, stellar, makePeople({ [PERSON]: [MINE] }));
 
-    const match = await svc.pickLp('BANK', 'IDR', 'person-2' as PersonId);
+    const match = await svc.pickLp('BANK', 'IDR', 1n, 'person-2' as PersonId);
 
     expect(match.stellarAddress).toBe(MINE);
   });
@@ -90,7 +97,7 @@ describe('MatchingService refuses to pair a person with their own provider', () 
     const stellar = makeStellar({ [MINE]: true, [THEIRS]: false });
     const svc = new MatchingService(prisma, stellar, makePeople({ [PERSON]: [MINE] }));
 
-    await expect(svc.pickLp('BANK', 'IDR', PERSON)).rejects.toBeInstanceOf(
+    await expect(svc.pickLp('BANK', 'IDR', 1n, PERSON)).rejects.toBeInstanceOf(
       ServiceUnavailableException,
     );
   });
@@ -110,8 +117,8 @@ describe('MatchingService refuses to pair a person with their own provider', () 
     const stellar = makeStellar({ [MINE]: true });
     const svc = new MatchingService(prisma, stellar, new PersonService(prisma));
 
-    await expect(svc.pickLp('BANK', 'IDR', PERSON)).rejects.toBeInstanceOf(ForbiddenException);
-    expect(stellar.isEligible).not.toHaveBeenCalled();
+    await expect(svc.pickLp('BANK', 'IDR', 1n, PERSON)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(stellar.getStakeInfo).not.toHaveBeenCalled();
   });
 
   it('matches as before when the caller has no person to exclude', async () => {
@@ -120,7 +127,7 @@ describe('MatchingService refuses to pair a person with their own provider', () 
     const people = makePeople({});
     const svc = new MatchingService(prisma, stellar, people);
 
-    const match = await svc.pickLp('BANK', 'IDR');
+    const match = await svc.pickLp('BANK', 'IDR', 1n);
 
     expect(match.stellarAddress).toBe(MINE);
     expect(people.walletsOf).not.toHaveBeenCalled();
@@ -132,7 +139,7 @@ describe('MatchingService refuses to pair a person with their own provider', () 
     const blindToTheLink = makePeople({}, { [MINE]: PERSON });
     const svc = new MatchingService(prisma, stellar, blindToTheLink);
 
-    await expect(svc.pickLp('BANK', 'IDR', PERSON)).rejects.toBeInstanceOf(
+    await expect(svc.pickLp('BANK', 'IDR', 1n, PERSON)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
     expect(blindToTheLink.walletsOf).toHaveBeenCalled();
@@ -144,7 +151,7 @@ describe('MatchingService refuses to pair a person with their own provider', () 
     const people = makePeople({}, { [THEIRS]: 'person-9' });
     const svc = new MatchingService(prisma, stellar, people);
 
-    const match = await svc.pickLp('BANK', 'IDR', PERSON);
+    const match = await svc.pickLp('BANK', 'IDR', 1n, PERSON);
 
     expect(match.stellarAddress).toBe(THEIRS);
   });

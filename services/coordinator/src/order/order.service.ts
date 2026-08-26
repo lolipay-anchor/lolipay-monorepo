@@ -19,6 +19,7 @@ import { NotificationService } from '../notification/notification.service';
 import { mapRoles, newTradeId, Flow, getFiatPayer } from './order.params';
 import { serializeOrderBase } from './order.serialize';
 import { lpExposure, LP_CAPACITY_LOCK_NAMESPACE } from './lp-exposure';
+import { settlementFieldsFrom } from './order-status.service';
 import { ConfigCache } from '../config/config-cache';
 import {
   OrderStatusService,
@@ -144,13 +145,8 @@ export class OrderService {
 
     const rail = quote.rail as 'BANK' | 'QRIS' | 'EWALLET';
 
-    const lp = await this.matching.pickLp(rail, quote.fiatCurrency, personId);
-
-    const stake = await this.stellar.getStakeInfo(lp.stellarAddress);
-    if (BigInt(stake.unbonding) > 0n) {
-      throw new ServiceUnavailableException('no eligible LP available');
-    }
-    const lpBond = BigInt(stake.staked);
+    const lp = await this.matching.pickLp(rail, quote.fiatCurrency, quote.usdcAmount, personId);
+    const lpBond = lp.staked;
 
     const roles = mapRoles(flow, userAddress, lp.stellarAddress);
 
@@ -215,6 +211,9 @@ export class OrderService {
 
           const committed = await lpExposure(tx, lp.id, Math.floor(Date.now() / 1000));
           if (committed + quote.usdcAmount > lpBond) {
+            this.log.warn(
+              `match refused: lp ${lp.id} is committed ${committed} of ${lpBond} and cannot take ${quote.usdcAmount}`,
+            );
             throw new ServiceUnavailableException('no eligible LP available');
           }
 
@@ -323,7 +322,7 @@ export class OrderService {
       if (onChain && this.status.tradeBindsToOrder(onChain, order) && isAhead(onChain.status, order.status)) {
         const updated = await this.prisma.order.update({
           where: { id },
-          data: { status: onChain.status as any },
+          data: { status: onChain.status as any, ...settlementFieldsFrom(onChain) },
           include: { lp: true },
         });
         currentStatus = updated.status;
@@ -446,7 +445,7 @@ export class OrderService {
         if (onChain && this.status.tradeBindsToOrder(onChain, order) && isAhead(onChain.status, order.status)) {
           currentOrder = await this.prisma.order.update({
             where: { id: order.id },
-            data: { status: onChain.status as any },
+            data: { status: onChain.status as any, ...settlementFieldsFrom(onChain) },
           });
         }
       }

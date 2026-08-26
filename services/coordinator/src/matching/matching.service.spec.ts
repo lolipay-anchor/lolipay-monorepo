@@ -60,13 +60,20 @@ function makePrisma(candidates: any[]) {
           .map((c) => ({ ...c, paymentMethods: c.paymentMethods.filter(includeFilter) }));
       }),
     },
+    $queryRaw: jest.fn().mockResolvedValue([{ total: '0' }]),
   } as any;
 }
 
 function makeStellar(eligibilityMap: Record<string, boolean>) {
   return {
-    isEligible: jest.fn().mockImplementation((addr: string) =>
-      Promise.resolve(eligibilityMap[addr] ?? false),
+    getStakeInfo: jest.fn().mockImplementation((addr: string) =>
+      Promise.resolve({
+        staked: '1000000000000',
+        unbonding: '0',
+        unbond_available_at: 0,
+        min_stake: '1',
+        eligible: eligibilityMap[addr] ?? false,
+      }),
     ),
   } as any;
 }
@@ -79,7 +86,7 @@ describe('MatchingService.pickLp', () => {
     const stellar = makeStellar({ GBUSY: true, GIDLE: true });
 
     const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
-    const result = await svc.pickLp('BANK', 'IDR');
+    const result = await svc.pickLp('BANK', 'IDR', 1n);
 
     expect(result.id).toBe('lp-idle');
     expect(result.stellarAddress).toBe('GIDLE');
@@ -94,7 +101,7 @@ describe('MatchingService.pickLp', () => {
     const stellar = makeStellar({ GBAD: false, GGOOD: true });
 
     const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
-    const result = await svc.pickLp('BANK', 'IDR');
+    const result = await svc.pickLp('BANK', 'IDR', 1n);
 
     expect(result.id).toBe('lp-good');
     expect(result.stellarAddress).toBe('GGOOD');
@@ -107,8 +114,8 @@ describe('MatchingService.pickLp', () => {
     const stellar = makeStellar({ GAAAA: false, GBBBB: false });
 
     const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
-    await expect(svc.pickLp('BANK', 'IDR')).rejects.toThrow(ServiceUnavailableException);
-    await expect(svc.pickLp('BANK', 'IDR')).rejects.toThrow('no eligible LP available');
+    await expect(svc.pickLp('BANK', 'IDR', 1n)).rejects.toThrow(ServiceUnavailableException);
+    await expect(svc.pickLp('BANK', 'IDR', 1n)).rejects.toThrow('no eligible LP available');
   });
 
   it('throws 503 when no candidates at all', async () => {
@@ -116,7 +123,7 @@ describe('MatchingService.pickLp', () => {
     const stellar = makeStellar({});
 
     const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
-    await expect(svc.pickLp('QRIS', 'IDR')).rejects.toThrow(ServiceUnavailableException);
+    await expect(svc.pickLp('QRIS', 'IDR', 1n)).rejects.toThrow(ServiceUnavailableException);
   });
 
   it('excludes an LP whose only payment method is for a different fiat currency', async () => {
@@ -126,7 +133,7 @@ describe('MatchingService.pickLp', () => {
     const stellar = makeStellar({ GPHP: true, GIDR: true });
 
     const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
-    const result = await svc.pickLp('BANK', 'IDR');
+    const result = await svc.pickLp('BANK', 'IDR', 1n);
 
     expect(result.id).toBe('lp-idr');
     expect(result.stellarAddress).toBe('GIDR');
@@ -138,7 +145,7 @@ describe('MatchingService.pickLp', () => {
     const stellar = makeStellar({ GPHP: true });
 
     const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
-    await expect(svc.pickLp('BANK', 'IDR')).rejects.toThrow(ServiceUnavailableException);
+    await expect(svc.pickLp('BANK', 'IDR', 1n)).rejects.toThrow(ServiceUnavailableException);
   });
 
   it('queries only LPs with online:true (persistent intent) AND a fresh lastHeartbeatAt (liveness) — never one alone', async () => {
@@ -147,7 +154,7 @@ describe('MatchingService.pickLp', () => {
     const stellar = makeStellar({ GIDR: true });
 
     const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
-    await svc.pickLp('BANK', 'IDR');
+    await svc.pickLp('BANK', 'IDR', 1n);
 
     expect(prisma.lp.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -166,7 +173,7 @@ describe('MatchingService.pickLp', () => {
 
     const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
 
-    await svc.pickLp('BANK', 'PHP').catch(() => {});
+    await svc.pickLp('BANK', 'PHP', 1n).catch(() => {});
 
     expect(prisma.lp.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -183,7 +190,7 @@ describe('MatchingService.pickLp', () => {
     const stellar = makeStellar({ GMULTI: true });
 
     const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
-    const result = await svc.pickLp('BANK', 'IDR');
+    const result = await svc.pickLp('BANK', 'IDR', 1n);
 
     expect(result.paymentMethodId).toBe(PM_MULTI_IDR.id);
     expect(result.details).toBe(PM_MULTI_IDR.details);
@@ -195,7 +202,7 @@ describe('MatchingService.pickLp', () => {
     const stellar = makeStellar({ GMULTI: true });
 
     const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
-    const result = await svc.pickLp('BANK', 'PHP');
+    const result = await svc.pickLp('BANK', 'PHP', 1n);
 
     expect(result.paymentMethodId).toBe(PM_MULTI_PHP.id);
     expect(result.details).toBe(PM_MULTI_PHP.details);

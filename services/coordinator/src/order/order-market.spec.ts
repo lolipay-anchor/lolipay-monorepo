@@ -102,7 +102,7 @@ describe('OrderService.createFromQuote — market-aware order creation (Phase 4 
     const { svc, matching } = makeSvc({ fiatCurrency: 'IDR', rail: 'BANK' });
     await svc.createFromQuote(USER, 'q1');
 
-    expect(matching.pickLp).toHaveBeenCalledWith('BANK', 'IDR', 'person-test');
+    expect(matching.pickLp).toHaveBeenCalledWith('BANK', 'IDR', 100_000_000n, 'person-test');
   });
 
   it(

@@ -69,7 +69,7 @@ describe('OrderService.createFromQuote — trustline guard', () => {
     } as any;
     withTxSupport(prisma);
     const stellar = { getStakeInfo: jest.fn().mockResolvedValue({ staked: '1000000000000', unbonding: '0', unbond_available_at: 0, min_stake: '1', eligible: true }),  hasUsdcTrustline: jest.fn((a: string) => Promise.resolve(hasTrustline(a))) } as any;
-    const matching = { pickLp: jest.fn().mockResolvedValue({ id: 'lp1', stellarAddress: LP, paymentMethodId: 'pm1', details: 'BCA 123' }) } as any;
+    const matching = { pickLp: jest.fn().mockResolvedValue({ staked: 1000000000000n, id: 'lp1', stellarAddress: LP, paymentMethodId: 'pm1', details: 'BCA 123' }) } as any;
     const cfg = { platformWallet: PLATFORM } as any;
     const markets = { getEnabled: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true }) } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;

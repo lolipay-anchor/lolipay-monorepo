@@ -81,6 +81,31 @@ describe('refreshing an order status from the chain', () => {
     );
   });
 
+  it('records the settlement itself, not just the status, when the chain says a trade has settled', async () => {
+    const { svc, prisma, stellar, order } = makeSvc({ status: 'FIAT_PAID' }, 'RELEASED');
+    stellar.getTradeStatus.mockResolvedValue(
+      onChainTradeFor(order, 'RELEASED', {
+        settledAt: 1_800_000_000,
+        postSettleDeadline: 1_800_086_400n,
+        slashDeadline: 1_800_086_400n,
+        liabilityEstablished: false,
+      }),
+    );
+
+    await svc.getOrder('order-1', USER_ADDR);
+
+    expect(prisma.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'RELEASED',
+          settledAt: new Date(1_800_000_000 * 1000),
+          postSettleDeadline: 1_800_086_400n,
+          slashDeadline: 1_800_086_400n,
+        }),
+      }),
+    );
+  });
+
   it('leaves the row alone when the chain is behind the database', async () => {
     const { svc, prisma } = makeSvc({ status: 'FIAT_PAID' }, 'FUNDED');
 

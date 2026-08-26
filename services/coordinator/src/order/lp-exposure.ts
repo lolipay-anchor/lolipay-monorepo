@@ -3,7 +3,7 @@ import type { Prisma } from '../generated/prisma/client';
 const RESOLVER_WINDOW_SECS = 86_400;
 const POST_VERDICT_GRACE_SECS = RESOLVER_WINDOW_SECS;
 
-export const SLASH_CEILING_PAST_POST_SETTLE_SECS =
+const SLASH_CEILING_PAST_POST_SETTLE_SECS =
   2 * RESOLVER_WINDOW_SECS + POST_VERDICT_GRACE_SECS;
 
 export const LP_CAPACITY_LOCK_NAMESPACE = 1;
@@ -25,11 +25,12 @@ export async function lpExposure(
        AND NOT ("status"::text = 'REFUNDED' AND "flow"::text = 'WITHDRAW')
        AND (
          "settledAt" IS NULL
-         OR COALESCE(
-              "slashDeadline",
-              "postSettleDeadline"
-                + CASE WHEN "status"::text = 'DISPUTED' THEN ${ceiling}::bigint ELSE 0 END,
-              ${nowSec}::bigint
+         OR ("slashDeadline" IS NULL AND "postSettleDeadline" IS NULL)
+         OR GREATEST(
+              COALESCE("slashDeadline", 0),
+              COALESCE("postSettleDeadline", 0)
+                + CASE WHEN "status"::text = 'DISPUTED' OR "disputeAt" IS NOT NULL
+                       THEN ${ceiling}::bigint ELSE 0 END
             ) >= ${nowSec}::bigint
        )
   `;
