@@ -15,6 +15,8 @@ import { mapRoles, Flow, getFiatPayer, requireLp } from './order.params';
 import { describeContractError, describeStakingError } from './contract-error';
 import { canDispute } from './dispute.util';
 
+const CLOCK_SKEW_MARGIN_SECS = 900n;
+
 @Injectable()
 export class OrderTxService {
   constructor(
@@ -299,9 +301,9 @@ export class OrderTxService {
         'the slash window on this trade has been closed by an exonerating verdict',
       );
     }
-    if (BigInt(Math.floor(Date.now() / 1000)) > deadline) {
+    if (BigInt(Math.floor(Date.now() / 1000)) > deadline + CLOCK_SKEW_MARGIN_SECS) {
       throw new ConflictException(
-        'the window to slash this trade has closed — the bond is no longer reachable for it',
+        'the window to slash this trade closed some time ago — the bond is no longer reachable for it',
       );
     }
 

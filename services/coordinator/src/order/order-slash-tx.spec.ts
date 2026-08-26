@@ -137,7 +137,7 @@ describe('OrderTxService — the slash caller', () => {
     );
   });
 
-  it('refuses once the slash window has closed, rather than sending an operator to sign in vain', async () => {
+  it('refuses once the window closed well beyond any plausible clock drift', async () => {
     const { svc } = makeSvc(
       {},
       {
@@ -145,13 +145,43 @@ describe('OrderTxService — the slash caller', () => {
           status: 'RELEASED',
           settledAt: 0,
           liabilityEstablished: true,
-          slashDeadline: BigInt(Math.floor(Date.now() / 1000) - 1),
+          slashDeadline: BigInt(Math.floor(Date.now() / 1000) - 7200),
         }),
       },
     );
     await expect(svc.buildSlashTx('order-1', 'GADMIN', BigInt('1'))).rejects.toBeInstanceOf(
       ConflictException,
     );
+  });
+
+  it('still builds when the host clock says the window just closed, because the ledger decides', async () => {
+    const { svc } = makeSvc(
+      {},
+      {
+        getTradeStatusStrict: jest.fn().mockResolvedValue({
+          status: 'RELEASED',
+          settledAt: 0,
+          liabilityEstablished: true,
+          slashDeadline: BigInt(Math.floor(Date.now() / 1000) - 60),
+        }),
+      },
+    );
+    await expect(svc.buildSlashTx('order-1', 'GADMIN', BigInt('1'))).resolves.toBeDefined();
+  });
+
+  it('does not let a fast host clock refuse a window that is still open', async () => {
+    const { svc } = makeSvc(
+      {},
+      {
+        getTradeStatusStrict: jest.fn().mockResolvedValue({
+          status: 'RELEASED',
+          settledAt: 0,
+          liabilityEstablished: true,
+          slashDeadline: BigInt(Math.floor(Date.now() / 1000) - 600),
+        }),
+      },
+    );
+    await expect(svc.buildSlashTx('order-1', 'GADMIN', BigInt('1'))).resolves.toBeDefined();
   });
 
   it('refuses when an exonerating verdict zeroed the window', async () => {
