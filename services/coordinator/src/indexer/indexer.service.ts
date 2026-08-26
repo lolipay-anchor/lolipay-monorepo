@@ -336,7 +336,16 @@ export class IndexerService {
     const verdict = val.released ? 'released' : 'refunded';
     const res = await this.prisma.order.updateMany({
       where: { id: order.id, status: 'DISPUTED' },
-      data: { status: finalStatus as any, resolution: settlementDirection },
+      data: {
+        status: finalStatus as any,
+        resolution: settlementDirection,
+        ...(typeof settled.liabilityEstablished === 'boolean'
+          ? { liabilityEstablished: settled.liabilityEstablished }
+          : {}),
+        ...(settled.slashDeadline !== undefined
+          ? { slashDeadline: settled.slashDeadline }
+          : {}),
+      },
     });
     if (res.count === 0) return 0;
     await this.accrueDisputeLossIfApplicable(order, verdict);

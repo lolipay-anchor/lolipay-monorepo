@@ -3885,3 +3885,51 @@ fn reading_a_trade_carries_its_lifetime_forward() {
         assert_eq!(env.storage().persistent().get_ttl(&key), 45 * day);
     });
 }
+
+#[test]
+fn raising_a_post_settlement_dispute_buys_a_day_before_any_verdict_is_reached() {
+    let (env, client, _admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+
+    env.ledger().with_mut(|l| l.timestamp = 4000);
+    client.raise_dispute(&id32(&env, 1), &provider);
+
+    assert_eq!(
+        client.get_trade(&id32(&env, 1)).slash_deadline,
+        4000 + 86_400,
+        "raising a dispute must buy a full day on its own, before anyone rules"
+    );
+}
+
+#[test]
+fn a_second_dispute_extends_the_remedy_it_cannot_suspend() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 3600;
+    client.set_config(&cfg);
+
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+
+    env.ledger().with_mut(|l| l.timestamp = 600);
+    client.raise_dispute(&id32(&env, 1), &provider);
+    env.ledger().with_mut(|l| l.timestamp = 700);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
+    let after_verdict = client.get_trade(&id32(&env, 1)).slash_deadline;
+    assert!(client.get_trade(&id32(&env, 1)).liability_established);
+
+    env.ledger().with_mut(|l| l.timestamp = 4000);
+    client.raise_dispute(&id32(&env, 1), &recipient);
+    let after_second = client.get_trade(&id32(&env, 1)).slash_deadline;
+
+    assert!(
+        after_second > after_verdict,
+        "a later dispute must push the remedy out, not leave it where it was"
+    );
+    assert_eq!(after_second, 4000 + 86_400);
+}

@@ -137,23 +137,20 @@ describe('a verdict with a clock running reaches a person', () => {
     expect(await svc.slashWindowAlerts(NOW)).toEqual([]);
   });
 
-  it('asks only for trades whose window could still be open, oldest first', async () => {
+  it('asks the database for open windows directly, rather than guessing a horizon', async () => {
     const { svc, prisma } = make({ orders: [] });
     await svc.slashWindowAlerts(NOW);
     const args = prisma.order.findMany.mock.calls[0][0];
     expect(args.take).toBe(100);
-    expect(args.orderBy).toEqual([{ settledAt: 'asc' }, { id: 'asc' }]);
-    expect(args.where.settledAt.not).toBeNull();
-    expect(args.where.settledAt.gte).toBeInstanceOf(Date);
+    expect(args.where.liabilityEstablished).toBe(true);
+    expect(args.where.slashDeadline.gt).toBe(BigInt(Math.floor(NOW.getTime() / 1000)));
   });
 
-  it('does not scan the whole history, which would keep the family permanently truncated', async () => {
+  it('does not filter on when a trade settled, because a verdict can arrive far later', async () => {
     const { svc, prisma } = make({ orders: [] });
     await svc.slashWindowAlerts(NOW);
-    const since = prisma.order.findMany.mock.calls[0][0].where.settledAt.gte as Date;
-    const days = (NOW.getTime() - since.getTime()) / (24 * 60 * 60 * 1000);
-    expect(days).toBeGreaterThan(7);
-    expect(days).toBeLessThan(30);
+    const where = prisma.order.findMany.mock.calls[0][0].where;
+    expect(JSON.stringify(where, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))).not.toContain('settledAt');
   });
 
   it('takes the oldest first, because the window closing soonest matters most', async () => {
@@ -298,5 +295,18 @@ describe('two ticks must not be able to wipe each other findings', () => {
     );
     await svc.checkAndAlert();
     expect(((raise.mock.calls[0] as any[])[2] as Set<string>).size).toBe(0);
+  });
+});
+
+describe('a verdict reached long after settlement is still found', () => {
+  it('alerts on a window opened a year after the trade settled', async () => {
+    const yearAgo = new Date(NOW.getTime() - 365 * 24 * 60 * 60 * 1000);
+    const { svc } = make({
+      orders: [{ ...order(), settledAt: yearAgo }],
+      chain: verdict({ slashDeadline: BigInt(nowSecs + 3600) }),
+    });
+    const alerts = await svc.slashWindowAlerts(NOW);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].key).toBe('slash_window_open:ord-1');
   });
 });

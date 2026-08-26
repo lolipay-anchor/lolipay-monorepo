@@ -34,14 +34,8 @@ export function fiatPaymentOverdueWhere(now: bigint): Prisma.OrderWhereInput {
 export function slashCandidatesWhere(
   now: Date = new Date(),
 ): import('../generated/prisma/client').Prisma.OrderWhereInput {
-  const reachableSince = new Date(now.getTime() - SLASH_REACHABLE_SECS * 1000);
   return {
-    status: { in: ['RELEASED', 'REFUNDED', 'DISPUTED'] },
-    settledAt: { not: null, gte: reachableSince },
-    OR: [
-      { flow: 'TOP_UP', status: 'REFUNDED' },
-      { flow: 'WITHDRAW', status: 'RELEASED' },
-      { status: 'DISPUTED' },
-    ],
+    liabilityEstablished: true,
+    slashDeadline: { gt: BigInt(Math.floor(now.getTime() / 1000)) },
   };
 }

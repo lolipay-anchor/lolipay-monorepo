@@ -114,6 +114,8 @@ model Order {
   postSettleDeadline  BigInt?
   resolverDisputed    Boolean     @default(false)
   onChainDisputedBy   String?
+  slashDeadline       BigInt?
+  liabilityEstablished Boolean    @default(false)
   disputeBy           String?
   disputeReason       String?
   disputeNote         String?
@@ -124,6 +126,7 @@ model Order {
 
   @@index([userAddress])
   @@index([personId])
+  @@index([liabilityEstablished, slashDeadline])
   @@index([lpId, status])
   @@index([status])
   @@unique([proofRrn, lpId])
