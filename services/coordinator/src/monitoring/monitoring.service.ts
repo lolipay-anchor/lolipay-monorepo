@@ -49,12 +49,23 @@ export class MonitoringService {
 
     const nowSecs = BigInt(Math.floor(now.getTime() / 1000));
     const out: Alert[] = [];
+
+    if (candidates.length >= SLASH_SCAN_LIMIT) {
+      this.truncated.add('slash_window_open');
+      out.push({
+        key: 'slash_window_open:overflow',
+        fingerprint: 'at-limit',
+        urgency: 'urgent',
+        text: `at least ${SLASH_SCAN_LIMIT} settled trades are in scope for recovery — the scan is truncated and nothing in this family will be reported as cleared until it is not`,
+      });
+    }
     for (const o of candidates) {
       const contractId = o.contractId ?? this.cfg.escrowContractId;
       let chain;
       try {
-        chain = await this.stellar.getTradeStatus(contractId, o.tradeId);
+        chain = await this.stellar.getTradeStatusStrict(contractId, o.tradeId);
       } catch {
+        this.truncated.add('slash_window_open');
         continue;
       }
       if (!chain?.liabilityEstablished) continue;
@@ -65,6 +76,7 @@ export class MonitoringService {
       try {
         recovered = await this.stellar.getSlashedSoFar(o.tradeId);
       } catch {
+        this.truncated.add('slash_window_open');
         continue;
       }
       if (recovered >= o.usdcAmount) continue;

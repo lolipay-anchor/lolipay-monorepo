@@ -15,9 +15,10 @@ function make(opts: {
     order: { findMany: jest.fn().mockResolvedValue(opts.orders ?? []) },
   } as any;
   const stellar = {
-    getTradeStatus: opts.chainThrows
+    getTradeStatusStrict: opts.chainThrows
       ? jest.fn().mockRejectedValue(new Error('rpc down'))
       : jest.fn().mockResolvedValue(opts.chain ?? null),
+    getTradeStatus: jest.fn().mockResolvedValue(opts.chain ?? null),
     getSlashedSoFar: opts.recoveredThrows
       ? jest.fn().mockRejectedValue(new Error('rpc down'))
       : jest.fn().mockResolvedValue(opts.recovered ?? 0n),
@@ -147,5 +148,65 @@ describe('a verdict with a clock running reaches a person', () => {
 
   it('is inside the scope monitoring claims, so it can be cleared', () => {
     expect(MONITORING_ALERT_SCOPE).toContain('slash_window_open');
+  });
+});
+
+describe('a scan that could not see everything must not report anything cleared', () => {
+  function svcWith(opts: Parameters<typeof make>[0]) {
+    return make(opts).svc;
+  }
+
+  const metrics = {
+    generated_at: 'now',
+    orders_by_status: {},
+    open_disputes: 0,
+    release_overdue: 0,
+    fiat_payment_overdue: 0,
+    indexer_lag_seconds: 5,
+  };
+
+  function full() {
+    const orders = Array.from({ length: 100 }, (_, i) => order({ id: `o${i}` }));
+    return make({ orders, chain: verdict({ liabilityEstablished: false }) });
+  }
+
+  it('says so when the scan came back at its limit', async () => {
+    const alerts = await full().svc.slashWindowAlerts(NOW);
+    const over = alerts.find((a: Alert) => a.key === 'slash_window_open:overflow');
+    expect(over).toBeDefined();
+    expect(over!.urgency).toBe('urgent');
+    expect(over!.text).toContain('truncated');
+  });
+
+  it('marks the family incomplete when the scan was truncated', async () => {
+    const { svc, prisma } = full();
+    prisma.order.count = jest.fn().mockResolvedValue(0);
+    prisma.order.groupBy = jest.fn().mockResolvedValue([]);
+    (prisma as any).indexerState = { findUnique: jest.fn().mockResolvedValue({ updatedAt: NOW }) };
+    const originalFindMany = prisma.order.findMany;
+    prisma.order.findMany = jest.fn(async (args: any) => {
+      if (args?.take === 100) return originalFindMany(args);
+      return [];
+    });
+    await svc.buildAlerts(metrics);
+    expect((svc as any).truncated.has('slash_window_open')).toBe(true);
+  });
+
+  it('marks the family incomplete when a trade could not be read', async () => {
+    const svc = svcWith({ orders: [order()], chainThrows: true });
+    await svc.slashWindowAlerts(NOW);
+    expect((svc as any).truncated.has('slash_window_open')).toBe(true);
+  });
+
+  it('marks the family incomplete when the recovered total could not be read', async () => {
+    const svc = svcWith({ orders: [order()], chain: verdict(), recoveredThrows: true });
+    await svc.slashWindowAlerts(NOW);
+    expect((svc as any).truncated.has('slash_window_open')).toBe(true);
+  });
+
+  it('leaves the family complete on a clean, unfilled scan', async () => {
+    const svc = svcWith({ orders: [order()], chain: verdict() });
+    await svc.slashWindowAlerts(NOW);
+    expect((svc as any).truncated.has('slash_window_open')).toBe(false);
   });
 });
