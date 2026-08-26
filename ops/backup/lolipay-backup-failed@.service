@@ -1,0 +1,9 @@
+[Unit]
+Description=lolipay backup failed - report it where the coordinator's alerts go
+Documentation=file:/home/lolipay/lolipay-monorepo/ops/backup/README.md
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/home/lolipay/lolipay-monorepo/ops/backup/lolipay-backup-failed.sh %i
+TimeoutStartSec=60

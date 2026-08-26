@@ -3,6 +3,7 @@ Description=lolipay encrypted backup of Postgres and MinIO
 Documentation=file:/home/lolipay/lolipay-monorepo/ops/backup/README.md
 After=docker.service
 Requires=docker.service
+OnFailure=lolipay-backup-failed@lolipay-backup.service.service
 
 [Service]
 Type=oneshot

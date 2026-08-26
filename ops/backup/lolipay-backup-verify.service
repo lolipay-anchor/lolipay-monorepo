@@ -3,6 +3,7 @@ Description=lolipay restore test - proves the newest backup is actually usable
 Documentation=file:/home/lolipay/lolipay-monorepo/ops/backup/README.md
 After=docker.service
 Requires=docker.service
+OnFailure=lolipay-backup-failed@lolipay-backup-verify.service.service
 
 [Service]
 Type=oneshot

@@ -20,26 +20,31 @@ log()  { printf '%s [%s] %s\n' "$(date -u +%FT%TZ)" "$LOG_TAG" "$*" >&2; }
 die()  { printf '%s [%s] FATAL %s\n' "$(date -u +%FT%TZ)" "$LOG_TAG" "$*" >&2; exit 1; }
 
 resolve_container() {
-  local service="$1" explicit="$2"
+  local service="$1" explicit="$2" ids
   if [ -n "$explicit" ]; then printf '%s' "$explicit"; return 0; fi
-  docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" ps -aq "$service" 2>/dev/null | head -1
+  ids="$(docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" ps -q "$service" 2>/dev/null || true)"
+  printf '%s' "${ids%%$'\n'*}"
 }
 
 require_running() {
   local name="$1" label="$2"
   [ -n "$name" ] || die "cannot resolve the $label container; set ${label^^}_CONTAINER explicitly"
   local state
-  state="$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null || echo false)"
-  [ "$state" = "true" ] || die "$label container ($name) is not running; refusing to write a backup that would be empty"
+  state="$(docker inspect -f '{{.State.Status}}' "$name" 2>/dev/null || echo unknown)"
+  [ "$state" = "running" ] || die "$label container ($name) is $state; refusing to back up against a container that is not running"
 }
 
 preflight() {
   command -v docker >/dev/null || die "docker not found on PATH"
+  command -v gpg >/dev/null || die "gpg not found on PATH; without it every leg fails as if the dump itself had failed"
   docker info >/dev/null 2>&1 || die "cannot talk to the docker daemon; this script needs root or docker-group access"
 
   [ -f "$PASSPHRASE_FILE" ] || die "passphrase file $PASSPHRASE_FILE does not exist; create it with mode 600 before backing up"
   local mode
   mode="$(stat -c '%a' "$PASSPHRASE_FILE")"
+  local owner
+  owner="$(stat -c '%U' "$PASSPHRASE_FILE")"
+  [ "$owner" = "root" ] || die "passphrase file $PASSPHRASE_FILE is owned by $owner, not root"
   [ "$mode" = "600" ] || [ "$mode" = "400" ] || die "passphrase file $PASSPHRASE_FILE has mode $mode; must be 600 or 400"
   [ -s "$PASSPHRASE_FILE" ] || die "passphrase file $PASSPHRASE_FILE is empty"
 
@@ -111,6 +116,7 @@ verify_readable() {
 ship_offsite() {
   [ -n "$OFFSITE_CMD" ] || { log "WARNING no BACKUP_OFFSITE_CMD configured — these copies live on the same disk as the data they protect, which is not a backup"; return 0; }
   log "shipping off-site"
+  local f
   for f in "$@"; do
     BACKUP_FILE="$f" bash -c "$OFFSITE_CMD" || die "off-site command failed for $f"
   done
