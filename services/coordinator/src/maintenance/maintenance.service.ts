@@ -32,8 +32,27 @@ export class MaintenanceService {
     private outbox: OutboxService,
   ) {}
 
+  private readonly inFlight = new Set<string>();
+
+  private async once(name: string, run: () => Promise<unknown>): Promise<void> {
+    if (this.inFlight.has(name)) {
+      this.log.warn(`${name} is still running from a previous tick — skipping this one`);
+      return;
+    }
+    this.inFlight.add(name);
+    try {
+      await run();
+    } finally {
+      this.inFlight.delete(name);
+    }
+  }
+
   @Cron(CronExpression.EVERY_10_MINUTES)
   async alertOnEscrowDivergence(): Promise<void> {
+    await this.once('alertOnEscrowDivergence', () => this.run_alertOnEscrowDivergence());
+  }
+
+  private async run_alertOnEscrowDivergence(): Promise<void> {
     let candidates: { id: string; tradeId: string; contractId: string | null; status: string }[];
     try {
       candidates = await this.prisma.order.findMany({
@@ -82,7 +101,11 @@ export class MaintenanceService {
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES)
-  async expireStaleOrders() {
+  async expireStaleOrders(): Promise<void> {
+    await this.once('expireStaleOrders', () => this.run_expireStaleOrders());
+  }
+
+  private async run_expireStaleOrders() {
     const candidates = await this.prisma.order.findMany({
       where: {
         status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN'] },
@@ -130,7 +153,11 @@ export class MaintenanceService {
   }
 
   @Cron(CronExpression.EVERY_HOUR)
-  async pruneOldQuotes() {
+  async pruneOldQuotes(): Promise<void> {
+    await this.once('pruneOldQuotes', () => this.run_pruneOldQuotes());
+  }
+
+  private async run_pruneOldQuotes() {
     const cutoff = new Date(Date.now() - 60 * 60 * 1000);
     const res = await this.prisma.quote.deleteMany({
       where: { expiresAt: { lt: cutoff } },
@@ -155,7 +182,11 @@ export class MaintenanceService {
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES)
-  async autoRefundExpired() {
+  async autoRefundExpired(): Promise<void> {
+    await this.once('autoRefundExpired', () => this.run_autoRefundExpired());
+  }
+
+  private async run_autoRefundExpired() {
     const config = await this.prisma.config.findUnique({ where: { id: 1 } });
     if (!config?.autoRefund) return;
 
@@ -232,7 +263,11 @@ export class MaintenanceService {
   }
 
   @Cron(CronExpression.EVERY_10_MINUTES)
-  async reconcileOrphanedEscrows() {
+  async reconcileOrphanedEscrows(): Promise<void> {
+    await this.once('reconcileOrphanedEscrows', () => this.run_reconcileOrphanedEscrows());
+  }
+
+  private async run_reconcileOrphanedEscrows() {
     const config = await this.prisma.config.findUnique({ where: { id: 1 } });
     if (!config?.autoRefund) return;
     if (!this.refundSigner.isConfigured) return;
