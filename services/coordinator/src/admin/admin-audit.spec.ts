@@ -33,7 +33,7 @@ function makePrisma(lpRow: any) {
 describe('LpService.apply — a provider must not be able to clear its own sanction', () => {
   function svc(lpRow: any) {
     const { prisma } = makePrisma(lpRow);
-    const stellar = { hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
+    const stellar = { stakingCooldownSecs: jest.fn().mockResolvedValue(349_201), hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
     return { service: new LpService(prisma, stellar), prisma };
   }
 
@@ -68,7 +68,7 @@ describe('LpService.me — the administrator note is internal', () => {
   it('does not return approvalNote to the provider', async () => {
     const { prisma } = makePrisma(null);
     prisma.lp.findUnique = jest.fn().mockResolvedValue({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'SUSPENDED' });
-    const stellar = { hasUsdcTrustline: jest.fn() } as any;
+    const stellar = { stakingCooldownSecs: jest.fn().mockResolvedValue(349_201), hasUsdcTrustline: jest.fn() } as any;
     const service = new LpService(prisma, stellar);
 
     await service.me(LP_ADDR);
@@ -103,7 +103,7 @@ describe('auditPayload', () => {
 describe('AdminService — every mutation leaves a trail naming the actor', () => {
   function svc(lpRow: any) {
     const { prisma, tx, audits } = makePrisma(lpRow);
-    const stellar = { hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
+    const stellar = { stakingCooldownSecs: jest.fn().mockResolvedValue(349_201), hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
     const cfg = { usdcAssetCode: 'USDC', usdcAssetIssuer: 'GISSUER' } as any;
     const markets = { get: jest.fn(), update: jest.fn(), list: jest.fn() } as any;
     const userReputation = { getReputation: jest.fn() } as any;

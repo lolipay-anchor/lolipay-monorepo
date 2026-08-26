@@ -21,8 +21,13 @@ function makePrisma() {
   return client as any;
 }
 
-function makeStellar(hasTrustline = true) {
-  return { hasUsdcTrustline: jest.fn().mockResolvedValue(hasTrustline) } as any;
+function makeStellar(hasTrustline = true, cooldownSecs: number | Error = 349_201) {
+  return {
+    hasUsdcTrustline: jest.fn().mockResolvedValue(hasTrustline),
+    stakingCooldownSecs: jest.fn(() =>
+      cooldownSecs instanceof Error ? Promise.reject(cooldownSecs) : Promise.resolve(cooldownSecs),
+    ),
+  } as any;
 }
 
 function makeCfg(over: Record<string, unknown> = {}) {
@@ -122,6 +127,79 @@ describe('AdminService.register', () => {
       svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any, 'GADMINTEST'),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.lp.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('a window change cannot outgrow the collateral it depends on', () => {
+  it('refuses windows the deployed cooldown can no longer cover', async () => {
+    const prisma = makePrisma();
+    prisma.config.findUnique = jest.fn(async () => ({
+      id: 1,
+      platformFeeBps: 30,
+      lpFeeBps: 120,
+      minOrder: 1n,
+      maxOrder: 9n,
+      payWindowSecs: 1800,
+      confirmWindowSecs: 1800,
+      disputeWindowSecs: 7200,
+    }));
+    const svc = new AdminService(prisma, makeStellar(true, 349_201), makeCfg(), {} as any, {} as any);
+
+    await expect(
+      svc.updateConfigTransactional({ payWindowSecs: 86_400 } as any, ADDR),
+    ).rejects.toThrow(/cooldown/i);
+  });
+
+  it('refuses the change when the deployed cooldown cannot be read at all', async () => {
+    const prisma = makePrisma();
+    prisma.config.findUnique = jest.fn(async () => ({
+      id: 1,
+      platformFeeBps: 30,
+      lpFeeBps: 120,
+      minOrder: 1n,
+      maxOrder: 9n,
+      payWindowSecs: 1800,
+      confirmWindowSecs: 1800,
+      disputeWindowSecs: 7200,
+    }));
+    const svc = new AdminService(
+      prisma,
+      makeStellar(true, new Error('rpc down')),
+      makeCfg(),
+      {} as any,
+      {} as any,
+    );
+
+    await expect(
+      svc.updateConfigTransactional({ payWindowSecs: 3600 } as any, ADDR),
+    ).rejects.toThrow(/cooldown/i);
+  });
+});
+
+describe('a change that cannot move the floor is not held hostage to the chain', () => {
+  it('lets a fee change through even when the staking contract cannot be read', async () => {
+    const prisma = makePrisma();
+    prisma.config.findUnique = jest.fn(async () => ({
+      id: 1,
+      platformFeeBps: 30,
+      lpFeeBps: 120,
+      minOrder: 1n,
+      maxOrder: 9n,
+      payWindowSecs: 1800,
+      confirmWindowSecs: 1800,
+      disputeWindowSecs: 7200,
+    }));
+    const svc = new AdminService(
+      prisma,
+      makeStellar(true, new Error('rpc down')),
+      makeCfg(),
+      {} as any,
+      {} as any,
+    );
+
+    await expect(
+      svc.updateConfigTransactional({ platformFeeBps: 40 } as any, ADDR),
+    ).resolves.toBeDefined();
   });
 });
 

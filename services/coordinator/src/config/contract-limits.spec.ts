@@ -4,16 +4,28 @@ import {
   MIN_PAY_WINDOW_SECS,
   MAX_PAY_WINDOW_SECS,
   MAX_TOTAL_WINDOW_SECS,
+  MAX_DISPUTE_WINDOW_SECS,
+  RESOLVER_WINDOW_SECS,
+  POST_VERDICT_GRACE_SECS,
+  LONGEST_TAIL_PAST_SETTLEMENT_SECS,
+  cooldownFloorSecs,
   windowsFitTheContract,
 } from './contract-limits';
 
 const LIB_RS = path.resolve(__dirname, '../../../../contracts/escrow/src/lib.rs');
+const STAKING_RS = path.resolve(__dirname, '../../../../contracts/staking/src/lib.rs');
+
+function rustNumber(file: string, name: string): number {
+  const src = fs.readFileSync(file, 'utf8');
+  const m = src.match(new RegExp(`const ${name}: u64 = ([^;]+);`));
+  if (!m) throw new Error(`could not find const ${name} in ${file}`);
+  const expr = m[1].replace(/_/g, '').trim();
+  if (!/^[0-9+*\s]+$/.test(expr)) throw new Error(`${name} is not plain arithmetic: ${expr}`);
+  return Function(`return (${expr})`)() as number;
+}
 
 function rustConst(name: string): number {
-  const src = fs.readFileSync(LIB_RS, 'utf8');
-  const m = src.match(new RegExp(`const ${name}: u64 = ([0-9_]+);`));
-  if (!m) throw new Error(`could not find const ${name} in ${LIB_RS}`);
-  return Number(m[1].replace(/_/g, ''));
+  return rustNumber(LIB_RS, name);
 }
 
 describe('the coordinator mirrors the escrow contract deadline bounds', () => {
@@ -27,6 +39,44 @@ describe('the coordinator mirrors the escrow contract deadline bounds', () => {
 
   it('MAX_TOTAL_WINDOW matches the contract', () => {
     expect(MAX_TOTAL_WINDOW_SECS).toBe(rustConst('MAX_TOTAL_WINDOW'));
+  });
+
+  it('MAX_DISPUTE_WINDOW matches the contract', () => {
+    expect(MAX_DISPUTE_WINDOW_SECS).toBe(rustConst('MAX_DISPUTE_WINDOW'));
+  });
+
+  it('RESOLVER_WINDOW matches the contract', () => {
+    expect(RESOLVER_WINDOW_SECS).toBe(rustConst('RESOLVER_WINDOW'));
+  });
+
+  it('POST_VERDICT_GRACE is still the resolver window, as the contract defines it', () => {
+    const src = fs.readFileSync(LIB_RS, 'utf8');
+    expect(src).toContain('const POST_VERDICT_GRACE: u64 = RESOLVER_WINDOW;');
+    expect(POST_VERDICT_GRACE_SECS).toBe(RESOLVER_WINDOW_SECS);
+  });
+
+  it("the staking contract's own cooldown floor is exactly the tail past settlement, plus a second", () => {
+    expect(rustNumber(STAKING_RS, 'MIN_COOLDOWN_SECS')).toBe(
+      LONGEST_TAIL_PAST_SETTLEMENT_SECS + 1,
+    );
+  });
+});
+
+describe('the cooldown floor no contract constant can reach', () => {
+  it('adds the pay and confirm windows the staking contract cannot know about', () => {
+    expect(cooldownFloorSecs(1800, 1800)).toBe(349_201);
+  });
+
+  it('accepts a deployed cooldown that clears the floor', () => {
+    expect(windowsFitTheContract(1800, 1800, 7200, 349_201)).toBeNull();
+  });
+
+  it('refuses a window change that would put the floor above the deployed cooldown', () => {
+    expect(windowsFitTheContract(86_400, 1800, 7200, 349_201)).toMatch(/cooldown/i);
+  });
+
+  it('leaves the check alone when the deployed cooldown is not known', () => {
+    expect(windowsFitTheContract(1800, 1800, 7200)).toBeNull();
   });
 });
 

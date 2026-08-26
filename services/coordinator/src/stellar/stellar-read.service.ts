@@ -479,6 +479,11 @@ export class StellarReadService {
     return { xdr: preparedTx.toXdr(), networkPassphrase: this.cfg.networkPassphrase };
   }
 
+  async stakingCooldownSecs(): Promise<number> {
+    const ret = await this.simulateCall(this.cfg.stakingContractId, 'get_config', []);
+    return Number(BigInt(ret.cooldown_secs));
+  }
+
   async getSlashedSoFar(tradeIdHex: string): Promise<bigint> {
     const ret = await this.simulateCall(
       this.cfg.stakingContractId,

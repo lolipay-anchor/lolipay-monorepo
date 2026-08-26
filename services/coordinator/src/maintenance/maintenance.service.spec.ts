@@ -2,10 +2,10 @@ import { Logger } from '@nestjs/common';
 import { MaintenanceService } from './maintenance.service';
 
 describe('MaintenanceService', () => {
-  function make(onChain: any = null, throwOnStrict = false) {
+  function make(onChain: any = null, throwOnStrict = false, orders?: any[]) {
     const prisma = {
       order: {
-        findMany: jest.fn().mockResolvedValue([{ id: 'o1', tradeId: 'abc' }]),
+        findMany: jest.fn().mockResolvedValue(orders ?? [{ id: 'o1', tradeId: 'abc' }]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       quote: { deleteMany: jest.fn().mockResolvedValue({ count: 7 }) },
@@ -37,6 +37,66 @@ describe('MaintenanceService', () => {
     };
   }
 
+  const BINDABLE_ORDER = {
+    id: 'o1',
+    tradeId: 'abc',
+    contractId: null,
+    status: 'MATCHED',
+    userAddress: 'GUSER',
+    lpWallet: 'GLP',
+    flow: 'TOP_UP',
+    usdcAmount: 1_000_000_000n,
+    fiatAmount: 16_000_000n,
+    fiatCurrency: 'IDR',
+    platformFeeBps: 30,
+    lpFeeBps: 120,
+    platformWallet: 'GPLATFORM',
+    payDeadline: 100n,
+    confirmDeadline: 200n,
+    disputeDeadline: 300n,
+  };
+
+  function tradeFor(order: any, overrides: Record<string, any> = {}) {
+    return {
+      status: 'FUNDED',
+      settledAt: 0,
+      usdcAmount: order.usdcAmount,
+      fiatAmount: order.fiatAmount,
+      fiatCurrency: order.fiatCurrency,
+      flow: 0,
+      usdcProvider: order.lpWallet,
+      usdcRecipient: order.userAddress,
+      confirmer: order.lpWallet,
+      platformWallet: order.platformWallet,
+      lpWallet: order.lpWallet,
+      platformFeeBps: order.platformFeeBps,
+      lpFeeBps: order.lpFeeBps,
+      payDeadline: order.payDeadline,
+      confirmDeadline: order.confirmDeadline,
+      disputeDeadline: order.disputeDeadline,
+      ...overrides,
+    };
+  }
+
+  it('expires a stale order whose on-chain trade does not belong to it', async () => {
+    const squatted = tradeFor(BINDABLE_ORDER, { usdcAmount: 1n });
+    const { svc, prisma } = make(squatted, false, [BINDABLE_ORDER]);
+
+    await svc.expireStaleOrders();
+
+    expect(prisma.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: 'EXPIRED' } }),
+    );
+  });
+
+  it('does NOT expire an order that is actually funded on-chain under its own trade', async () => {
+    const { svc, prisma } = make(tradeFor(BINDABLE_ORDER), false, [BINDABLE_ORDER]);
+
+    await svc.expireStaleOrders();
+
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+  });
+
   it('expires a pre-chain order that is NOT on-chain', async () => {
     const { svc, prisma } = make(null);
     await svc.expireStaleOrders();
@@ -47,11 +107,6 @@ describe('MaintenanceService', () => {
     expect(prisma.order.updateMany.mock.calls[0][0].data).toEqual({ status: 'EXPIRED' });
   });
 
-  it('does NOT expire an order that is actually funded on-chain', async () => {
-    const { svc, prisma } = make({ status: 'FUNDED' });
-    await svc.expireStaleOrders();
-    expect(prisma.order.updateMany).not.toHaveBeenCalled();
-  });
 
   it('fail-closed: does NOT expire when the strict on-chain read errors', async () => {
     const { svc, prisma } = make(null, true);

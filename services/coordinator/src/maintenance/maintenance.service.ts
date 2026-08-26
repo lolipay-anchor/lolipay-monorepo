@@ -9,6 +9,7 @@ import { contractIdFor } from '../order/order.params';
 import { ATTEST_GRACE_SECS, refundOpensAt } from '../order/dispute.util';
 import { Alert, AlertsService } from '../monitoring/alerts.service';
 import { OutboxService } from '../outbox/outbox.service';
+import { verifyTradeMatchesOrder } from '../order/trade-binding';
 
 const AUTO_REFUND_BATCH_SIZE = 20;
 const DIVERGENCE_SCAN_LIMIT = 500;
@@ -119,6 +120,15 @@ export class MaintenanceService {
         userAddress: true,
         lpWallet: true,
         flow: true,
+        usdcAmount: true,
+        fiatAmount: true,
+        fiatCurrency: true,
+        platformFeeBps: true,
+        lpFeeBps: true,
+        platformWallet: true,
+        payDeadline: true,
+        confirmDeadline: true,
+        disputeDeadline: true,
       },
       take: 200,
     });
@@ -127,7 +137,13 @@ export class MaintenanceService {
     for (const o of candidates) {
       try {
         const onChain = await this.stellar.getTradeStatusStrict(contractIdFor(o, this.cfg), o.tradeId);
-        if (onChain) continue;
+        if (onChain) {
+          const mismatches = verifyTradeMatchesOrder(onChain, o as any);
+          if (mismatches.length === 0) continue;
+          this.log.warn(
+            `expireStaleOrders: trade ${o.tradeId} exists on chain but is not order ${o.id}: ${mismatches.join('; ')}`,
+          );
+        }
       } catch {
         continue;
       }

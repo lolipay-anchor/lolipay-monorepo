@@ -195,10 +195,24 @@ export class AdminService {
         throw new Error('BPS_OVERFLOW');
       }
 
+      const touchesTheFloor =
+        patch.payWindowSecs !== undefined || patch.confirmWindowSecs !== undefined;
+      let deployedCooldownSecs: number | undefined;
+      if (touchesTheFloor) {
+        try {
+          deployedCooldownSecs = await this.stellar.stakingCooldownSecs();
+        } catch {
+          throw new Error(
+            'WINDOW_BOUNDS_INVALID: the deployed staking cooldown could not be read, so these windows cannot be checked against it',
+          );
+        }
+      }
+
       const windowProblem = windowsFitTheContract(
         patch.payWindowSecs ?? current?.payWindowSecs ?? 0,
         patch.confirmWindowSecs ?? current?.confirmWindowSecs ?? 0,
         patch.disputeWindowSecs ?? current?.disputeWindowSecs ?? 0,
+        deployedCooldownSecs,
       );
       if (windowProblem) {
         throw new Error(`WINDOW_BOUNDS_INVALID: ${windowProblem}`);
