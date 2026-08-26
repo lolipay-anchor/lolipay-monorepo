@@ -174,24 +174,24 @@ export class IndexerService {
 
     if ((STATUS_BEFORE[target] as string[]).includes(order.status)) {
 
-      let settledAt = new Date();
-      let postSettleDeadline: bigint | null = null;
+      let extra: Record<string, any> = {};
       if (target === 'RELEASED' || target === 'REFUNDED') {
+        let onChain;
         try {
-          const onChain = await this.stellar.getTradeStatus(evContractId, order.tradeId);
-          if (onChain && onChain.settledAt > 0) {
-            settledAt = new Date(onChain.settledAt * 1000);
-          }
-          if (onChain?.postSettleDeadline) {
-            postSettleDeadline = onChain.postSettleDeadline;
-          }
+          onChain = await this.stellar.getTradeStatus(evContractId, order.tradeId);
         } catch {
+          onChain = null;
         }
+        if (!onChain?.postSettleDeadline) {
+          this.log.warn(
+            `settlement of ${order.id} recorded without a post-settlement deadline: the chain reported none`,
+          );
+        }
+        extra = {
+          settledAt: onChain && onChain.settledAt > 0 ? new Date(onChain.settledAt * 1000) : new Date(),
+          ...(onChain?.postSettleDeadline ? { postSettleDeadline: onChain.postSettleDeadline } : {}),
+        };
       }
-      const extra: Record<string, any> =
-        target === 'RELEASED' || target === 'REFUNDED'
-          ? { settledAt, ...(postSettleDeadline === null ? {} : { postSettleDeadline }) }
-          : {};
       const res = await this.prisma.order.updateMany({
         where: { id: order.id, status: { in: STATUS_BEFORE[target] as any[] } },
         data: { status: target as any, ...extra },

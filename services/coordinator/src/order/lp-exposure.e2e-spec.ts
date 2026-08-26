@@ -197,4 +197,15 @@ describe('an LP is exposed on a trade for as long as it can still be slashed for
 
     expect(await lpExposure(prisma, lpId, NOW)).toBe(100n);
   });
+
+  it('lets go of a settlement with no recorded deadline once no slash window could still be open', async () => {
+    await order({
+      status: 'RELEASED',
+      settledAt: new Date((NOW - 345_601) * 1000),
+      postSettleDeadline: null,
+      slashDeadline: null,
+    });
+
+    expect(await lpExposure(prisma, lpId, NOW)).toBe(0n);
+  });
 });
