@@ -220,6 +220,9 @@ export class MonitoringService {
     ];
 
     try {
+      if (m.indexer_lag_seconds == null || m.indexer_lag_seconds > INDEXER_LAG_ALERT_SECONDS) {
+        incomplete.add('slash_window_open');
+      }
       alerts.push(...(await this.slashWindowAlerts(new Date(), incomplete)));
     } catch (e) {
       this.log.error(

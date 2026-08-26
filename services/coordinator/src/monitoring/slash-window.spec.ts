@@ -243,7 +243,7 @@ describe('two ticks must not be able to wipe each other findings', () => {
         count: jest.fn().mockResolvedValue(0),
         groupBy: jest.fn().mockResolvedValue([]),
       },
-      indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: NOW }) },
+      indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
     const stellar = {
       getTradeStatusStrict: jest.fn().mockRejectedValue(new Error('rpc down')),
@@ -284,7 +284,7 @@ describe('two ticks must not be able to wipe each other findings', () => {
         count: jest.fn().mockResolvedValue(0),
         groupBy: jest.fn().mockResolvedValue([]),
       },
-      indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: NOW }) },
+      indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
     const svc = new MonitoringService(
       prisma,
@@ -308,5 +308,51 @@ describe('a verdict reached long after settlement is still found', () => {
     const alerts = await svc.slashWindowAlerts(NOW);
     expect(alerts).toHaveLength(1);
     expect(alerts[0].key).toBe('slash_window_open:ord-1');
+  });
+});
+
+describe('the restitution scan cannot clear while the thing that feeds it is behind', () => {
+  const base = {
+    generated_at: 'now',
+    orders_by_status: {},
+    open_disputes: 0,
+    release_overdue: 0,
+    fiat_payment_overdue: 0,
+  };
+
+  function monitoring() {
+    const prisma = {
+      order: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        groupBy: jest.fn().mockResolvedValue([]),
+      },
+      indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
+    } as any;
+    return new MonitoringService(
+      prisma,
+      { raise: jest.fn() } as any,
+      { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any,
+      { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any,
+      { escrowContractId: 'CESCROW' } as any,
+    );
+  }
+
+  it('marks the slash family incomplete when the indexer is lagging', async () => {
+    const incomplete = new Set<string>();
+    await monitoring().buildAlerts({ ...base, indexer_lag_seconds: 6000 } as any, incomplete);
+    expect(incomplete.has('slash_window_open')).toBe(true);
+  });
+
+  it('marks it incomplete when the indexer has never run at all', async () => {
+    const incomplete = new Set<string>();
+    await monitoring().buildAlerts({ ...base, indexer_lag_seconds: null } as any, incomplete);
+    expect(incomplete.has('slash_window_open')).toBe(true);
+  });
+
+  it('leaves it complete when the indexer is keeping up', async () => {
+    const incomplete = new Set<string>();
+    await monitoring().buildAlerts({ ...base, indexer_lag_seconds: 5 } as any, incomplete);
+    expect(incomplete.has('slash_window_open')).toBe(false);
   });
 });

@@ -388,6 +388,30 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     return makeBase(orderStatus, opts);
   }
 
+  it('records a post-settlement verdict even when the dispute before it was never indexed', async () => {
+    const { svc, prisma } = make('RELEASED', {
+      stellarOverrides: {
+        getTradeStatusStrict: jest.fn().mockResolvedValue({
+          status: 'RELEASED',
+          liabilityEstablished: true,
+          slashDeadline: 1_800_000_000n,
+        }),
+      },
+    });
+    const value = nativeToScVal({ released: false, post_settle: true });
+    await svc.applyEvent({
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value,
+      contractId: 'CXXX',
+    });
+
+    const call = (prisma.order.updateMany as jest.Mock).mock.calls[0][0];
+    expect(call.where.status.in).toEqual(expect.arrayContaining(['DISPUTED', 'RELEASED', 'REFUNDED']));
+    expect(call.data).toEqual(
+      expect.objectContaining({ liabilityEstablished: true, slashDeadline: 1_800_000_000n }),
+    );
+  });
+
   it('will still heal an order that was cancelled after its trade had reached the chain', async () => {
     const { svc, prisma } = make('CANCELLED');
     const value = nativeToScVal({ released: false, post_settle: false });
@@ -468,7 +492,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     expect(stellar.getTradeStatusStrict).toHaveBeenCalledTimes(1);
 
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', status: 'DISPUTED' },
+      where: { id: 'ord-1', status: { in: ['DISPUTED', 'RELEASED', 'REFUNDED'] } },
       data: { status: 'RELEASED', resolution: 'released' },
     });
     expect(prisma.order.update).not.toHaveBeenCalled();
@@ -831,7 +855,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
       contractId: 'CEVENTCONTRACT',
     });
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', status: 'DISPUTED' },
+      where: { id: 'ord-1', status: { in: ['DISPUTED', 'RELEASED', 'REFUNDED'] } },
       data: { status: 'REFUNDED', resolution: 'refunded' },
     });
     expect(userReputation.recordDisputeLost).not.toHaveBeenCalled();

@@ -335,7 +335,7 @@ export class IndexerService {
     const settlementDirection = finalStatus === 'RELEASED' ? 'released' : 'refunded';
     const verdict = val.released ? 'released' : 'refunded';
     const res = await this.prisma.order.updateMany({
-      where: { id: order.id, status: 'DISPUTED' },
+      where: { id: order.id, status: { in: ['DISPUTED', 'RELEASED', 'REFUNDED'] } },
       data: {
         status: finalStatus as any,
         resolution: settlementDirection,
