@@ -350,6 +350,14 @@ describe('the restitution scan cannot clear while the thing that feeds it is beh
     expect(incomplete.has('slash_window_open')).toBe(true);
   });
 
+  it('treats a stalled indexer as urgent, because four detectors go blind behind it', async () => {
+    const lagging = await monitoring().buildAlerts({ ...base, indexer_lag_seconds: 6000 } as any);
+    const never = await monitoring().buildAlerts({ ...base, indexer_lag_seconds: null } as any);
+
+    expect(lagging.find((a) => a.key === 'indexer_stalled')?.urgency).toBe('urgent');
+    expect(never.find((a) => a.key === 'indexer_stalled')?.urgency).toBe('urgent');
+  });
+
   it('leaves it complete when the indexer is keeping up', async () => {
     const incomplete = new Set<string>();
     await monitoring().buildAlerts({ ...base, indexer_lag_seconds: 5 } as any, incomplete);

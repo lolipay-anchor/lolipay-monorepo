@@ -245,14 +245,14 @@ export class MonitoringService {
       alerts.push({
         key: 'indexer_stalled',
         fingerprint: 'never',
-        urgency: 'routine',
+        urgency: 'urgent',
         text: 'indexer has never run',
       });
     } else if (m.indexer_lag_seconds > INDEXER_LAG_ALERT_SECONDS) {
       alerts.push({
         key: 'indexer_stalled',
         fingerprint: 'lagging',
-        urgency: 'routine',
+        urgency: 'urgent',
         text: `indexer lag ${m.indexer_lag_seconds}s (stalled?)`,
       });
     }

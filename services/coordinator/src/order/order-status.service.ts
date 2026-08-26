@@ -6,6 +6,7 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { TradeOnChain } from '../stellar/stellar-read.types';
 import { verifyTradeMatchesOrder } from './trade-binding';
 import { contractIdFor } from './order.params';
+import { notYetBoundOnChain } from './trade-binding';
 
 export const REFRESH_FROM_CHAIN_STATUSES = [
   'MATCHED',
@@ -28,7 +29,6 @@ export const STATUS_ORDER = [
   'CANCELLED',
 ];
 
-const NOT_YET_BOUND_ON_CHAIN = ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'EXPIRED'];
 
 export function isAhead(newStatus: string, currentStatus: string): boolean {
   const newIdx = STATUS_ORDER.indexOf(newStatus);
@@ -64,7 +64,7 @@ export class OrderStatusService {
   }
 
   tradeBindsToOrder(onChain: TradeOnChain, order: any): boolean {
-    if (!NOT_YET_BOUND_ON_CHAIN.includes(order.status)) return true;
+    if (!notYetBoundOnChain(order.status)) return true;
 
     const mismatches = verifyTradeMatchesOrder(onChain, order);
     if (mismatches.length === 0) return true;

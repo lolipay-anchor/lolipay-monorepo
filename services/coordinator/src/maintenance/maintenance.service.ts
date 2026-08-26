@@ -10,6 +10,7 @@ import { ATTEST_GRACE_SECS, refundOpensAt } from '../order/dispute.util';
 import { Alert, AlertsService } from '../monitoring/alerts.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { verifyTradeMatchesOrder } from '../order/trade-binding';
+import { settlementFieldsFrom } from '../order/order-status.service';
 
 const AUTO_REFUND_BATCH_SIZE = 20;
 const DIVERGENCE_SCAN_LIMIT = 500;
@@ -256,9 +257,19 @@ export class MaintenanceService {
           continue;
         }
 
+        let settlement: Record<string, unknown> = {};
+        try {
+          const after = await this.stellar.getTradeStatusStrict(contractId, o.tradeId);
+          if (after) settlement = settlementFieldsFrom(after);
+        } catch (err) {
+          this.log.warn(
+            `autoRefundExpired: order ${o.id} settled but its deadline could not be read back: ${errMsg(err)}`,
+          );
+        }
+
         const advanced = await this.prisma.order.updateMany({
           where: { id: o.id, status: 'FUNDED' },
-          data: { status: 'REFUNDED' },
+          data: { status: 'REFUNDED', settledAt: new Date(), ...settlement },
         });
         if (advanced.count > 0) {
           refunded += 1;

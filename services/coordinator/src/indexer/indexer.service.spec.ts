@@ -388,6 +388,61 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     return makeBase(orderStatus, opts);
   }
 
+  it('will not let a squatted trade drag a cancelled order back onto the books', async () => {
+    const { svc, prisma } = make('CANCELLED', {
+      stellarOverrides: {
+        getTradeStatusStrict: jest.fn().mockResolvedValue({
+          status: 'FUNDED',
+          settledAt: 0,
+          usdcAmount: 1n,
+          fiatAmount: 1n,
+          fiatCurrency: 'IDR',
+          flow: 0,
+          usdcProvider: 'GATTACKER',
+          usdcRecipient: 'GATTACKER',
+          confirmer: 'GATTACKER',
+          platformWallet: 'GPLATFORM',
+          lpWallet: 'GATTACKER',
+          platformFeeBps: 30,
+          lpFeeBps: 120,
+          payDeadline: 1n,
+          confirmDeadline: 2n,
+          disputeDeadline: 3n,
+        }),
+      },
+    });
+    const value = nativeToScVal({ released: true, post_settle: false });
+    const advanced = await svc.applyEvent({
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value,
+      contractId: 'CXXX',
+    });
+
+    expect(advanced).toBe(0);
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('lands a verdict on a row the outage left far behind the chain', async () => {
+    const { svc, prisma } = make('FIAT_PAID', {
+      stellarOverrides: {
+        getTradeStatusStrict: jest.fn().mockResolvedValue({
+          status: 'RELEASED',
+          liabilityEstablished: true,
+          slashDeadline: 1_800_000_000n,
+        }),
+      },
+    });
+    const value = nativeToScVal({ released: false, post_settle: true });
+    await svc.applyEvent({
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value,
+      contractId: 'CXXX',
+    });
+
+    const call = (prisma.order.updateMany as jest.Mock).mock.calls[0][0];
+    expect(call.where).toEqual({ id: 'ord-1' });
+  });
+
   it('records a post-settlement verdict even when the dispute before it was never indexed', async () => {
     const { svc, prisma } = make('RELEASED', {
       stellarOverrides: {
@@ -406,7 +461,6 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     });
 
     const call = (prisma.order.updateMany as jest.Mock).mock.calls[0][0];
-    expect(call.where.status.in).toEqual(expect.arrayContaining(['DISPUTED', 'RELEASED', 'REFUNDED']));
     expect(call.data).toEqual(
       expect.objectContaining({ liabilityEstablished: true, slashDeadline: 1_800_000_000n }),
     );
@@ -492,7 +546,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     expect(stellar.getTradeStatusStrict).toHaveBeenCalledTimes(1);
 
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', status: { in: ['DISPUTED', 'RELEASED', 'REFUNDED'] } },
+      where: { id: 'ord-1' },
       data: { status: 'RELEASED', resolution: 'released' },
     });
     expect(prisma.order.update).not.toHaveBeenCalled();
@@ -855,7 +909,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
       contractId: 'CEVENTCONTRACT',
     });
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', status: { in: ['DISPUTED', 'RELEASED', 'REFUNDED'] } },
+      where: { id: 'ord-1' },
       data: { status: 'REFUNDED', resolution: 'refunded' },
     });
     expect(userReputation.recordDisputeLost).not.toHaveBeenCalled();
@@ -1311,9 +1365,11 @@ describe('IndexerService.applyEvent — disputed/resolved split-replay window (s
 
         updateMany: jest.fn().mockImplementation(({ where, data }: any) => {
           const matches =
-            typeof where.status === 'string'
-              ? order.status === where.status
-              : (where.status?.in ?? []).includes(order.status);
+            where.status === undefined
+              ? true
+              : typeof where.status === 'string'
+                ? order.status === where.status
+                : (where.status?.in ?? []).includes(order.status);
           if (!matches) return Promise.resolve({ count: 0 });
           order.status = data.status;
           return Promise.resolve({ count: 1 });

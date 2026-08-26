@@ -1,6 +1,12 @@
 import { TradeOnChain } from '../stellar/stellar-read.types';
 import { Flow, mapRoles } from './order.params';
 
+export const BOUND_ON_CHAIN = ['FUNDED', 'FIAT_PAID', 'DISPUTED', 'RELEASED', 'REFUNDED'];
+
+export function notYetBoundOnChain(status: string): boolean {
+  return !BOUND_ON_CHAIN.includes(status);
+}
+
 export interface OrderBindingFields {
   flow: string;
   userAddress: string;

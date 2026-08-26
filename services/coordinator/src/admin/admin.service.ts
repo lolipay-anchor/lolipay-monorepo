@@ -181,6 +181,17 @@ export class AdminService {
   }
 
   async updateConfigTransactional(patch: UpdateConfigDto, actorAddress: string) {
+    let deployedCooldownSecs: number | undefined;
+    if (patch.payWindowSecs !== undefined || patch.confirmWindowSecs !== undefined) {
+      try {
+        deployedCooldownSecs = await this.stellar.stakingCooldownSecs();
+      } catch {
+        throw new Error(
+          'WINDOW_BOUNDS_INVALID: the deployed staking cooldown could not be read, so these windows cannot be checked against it',
+        );
+      }
+    }
+
     const committed = await this.prisma.$transaction(async (tx) => {
       const current = await tx.config.findUnique({ where: { id: 1 } });
 
@@ -195,18 +206,6 @@ export class AdminService {
         throw new Error('BPS_OVERFLOW');
       }
 
-      const touchesTheFloor =
-        patch.payWindowSecs !== undefined || patch.confirmWindowSecs !== undefined;
-      let deployedCooldownSecs: number | undefined;
-      if (touchesTheFloor) {
-        try {
-          deployedCooldownSecs = await this.stellar.stakingCooldownSecs();
-        } catch {
-          throw new Error(
-            'WINDOW_BOUNDS_INVALID: the deployed staking cooldown could not be read, so these windows cannot be checked against it',
-          );
-        }
-      }
 
       const windowProblem = windowsFitTheContract(
         patch.payWindowSecs ?? current?.payWindowSecs ?? 0,

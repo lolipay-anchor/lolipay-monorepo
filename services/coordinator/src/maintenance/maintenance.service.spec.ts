@@ -337,6 +337,42 @@ describe('MaintenanceService.autoRefundExpired', () => {
     };
   }
 
+  it('records that the refund settled the trade, so the bond it returns stops being counted', async () => {
+    const { svc, prisma, stellar } = make();
+    (stellar.getTradeStatusStrict as jest.Mock)
+      .mockResolvedValueOnce({ status: 'FUNDED' })
+      .mockResolvedValueOnce({
+        status: 'REFUNDED',
+        settledAt: 1_800_000_000,
+        postSettleDeadline: 1_800_086_400n,
+      });
+
+    await svc.autoRefundExpired();
+
+    expect(prisma.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'REFUNDED',
+          settledAt: new Date(1_800_000_000 * 1000),
+          postSettleDeadline: 1_800_086_400n,
+        }),
+      }),
+    );
+  });
+
+  it('still stamps a settlement time when the chain cannot be read back after the refund', async () => {
+    const { svc, prisma, stellar } = make();
+    (stellar.getTradeStatusStrict as jest.Mock)
+      .mockResolvedValueOnce({ status: 'FUNDED' })
+      .mockRejectedValueOnce(new Error('rpc down'));
+
+    await svc.autoRefundExpired();
+
+    const data = (prisma.order.updateMany as jest.Mock).mock.calls[0][0].data;
+    expect(data.status).toBe('REFUNDED');
+    expect(data.settledAt).toBeInstanceOf(Date);
+  });
+
   it('does nothing when Config.autoRefund is false', async () => {
     const { svc, prisma, refundSigner } = make({ autoRefund: false });
     await svc.autoRefundExpired();
@@ -393,7 +429,7 @@ describe('MaintenanceService.autoRefundExpired', () => {
     expect(refundSigner.submitRefund).toHaveBeenCalledTimes(1);
     expect(orderTable.updateMany).toHaveBeenCalledWith({
       where: { id: 'o1', status: 'FUNDED' },
-      data: { status: 'REFUNDED' },
+      data: expect.objectContaining({ status: 'REFUNDED' }),
     });
   });
 
@@ -504,7 +540,7 @@ describe('MaintenanceService.autoRefundExpired', () => {
     expect(orderTable.updateMany).toHaveBeenCalledTimes(1);
     expect(orderTable.updateMany).toHaveBeenCalledWith({
       where: { id: 'o-good', status: 'FUNDED' },
-      data: { status: 'REFUNDED' },
+      data: expect.objectContaining({ status: 'REFUNDED' }),
     });
 
     expect(notifications.notifyOrderStatus).toHaveBeenCalledTimes(1);

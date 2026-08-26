@@ -7,7 +7,7 @@ import { AppConfigService } from '../config/app-config.service';
 import { NotificationService } from '../notification/notification.service';
 import { StellarReadService, withRpcTimeout } from '../stellar/stellar-read.service';
 import { contractIdFor } from '../order/order.params';
-import { verifyTradeMatchesOrder } from '../order/trade-binding';
+import { verifyTradeMatchesOrder, notYetBoundOnChain } from '../order/trade-binding';
 import { userLostDispute, providerLostDispute } from '../reputation/dispute-outcome';
 import { UserReputationService } from '../reputation/user-reputation.service';
 
@@ -31,8 +31,6 @@ export const EVENT_STATUS: Record<string, string> = {
 };
 
 const POST_SETTLE_TERMINAL = ['RELEASED', 'REFUNDED'] as const;
-
-const NOT_YET_BOUND_ON_CHAIN = ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'EXPIRED'];
 
 const STATUS_BEFORE: Record<string, string[]> = {
   FUNDED: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'EXPIRED', 'CANCELLED'],
@@ -162,7 +160,7 @@ export class IndexerService {
       return 0;
     }
 
-    if (NOT_YET_BOUND_ON_CHAIN.includes(order.status)) {
+    if (notYetBoundOnChain(order.status)) {
       const bound = await this.bindTradeToOrder(evContractId, order);
       if (!bound) return 0;
     }
@@ -335,15 +333,15 @@ export class IndexerService {
     const settlementDirection = finalStatus === 'RELEASED' ? 'released' : 'refunded';
     const verdict = val.released ? 'released' : 'refunded';
     const res = await this.prisma.order.updateMany({
-      where: { id: order.id, status: { in: ['DISPUTED', 'RELEASED', 'REFUNDED'] } },
+      where: { id: order.id },
       data: {
         status: finalStatus as any,
         resolution: settlementDirection,
-        ...(typeof settled.liabilityEstablished === 'boolean'
-          ? { liabilityEstablished: settled.liabilityEstablished }
-          : {}),
-        ...(settled.slashDeadline !== undefined
-          ? { slashDeadline: settled.slashDeadline }
+        ...(typeof settled.liabilityEstablished === 'boolean' && settled.slashDeadline !== undefined
+          ? {
+              liabilityEstablished: settled.liabilityEstablished,
+              slashDeadline: settled.slashDeadline,
+            }
           : {}),
       },
     });
