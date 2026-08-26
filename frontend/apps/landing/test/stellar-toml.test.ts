@@ -228,3 +228,69 @@ describe('a misconfigured anchor refuses to describe itself', () => {
     expect(res.headers.get('cache-control')).toMatch(/no-store/)
   })
 })
+
+describe('the currencies section', () => {
+  const ISSUER = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 11))
+
+  beforeEach(() => {
+    process.env.USDC_ASSET_CODE = 'TUSDC'
+    process.env.USDC_ASSET_ISSUER = ISSUER
+  })
+
+  afterEach(() => {
+    delete process.env.USDC_ASSET_CODE
+    delete process.env.USDC_ASSET_ISSUER
+  })
+
+  it('carries every field the acceptance suite requires', async () => {
+    const body = await (await GET()).text()
+    expect(body).toContain('[[CURRENCIES]]')
+    for (const key of ['code', 'issuer', 'status', 'is_asset_anchored', 'anchor_asset_type', 'desc']) {
+      expect(body).toContain(`${key}=`)
+    }
+  })
+
+  it('tells the truth about a test asset rather than claiming it is anchored', async () => {
+    const body = await (await GET()).text()
+    expect(body).toContain('status="test"')
+    expect(body).toContain('is_asset_anchored=false')
+    expect(body).toMatch(/desc="[^"]*[Nn]ot redeemable/)
+  })
+
+  it('claims an anchored asset only on the public network', async () => {
+    process.env.STELLAR_NETWORK_PASSPHRASE = 'Public Global Stellar Network ; September 2015'
+    const body = await (await GET()).text()
+    expect(body).toContain('status="live"')
+    expect(body).toContain('is_asset_anchored=true')
+  })
+
+  it('omits itself rather than taking the whole document down', async () => {
+    delete process.env.USDC_ASSET_ISSUER
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(body).not.toContain('[[CURRENCIES]]')
+    expect(body).toContain('WEB_AUTH_ENDPOINT=')
+    expect(body).toContain('SIGNING_KEY=')
+  })
+
+  it('omits itself when the issuer is not a Stellar key, rather than publishing nonsense', async () => {
+    process.env.USDC_ASSET_ISSUER = 'not-a-key'
+    const body = await (await GET()).text()
+    expect(body).not.toContain('[[CURRENCIES]]')
+    expect(body).toContain('TRANSFER_SERVER_SEP0024=')
+  })
+
+  it('omits itself when the code could never be a Stellar asset code', async () => {
+    process.env.USDC_ASSET_CODE = 'THIS_IS_FAR_TOO_LONG'
+    const body = await (await GET()).text()
+    expect(body).not.toContain('[[CURRENCIES]]')
+  })
+
+  it('never lets a quote break the document it is embedded in', async () => {
+    process.env.USDC_ASSET_CODE = 'A"B'
+    const body = await (await GET()).text()
+    expect(body).not.toContain('[[CURRENCIES]]')
+    expect(body.split('"').length % 2).toBe(1)
+  })
+})

@@ -56,6 +56,41 @@ const FIELDS: { key: string; env: string; check?: (value: string) => string | nu
   },
 ]
 
+export function currenciesSection(): { toml: string } | { omitted: string } {
+  const code = process.env.USDC_ASSET_CODE
+  const issuer = process.env.USDC_ASSET_ISSUER
+  if (!code) return { omitted: 'USDC_ASSET_CODE is not set' }
+  if (!issuer) return { omitted: 'USDC_ASSET_ISSUER is not set' }
+
+  for (const [name, value] of [
+    ['USDC_ASSET_CODE', code],
+    ['USDC_ASSET_ISSUER', issuer],
+  ] as const) {
+    const unusable = usableInAToml(value)
+    if (unusable) return { omitted: `${name} ${unusable}` }
+  }
+  if (!/^[A-Za-z0-9]{1,12}$/.test(code)) {
+    return { omitted: 'USDC_ASSET_CODE must be 1 to 12 alphanumeric characters' }
+  }
+  const badIssuer = stellarPublicKey(issuer)
+  if (badIssuer) return { omitted: `USDC_ASSET_ISSUER ${badIssuer}` }
+
+  const anchored = process.env.STELLAR_NETWORK_PASSPHRASE === Networks.PUBLIC
+
+  return {
+    toml: [
+      '',
+      '[[CURRENCIES]]',
+      `code="${code}"`,
+      `issuer="${issuer}"`,
+      `status="${anchored ? 'live' : 'test'}"`,
+      `is_asset_anchored=${anchored ? 'true' : 'false'}`,
+      'anchor_asset_type="fiat"',
+      `desc="${anchored ? 'USDC settled through lolipay peer-to-peer escrow.' : 'Test asset on the Stellar test network. Not redeemable and not backed by anything.'}"`,
+    ].join('\n'),
+  }
+}
+
 function render(): { toml: string } | { problem: string } {
   const lines: string[] = []
   for (const field of FIELDS) {
@@ -68,7 +103,9 @@ function render(): { toml: string } | { problem: string } {
     if (complaint) return { problem: `${field.env} ${complaint}` }
     lines.push(`${field.key}="${value}"`)
   }
-  return { toml: lines.join('\n') + '\n' }
+  const currencies = currenciesSection()
+  const body = 'toml' in currencies ? lines.join('\n') + currencies.toml + '\n' : lines.join('\n') + '\n'
+  return { toml: body }
 }
 
 export async function GET(): Promise<Response> {
