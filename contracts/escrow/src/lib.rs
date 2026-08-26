@@ -20,6 +20,7 @@ use crate::storage::get_trade as storage_get_trade;
 use crate::types::{DisputeView, Config, Error, Flow, ResolveOutcome, Status, Trade};
 
 const RESOLVER_WINDOW: u64 = 86_400;
+const POST_VERDICT_GRACE: u64 = RESOLVER_WINDOW;
 
 const MIN_PAY_WINDOW: u64 = 600;
 pub const MAX_PAY_WINDOW: u64 = 86_400;
@@ -518,12 +519,8 @@ impl EscrowContract {
                     if !upheld {
                         trade.liability_established = true;
                     }
-                    let grace = if is_admin_fallback {
-                        RESOLVER_WINDOW
-                    } else {
-                        ATTEST_GRACE_SECS
-                    };
-                    trade.slash_deadline = core::cmp::max(trade.slash_deadline, now + grace);
+                    trade.slash_deadline =
+                        core::cmp::max(trade.slash_deadline, now + POST_VERDICT_GRACE);
                 }
                 trade.status = prior;
                 trade.set_pre_dispute_status(None);

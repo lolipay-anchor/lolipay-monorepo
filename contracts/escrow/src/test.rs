@@ -3637,7 +3637,7 @@ fn a_provider_may_not_reach_the_admin_fallback_either() {
 }
 
 #[test]
-fn a_verdict_reached_by_the_slow_path_gets_the_slow_paths_grace() {
+fn a_verdict_from_the_administrator_leaves_a_full_day_to_act_on_it() {
     let (env, client, admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
     gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
     client.mark_fiat_paid(&id32(&env, 1), &recipient);
@@ -3656,7 +3656,7 @@ fn a_verdict_reached_by_the_slow_path_gets_the_slow_paths_grace() {
 }
 
 #[test]
-fn a_resolver_verdict_carries_only_the_attestation_hour() {
+fn a_resolver_verdict_leaves_the_same_day_the_administrators_does() {
     let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
     gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
     client.mark_fiat_paid(&id32(&env, 1), &recipient);
@@ -3670,8 +3670,57 @@ fn a_resolver_verdict_carries_only_the_attestation_hour() {
 
     assert_eq!(
         client.get_trade(&id32(&env, 1)).slash_deadline,
-        deadline + 1 + 3600
+        deadline + 1 + 86_400
     );
+}
+
+#[test]
+fn who_reached_the_verdict_does_not_change_how_long_there_is_to_act_on_it() {
+    let by_resolver = {
+        let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+        gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+        client.mark_fiat_paid(&id32(&env, 1), &recipient);
+        env.ledger().with_mut(|l| l.timestamp = 500);
+        client.confirm_and_release(&id32(&env, 1));
+        client.raise_dispute(&id32(&env, 1), &provider);
+        let deadline = client.get_trade(&id32(&env, 1)).resolver_deadline;
+        env.ledger().with_mut(|l| l.timestamp = deadline + 1);
+        client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
+        client.get_trade(&id32(&env, 1)).slash_deadline - (deadline + 1)
+    };
+    let by_admin = {
+        let (env, client, admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+        gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+        client.mark_fiat_paid(&id32(&env, 1), &recipient);
+        env.ledger().with_mut(|l| l.timestamp = 500);
+        client.confirm_and_release(&id32(&env, 1));
+        client.raise_dispute(&id32(&env, 1), &provider);
+        let deadline = client.get_trade(&id32(&env, 1)).resolver_deadline;
+        env.ledger().with_mut(|l| l.timestamp = deadline + 1);
+        client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &admin);
+        client.get_trade(&id32(&env, 1)).slash_deadline - (deadline + 1)
+    };
+    assert_eq!(by_resolver, by_admin);
+    assert_eq!(by_resolver, 86_400);
+}
+
+#[test]
+fn the_grace_after_a_verdict_is_never_shorter_than_an_hour() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+    client.raise_dispute(&id32(&env, 1), &provider);
+    let raised_at = env.ledger().timestamp();
+    let deadline = client.get_trade(&id32(&env, 1)).resolver_deadline;
+
+    env.ledger().with_mut(|l| l.timestamp = deadline);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
+
+    let left = client.get_trade(&id32(&env, 1)).slash_deadline - deadline;
+    assert!(left >= 3600, "a verdict must never leave less than an hour to act on");
+    assert!(deadline - raised_at >= 86_400);
 }
 
 #[test]
@@ -3724,8 +3773,8 @@ fn raising_a_post_settlement_dispute_buys_a_full_day_to_act_on_the_verdict() {
     client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
 
     let after = client.get_trade(&id32(&env, 1)).slash_deadline;
-    assert_eq!(after, 4000 + 86_400);
-    assert!(after - 4050 > 86_000);
+    assert_eq!(after, 4050 + 86_400);
+    assert!(after - 4050 >= 86_400);
 }
 
 #[test]
