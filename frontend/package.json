@@ -6,7 +6,11 @@
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",
-    "lint": "turbo run lint"
+    "lint": "turbo run lint",
+    "lint:ratchet": "node lint-ratchet.mjs"
   },
-  "devDependencies": { "turbo": "^2.1.0", "typescript": "^5.6.0" }
+  "devDependencies": {
+    "turbo": "^2.1.0",
+    "typescript": "^5.6.0"
+  }
 }

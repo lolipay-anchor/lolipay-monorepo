@@ -86,12 +86,12 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
-      - run: pnpm run test
+      - name: unit tests, one app at a time so a flake can be named
+        run: pnpm run test -- --reporter=verbose --no-file-parallelism
 
   frontend-lint:
-    name: frontend lint (reporting only — see the backlog note)
+    name: frontend lint (a ceiling, not a target)
     runs-on: ubuntu-latest
-    continue-on-error: true
     defaults:
       run:
         working-directory: frontend
@@ -106,8 +106,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - name: eslint across the apps
-        run: pnpm run lint
+      - name: lint findings must not increase
+        run: pnpm run lint:ratchet
 
   guards:
     name: guards
