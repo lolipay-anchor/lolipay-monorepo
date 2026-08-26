@@ -262,17 +262,29 @@ describe('the currencies section', () => {
     expect(await body()).toContain('anchor_asset_type="crypto"')
   })
 
-  it('states the one issuance policy the spec asks for, and states it truthfully', async () => {
+  it('states no issuance policy, because lolipay does not issue this asset', async () => {
     const t = await body()
-    expect(t).toContain('is_unlimited=true')
+    expect(t).not.toContain('is_unlimited')
     expect(t).not.toContain('fixed_number')
     expect(t).not.toContain('max_number')
   })
 
-  it('names the corridor, which is the one thing D1 asks for that SEP-1 has no field for', async () => {
+  it('names the corridor in desc, which is the field a wallet actually renders', async () => {
     const t = await body()
-    expect(t).toMatch(/conditions=".*IDR.*USDC.*"/)
+    expect(t).toMatch(/desc=".*IDR.*USDC.*"/)
+    expect(t).toMatch(/conditions=".*IDR.*"/)
     expect(t).toMatch(/ORG_DESCRIPTION=".*Indonesia.*"/)
+  })
+
+  it('says whose settlement it is describing, so desc and conditions cannot read as contradicting', async () => {
+    const t = await body()
+    expect(t).toMatch(/conditions="lolipay /)
+  })
+
+  it('claims no more about collateral than ADR 0019 actually guarantees', async () => {
+    const t = await body()
+    expect(t).not.toMatch(/each trade is backed/)
+    expect(t).toMatch(/staked, slashable collateral rather than a treasury account/)
   })
 
   it('describes the organisation without claiming anything it cannot show', async () => {
@@ -285,6 +297,7 @@ describe('the currencies section', () => {
 
   it('puts the bare keys before the first table header, or the file parses as something else', async () => {
     const t = await body()
+    expect(t).toContain('[[CURRENCIES]]')
     expect(t.indexOf('VERSION=')).toBeLessThan(t.indexOf('[[CURRENCIES]]'))
     expect(t.indexOf('[[CURRENCIES]]')).toBeLessThan(t.indexOf('[DOCUMENTATION]'))
   })
@@ -293,7 +306,7 @@ describe('the currencies section', () => {
     const body = await (await GET()).text()
     expect(body).toContain('status="test"')
     expect(body).toContain('is_asset_anchored=false')
-    expect(body).toContain('Not redeemable')
+    expect(body).toContain('not redeemable')
   })
 
   it('omits itself rather than taking the whole document down', async () => {

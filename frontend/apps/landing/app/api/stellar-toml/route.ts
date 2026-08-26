@@ -72,7 +72,11 @@ export function currenciesSection(): { toml: string } | { omitted: string } {
 
   let status = 'test'
   let isAnchored = 'false'
-  let desc = 'Test asset on the Stellar test network. Not redeemable and not backed by anything.'
+  let desc =
+    'USDC on the Stellar test network, used for peer-to-peer IDR to USDC trades in the ' +
+    'Indonesia corridor. The test asset itself is not redeemable and is not backed by anything.'
+  let anchorAssetType = 'crypto'
+  let anchorAsset = ''
 
   if (process.env.STELLAR_NETWORK_PASSPHRASE === Networks.PUBLIC) {
     const decided = {
@@ -92,9 +96,30 @@ export function currenciesSection(): { toml: string } | { omitted: string } {
     if (decided.CURRENCY_IS_ASSET_ANCHORED !== 'true' && decided.CURRENCY_IS_ASSET_ANCHORED !== 'false') {
       return { omitted: 'CURRENCY_IS_ASSET_ANCHORED must be exactly true or false' }
     }
+    const STATUSES = ['live', 'dead', 'test', 'private']
+    if (!STATUSES.includes(decided.CURRENCY_STATUS as string)) {
+      return { omitted: `CURRENCY_STATUS must be one of ${STATUSES.join(', ')}` }
+    }
     status = decided.CURRENCY_STATUS as string
     isAnchored = decided.CURRENCY_IS_ASSET_ANCHORED as string
     desc = decided.CURRENCY_DESC as string
+
+    if (isAnchored === 'true') {
+      const type = process.env.CURRENCY_ANCHOR_ASSET_TYPE
+      const asset = process.env.CURRENCY_ANCHOR_ASSET
+      if (!type || !asset) {
+        return {
+          omitted:
+            'CURRENCY_ANCHOR_ASSET_TYPE and CURRENCY_ANCHOR_ASSET are not set; a token declared redeemable has to say what it is redeemable for, and this asset is issued by somebody else',
+        }
+      }
+      for (const [name, value] of [['CURRENCY_ANCHOR_ASSET_TYPE', type], ['CURRENCY_ANCHOR_ASSET', asset]] as const) {
+        const unusable = usableInAToml(value)
+        if (unusable) return { omitted: `${name} ${unusable}` }
+      }
+      anchorAssetType = type
+      anchorAsset = asset
+    }
   }
 
   return {
@@ -105,8 +130,8 @@ export function currenciesSection(): { toml: string } | { omitted: string } {
       `issuer="${issuer}"`,
       `status="${status}"`,
       `is_asset_anchored=${isAnchored}`,
-      'anchor_asset_type="crypto"',
-      'is_unlimited=true',
+      `anchor_asset_type="${anchorAssetType}"`,
+      ...(anchorAsset ? [`anchor_asset="${anchorAsset}"`] : []),
       `desc="${desc}"`,
       `conditions="${CORRIDOR}"`,
     ].join('\n'),
@@ -114,9 +139,10 @@ export function currenciesSection(): { toml: string } | { omitted: string } {
 }
 
 const CORRIDOR =
-  'Peer-to-peer IDR to USDC and USDC to IDR for Indonesian bank and e-wallet rails. ' +
-  'Settlement is non-custodial: each trade locks USDC in a per-trade Soroban escrow ' +
-  'and is backed by slashable provider collateral.'
+  'lolipay matches peer-to-peer IDR to USDC and USDC to IDR trades over Indonesian bank ' +
+  'and e-wallet rails. Settlement is non-custodial: each trade locks USDC in its own ' +
+  'Soroban escrow, and liquidity is secured through staked, slashable collateral rather ' +
+  'than a treasury account.'
 
 function documentationSection(): string {
   return [
@@ -142,6 +168,9 @@ function render(): { toml: string } | { problem: string } {
   }
   lines.push('VERSION="2.7.0"')
   const currencies = currenciesSection()
+  if ('omitted' in currencies) {
+    console.warn(`stellar.toml: the CURRENCIES section was omitted — ${currencies.omitted}`)
+  }
   const head = lines.join('\n')
   const body =
     'toml' in currencies
