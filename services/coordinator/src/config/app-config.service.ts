@@ -63,7 +63,7 @@ export class AppConfigService {
   }
 
   get horizonUrl() { return this.c.get<string>('HORIZON_URL') ?? 'https://horizon-testnet.stellar.org'; }
-  get usdcAssetCode() { return this.c.get<string>('USDC_ASSET_CODE') ?? 'TUSDC'; }
+  get usdcAssetCode() { return this.c.get<string>('USDC_ASSET_CODE') ?? ''; }
   get usdcAssetIssuer() {
     return this.c.get<string>('USDC_ASSET_ISSUER') ?? '';
   }

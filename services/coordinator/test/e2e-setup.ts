@@ -36,3 +36,6 @@ process.env.SEP10_SIGNING_KEY = process.env.SEP10_SIGNING_KEY ?? Keypair.random(
 process.env.ANCHOR_HOME_DOMAIN = process.env.ANCHOR_HOME_DOMAIN ?? 'lolipay.app';
 process.env.SEP10_WEB_AUTH_DOMAIN = process.env.SEP10_WEB_AUTH_DOMAIN ?? 'api.lolipay.app';
 process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? 'https://app.lolipay.app';
+process.env.USDC_ASSET_CODE = process.env.USDC_ASSET_CODE || 'USDC';
+process.env.USDC_ASSET_ISSUER =
+  process.env.USDC_ASSET_ISSUER || 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';

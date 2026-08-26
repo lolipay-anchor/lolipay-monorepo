@@ -12,13 +12,40 @@ function makePrisma(row: Record<string, unknown>) {
 }
 
 function makeCfg(over: Record<string, unknown> = {}) {
-  return { priceDeviationMaxBps: 100, platformWallet: WALLET, ...over } as any;
+  return {
+    priceDeviationMaxBps: 100,
+    platformWallet: WALLET,
+    usdcAssetCode: 'USDC',
+    usdcAssetIssuer: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+    ...over,
+  } as any;
 }
 
 describe('ConfigBootService', () => {
   it('starts when the spread stays above the price-deviation allowance', async () => {
     const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
     await expect(new ConfigBootService(prisma, makeCfg()).onModuleInit()).resolves.toBeUndefined();
+  });
+
+  it('refuses to start when the settlement asset has no issuer, because every trustline check would quietly fail', async () => {
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    await expect(
+      new ConfigBootService(prisma, makeCfg({ usdcAssetIssuer: '' })).onModuleInit(),
+    ).rejects.toThrow(/USDC_ASSET_ISSUER/);
+  });
+
+  it('refuses to start when the issuer is not a Stellar address', async () => {
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    await expect(
+      new ConfigBootService(prisma, makeCfg({ usdcAssetIssuer: 'not-an-address' })).onModuleInit(),
+    ).rejects.toThrow(/USDC_ASSET_ISSUER/);
+  });
+
+  it('refuses to start when the settlement asset has no code', async () => {
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    await expect(
+      new ConfigBootService(prisma, makeCfg({ usdcAssetCode: '' })).onModuleInit(),
+    ).rejects.toThrow(/USDC_ASSET_CODE/);
   });
 
   it('refuses to start when the spread does not cover the deviation allowance', async () => {

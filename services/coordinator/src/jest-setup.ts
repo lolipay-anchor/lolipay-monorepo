@@ -32,3 +32,6 @@ process.env.MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY || 'test-access-key'
 process.env.MINIO_SECRET_KEY =
   process.env.MINIO_SECRET_KEY || 'test-secret-key-unit-0123456789ab';
 process.env.MINIO_BUCKET = process.env.MINIO_BUCKET || 'lolipay-uploads-test';
+process.env.USDC_ASSET_CODE = process.env.USDC_ASSET_CODE || 'USDC';
+process.env.USDC_ASSET_ISSUER =
+  process.env.USDC_ASSET_ISSUER || 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';

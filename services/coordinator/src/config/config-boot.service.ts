@@ -11,6 +11,17 @@ export class ConfigBootService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    if (!this.cfg.usdcAssetCode) {
+      throw new Error(
+        'refusing to start: USDC_ASSET_CODE is empty, so the coordinator does not know which asset the escrow settles in',
+      );
+    }
+    if (!/^G[A-Z2-7]{55}$/.test(this.cfg.usdcAssetIssuer)) {
+      throw new Error(
+        `refusing to start: USDC_ASSET_ISSUER must be the Stellar address that issues ${this.cfg.usdcAssetCode} — every trustline check compares issuer as well as code, so an unset one silently refuses every order`,
+      );
+    }
+
     const row = await this.prisma.config.upsert({
       where: { id: 1 },
       update: {},

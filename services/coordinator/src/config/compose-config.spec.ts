@@ -17,11 +17,12 @@ describe('the deployment must not decide what the environment decides', () => {
     expect(line).toMatch(/\$\{USDC_ASSET_CODE/);
   });
 
-  it('agrees with the code default, so an unset variable is still the testnet asset', () => {
-    const line = settingFor('USDC_ASSET_CODE') ?? '';
-    expect(line).toContain('TUSDC');
+  it('supplies no default for either half of the asset identity, because a default is how a wrong one shipped', () => {
+    for (const key of ['USDC_ASSET_CODE', 'USDC_ASSET_ISSUER']) {
+      expect(settingFor(key) ?? '').not.toMatch(/:-/);
+    }
     const source = readFileSync(join(__dirname, 'app-config.service.ts'), 'utf8');
-    expect(source).toContain("'TUSDC'");
+    expect(source).not.toMatch(/USDC_ASSET_CODE'\) \?\? '[A-Z]/);
   });
 
   it('reads the issuer from the environment too, since a wrong one matches nothing', () => {
