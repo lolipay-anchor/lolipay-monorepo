@@ -232,22 +232,17 @@ describe('OrderService — dispute metadata + post-settle window (Phase 5B Task 
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('a party whose role was just reconciled onto disputeBy (reason still null) may refill their own metadata — 200, not 409', async () => {
-    const { svc, tx, prisma } = makeSvc({
+  it('refuses a second filing even from the party the chain names, because one row cannot hold two accounts', async () => {
+    const { svc } = makeSvc({
       status: 'FIAT_PAID',
       disputeBy: 'lp',
       disputeReason: null,
       disputeNote: null,
       disputeEvidenceUrl: null,
     });
-    const result = await svc.postDispute('order-1', LP_ADDR, 'PAYMENT_NOT_RECEIVED', 'the buyer never paid', undefined);
-    expect(result.order.dispute_by).toBe('lp');
-    expect(result.order.dispute_reason).toBe('PAYMENT_NOT_RECEIVED');
-    expect(result.order.dispute_note).toBe('the buyer never paid');
-    expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'order-1', disputeBy: 'lp', disputeReason: null },
-      data: expect.objectContaining({ disputeBy: 'lp', disputeReason: 'PAYMENT_NOT_RECEIVED' }),
-    });
+    await expect(
+      svc.postDispute('ord-1', 'GLP', 'WRONG_AMOUNT', 'my account', undefined),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('the OTHER party (not the reconciled role) still gets 409 even though disputeReason is null', async () => {

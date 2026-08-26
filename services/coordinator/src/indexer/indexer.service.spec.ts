@@ -1045,6 +1045,10 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
             Object.assign(order, data);
             return Promise.resolve({ count: 1 });
           }
+          if (Object.keys(where).length === 1 && 'id' in where) {
+            Object.assign(order, data);
+            return Promise.resolve({ count: 1 });
+          }
           return Promise.resolve({ count: 0 });
         }),
       },
@@ -1063,7 +1067,7 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
     };
   }
 
-  it('forward path (FIAT_PAID -> DISPUTED): metadata fabricated by A (disputeBy user) but B genuinely raised it on-chain -> reassigned to lp, reason/note/evidence wiped', async () => {
+  it('records who signed on chain and keeps the filing, rather than destroying evidence it cannot replace', async () => {
     const { svc, order } = makeWithMetadata({
       disputeBy: 'user',
       disputeReason: 'PAYMENT_NOT_RECEIVED',
@@ -1078,10 +1082,21 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
     });
     expect(advanced).toBe(1);
     expect(order.status).toBe('DISPUTED');
-    expect(order.disputeBy).toBe('lp');
-    expect(order.disputeReason).toBeNull();
-    expect(order.disputeNote).toBeNull();
-    expect(order.disputeEvidenceUrl).toBeNull();
+    expect(order.onChainDisputedBy).toBe('GLP');
+    expect(order.disputeBy).toBe('user');
+    expect(order.disputeReason).toBe('PAYMENT_NOT_RECEIVED');
+    expect(order.disputeNote).toBe('fabricated by A, who never signed');
+    expect(order.disputeEvidenceUrl).toBe('evidence/ord-1-user.jpg');
+  });
+
+  it('stores the address the chain reported, not a role this server guessed at', async () => {
+    const { svc, order } = makeWithMetadata({ disputeBy: null });
+    await svc.applyEvent({
+      topic: [TOPIC_DISPUTED, tradeIdTopic(TRADE_ID_A)],
+      value: nativeToScVal({ by: 'GSOMEONEELSE' }),
+      contractId: 'CXXX',
+    });
+    expect(order.onChainDisputedBy).toBe('GSOMEONEELSE');
   });
 
   it('forward path: on-chain disputer MATCHES stored metadata -> no reconciliation, reason/note/evidence untouched', async () => {
@@ -1104,18 +1119,16 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
     expect(order.disputeEvidenceUrl).toBe('evidence/ord-1-user.jpg');
   });
 
-  it('forward path: no metadata filed yet (disputeBy null) -> no-op, nothing to reconcile', async () => {
-    const { svc, prisma, order } = makeWithMetadata({ disputeBy: null });
-    const value = nativeToScVal({ by: 'GLP' });
-    const advanced = await svc.applyEvent({
+  it('records the on-chain signer even when nobody has filed anything off chain', async () => {
+    const { svc, order } = makeWithMetadata({ disputeBy: null });
+    await svc.applyEvent({
       topic: [TOPIC_DISPUTED, tradeIdTopic(TRADE_ID_A)],
-      value,
+      value: nativeToScVal({ by: 'GLP' }),
       contractId: 'CXXX',
     });
-    expect(advanced).toBe(1);
+    expect(order.onChainDisputedBy).toBe('GLP');
     expect(order.disputeBy).toBeNull();
-
-    expect(prisma.order.updateMany).toHaveBeenCalledTimes(1);
+    expect(order.disputeReason ?? null).toBeNull();
   });
 
   it('a disputer this server cannot place is recorded as an escalation, not as a party', async () => {
@@ -1166,7 +1179,7 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
     expect(order.disputeReason).toBe('PAYMENT_NOT_RECEIVED');
   });
 
-  it('post-settlement path (RELEASED -> DISPUTED bypass): reconciliation also applies once on-chain confirms DISPUTED', async () => {
+  it('records the on-chain signer on the post-settlement path too, without touching the filing', async () => {
     const { svc, order, stellar } = makeWithMetadata({
       status: 'RELEASED',
       disputeBy: 'lp',
@@ -1175,18 +1188,16 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
       disputeEvidenceUrl: 'evidence/ord-1-lp.jpg',
     });
     stellar.getTradeStatusStrict.mockResolvedValue({ status: 'DISPUTED' });
-    const value = nativeToScVal({ by: 'GUSER' });
     const advanced = await svc.applyEvent({
       topic: [TOPIC_DISPUTED, tradeIdTopic(TRADE_ID_A)],
-      value,
+      value: nativeToScVal({ by: 'GUSER' }),
       contractId: 'CXXX',
     });
     expect(advanced).toBe(1);
-    expect(order.status).toBe('DISPUTED');
-    expect(order.disputeBy).toBe('user');
-    expect(order.disputeReason).toBeNull();
-    expect(order.disputeNote).toBeNull();
-    expect(order.disputeEvidenceUrl).toBeNull();
+    expect(order.onChainDisputedBy).toBe('GUSER');
+    expect(order.disputeBy).toBe('lp');
+    expect(order.disputeReason).toBe('WRONG_AMOUNT');
+    expect(order.disputeEvidenceUrl).toBe('evidence/ord-1-lp.jpg');
   });
 });
 

@@ -269,28 +269,18 @@ export class IndexerService {
     if (!fresh) return;
 
     const actualRole = attributeDisputer(by, fresh.userAddress, fresh.lpWallet);
-    if (actualRole === fresh.disputeBy) return;
 
-    if (actualRole === 'resolver') {
-      await this.prisma.order.updateMany({
-        where: { id: orderId, resolverDisputed: false },
-        data: { resolverDisputed: true },
-      });
-      this.log.log(
-        `order ${orderId}: the resolver raised a dispute of its own; the ${fresh.disputeBy ?? 'absent'} filing is kept`,
-      );
-      return;
-    }
-
-    if (!fresh.disputeBy) return;
-
-    const res = await this.prisma.order.updateMany({
-      where: { id: orderId, disputeBy: fresh.disputeBy },
-      data: { disputeBy: actualRole, disputeReason: null, disputeNote: null, disputeEvidenceUrl: null },
+    await this.prisma.order.updateMany({
+      where: { id: orderId },
+      data: {
+        onChainDisputedBy: by,
+        ...(actualRole === 'resolver' ? { resolverDisputed: true } : {}),
+      },
     });
-    if (res.count > 0) {
+
+    if (fresh.disputeBy && actualRole !== fresh.disputeBy) {
       this.log.warn(
-        `reconciled dispute metadata for order ${orderId}: stored disputeBy=${fresh.disputeBy} did not match the on-chain disputer (${actualRole}) — reason/note/evidence cleared`,
+        `order ${orderId}: the chain says ${by} raised the dispute (${actualRole}) but the filing on record is from ${fresh.disputeBy} — both are kept, and the console shows the divergence`,
       );
     }
   }

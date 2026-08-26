@@ -129,25 +129,34 @@ describe('a latched zero is the pre-settlement sentinel, not a closed window', (
   });
 });
 
-describe('a filing the chain has overruled leaves the window open again', () => {
-  const settledAt = new Date(Date.now() - 60_000);
-  const CFG = { postSettleDisputeWindowSecs: 3600 };
+describe('a filing closes the post-settlement window for everyone', () => {
+  const config = { postSettleDisputeWindowSecs: 7200 };
+  const settled = new Date(Date.now() - 60_000);
 
-  it('reports the window while a reconciled filing carries no reason yet', () => {
+  it('reports no window once anyone has filed, because there is no second filing', () => {
     expect(
       postSettleDisputeDeadline(
-        { status: 'RELEASED', settledAt, disputeBy: 'lp', disputeReason: null },
-        CFG,
-      ),
-    ).toBe(new Date(settledAt.getTime() + 3600 * 1000).toISOString());
-  });
-
-  it('reports no window once that filing has a reason on it', () => {
-    expect(
-      postSettleDisputeDeadline(
-        { status: 'RELEASED', settledAt, disputeBy: 'lp', disputeReason: 'WRONG_AMOUNT' },
-        CFG,
+        { status: 'RELEASED', settledAt: settled, disputeBy: 'lp', disputeReason: 'WRONG_AMOUNT' },
+        config,
       ),
     ).toBeNull();
+  });
+
+  it('reports no window even when the filing carries no reason, since it cannot be refilled', () => {
+    expect(
+      postSettleDisputeDeadline(
+        { status: 'RELEASED', settledAt: settled, disputeBy: 'lp', disputeReason: null },
+        config,
+      ),
+    ).toBeNull();
+  });
+
+  it('still reports the window while nobody has filed', () => {
+    expect(
+      postSettleDisputeDeadline(
+        { status: 'RELEASED', settledAt: settled, disputeBy: null, disputeReason: null },
+        config,
+      ),
+    ).not.toBeNull();
   });
 });

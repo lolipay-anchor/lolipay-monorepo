@@ -36,6 +36,7 @@ export function serializeOrderBase(
     dispute_at: order.disputeAt ?? null,
     resolution: order.resolution ?? null,
     resolver_disputed: order.resolverDisputed ?? false,
+    on_chain_disputed_by: order.onChainDisputedBy ?? null,
     post_settle_dispute_until: config ? postSettleDisputeDeadline(order, config) : null,
   };
 }

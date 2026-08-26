@@ -313,6 +313,28 @@ function DisputePanel({ order }: { order: Order }) {
       <p className="text-xs text-lp-muted">
         <span className="font-semibold">Filed by:</span> {order.dispute_by ?? '—'}
       </p>
+      {order.on_chain_disputed_by && (
+        <p
+          className={
+            disputeFilerDiverges(order)
+              ? 'text-xs font-semibold text-lp-danger'
+              : 'text-xs text-lp-muted'
+          }
+          data-testid="dispute-onchain"
+          role={disputeFilerDiverges(order) ? 'alert' : undefined}
+        >
+          <span className="font-semibold">Signed on chain by:</span>{' '}
+          {order.on_chain_disputed_by}
+          {disputeFilerDiverges(order)
+            ? ' — this is not the party whose account you are reading below. Weigh it accordingly.'
+            : ''}
+        </p>
+      )}
+      {order.resolver_disputed && (
+        <p className="text-xs font-semibold text-lp-amber" data-testid="dispute-resolver">
+          The resolver raised a dispute of its own on this trade.
+        </p>
+      )}
       <p className="text-xs text-lp-muted">
         <span className="font-semibold">Reason:</span> {humanizeDisputeReason(order.dispute_reason)}
       </p>
@@ -547,6 +569,14 @@ export function formatWindow(seconds: number): string {
   }
   if (seconds >= 60) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
   return `${seconds}s`
+}
+
+export function disputeFilerDiverges(order: Order): boolean {
+  const onChain = order.on_chain_disputed_by
+  if (!onChain || !order.dispute_by) return false
+  const filerAddress = order.dispute_by === 'user' ? order.user_address : order.lp_wallet
+  if (!filerAddress) return true
+  return onChain !== filerAddress
 }
 
 export function providerDefaulted(order: Order): boolean {

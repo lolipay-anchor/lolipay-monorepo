@@ -55,7 +55,7 @@ export function postSettleDisputeDeadline(
   config: { postSettleDisputeWindowSecs: number },
 ): string | null {
   if (order.status !== 'RELEASED' && order.status !== 'REFUNDED') return null;
-  if (order.disputeBy && order.disputeReason != null) return null;
+  if (order.disputeBy) return null;
   const deadlineMs = postSettleDeadlineMs(order, config);
   if (deadlineMs === null) return null;
   if (Date.now() > deadlineMs) return null;

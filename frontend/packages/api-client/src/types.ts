@@ -54,6 +54,8 @@ export interface Order {
 
   settled_at?: string | null
   dispute_by?: 'user' | 'lp' | null
+  on_chain_disputed_by?: string | null
+  resolver_disputed?: boolean
   dispute_reason?: DisputeReason | null
   dispute_note?: string | null
   dispute_evidence_url?: string | null

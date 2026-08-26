@@ -6,7 +6,7 @@ import { IndexerService } from '../indexer/indexer.service';
 
 const fakeStorage = {} as any;
 
-describe('INERT-METADATA GRIEFING — A files metadata and never signs, B raises the real on-chain dispute', () => {
+describe('a filing and a signature can disagree, and both are kept', () => {
   const USER_ADDR = 'GUSER_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
   const LP_ADDR = 'GLP_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
   const PLATFORM = 'GPLATFORM';
@@ -55,7 +55,7 @@ describe('INERT-METADATA GRIEFING — A files metadata and never signs, B raises
     return { prisma, getCurrent: () => current };
   }
 
-  it('end-to-end: A fabricates metadata and never signs; B raises the real dispute on-chain; indexer reconciles; B refills; admin sees only B\'s reason', async () => {
+  it('end-to-end: A fabricates and never signs, B signs on chain — A\'s account survives, B\'s signature is recorded beside it, and B still has no channel', async () => {
     const initialOrder = {
       id: ORDER_ID,
       tradeId: FAKE_TRADE_ID,
@@ -130,28 +130,24 @@ describe('INERT-METADATA GRIEFING — A files metadata and never signs, B raises
     expect(advanced).toBe(1);
     expect(getCurrent().status).toBe('DISPUTED');
 
-    expect(getCurrent().disputeBy).toBe('lp');
-    expect(getCurrent().disputeReason).toBeNull();
-    expect(getCurrent().disputeNote).toBeNull();
+    expect(getCurrent().disputeBy).toBe('user');
+    expect(getCurrent().disputeReason).toBe('PAYMENT_NOT_RECEIVED');
+    expect(getCurrent().onChainDisputedBy).toBe(LP_ADDR);
 
-    const current = getCurrent();
-    current.status = 'FIAT_PAID';
-    const bResult = await orderService.postDispute(
-      ORDER_ID,
-      LP_ADDR,
-      'WRONG_AMOUNT',
-      'the buyer never paid — this is the real dispute',
-      undefined,
-    );
-    expect(bResult.order.dispute_by).toBe('lp');
-    expect(bResult.order.dispute_reason).toBe('WRONG_AMOUNT');
-    expect(bResult.order.dispute_note).toBe('the buyer never paid — this is the real dispute');
+    await expect(
+      orderService.postDispute(
+        ORDER_ID,
+        LP_ADDR,
+        'WRONG_AMOUNT',
+        'the buyer never paid — this is the real dispute',
+        undefined,
+      ),
+    ).rejects.toThrow();
 
     const adminView = getCurrent();
-    expect(adminView.disputeBy).toBe('lp');
-    expect(adminView.disputeReason).toBe('WRONG_AMOUNT');
-    expect(adminView.disputeNote).toBe('the buyer never paid — this is the real dispute');
-    expect(adminView.disputeNote).not.toContain('this is a lie');
+    expect(adminView.disputeBy).toBe('user');
+    expect(adminView.onChainDisputedBy).toBe(LP_ADDR);
+    expect(adminView.disputeNote).toContain('this is a lie');
   });
 
   it('same-party double POST still 409 when a reason is already present (no reconciliation happened)', async () => {

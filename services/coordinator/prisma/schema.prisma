@@ -113,6 +113,7 @@ model Order {
   settledAt           DateTime?
   postSettleDeadline  BigInt?
   resolverDisputed    Boolean     @default(false)
+  onChainDisputedBy   String?
   disputeBy           String?
   disputeReason       String?
   disputeNote         String?

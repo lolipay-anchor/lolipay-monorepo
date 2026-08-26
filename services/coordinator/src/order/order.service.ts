@@ -365,8 +365,7 @@ export class OrderService {
       );
     }
 
-    const isRefill = currentOrder.disputeBy === role && currentOrder.disputeReason === null;
-    if (currentOrder.disputeBy && !isRefill) {
+    if (currentOrder.disputeBy) {
       throw new ConflictException('a dispute has already been filed for this order');
     }
 
@@ -395,9 +394,7 @@ export class OrderService {
     }
 
     const claimed = await this.prisma.order.updateMany({
-      where: isRefill
-        ? { id: orderId, disputeBy: role, disputeReason: null }
-        : { id: orderId, disputeBy: null },
+      where: { id: orderId, disputeBy: null },
       data: {
         disputeBy: role,
         disputeReason: reason,
