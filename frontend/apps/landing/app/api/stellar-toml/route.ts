@@ -70,7 +70,32 @@ export function currenciesSection(): { toml: string } | { omitted: string } {
   const badIssuer = stellarPublicKey(issuer)
   if (badIssuer) return { omitted: `USDC_ASSET_ISSUER ${badIssuer}` }
 
-  const anchored = process.env.STELLAR_NETWORK_PASSPHRASE === Networks.PUBLIC
+  let status = 'test'
+  let isAnchored = 'false'
+  let desc = 'Test asset on the Stellar test network. Not redeemable and not backed by anything.'
+
+  if (process.env.STELLAR_NETWORK_PASSPHRASE === Networks.PUBLIC) {
+    const decided = {
+      CURRENCY_STATUS: process.env.CURRENCY_STATUS,
+      CURRENCY_IS_ASSET_ANCHORED: process.env.CURRENCY_IS_ASSET_ANCHORED,
+      CURRENCY_DESC: process.env.CURRENCY_DESC,
+    }
+    for (const [name, value] of Object.entries(decided)) {
+      if (!value) {
+        return {
+          omitted: `${name} is not set; on the public network what this asset is and whether it can be redeemed are claims somebody has to decide, not values to derive from the network passphrase`,
+        }
+      }
+      const unusable = usableInAToml(value)
+      if (unusable) return { omitted: `${name} ${unusable}` }
+    }
+    if (decided.CURRENCY_IS_ASSET_ANCHORED !== 'true' && decided.CURRENCY_IS_ASSET_ANCHORED !== 'false') {
+      return { omitted: 'CURRENCY_IS_ASSET_ANCHORED must be exactly true or false' }
+    }
+    status = decided.CURRENCY_STATUS as string
+    isAnchored = decided.CURRENCY_IS_ASSET_ANCHORED as string
+    desc = decided.CURRENCY_DESC as string
+  }
 
   return {
     toml: [
@@ -78,10 +103,10 @@ export function currenciesSection(): { toml: string } | { omitted: string } {
       '[[CURRENCIES]]',
       `code="${code}"`,
       `issuer="${issuer}"`,
-      `status="${anchored ? 'live' : 'test'}"`,
-      `is_asset_anchored=${anchored ? 'true' : 'false'}`,
+      `status="${status}"`,
+      `is_asset_anchored=${isAnchored}`,
       'anchor_asset_type="fiat"',
-      `desc="${anchored ? 'USDC settled through lolipay peer-to-peer escrow.' : 'Test asset on the Stellar test network. Not redeemable and not backed by anything.'}"`,
+      `desc="${desc}"`,
     ].join('\n'),
   }
 }

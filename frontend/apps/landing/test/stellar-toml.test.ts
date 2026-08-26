@@ -253,11 +253,11 @@ describe('the currencies section', () => {
     expect(body).toMatch(/desc="[^"]*[Nn]ot redeemable/)
   })
 
-  it('claims an anchored asset only on the public network', async () => {
-    process.env.STELLAR_NETWORK_PASSPHRASE = 'Public Global Stellar Network ; September 2015'
+  it('says plainly on the test network that the asset is not redeemable', async () => {
     const body = await (await GET()).text()
-    expect(body).toContain('status="live"')
-    expect(body).toContain('is_asset_anchored=true')
+    expect(body).toContain('status="test"')
+    expect(body).toContain('is_asset_anchored=false')
+    expect(body).toContain('Not redeemable')
   })
 
   it('omits itself rather than taking the whole document down', async () => {
@@ -268,6 +268,25 @@ describe('the currencies section', () => {
     expect(body).not.toContain('[[CURRENCIES]]')
     expect(body).toContain('WEB_AUTH_ENDPOINT=')
     expect(body).toContain('SIGNING_KEY=')
+  })
+
+  it('refuses to invent the public-network claims from the network passphrase alone', async () => {
+    process.env.STELLAR_NETWORK_PASSPHRASE = 'Public Global Stellar Network ; September 2015'
+    const body = await (await GET()).text()
+    expect(body).not.toContain('[[CURRENCIES]]')
+    expect(body).not.toContain('is_asset_anchored=true')
+    expect(body).not.toContain('status="live"')
+  })
+
+  it('publishes the public-network claims once somebody has actually decided them', async () => {
+    process.env.STELLAR_NETWORK_PASSPHRASE = 'Public Global Stellar Network ; September 2015'
+    process.env.CURRENCY_STATUS = 'live'
+    process.env.CURRENCY_IS_ASSET_ANCHORED = 'false'
+    process.env.CURRENCY_DESC = 'USDC settled through lolipay peer-to-peer escrow.'
+    const body = await (await GET()).text()
+    expect(body).toContain('[[CURRENCIES]]')
+    expect(body).toContain('status="live"')
+    expect(body).toContain('is_asset_anchored=false')
   })
 
   it('omits itself when the issuer is not a Stellar key, rather than publishing nonsense', async () => {
