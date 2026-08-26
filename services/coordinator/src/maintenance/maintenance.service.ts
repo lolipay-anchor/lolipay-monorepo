@@ -15,7 +15,6 @@ const DIVERGENCE_SCAN_LIMIT = 500;
 
 const ORPHAN_LOOKBACK_MS = 45 * 24 * 60 * 60 * 1000;
 
-const DISPUTE_STALE_ALERT_DAYS = 30;
 
 @Injectable()
 export class MaintenanceService {
@@ -294,28 +293,6 @@ export class MaintenanceService {
     if (recovered > 0) {
       this.log.log(`reconcileOrphanedEscrows: recovered ${recovered} orphaned escrow(s) this tick`);
     }
-  }
-  @Cron(CronExpression.EVERY_HOUR)
-  async alertOnStaleDisputes() {
-    const cutoff = new Date(Date.now() - DISPUTE_STALE_ALERT_DAYS * 24 * 60 * 60 * 1000);
-    const stale = await this.prisma.order.findMany({
-      where: { status: 'DISPUTED', disputeAt: { lt: cutoff } },
-      select: { id: true, tradeId: true, disputeAt: true },
-      take: 50,
-    });
-    if (stale.length === 0) return;
-
-    for (const o of stale) {
-      const days = o.disputeAt
-        ? Math.floor((Date.now() - o.disputeAt.getTime()) / (24 * 60 * 60 * 1000))
-        : DISPUTE_STALE_ALERT_DAYS;
-      this.log.error(
-        `order ${o.id} has been DISPUTED for ${days} days (tradeId ${o.tradeId}) — the escrow entry expires 45 days after its last write, after which the funds need a ledger restore to reach`,
-      );
-    }
-    this.log.error(
-      `${stale.length} trade(s) have been disputed for more than ${DISPUTE_STALE_ALERT_DAYS} days and nobody has resolved them`,
-    );
   }
 }
 
