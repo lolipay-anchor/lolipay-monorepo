@@ -1,5 +1,5 @@
 import { MonitoringService, MONITORING_ALERT_SCOPE } from './monitoring.service';
-import { Alert, AlertsService, summarise } from './alerts.service';
+import { Alert, AlertsService, summarise, byUrgencyFirst, fitToBudget } from './alerts.service';
 import { ALERT_SAMPLE_LIMIT } from './monitoring.conditions';
 
 const SCOPE = MONITORING_ALERT_SCOPE;
@@ -537,5 +537,57 @@ describe('a message that never arrived is itself a condition', () => {
 
   it('is inside the scope monitoring claims, so it can be cleared', () => {
     expect(MONITORING_ALERT_SCOPE).toContain('delivery_failing');
+  });
+});
+
+describe('an urgent alert must not be budgeted out of its own message', () => {
+  const NOW2 = new Date('2026-08-26T12:00:00Z');
+
+  const long = (i: number): Alert => ({
+    key: `open_dispute:o${i}`,
+    fingerprint: `o${i}`,
+    urgency: 'routine',
+    text: `order ${'0'.repeat(36)}-${i} (trade ${'a'.repeat(64)}) is disputed and awaiting resolution`,
+  });
+
+  const urgentAlert: Alert = {
+    key: 'slash_window_open:victim',
+    fingerprint: 'under-1h',
+    urgency: 'urgent',
+    text: 'order victim has a verdict against the provider and 42 minute(s) left to recover',
+  };
+
+  it('puts the urgent one in the message even when routine noise would have filled it', () => {
+    const text = summarise([...Array.from({ length: 100 }, (_, i) => long(i)), urgentAlert]);
+    expect(text).toContain('42 minute(s) left');
+  });
+
+  it('keeps urgent alerts ahead of routine ones', () => {
+    const ordered = byUrgencyFirst([long(1), urgentAlert, long(2)]);
+    expect(ordered[0].key).toBe('slash_window_open:victim');
+  });
+
+  it('reports what did not fit rather than dropping it silently', () => {
+    const { included, omitted } = fitToBudget([
+      ...Array.from({ length: 100 }, (_, i) => long(i)),
+      urgentAlert,
+    ]);
+    expect(omitted).toBeGreaterThan(0);
+    expect(included.map((a) => a.key)).toContain('slash_window_open:victim');
+  });
+
+  it('does not record an alert whose text never made it into a message', async () => {
+    const { svc, state } = makeAlerts([]);
+    const many = [...Array.from({ length: 100 }, (_, i) => long(i)), urgentAlert];
+    const { sent } = await svc.raise(
+      [...SCOPE, 'slash_window_open'],
+      many,
+      new Set(),
+      NOW2,
+    );
+    const recorded = state.createMany.mock.calls[0][0].data.map((d: any) => d.key);
+    expect(recorded.length).toBe(sent.length);
+    expect(recorded.length).toBeLessThan(many.length);
+    expect(recorded).toContain('slash_window_open:victim');
   });
 });

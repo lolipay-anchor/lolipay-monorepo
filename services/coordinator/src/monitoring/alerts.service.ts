@@ -23,10 +23,34 @@ export function familyOf(key: string): string {
   return key.split(':')[0];
 }
 
+export function byUrgencyFirst(alerts: Alert[]): Alert[] {
+  return [...alerts].sort((a, b) => {
+    if (a.urgency === b.urgency) return 0;
+    return a.urgency === 'urgent' ? -1 : 1;
+  });
+}
+
+export function fitToBudget(
+  alerts: Alert[],
+  budget: number = ALERT_TEXT_BUDGET,
+): { included: Alert[]; omitted: number } {
+  const ordered = byUrgencyFirst(alerts);
+  const included: Alert[] = [];
+  let used = 0;
+  for (const a of ordered) {
+    const cost = a.text.length + 3;
+    if (used + cost > budget) break;
+    included.push(a);
+    used += cost;
+  }
+  if (included.length === 0 && ordered.length > 0) included.push(ordered[0]);
+  return { included, omitted: alerts.length - included.length };
+}
+
 export function summarise(alerts: Alert[], budget: number = ALERT_TEXT_BUDGET): string {
   const shown: string[] = [];
   let used = 0;
-  for (const a of alerts) {
+  for (const a of byUrgencyFirst(alerts)) {
     const cost = a.text.length + 3;
     if (used + cost > budget) break;
     shown.push(a.text);
@@ -109,8 +133,14 @@ export class AlertsService implements OnModuleInit {
       .map((k) => k.key)
       .filter((key) => !incomplete.has(familyOf(key)));
 
-    await this.commit(sent, cleared, byKey, now);
-    return { sent, cleared };
+    const { included, omitted } = fitToBudget(sent);
+    if (omitted > 0) {
+      this.log.warn(
+        `${omitted} alert(s) did not fit this message and are deliberately not recorded as sent, so the next tick raises them again`,
+      );
+    }
+    await this.commit(included, cleared, byKey, now);
+    return { sent: included, cleared };
   }
 
   private async commit(

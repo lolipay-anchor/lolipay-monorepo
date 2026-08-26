@@ -3,15 +3,22 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import type { Prisma } from '../generated/prisma/client';
 
-export const OUTBOX_MAX_ATTEMPTS = 5;
+export const OUTBOX_MAX_ATTEMPTS = 9;
 export const OUTBOX_BATCH_SIZE = 50;
 export const OUTBOX_BACKOFF_BASE_MS = 30_000;
 export const OUTBOX_BACKOFF_CAP_MS = 30 * 60 * 1000;
 export const OUTBOX_KEEP_SENT_MS = 14 * 24 * 60 * 60 * 1000;
 
 export function backoffFor(attempts: number, base = OUTBOX_BACKOFF_BASE_MS): number {
+  if (!Number.isFinite(attempts)) return base;
   const grown = base * 2 ** Math.max(0, attempts - 1);
   return Math.min(grown, OUTBOX_BACKOFF_CAP_MS);
+}
+
+export function totalRetryWindowMs(): number {
+  let total = 0;
+  for (let a = 1; a < OUTBOX_MAX_ATTEMPTS; a += 1) total += backoffFor(a);
+  return total;
 }
 
 export interface OutboxJob {
@@ -77,7 +84,7 @@ export class OutboxService {
       this.prisma.outboxMessage.count({
         where: {
           status: 'PENDING',
-          createdAt: { lt: new Date(now.getTime() - OUTBOX_BACKOFF_CAP_MS * 2) },
+          createdAt: { lt: new Date(now.getTime() - totalRetryWindowMs() * 2) },
         },
       }),
     ]);

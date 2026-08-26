@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { OutboxService, OUTBOX_MAX_ATTEMPTS, OUTBOX_BACKOFF_CAP_MS, backoffFor } from './outbox.service';
+import { OutboxService, OUTBOX_MAX_ATTEMPTS, OUTBOX_BACKOFF_CAP_MS, backoffFor, totalRetryWindowMs } from './outbox.service';
 
 function makePrisma(pending: any[] = []) {
   const updates: any[] = [];
@@ -170,10 +170,20 @@ describe('a failed delivery waits longer each time', () => {
     expect(backoffFor(20)).toBe(OUTBOX_BACKOFF_CAP_MS);
   });
 
-  it('gives a whole day of retries before it gives up, not two minutes', () => {
-    let total = 0;
-    for (let a = 1; a < OUTBOX_MAX_ATTEMPTS; a += 1) total += backoffFor(a);
-    expect(total).toBeGreaterThan(7 * 60 * 1000);
+  it('spans more than an hour before it gives up, so an ordinary outage does not kill a message', () => {
+    const total = totalRetryWindowMs();
+    expect(total).toBeGreaterThan(60 * 60 * 1000);
+    expect(total).toBeLessThan(4 * 60 * 60 * 1000);
+  });
+
+  it('actually reaches its own ceiling, which five attempts never could', () => {
+    const last = backoffFor(OUTBOX_MAX_ATTEMPTS - 1);
+    expect(last).toBe(OUTBOX_BACKOFF_CAP_MS);
+  });
+
+  it('treats a nonsense attempt count as a first attempt rather than an invalid date', () => {
+    expect(backoffFor(NaN)).toBe(30_000);
+    expect(Number.isFinite(backoffFor(Infinity))).toBe(true);
   });
 
   it('pushes the next attempt into the future when a delivery fails', async () => {

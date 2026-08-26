@@ -137,13 +137,29 @@ describe('a verdict with a clock running reaches a person', () => {
     expect(await svc.slashWindowAlerts(NOW)).toEqual([]);
   });
 
-  it('asks for the most recently settled candidates, bounded', async () => {
+  it('asks only for trades whose window could still be open, oldest first', async () => {
     const { svc, prisma } = make({ orders: [] });
     await svc.slashWindowAlerts(NOW);
     const args = prisma.order.findMany.mock.calls[0][0];
     expect(args.take).toBe(100);
-    expect(args.orderBy).toEqual([{ settledAt: 'desc' }, { id: 'asc' }]);
-    expect(args.where.settledAt).toEqual({ not: null });
+    expect(args.orderBy).toEqual([{ settledAt: 'asc' }, { id: 'asc' }]);
+    expect(args.where.settledAt.not).toBeNull();
+    expect(args.where.settledAt.gte).toBeInstanceOf(Date);
+  });
+
+  it('does not scan the whole history, which would keep the family permanently truncated', async () => {
+    const { svc, prisma } = make({ orders: [] });
+    await svc.slashWindowAlerts(NOW);
+    const since = prisma.order.findMany.mock.calls[0][0].where.settledAt.gte as Date;
+    const days = (NOW.getTime() - since.getTime()) / (24 * 60 * 60 * 1000);
+    expect(days).toBeGreaterThan(7);
+    expect(days).toBeLessThan(30);
+  });
+
+  it('takes the oldest first, because the window closing soonest matters most', async () => {
+    const { svc, prisma } = make({ orders: [] });
+    await svc.slashWindowAlerts(NOW);
+    expect(prisma.order.findMany.mock.calls[0][0].orderBy[0]).toEqual({ settledAt: 'asc' });
   });
 
   it('is inside the scope monitoring claims, so it can be cleared', () => {
@@ -178,35 +194,109 @@ describe('a scan that could not see everything must not report anything cleared'
     expect(over!.text).toContain('truncated');
   });
 
-  it('marks the family incomplete when the scan was truncated', async () => {
-    const { svc, prisma } = full();
-    prisma.order.count = jest.fn().mockResolvedValue(0);
-    prisma.order.groupBy = jest.fn().mockResolvedValue([]);
-    (prisma as any).indexerState = { findUnique: jest.fn().mockResolvedValue({ updatedAt: NOW }) };
-    const originalFindMany = prisma.order.findMany;
-    prisma.order.findMany = jest.fn(async (args: any) => {
-      if (args?.take === 100) return originalFindMany(args);
-      return [];
-    });
-    await svc.buildAlerts(metrics);
-    expect((svc as any).truncated.has('slash_window_open')).toBe(true);
+  it('marks the family incomplete when the scan came back at its limit', async () => {
+    const incomplete = new Set<string>();
+    await full().svc.slashWindowAlerts(NOW, incomplete);
+    expect(incomplete.has('slash_window_open')).toBe(true);
   });
 
   it('marks the family incomplete when a trade could not be read', async () => {
-    const svc = svcWith({ orders: [order()], chainThrows: true });
-    await svc.slashWindowAlerts(NOW);
-    expect((svc as any).truncated.has('slash_window_open')).toBe(true);
+    const incomplete = new Set<string>();
+    await svcWith({ orders: [order()], chainThrows: true }).slashWindowAlerts(NOW, incomplete);
+    expect(incomplete.has('slash_window_open')).toBe(true);
   });
 
   it('marks the family incomplete when the recovered total could not be read', async () => {
-    const svc = svcWith({ orders: [order()], chain: verdict(), recoveredThrows: true });
-    await svc.slashWindowAlerts(NOW);
-    expect((svc as any).truncated.has('slash_window_open')).toBe(true);
+    const incomplete = new Set<string>();
+    await svcWith({
+      orders: [order()],
+      chain: verdict(),
+      recoveredThrows: true,
+    }).slashWindowAlerts(NOW, incomplete);
+    expect(incomplete.has('slash_window_open')).toBe(true);
   });
 
   it('leaves the family complete on a clean, unfilled scan', async () => {
-    const svc = svcWith({ orders: [order()], chain: verdict() });
-    await svc.slashWindowAlerts(NOW);
-    expect((svc as any).truncated.has('slash_window_open')).toBe(false);
+    const incomplete = new Set<string>();
+    await svcWith({ orders: [order()], chain: verdict() }).slashWindowAlerts(NOW, incomplete);
+    expect(incomplete.has('slash_window_open')).toBe(false);
+  });
+});
+
+describe('two ticks must not be able to wipe each other findings', () => {
+  const metrics = {
+    generated_at: 'now',
+    orders_by_status: {},
+    open_disputes: 0,
+    release_overdue: 0,
+    fiat_payment_overdue: 0,
+    indexer_lag_seconds: 5,
+  };
+
+  function slowSvc(delayMs: number) {
+    const raise = jest.fn(async () => ({ sent: [], cleared: [] }));
+    let calls = 0;
+    const prisma = {
+      order: {
+        findMany: jest.fn(async () => {
+          await new Promise((r) => setTimeout(r, delayMs));
+          calls += 1;
+          return [{ ...order(), disputeAt: NOW, createdAt: NOW }];
+        }),
+        count: jest.fn().mockResolvedValue(0),
+        groupBy: jest.fn().mockResolvedValue([]),
+      },
+      indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: NOW }) },
+    } as any;
+    const stellar = {
+      getTradeStatusStrict: jest.fn().mockRejectedValue(new Error('rpc down')),
+      getTradeStatus: jest.fn().mockResolvedValue(null),
+      getSlashedSoFar: jest.fn().mockResolvedValue(0n),
+    } as any;
+    const svc = new MonitoringService(
+      prisma,
+      { raise } as any,
+      { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn() } as any,
+      stellar,
+      { escrowContractId: 'CESCROW' } as any,
+    );
+    return { svc, raise, callCount: () => calls };
+  }
+
+  it('refuses to start a second tick while the first is still running', async () => {
+    const { svc, raise } = slowSvc(40);
+    await Promise.all([svc.checkAndAlert(), svc.checkAndAlert(), svc.checkAndAlert()]);
+    expect(raise).toHaveBeenCalledTimes(1);
+  });
+
+  it('carries its own incomplete set, so an overlapping run cannot empty it', async () => {
+    const { svc, raise } = slowSvc(5);
+    await svc.checkAndAlert();
+    await svc.checkAndAlert();
+    for (const call of raise.mock.calls) {
+      const incomplete = (call as any[])[2];
+      expect(incomplete.has('slash_window_open')).toBe(true);
+    }
+  });
+
+  it('does not keep the set between ticks, so a cleared problem can be reported', async () => {
+    const raise = jest.fn(async () => ({ sent: [], cleared: [] }));
+    const prisma = {
+      order: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        groupBy: jest.fn().mockResolvedValue([]),
+      },
+      indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: NOW }) },
+    } as any;
+    const svc = new MonitoringService(
+      prisma,
+      { raise } as any,
+      { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn() } as any,
+      { getTradeStatusStrict: jest.fn(), getTradeStatus: jest.fn(), getSlashedSoFar: jest.fn() } as any,
+      { escrowContractId: 'CESCROW' } as any,
+    );
+    await svc.checkAndAlert();
+    expect(((raise.mock.calls[0] as any[])[2] as Set<string>).size).toBe(0);
   });
 });

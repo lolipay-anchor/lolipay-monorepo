@@ -39,11 +39,14 @@ export class MonitoringService {
     private cfg: AppConfigService,
   ) {}
 
-  async slashWindowAlerts(now: Date = new Date()): Promise<Alert[]> {
+  async slashWindowAlerts(
+    now: Date = new Date(),
+    incomplete: Set<string> = new Set(),
+  ): Promise<Alert[]> {
     const candidates = await this.prisma.order.findMany({
-      where: slashCandidatesWhere(),
+      where: slashCandidatesWhere(now),
       select: { id: true, tradeId: true, contractId: true, usdcAmount: true },
-      orderBy: [{ settledAt: 'desc' }, { id: 'asc' }],
+      orderBy: [{ settledAt: 'asc' }, { id: 'asc' }],
       take: SLASH_SCAN_LIMIT,
     });
 
@@ -51,7 +54,7 @@ export class MonitoringService {
     const out: Alert[] = [];
 
     if (candidates.length >= SLASH_SCAN_LIMIT) {
-      this.truncated.add('slash_window_open');
+      incomplete.add('slash_window_open');
       out.push({
         key: 'slash_window_open:overflow',
         fingerprint: 'at-limit',
@@ -65,7 +68,7 @@ export class MonitoringService {
       try {
         chain = await this.stellar.getTradeStatusStrict(contractId, o.tradeId);
       } catch {
-        this.truncated.add('slash_window_open');
+        incomplete.add('slash_window_open');
         continue;
       }
       if (!chain?.liabilityEstablished) continue;
@@ -76,7 +79,7 @@ export class MonitoringService {
       try {
         recovered = await this.stellar.getSlashedSoFar(o.tradeId);
       } catch {
-        this.truncated.add('slash_window_open');
+        incomplete.add('slash_window_open');
         continue;
       }
       if (recovered >= o.usdcAmount) continue;
@@ -118,8 +121,20 @@ export class MonitoringService {
     };
   }
 
+  private running = false;
+
   @Cron(CronExpression.EVERY_5_MINUTES)
   async checkAndAlert() {
+    if (this.running) return;
+    this.running = true;
+    try {
+      await this.runCheck();
+    } finally {
+      this.running = false;
+    }
+  }
+
+  private async runCheck() {
     let m: Awaited<ReturnType<MonitoringService['metrics']>>;
     try {
       m = await this.metrics();
@@ -128,9 +143,10 @@ export class MonitoringService {
       return;
     }
 
+    const incomplete = new Set<string>();
     let alerts: Alert[];
     try {
-      alerts = await this.buildAlerts(m);
+      alerts = await this.buildAlerts(m, incomplete);
     } catch (e) {
       this.log.error(
         `alert conditions could not be read: ${e instanceof Error ? e.message : String(e)}`,
@@ -145,12 +161,13 @@ export class MonitoringService {
       this.log.warn(`⚠️ lolipay coordinator: ${alerts.map((a) => a.text).join(' · ')}`);
     }
 
-    await this.alerts.raise(MONITORING_ALERT_SCOPE, alerts, this.truncated);
+    await this.alerts.raise(MONITORING_ALERT_SCOPE, alerts, incomplete);
   }
 
-  private truncated = new Set<string>();
-
-  async buildAlerts(m: Awaited<ReturnType<MonitoringService['metrics']>>): Promise<Alert[]> {
+  async buildAlerts(
+    m: Awaited<ReturnType<MonitoringService['metrics']>>,
+    incomplete: Set<string> = new Set(),
+  ): Promise<Alert[]> {
     const nowSec = nowSeconds();
     const [disputes, releaseOverdue, fiatOverdue] = await Promise.all([
       this.sample(openDisputesWhere()),
@@ -159,10 +176,9 @@ export class MonitoringService {
     ]);
 
     const overflow: Alert[] = [];
-    this.truncated = new Set<string>();
     const noteOverflow = (kind: string, sampled: unknown[], label: string) => {
       if (sampled.length < ALERT_SAMPLE_LIMIT) return;
-      this.truncated.add(kind);
+      incomplete.add(kind);
       overflow.push({
         key: `${kind}:overflow`,
         fingerprint: 'at-limit',
@@ -204,12 +220,12 @@ export class MonitoringService {
     ];
 
     try {
-      alerts.push(...(await this.slashWindowAlerts()));
+      alerts.push(...(await this.slashWindowAlerts(new Date(), incomplete)));
     } catch (e) {
       this.log.error(
         `could not check for open slash windows: ${e instanceof Error ? e.message : String(e)}`,
       );
-      this.truncated.add('slash_window_open');
+      incomplete.add('slash_window_open');
     }
 
     const stuck = await this.outbox.stuckCounts();

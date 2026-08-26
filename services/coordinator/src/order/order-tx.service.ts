@@ -283,6 +283,11 @@ export class OrderTxService {
     if (!chain) {
       throw new ConflictException('the escrow has no record of this trade');
     }
+    if (typeof chain.liabilityEstablished !== 'boolean') {
+      throw new ServiceUnavailableException(
+        'the deployed escrow did not report whether liability was established — refusing rather than guessing at a verdict',
+      );
+    }
     if (!chain.liabilityEstablished) {
       throw new ConflictException(
         'no liability has been established on this trade — resolving a dispute against the party holding the money is what establishes it, and the contract will refuse a slash until then',
@@ -350,7 +355,7 @@ export class OrderTxService {
     recovered: bigint;
     remaining: bigint;
     deadline: number | null;
-    liabilityEstablished: boolean;
+    liabilityEstablished: boolean | null;
   }> {
     let recovered: bigint;
     try {
@@ -362,17 +367,20 @@ export class OrderTxService {
       );
     }
     let deadline: number | null = null;
-    let liabilityEstablished = false;
+    let liabilityEstablished: boolean | null = null;
     try {
-      const chain = await this.stellar.getTradeStatus(
+      const chain = await this.stellar.getTradeStatusStrict(
         order.contractId ?? this.cfg.escrowContractId,
         order.tradeId,
       );
-      liabilityEstablished = chain?.liabilityEstablished === true;
-      const d = chain?.slashDeadline ?? 0n;
-      deadline = d > 0n ? Number(d) : null;
-    } catch {
-      deadline = null;
+      if (chain) {
+        liabilityEstablished =
+          typeof chain.liabilityEstablished === 'boolean' ? chain.liabilityEstablished : null;
+        const d = chain.slashDeadline ?? 0n;
+        deadline = d > 0n ? Number(d) : null;
+      }
+    } catch (err) {
+      console.error('slashState chain read:', err instanceof Error ? err.message : String(err));
     }
 
     const remaining = order.usdcAmount - recovered;
