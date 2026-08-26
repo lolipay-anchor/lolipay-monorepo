@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../generated/prisma/client';
 import { Alert, AlertsService, Urgency } from './alerts.service';
+import { OutboxService } from '../outbox/outbox.service';
 import {
   ALERT_SAMPLE_LIMIT,
   DISPUTE_STALE_DAYS,
@@ -19,6 +20,7 @@ export const MONITORING_ALERT_SCOPE = [
   'release_overdue',
   'fiat_payment_overdue',
   'indexer_stalled',
+  'delivery_failing',
 ];
 
 @Injectable()
@@ -27,6 +29,7 @@ export class MonitoringService {
   constructor(
     private prisma: PrismaService,
     private alerts: AlertsService,
+    private outbox: OutboxService,
   ) {}
 
   async metrics() {
@@ -139,6 +142,16 @@ export class MonitoringService {
         text: `order ${o.id} (trade ${o.tradeId}) is funded but the fiat is unpaid past its deadline`,
       })),
     ];
+
+    const stuck = await this.outbox.stuckCounts();
+    if (stuck.failed > 0 || stuck.stalled > 0) {
+      alerts.push({
+        key: 'delivery_failing',
+        fingerprint: `${stuck.failed}/${stuck.stalled}`,
+        urgency: 'routine',
+        text: `${stuck.failed} message(s) gave up and ${stuck.stalled} have been waiting too long — something this service tried to tell you did not arrive`,
+      });
+    }
 
     if (m.indexer_lag_seconds == null) {
       alerts.push({

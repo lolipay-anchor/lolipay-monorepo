@@ -5,6 +5,14 @@ import type { Prisma } from '../generated/prisma/client';
 
 export const OUTBOX_MAX_ATTEMPTS = 5;
 export const OUTBOX_BATCH_SIZE = 50;
+export const OUTBOX_BACKOFF_BASE_MS = 30_000;
+export const OUTBOX_BACKOFF_CAP_MS = 30 * 60 * 1000;
+export const OUTBOX_KEEP_SENT_MS = 14 * 24 * 60 * 60 * 1000;
+
+export function backoffFor(attempts: number, base = OUTBOX_BACKOFF_BASE_MS): number {
+  const grown = base * 2 ** Math.max(0, attempts - 1);
+  return Math.min(grown, OUTBOX_BACKOFF_CAP_MS);
+}
 
 export interface OutboxJob {
   kind: string;
@@ -54,10 +62,33 @@ export class OutboxService {
     }
   }
 
+  async prune(now: Date = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - OUTBOX_KEEP_SENT_MS);
+    const { count } = await this.prisma.outboxMessage.deleteMany({
+      where: { status: 'SENT', sentAt: { lt: cutoff } },
+    });
+    if (count > 0) this.log.log(`pruned ${count} delivered message(s) older than 14 days`);
+    return count;
+  }
+
+  async stuckCounts(now: Date = new Date()): Promise<{ failed: number; stalled: number }> {
+    const [failed, stalled] = await Promise.all([
+      this.prisma.outboxMessage.count({ where: { status: 'FAILED' } }),
+      this.prisma.outboxMessage.count({
+        where: {
+          status: 'PENDING',
+          createdAt: { lt: new Date(now.getTime() - OUTBOX_BACKOFF_CAP_MS * 2) },
+        },
+      }),
+    ]);
+    return { failed, stalled };
+  }
+
   async drainOnce(): Promise<number> {
+    const now = new Date();
     const pending = await this.prisma.outboxMessage.findMany({
-      where: { status: 'PENDING' },
-      orderBy: { createdAt: 'asc' },
+      where: { status: 'PENDING', nextAttemptAt: { lte: now } },
+      orderBy: [{ nextAttemptAt: 'asc' }, { createdAt: 'asc' }],
       take: OUTBOX_BATCH_SIZE,
     });
 
@@ -73,6 +104,7 @@ export class OutboxService {
             attempts,
             lastError: `no handler registered for kind "${msg.kind}"`,
             status: exhausted ? 'FAILED' : 'PENDING',
+            nextAttemptAt: new Date(Date.now() + backoffFor(attempts)),
           },
         });
         this.log.warn(
@@ -97,6 +129,7 @@ export class OutboxService {
             attempts,
             lastError: errMsg(err).slice(0, 500),
             status: exhausted ? 'FAILED' : 'PENDING',
+            nextAttemptAt: new Date(Date.now() + backoffFor(attempts)),
           },
         });
         if (exhausted) {

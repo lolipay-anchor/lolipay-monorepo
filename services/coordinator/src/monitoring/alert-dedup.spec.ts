@@ -349,7 +349,7 @@ describe('a dispute nobody resolves stops being routine', () => {
       },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
-    return new MonitoringService(prisma, { raise: jest.fn() } as any);
+    return new MonitoringService(prisma, { raise: jest.fn() } as any, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any);
   }
 
   it('escalates a thirty-day-old dispute to urgent on the same key', async () => {
@@ -405,7 +405,7 @@ describe('a dispute the poller stamped still ages', () => {
       },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
-    const svc = new MonitoringService(prisma, { raise: jest.fn() } as any);
+    const svc = new MonitoringService(prisma, { raise: jest.fn() } as any, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any);
 
     const alerts = await svc.buildAlerts(metrics);
     expect(alerts[0].urgency).toBe('urgent');
@@ -442,7 +442,7 @@ describe('the seam between finding conditions and deciding about them', () => {
       },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
-    return { svc: new MonitoringService(prisma, { raise } as any), prisma, raise };
+    return { svc: new MonitoringService(prisma, { raise } as any, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any), prisma, raise };
   }
 
   it('tells the alerts service which families it could not see the whole of', async () => {
@@ -489,5 +489,53 @@ describe('the seam between finding conditions and deciding about them', () => {
     const args = prisma.order.findMany.mock.calls[0][0];
     expect(args.take).toBe(ALERT_SAMPLE_LIMIT);
     expect(args.orderBy).toEqual([{ createdAt: 'asc' }, { id: 'asc' }]);
+  });
+});
+
+describe('a message that never arrived is itself a condition', () => {
+  const metrics = {
+    generated_at: 'now',
+    orders_by_status: {},
+    open_disputes: 0,
+    release_overdue: 0,
+    fiat_payment_overdue: 0,
+    indexer_lag_seconds: 5,
+  };
+
+  function withOutbox(counts: { failed: number; stalled: number }) {
+    const prisma = {
+      order: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        groupBy: jest.fn().mockResolvedValue([]),
+      },
+      indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
+    } as any;
+    const outbox = {
+      stuckCounts: jest.fn(async () => counts),
+      prune: jest.fn(async () => 0),
+    } as any;
+    return new MonitoringService(prisma, { raise: jest.fn() } as any, outbox);
+  }
+
+  it('says so when something it tried to tell you gave up', async () => {
+    const alerts = await withOutbox({ failed: 2, stalled: 0 }).buildAlerts(metrics);
+    const a = alerts.find((x: Alert) => x.key === 'delivery_failing');
+    expect(a).toBeDefined();
+    expect(a!.text).toContain('did not arrive');
+  });
+
+  it('also notices messages that are merely stuck, not yet given up', async () => {
+    const alerts = await withOutbox({ failed: 0, stalled: 4 }).buildAlerts(metrics);
+    expect(alerts.some((x: Alert) => x.key === 'delivery_failing')).toBe(true);
+  });
+
+  it('stays quiet when the queue is healthy', async () => {
+    const alerts = await withOutbox({ failed: 0, stalled: 0 }).buildAlerts(metrics);
+    expect(alerts.some((x: Alert) => x.key === 'delivery_failing')).toBe(false);
+  });
+
+  it('is inside the scope monitoring claims, so it can be cleared', () => {
+    expect(MONITORING_ALERT_SCOPE).toContain('delivery_failing');
   });
 });

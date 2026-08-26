@@ -8,6 +8,7 @@ import { NotificationService } from '../notification/notification.service';
 import { contractIdFor } from '../order/order.params';
 import { ATTEST_GRACE_SECS, refundOpensAt } from '../order/dispute.util';
 import { Alert, AlertsService } from '../monitoring/alerts.service';
+import { OutboxService } from '../outbox/outbox.service';
 
 const AUTO_REFUND_BATCH_SIZE = 20;
 const DIVERGENCE_SCAN_LIMIT = 500;
@@ -29,6 +30,7 @@ export class MaintenanceService {
     private cfg: AppConfigService,
     private notifications: NotificationService,
     private alerts: AlertsService,
+    private outbox: OutboxService,
   ) {}
 
   @Cron(CronExpression.EVERY_10_MINUTES)
@@ -145,6 +147,12 @@ export class MaintenanceService {
       where: { expiresAt: { lt: new Date() } },
     });
     if (anchor.count > 0) this.log.log(`pruned ${anchor.count} spent SEP-10 challenge(s)`);
+
+    try {
+      await this.outbox.prune();
+    } catch (err) {
+      this.log.warn(`pruning delivered outbox messages failed: ${errMsg(err)}`);
+    }
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES)

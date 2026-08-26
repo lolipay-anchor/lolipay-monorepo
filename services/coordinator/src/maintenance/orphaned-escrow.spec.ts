@@ -29,7 +29,7 @@ function make(opts: {
   const cfg = { escrowContractId: 'CESCROW' } as any;
   const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
   return {
-    svc: new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications, { raise: jest.fn(async () => ({ sent: [], cleared: [] })) } as any),
+    svc: new MaintenanceService(prisma, stellar, refundSigner, cfg, notifications, { raise: jest.fn(async () => ({ sent: [], cleared: [] })) } as any, { prune: jest.fn(async () => 0), stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })) } as any),
     prisma,
     stellar,
     refundSigner,
@@ -135,6 +135,7 @@ describe('MaintenanceService.alertOnStaleDisputes (S9)', () => {
       { escrowContractId: 'CESCROW' } as any,
       { notifyOrderStatus: jest.fn() } as any,
       { raise: jest.fn(async () => ({ sent: [], cleared: [] })) } as any,
+      { prune: jest.fn(async () => 0), stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })) } as any,
     );
     return { svc, prisma };
   }

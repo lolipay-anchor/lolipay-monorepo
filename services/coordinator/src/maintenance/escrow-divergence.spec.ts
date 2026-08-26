@@ -26,6 +26,7 @@ function make(opts: {
     { escrowContractId: 'CESCROW' } as any,
     { notifyOrderStatus: jest.fn() } as any,
     { raise } as any,
+    { prune: jest.fn(async () => 0), stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })) } as any,
   );
   return { svc, raise, stellar, prisma };
 }
@@ -125,6 +126,7 @@ describe('an order the chain disagrees about reaches a human', () => {
       { escrowContractId: 'CESCROW' } as any,
       { notifyOrderStatus: jest.fn() } as any,
       { raise } as any,
+      { prune: jest.fn(async () => 0), stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })) } as any,
     );
 
     await svc.alertOnEscrowDivergence();

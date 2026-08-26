@@ -239,11 +239,13 @@ model OutboxMessage {
   payload   Json
   dedupeKey String?      @unique
   status    OutboxStatus @default(PENDING)
-  attempts  Int          @default(0)
-  lastError String?
-  createdAt DateTime     @default(now())
-  sentAt    DateTime?
+  attempts      Int          @default(0)
+  lastError     String?
+  createdAt     DateTime     @default(now())
+  sentAt        DateTime?
+  nextAttemptAt DateTime     @default(now())
 
+  @@index([status, nextAttemptAt])
   @@index([status, createdAt])
 }
 
