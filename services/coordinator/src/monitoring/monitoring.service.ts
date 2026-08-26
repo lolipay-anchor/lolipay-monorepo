@@ -6,6 +6,7 @@ import { Alert, AlertsService, Urgency } from './alerts.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { AppConfigService } from '../config/app-config.service';
+import { cooldownFloorSecs } from '../config/contract-limits';
 import {
   ALERT_SAMPLE_LIMIT,
   DISPUTE_STALE_DAYS,
@@ -26,6 +27,7 @@ export const MONITORING_ALERT_SCOPE = [
   'indexer_stalled',
   'delivery_failing',
   'slash_window_open',
+  'cooldown_below_floor',
 ];
 
 @Injectable()
@@ -239,6 +241,27 @@ export class MonitoringService {
         urgency: 'routine',
         text: `${stuck.failed} message(s) gave up and ${stuck.stalled} have been waiting too long — something this service tried to tell you did not arrive`,
       });
+    }
+
+    try {
+      const cfg = await this.prisma.config.findUnique({ where: { id: 1 } });
+      if (cfg) {
+        const floor = cooldownFloorSecs(cfg.payWindowSecs, cfg.confirmWindowSecs);
+        const deployed = await this.stellar.stakingCooldownSecs();
+        if (deployed < floor) {
+          alerts.push({
+            key: 'cooldown_below_floor',
+            fingerprint: `${deployed}/${floor}`,
+            urgency: 'urgent',
+            text: `the staking contract runs a ${deployed}s cooldown but these windows need at least ${floor}s — a provider can withdraw its bond before a verdict against it can be acted on`,
+          });
+        }
+      }
+    } catch (e) {
+      incomplete.add('cooldown_below_floor');
+      this.log.warn(
+        `could not check the deployed cooldown against the floor: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
 
     if (m.indexer_lag_seconds == null) {

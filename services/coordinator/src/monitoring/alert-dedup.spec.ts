@@ -347,9 +347,10 @@ describe('a dispute nobody resolves stops being routine', () => {
         count: jest.fn().mockResolvedValue(0),
         groupBy: jest.fn().mockResolvedValue([]),
       },
+      config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
-    return new MonitoringService(prisma, { raise: jest.fn() } as any, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any, { escrowContractId: 'CESCROW' } as any);
+    return new MonitoringService(prisma, { raise: jest.fn() } as any, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n), stakingCooldownSecs: jest.fn(async () => 349_201) } as any, { escrowContractId: 'CESCROW' } as any);
   }
 
   it('escalates a thirty-day-old dispute to urgent on the same key', async () => {
@@ -403,9 +404,10 @@ describe('a dispute the poller stamped still ages', () => {
         count: jest.fn().mockResolvedValue(0),
         groupBy: jest.fn().mockResolvedValue([]),
       },
+      config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
-    const svc = new MonitoringService(prisma, { raise: jest.fn() } as any, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any, { escrowContractId: 'CESCROW' } as any);
+    const svc = new MonitoringService(prisma, { raise: jest.fn() } as any, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n), stakingCooldownSecs: jest.fn(async () => 349_201) } as any, { escrowContractId: 'CESCROW' } as any);
 
     const alerts = await svc.buildAlerts(metrics);
     expect(alerts[0].urgency).toBe('urgent');
@@ -440,9 +442,10 @@ describe('the seam between finding conditions and deciding about them', () => {
         count: jest.fn().mockResolvedValue(0),
         groupBy: jest.fn().mockResolvedValue([]),
       },
+      config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
-    return { svc: new MonitoringService(prisma, { raise } as any, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any, { escrowContractId: 'CESCROW' } as any), prisma, raise };
+    return { svc: new MonitoringService(prisma, { raise } as any, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n), stakingCooldownSecs: jest.fn(async () => 349_201) } as any, { escrowContractId: 'CESCROW' } as any), prisma, raise };
   }
 
   it('tells the alerts service which families it could not see the whole of', async () => {
@@ -509,13 +512,14 @@ describe('a message that never arrived is itself a condition', () => {
         count: jest.fn().mockResolvedValue(0),
         groupBy: jest.fn().mockResolvedValue([]),
       },
+      config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
     const outbox = {
       stuckCounts: jest.fn(async () => counts),
       prune: jest.fn(async () => 0),
     } as any;
-    return new MonitoringService(prisma, { raise: jest.fn() } as any, outbox, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any, { escrowContractId: 'CESCROW' } as any);
+    return new MonitoringService(prisma, { raise: jest.fn() } as any, outbox, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n), stakingCooldownSecs: jest.fn(async () => 349_201) } as any, { escrowContractId: 'CESCROW' } as any);
   }
 
   it('says so when something it tried to tell you gave up', async () => {

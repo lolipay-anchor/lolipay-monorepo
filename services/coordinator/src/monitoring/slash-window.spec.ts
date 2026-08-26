@@ -243,6 +243,7 @@ describe('two ticks must not be able to wipe each other findings', () => {
         count: jest.fn().mockResolvedValue(0),
         groupBy: jest.fn().mockResolvedValue([]),
       },
+      config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
     const stellar = {
@@ -284,13 +285,14 @@ describe('two ticks must not be able to wipe each other findings', () => {
         count: jest.fn().mockResolvedValue(0),
         groupBy: jest.fn().mockResolvedValue([]),
       },
+      config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
     const svc = new MonitoringService(
       prisma,
       { raise } as any,
       { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn() } as any,
-      { getTradeStatusStrict: jest.fn(), getTradeStatus: jest.fn(), getSlashedSoFar: jest.fn() } as any,
+      { getTradeStatusStrict: jest.fn(), getTradeStatus: jest.fn(), getSlashedSoFar: jest.fn(), stakingCooldownSecs: jest.fn(async () => 349_201) } as any,
       { escrowContractId: 'CESCROW' } as any,
     );
     await svc.checkAndAlert();
@@ -327,13 +329,14 @@ describe('the restitution scan cannot clear while the thing that feeds it is beh
         count: jest.fn().mockResolvedValue(0),
         groupBy: jest.fn().mockResolvedValue([]),
       },
+      config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
     return new MonitoringService(
       prisma,
       { raise: jest.fn() } as any,
       { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any,
-      { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any,
+      { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n), stakingCooldownSecs: jest.fn(async () => 349_201) } as any,
       { escrowContractId: 'CESCROW' } as any,
     );
   }
@@ -356,6 +359,34 @@ describe('the restitution scan cannot clear while the thing that feeds it is beh
 
     expect(lagging.find((a) => a.key === 'indexer_stalled')?.urgency).toBe('urgent');
     expect(never.find((a) => a.key === 'indexer_stalled')?.urgency).toBe('urgent');
+  });
+
+  it('raises when the deployed cooldown has fallen below the floor these windows need', async () => {
+    const prisma = {
+      order: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        groupBy: jest.fn().mockResolvedValue([]),
+      },
+      config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
+      indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
+    } as any;
+    const svc = new MonitoringService(
+      prisma,
+      { raise: jest.fn() } as any,
+      { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any,
+      {
+        getTradeStatus: jest.fn(async () => null),
+        getSlashedSoFar: jest.fn(async () => 0n),
+        stakingCooldownSecs: jest.fn(async () => 345_601),
+      } as any,
+      { escrowContractId: 'CESCROW' } as any,
+    );
+
+    const alerts = await svc.buildAlerts({ ...base, indexer_lag_seconds: 5 } as any);
+    const found = alerts.find((a) => a.key === 'cooldown_below_floor');
+    expect(found?.urgency).toBe('urgent');
+    expect(found?.text).toContain('349201');
   });
 
   it('leaves it complete when the indexer is keeping up', async () => {
