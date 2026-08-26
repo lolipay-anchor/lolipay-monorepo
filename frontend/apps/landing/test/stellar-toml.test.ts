@@ -79,24 +79,29 @@ describe('the toml carries the fields the acceptance suite reads', () => {
     expect(await body()).not.toMatch(/TRANSFER_SERVER_SEP0024/)
   })
 
-  it('emits every line as a quoted key and value, so the file parses', async () => {
-    const lines = (await body()).split('\n').filter((l) => l.trim() !== '')
-    expect(lines.length).toBeGreaterThan(0)
-    for (const line of lines) {
+  it('emits every top-level line as a quoted key and value, so the file parses', async () => {
+    const all = (await body()).split('\n').filter((l) => l.trim() !== '')
+    const head = all.slice(0, all.findIndex((l) => l.startsWith('[')))
+    expect(head.length).toBeGreaterThan(0)
+    for (const line of head) {
       expect(line).toMatch(/^[A-Z0-9_]+="[^"]*"$/)
+    }
+    for (const line of all.filter((l) => l.startsWith('['))) {
+      expect(line).toMatch(/^\[{1,2}[A-Z]+\]{1,2}$/)
     }
   })
 
-  it('emits exactly the fields it means to, and nothing else', async () => {
-    const keys = (await body())
-      .split('\n')
-      .filter((l) => l.trim() !== '')
+  it('emits exactly the top-level fields it means to, and nothing else', async () => {
+    const all = (await body()).split('\n').filter((l) => l.trim() !== '')
+    const keys = all
+      .slice(0, all.findIndex((l) => l.startsWith('[')))
       .map((l) => l.split('=')[0])
 
     expect(keys).toEqual([
       'NETWORK_PASSPHRASE',
       'SIGNING_KEY',
       'WEB_AUTH_ENDPOINT',
+      'VERSION',
     ])
   })
 })
@@ -251,6 +256,37 @@ describe('the currencies section', () => {
     expect(body).toContain('status="test"')
     expect(body).toContain('is_asset_anchored=false')
     expect(body).toMatch(/desc="[^"]*[Nn]ot redeemable/)
+  })
+
+  it('calls the asset what it is: crypto, not fiat', async () => {
+    expect(await body()).toContain('anchor_asset_type="crypto"')
+  })
+
+  it('states the one issuance policy the spec asks for, and states it truthfully', async () => {
+    const t = await body()
+    expect(t).toContain('is_unlimited=true')
+    expect(t).not.toContain('fixed_number')
+    expect(t).not.toContain('max_number')
+  })
+
+  it('names the corridor, which is the one thing D1 asks for that SEP-1 has no field for', async () => {
+    const t = await body()
+    expect(t).toMatch(/conditions=".*IDR.*USDC.*"/)
+    expect(t).toMatch(/ORG_DESCRIPTION=".*Indonesia.*"/)
+  })
+
+  it('describes the organisation without claiming anything it cannot show', async () => {
+    const t = await body()
+    expect(t).toContain('[DOCUMENTATION]')
+    expect(t).toContain('ORG_NAME="lolipay"')
+    expect(t).toContain('ORG_URL="https://lolipay.app"')
+    expect(t).not.toMatch(/ORG_LICENSE|ORG_PHYSICAL_ADDRESS|ORG_PHONE_NUMBER/)
+  })
+
+  it('puts the bare keys before the first table header, or the file parses as something else', async () => {
+    const t = await body()
+    expect(t.indexOf('VERSION=')).toBeLessThan(t.indexOf('[[CURRENCIES]]'))
+    expect(t.indexOf('[[CURRENCIES]]')).toBeLessThan(t.indexOf('[DOCUMENTATION]'))
   })
 
   it('says plainly on the test network that the asset is not redeemable', async () => {

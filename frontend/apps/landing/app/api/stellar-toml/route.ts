@@ -105,10 +105,27 @@ export function currenciesSection(): { toml: string } | { omitted: string } {
       `issuer="${issuer}"`,
       `status="${status}"`,
       `is_asset_anchored=${isAnchored}`,
-      'anchor_asset_type="fiat"',
+      'anchor_asset_type="crypto"',
+      'is_unlimited=true',
       `desc="${desc}"`,
+      `conditions="${CORRIDOR}"`,
     ].join('\n'),
   }
+}
+
+const CORRIDOR =
+  'Peer-to-peer IDR to USDC and USDC to IDR for Indonesian bank and e-wallet rails. ' +
+  'Settlement is non-custodial: each trade locks USDC in a per-trade Soroban escrow ' +
+  'and is backed by slashable provider collateral.'
+
+function documentationSection(): string {
+  return [
+    '',
+    '[DOCUMENTATION]',
+    'ORG_NAME="lolipay"',
+    'ORG_URL="https://lolipay.app"',
+    `ORG_DESCRIPTION="A non-custodial peer-to-peer on and off ramp between Indonesian rupiah and USDC on Stellar, serving the Indonesia IDR corridor."`,
+  ].join('\n')
 }
 
 function render(): { toml: string } | { problem: string } {
@@ -123,8 +140,13 @@ function render(): { toml: string } | { problem: string } {
     if (complaint) return { problem: `${field.env} ${complaint}` }
     lines.push(`${field.key}="${value}"`)
   }
+  lines.push('VERSION="2.7.0"')
   const currencies = currenciesSection()
-  const body = 'toml' in currencies ? lines.join('\n') + currencies.toml + '\n' : lines.join('\n') + '\n'
+  const head = lines.join('\n')
+  const body =
+    'toml' in currencies
+      ? head + currencies.toml + documentationSection() + '\n'
+      : head + documentationSection() + '\n'
   return { toml: body }
 }
 
