@@ -157,7 +157,13 @@ export const getResolveTx = (c: ApiClient, orderId: string, outcome: 'release' |
   c.request<TxEnvelope>('GET', `/orders/${orderId}/tx/resolve?outcome=${outcome}`)
 
 export const getSlashState = (c: ApiClient, orderId: string) =>
-  c.request<{ trade_amount: string; recovered: string; remaining: string }>(
+  c.request<{
+    trade_amount: string
+    recovered: string
+    remaining: string
+    slash_deadline: number | null
+    liability_established: boolean
+  }>(
     'GET',
     `/orders/${orderId}/slash-state`,
   )

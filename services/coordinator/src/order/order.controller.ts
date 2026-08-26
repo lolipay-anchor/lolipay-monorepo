@@ -128,6 +128,8 @@ export class OrderController {
       trade_amount: st.tradeAmount.toString(),
       recovered: st.recovered.toString(),
       remaining: st.remaining.toString(),
+      slash_deadline: st.deadline,
+      liability_established: st.liabilityEstablished,
     };
   }
 

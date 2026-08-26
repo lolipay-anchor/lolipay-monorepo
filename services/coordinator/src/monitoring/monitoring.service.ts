@@ -4,9 +4,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../generated/prisma/client';
 import { Alert, AlertsService, Urgency } from './alerts.service';
 import { OutboxService } from '../outbox/outbox.service';
+import { StellarReadService } from '../stellar/stellar-read.service';
+import { AppConfigService } from '../config/app-config.service';
 import {
   ALERT_SAMPLE_LIMIT,
   DISPUTE_STALE_DAYS,
+  SLASH_SCAN_LIMIT,
+  slashCandidatesWhere,
   fiatPaymentOverdueWhere,
   nowSeconds,
   openDisputesWhere,
@@ -21,6 +25,7 @@ export const MONITORING_ALERT_SCOPE = [
   'fiat_payment_overdue',
   'indexer_stalled',
   'delivery_failing',
+  'slash_window_open',
 ];
 
 @Injectable()
@@ -30,7 +35,50 @@ export class MonitoringService {
     private prisma: PrismaService,
     private alerts: AlertsService,
     private outbox: OutboxService,
+    private stellar: StellarReadService,
+    private cfg: AppConfigService,
   ) {}
+
+  async slashWindowAlerts(now: Date = new Date()): Promise<Alert[]> {
+    const candidates = await this.prisma.order.findMany({
+      where: slashCandidatesWhere(),
+      select: { id: true, tradeId: true, contractId: true, usdcAmount: true },
+      orderBy: [{ settledAt: 'desc' }, { id: 'asc' }],
+      take: SLASH_SCAN_LIMIT,
+    });
+
+    const nowSecs = BigInt(Math.floor(now.getTime() / 1000));
+    const out: Alert[] = [];
+    for (const o of candidates) {
+      const contractId = o.contractId ?? this.cfg.escrowContractId;
+      let chain;
+      try {
+        chain = await this.stellar.getTradeStatus(contractId, o.tradeId);
+      } catch {
+        continue;
+      }
+      if (!chain?.liabilityEstablished) continue;
+      const deadline = chain.slashDeadline ?? 0n;
+      if (deadline === 0n || nowSecs > deadline) continue;
+
+      let recovered = 0n;
+      try {
+        recovered = await this.stellar.getSlashedSoFar(o.tradeId);
+      } catch {
+        continue;
+      }
+      if (recovered >= o.usdcAmount) continue;
+
+      const minutesLeft = Number(deadline - nowSecs) / 60;
+      out.push({
+        key: `slash_window_open:${o.id}`,
+        fingerprint: bucketOf(minutesLeft),
+        urgency: 'urgent',
+        text: `order ${o.id} (trade ${o.tradeId}) has a verdict against the provider and ${Math.floor(minutesLeft)} minute(s) left to recover ${o.usdcAmount - recovered} base units from its bond — nothing recovers this automatically`,
+      });
+    }
+    return out;
+  }
 
   async metrics() {
     const nowSec = nowSeconds();
@@ -143,6 +191,15 @@ export class MonitoringService {
       })),
     ];
 
+    try {
+      alerts.push(...(await this.slashWindowAlerts()));
+    } catch (e) {
+      this.log.error(
+        `could not check for open slash windows: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      this.truncated.add('slash_window_open');
+    }
+
     const stuck = await this.outbox.stuckCounts();
     if (stuck.failed > 0 || stuck.stalled > 0) {
       alerts.push({
@@ -182,4 +239,11 @@ export class MonitoringService {
     });
   }
 
+}
+
+function bucketOf(minutesLeft: number): string {
+  if (minutesLeft <= 15) return 'under-15m';
+  if (minutesLeft <= 60) return 'under-1h';
+  if (minutesLeft <= 6 * 60) return 'under-6h';
+  return 'over-6h';
 }

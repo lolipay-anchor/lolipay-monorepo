@@ -39,7 +39,12 @@ describe('OrderTxService — the slash caller', () => {
       buildSlashTx: jest.fn().mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'NP' }),
       getSlashedSoFar: jest.fn().mockResolvedValue(0n),
       getTradeStatus: jest.fn().mockResolvedValue(null),
-      getTradeStatusStrict: jest.fn().mockResolvedValue(null),
+      getTradeStatusStrict: jest.fn().mockResolvedValue({
+        status: 'RELEASED',
+        settledAt: 0,
+        liabilityEstablished: true,
+        slashDeadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      }),
       ...stellarOverrides,
     } as any;
     const cfg = { platformWallet: 'GPLATFORM', escrowContractId: 'CENV' } as any;
@@ -115,20 +120,64 @@ describe('OrderTxService — the slash caller', () => {
     );
   });
 
-  it('refuses a healthy settlement that nobody ever disputed', async () => {
-    const { svc } = makeSvc({ disputeAt: null });
+  it('refuses when the chain has established no liability, which is what the contract checks', async () => {
+    const { svc } = makeSvc(
+      {},
+      {
+        getTradeStatusStrict: jest.fn().mockResolvedValue({
+          status: 'RELEASED',
+          settledAt: 0,
+          liabilityEstablished: false,
+          slashDeadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+        }),
+      },
+    );
     await expect(svc.buildSlashTx('order-1', 'GADMIN', BigInt('1'))).rejects.toBeInstanceOf(
       ConflictException,
     );
   });
 
-  it('refuses when the only dispute predates the settlement', async () => {
-    const { svc } = makeSvc({
-      settledAt: new Date(Date.now() - 10_000),
-      disputeAt: new Date(Date.now() - 60_000),
-    });
+  it('refuses once the slash window has closed, rather than sending an operator to sign in vain', async () => {
+    const { svc } = makeSvc(
+      {},
+      {
+        getTradeStatusStrict: jest.fn().mockResolvedValue({
+          status: 'RELEASED',
+          settledAt: 0,
+          liabilityEstablished: true,
+          slashDeadline: BigInt(Math.floor(Date.now() / 1000) - 1),
+        }),
+      },
+    );
     await expect(svc.buildSlashTx('order-1', 'GADMIN', BigInt('1'))).rejects.toBeInstanceOf(
       ConflictException,
+    );
+  });
+
+  it('refuses when an exonerating verdict zeroed the window', async () => {
+    const { svc } = makeSvc(
+      {},
+      {
+        getTradeStatusStrict: jest.fn().mockResolvedValue({
+          status: 'RELEASED',
+          settledAt: 0,
+          liabilityEstablished: true,
+          slashDeadline: 0n,
+        }),
+      },
+    );
+    await expect(svc.buildSlashTx('order-1', 'GADMIN', BigInt('1'))).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('refuses rather than guessing when the chain cannot be read', async () => {
+    const { svc } = makeSvc(
+      {},
+      { getTradeStatusStrict: jest.fn().mockRejectedValue(new Error('rpc down')) },
+    );
+    await expect(svc.buildSlashTx('order-1', 'GADMIN', BigInt('1'))).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
     );
   });
 
@@ -210,7 +259,12 @@ describe('OrderTxService — recovery already taken on chain', () => {
       buildSlashTx: jest.fn().mockResolvedValue({ xdr: 'X', networkPassphrase: 'NP' }),
       getSlashedSoFar: jest.fn().mockResolvedValue(slashed),
       getTradeStatus: jest.fn().mockResolvedValue(null),
-      getTradeStatusStrict: jest.fn().mockResolvedValue(null),
+      getTradeStatusStrict: jest.fn().mockResolvedValue({
+        status: 'RELEASED',
+        settledAt: 0,
+        liabilityEstablished: true,
+        slashDeadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      }),
       ...stellarOverrides,
     } as any;
     const cfg = { platformWallet: 'GPLATFORM', escrowContractId: 'CENV' } as any;

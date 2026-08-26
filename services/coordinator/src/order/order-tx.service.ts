@@ -262,18 +262,41 @@ export class OrderTxService {
           'this settlement left the user holding the money, not the provider — there is no provider bond to draw on',
         );
       }
-      const judged =
-        current.disputeAt &&
-        current.settledAt &&
-        current.disputeAt.getTime() > current.settledAt.getTime();
-      if (!judged) {
-        throw new ConflictException(
-          'no post-settlement dispute was raised on this trade, so there is no verdict to enforce',
-        );
-      }
     } else if (current.status !== 'DISPUTED') {
       throw new ConflictException(
         'a slash is restitution after settlement — this order has not settled, and while it has not, releasing or refunding the escrow is the remedy',
+      );
+    }
+
+    let chain;
+    try {
+      chain = await this.stellar.getTradeStatusStrict(
+        this.status.contractIdFor(current),
+        current.tradeId,
+      );
+    } catch (err) {
+      console.error('buildSlashTx chain read:', err instanceof Error ? err.message : String(err));
+      throw new ServiceUnavailableException(
+        'cannot read the verdict on chain right now — refusing rather than sending you to sign something that will be rejected',
+      );
+    }
+    if (!chain) {
+      throw new ConflictException('the escrow has no record of this trade');
+    }
+    if (!chain.liabilityEstablished) {
+      throw new ConflictException(
+        'no liability has been established on this trade — resolving a dispute against the party holding the money is what establishes it, and the contract will refuse a slash until then',
+      );
+    }
+    const deadline = chain.slashDeadline ?? 0n;
+    if (deadline === 0n) {
+      throw new ConflictException(
+        'the slash window on this trade has been closed by an exonerating verdict',
+      );
+    }
+    if (BigInt(Math.floor(Date.now() / 1000)) > deadline) {
+      throw new ConflictException(
+        'the window to slash this trade has closed — the bond is no longer reachable for it',
       );
     }
 
@@ -306,16 +329,29 @@ export class OrderTxService {
     }
   }
 
-  async orderForSlashState(orderId: string): Promise<{ tradeId: string; usdcAmount: bigint }> {
+  async orderForSlashState(
+    orderId: string,
+  ): Promise<{ tradeId: string; usdcAmount: bigint; contractId: string | null }> {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('order not found');
-    return { tradeId: order.tradeId, usdcAmount: order.usdcAmount };
+    return {
+      tradeId: order.tradeId,
+      usdcAmount: order.usdcAmount,
+      contractId: order.contractId,
+    };
   }
 
   async slashState(order: {
     tradeId: string;
     usdcAmount: bigint;
-  }): Promise<{ tradeAmount: bigint; recovered: bigint; remaining: bigint }> {
+    contractId?: string | null;
+  }): Promise<{
+    tradeAmount: bigint;
+    recovered: bigint;
+    remaining: bigint;
+    deadline: number | null;
+    liabilityEstablished: boolean;
+  }> {
     let recovered: bigint;
     try {
       recovered = await this.stellar.getSlashedSoFar(order.tradeId);
@@ -325,11 +361,27 @@ export class OrderTxService {
         'cannot read how much has already been recovered on this trade — refusing rather than risking a double recovery',
       );
     }
+    let deadline: number | null = null;
+    let liabilityEstablished = false;
+    try {
+      const chain = await this.stellar.getTradeStatus(
+        order.contractId ?? this.cfg.escrowContractId,
+        order.tradeId,
+      );
+      liabilityEstablished = chain?.liabilityEstablished === true;
+      const d = chain?.slashDeadline ?? 0n;
+      deadline = d > 0n ? Number(d) : null;
+    } catch {
+      deadline = null;
+    }
+
     const remaining = order.usdcAmount - recovered;
     return {
       tradeAmount: order.usdcAmount,
       recovered,
       remaining: remaining > 0n ? remaining : 0n,
+      deadline,
+      liabilityEstablished,
     };
   }
 

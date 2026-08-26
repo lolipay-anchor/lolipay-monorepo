@@ -232,6 +232,9 @@ export class StellarReadService {
       confirmDeadline: asBigInt(ret.confirm_deadline),
       disputeDeadline: asBigInt(ret.dispute_deadline),
       postSettleDeadline: asBigInt(ret.post_settle_deadline),
+      slashDeadline: asBigInt(ret.slash_deadline),
+      liabilityEstablished:
+        typeof ret.liability_established === 'boolean' ? ret.liability_established : undefined,
     };
   }
 

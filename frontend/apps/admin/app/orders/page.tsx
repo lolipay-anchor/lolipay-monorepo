@@ -539,6 +539,16 @@ function OrderCard({ order, onResolved }: { order: Order; onResolved: () => void
   )
 }
 
+export function formatWindow(seconds: number): string {
+  if (seconds >= 3600) {
+    const h = Math.floor(seconds / 3600)
+    const m = Math.floor((seconds % 3600) / 60)
+    return `${h}h ${m}m`
+  }
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+  return `${seconds}s`
+}
+
 export function providerDefaulted(order: Order): boolean {
   const settledAgainstProvider =
     (order.flow === 'TOP_UP' && order.status === 'REFUNDED') ||
@@ -566,12 +576,28 @@ export function SlashAction({
   const [amount, setAmount] = React.useState(full)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [state, setState] = React.useState<{ recovered: string; remaining: string } | null>(null)
+  const [state, setState] = React.useState<{
+    recovered: string
+    remaining: string
+    deadline: number | null
+    established: boolean
+  } | null>(null)
+  const [now, setNow] = React.useState(() => Math.floor(Date.now() / 1000))
+
+  React.useEffect(() => {
+    const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000)
+    return () => clearInterval(t)
+  }, [])
 
   const load = React.useCallback(async () => {
     try {
       const st = await getSlashState(client, order.id)
-      setState({ recovered: st.recovered, remaining: st.remaining })
+      setState({
+        recovered: st.recovered,
+        remaining: st.remaining,
+        deadline: st.slash_deadline,
+        established: st.liability_established,
+      })
       setAmount(st.remaining)
     } catch {
       setState(null)
@@ -629,6 +655,25 @@ export function SlashAction({
           Recover
         </Button>
       </div>
+      {state && (
+        <p
+          className={
+            state.deadline && state.deadline - now <= 3600
+              ? 'text-xs font-semibold text-lp-danger'
+              : 'text-xs font-semibold text-lp-amber'
+          }
+          data-testid="slash-window"
+          role={state.deadline && state.deadline - now <= 3600 ? 'alert' : undefined}
+        >
+          {!state.established
+            ? 'No liability established yet — resolve the dispute against the provider first; the contract will refuse a slash until then.'
+            : state.deadline === null
+              ? 'The recovery window is closed on this trade.'
+              : state.deadline - now <= 0
+                ? 'The recovery window has closed — the bond is no longer reachable for this trade.'
+                : `${formatWindow(state.deadline - now)} left to sign this.`}
+        </p>
+      )}
       <p className="text-[11px] leading-relaxed text-lp-muted" data-testid="slash-state">
         {state
           ? `${formatUSDC(BigInt(state.recovered))} of ${formatUSDC(BigInt(full))} USDC already recovered on this trade; ${formatUSDC(BigInt(state.remaining))} left.`

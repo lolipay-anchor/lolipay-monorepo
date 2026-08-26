@@ -11,7 +11,7 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
 })
 
 import * as apiClient from '@lolipay/api-client'
-import { SlashAction, providerDefaulted } from '@/app/orders/page'
+import { SlashAction, providerDefaulted, formatWindow } from '@/app/orders/page'
 import type { Order } from '@lolipay/api-client'
 
 const BASE = {
@@ -196,6 +196,8 @@ describe('SlashAction — what has already been recovered', () => {
       trade_amount: '1000000000',
       recovered: '600000000',
       remaining: '400000000',
+      slash_deadline: Math.floor(Date.now() / 1000) + 7200,
+      liability_established: true,
     } as any)
     render(
       <TestProviders kit={fakeKit}>
@@ -212,6 +214,8 @@ describe('SlashAction — what has already been recovered', () => {
       trade_amount: '1000000000',
       recovered: '600000000',
       remaining: '400000000',
+      slash_deadline: Math.floor(Date.now() / 1000) + 7200,
+      liability_established: true,
     } as any)
     render(
       <TestProviders kit={fakeKit}>
@@ -226,8 +230,8 @@ describe('SlashAction — what has already been recovered', () => {
 
   it('re-reads the running total after a submission so the next click cannot repeat it', async () => {
     vi.mocked(apiClient.getSlashState)
-      .mockResolvedValueOnce({ trade_amount: '1000000000', recovered: '0', remaining: '1000000000' } as any)
-      .mockResolvedValueOnce({ trade_amount: '1000000000', recovered: '1000000000', remaining: '0' } as any)
+      .mockResolvedValueOnce({ trade_amount: '1000000000', recovered: '0', remaining: '1000000000', slash_deadline: Math.floor(Date.now() / 1000) + 7200, liability_established: true } as any)
+      .mockResolvedValueOnce({ trade_amount: '1000000000', recovered: '1000000000', remaining: '0', slash_deadline: Math.floor(Date.now() / 1000) + 7200, liability_established: true } as any)
     vi.mocked(apiClient.getSlashTx).mockResolvedValue({ xdr: 'X', networkPassphrase: 'NP' } as any)
 
     render(
@@ -258,5 +262,65 @@ describe('SlashAction — what has already been recovered', () => {
     )
     const note = await screen.findByTestId('slash-state')
     expect(note.textContent).toContain('Up to 100.00')
+  })
+})
+
+describe('the operator can see the clock they are racing', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  function withState(over: Record<string, unknown>) {
+    vi.mocked(apiClient.getSlashState).mockResolvedValue({
+      trade_amount: '1000000000',
+      recovered: '0',
+      remaining: '1000000000',
+      slash_deadline: Math.floor(Date.now() / 1000) + 7200,
+      liability_established: true,
+      ...over,
+    } as any)
+    return render(
+      <TestProviders kit={fakeKit}>
+        <SlashAction order={order('WITHDRAW', 'RELEASED')} onSlashed={vi.fn()} submitFn={vi.fn()} />
+      </TestProviders>,
+    )
+  }
+
+  it('shows how long is left rather than leaving the operator to guess', async () => {
+    withState({ slash_deadline: Math.floor(Date.now() / 1000) + 7200 })
+    const w = await screen.findByTestId('slash-window')
+    await waitFor(() => expect(w.textContent).toMatch(/1h 5[0-9]m left/))
+  })
+
+  it('raises the alarm when under an hour remains', async () => {
+    withState({ slash_deadline: Math.floor(Date.now() / 1000) + 600 })
+    const w = await screen.findByTestId('slash-window')
+    await waitFor(() => expect(w.getAttribute('role')).toBe('alert'))
+    expect(w.className).toContain('danger')
+  })
+
+  it('says plainly when the window has already closed', async () => {
+    withState({ slash_deadline: Math.floor(Date.now() / 1000) - 5 })
+    const w = await screen.findByTestId('slash-window')
+    await waitFor(() => expect(w.textContent).toMatch(/no longer reachable/i))
+  })
+
+  it('explains why a slash is refused when no verdict exists yet', async () => {
+    withState({ liability_established: false })
+    const w = await screen.findByTestId('slash-window')
+    await waitFor(() => expect(w.textContent).toMatch(/resolve the dispute/i))
+  })
+})
+
+describe('formatWindow', () => {
+  it('reads as hours and minutes when there is time', () => {
+    expect(formatWindow(7200)).toBe('2h 0m')
+    expect(formatWindow(5430)).toBe('1h 30m')
+  })
+
+  it('drops to minutes and seconds when it gets tight', () => {
+    expect(formatWindow(125)).toBe('2m 5s')
+  })
+
+  it('counts the last seconds', () => {
+    expect(formatWindow(9)).toBe('9s')
   })
 })

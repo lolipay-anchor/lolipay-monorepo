@@ -48,7 +48,7 @@ function make(opts: {
       return { sent: list, cleared: [] };
     }),
   } as any;
-  return { svc: new MonitoringService(prisma, alerts, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any), prisma, alerts, raised };
+  return { svc: new MonitoringService(prisma, alerts, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any, { escrowContractId: 'CESCROW' } as any), prisma, alerts, raised };
 }
 
 describe('MonitoringService', () => {
