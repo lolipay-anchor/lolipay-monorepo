@@ -31,6 +31,7 @@ import { generateRef } from './ref.util';
 import { canDispute, allowedDisputeReasons, isOwnEvidencePath } from './dispute.util';
 import { ObjectStorageService } from '../storage/object-storage.service';
 import { UserReputationService } from '../reputation/user-reputation.service';
+import { PROVIDER_LOST_WHERE } from '../reputation/dispute-outcome';
 
 
 export const MAX_REF_ATTEMPTS = 5;
@@ -88,7 +89,7 @@ export class OrderService {
         where: {
           lpId,
           status: 'RELEASED',
-          NOT: { flow: 'TOP_UP', resolution: 'released' },
+          NOT: { OR: PROVIDER_LOST_WHERE },
         },
       }),
       this.prisma.order.count({

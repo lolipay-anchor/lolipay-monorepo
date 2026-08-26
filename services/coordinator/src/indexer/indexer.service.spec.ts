@@ -422,6 +422,29 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     expect(prisma.order.updateMany).not.toHaveBeenCalled();
   });
 
+  it('records what the resolver ruled, not how the trade had already settled', async () => {
+    const { svc, prisma } = make('DISPUTED', {
+      flow: 'TOP_UP',
+      stellarOverrides: {
+        getTradeStatusStrict: jest.fn().mockResolvedValue({
+          status: 'RELEASED',
+          liabilityEstablished: true,
+          slashDeadline: 1_800_000_000n,
+        }),
+      },
+    });
+    const value = nativeToScVal({ released: false, post_settle: true });
+    await svc.applyEvent({
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value,
+      contractId: 'CXXX',
+    });
+
+    const data = (prisma.order.updateMany as jest.Mock).mock.calls[0][0].data;
+    expect(data.status).toBe('RELEASED');
+    expect(data.resolution).toBe('refunded');
+  });
+
   it('lands a verdict on a row the outage left far behind the chain', async () => {
     const { svc, prisma } = make('FIAT_PAID', {
       stellarOverrides: {
@@ -547,7 +570,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
 
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1' },
-      data: { status: 'RELEASED', resolution: 'released' },
+      data: { status: 'RELEASED', resolution: 'refunded' },
     });
     expect(prisma.order.update).not.toHaveBeenCalled();
     expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(expect.anything(), 'RELEASED');
@@ -897,7 +920,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     expect(userReputation.recordDisputeLost).not.toHaveBeenCalled();
   });
 
-  it('post-settle: the settlement direction still drives the order row, only the blame follows the verdict', async () => {
+  it('post-settle: the status keeps the settlement direction, the resolution keeps the ruling, and the blame follows the ruling', async () => {
     const { svc, prisma, userReputation } = make('DISPUTED', {
       flow: 'TOP_UP',
       stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'REFUNDED' }) },
@@ -910,7 +933,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     });
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1' },
-      data: { status: 'REFUNDED', resolution: 'refunded' },
+      data: { status: 'REFUNDED', resolution: 'released' },
     });
     expect(userReputation.recordDisputeLost).not.toHaveBeenCalled();
   });

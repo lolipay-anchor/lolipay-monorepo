@@ -1,5 +1,6 @@
 import { OrderService } from './order.service';
 import { makeUserReputationStub, orderStatusFor, orderTxFor } from './test-helpers';
+import { PROVIDER_LOST_WHERE, providerLostDispute } from '../reputation/dispute-outcome';
 
 describe('getLpReputation does not reward a provider for losing a dispute (S7/S8)', () => {
   function make(counts: { completed: number; refunded: number }, lpOverrides: any = {}) {
@@ -27,14 +28,17 @@ describe('getLpReputation does not reward a provider for losing a dispute (S7/S8
     return { svc, prisma, lp, calls };
   }
 
-  it('excludes a TOP_UP released against the provider from completed trades', async () => {
+  it('excludes every trade the rule says the provider lost, not just the one shape', async () => {
     const { svc, lp, calls } = make({ completed: 3, refunded: 0 });
     await svc.getLpReputation(`lp-${Math.random()}`, lp);
 
     expect(calls[0].where).toMatchObject({
       status: 'RELEASED',
-      NOT: { flow: 'TOP_UP', resolution: 'released' },
+      NOT: { OR: PROVIDER_LOST_WHERE },
     });
+    for (const combination of calls[0].where.NOT.OR) {
+      expect(providerLostDispute(combination.flow, combination.resolution)).toBe(true);
+    }
   });
 
   it('surfaces the provider dispute-loss counter', async () => {

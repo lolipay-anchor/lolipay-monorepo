@@ -330,13 +330,12 @@ export class IndexerService {
     }
     const finalStatus = settled.status;
 
-    const settlementDirection = finalStatus === 'RELEASED' ? 'released' : 'refunded';
     const verdict = val.released ? 'released' : 'refunded';
     const res = await this.prisma.order.updateMany({
       where: { id: order.id },
       data: {
         status: finalStatus as any,
-        resolution: settlementDirection,
+        resolution: verdict,
         ...(typeof settled.liabilityEstablished === 'boolean' && settled.slashDeadline !== undefined
           ? {
               liabilityEstablished: settled.liabilityEstablished,

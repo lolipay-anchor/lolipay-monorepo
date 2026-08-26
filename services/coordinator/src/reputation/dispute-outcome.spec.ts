@@ -1,27 +1,45 @@
-import { userLostDispute, providerLostDispute } from './dispute-outcome';
+import {
+  PROVIDER_LOST_WHERE,
+  USER_LOST_WHERE,
+  providerLostDispute,
+  userLostDispute,
+  Resolution,
+} from './dispute-outcome';
 
-describe('who lost the dispute', () => {
-  const cases: [string, 'released' | 'refunded', 'user' | 'provider'][] = [
-    ['TOP_UP', 'refunded', 'user'],
-    ['TOP_UP', 'released', 'provider'],
-    ['WITHDRAW', 'released', 'user'],
-    ['WITHDRAW', 'refunded', 'provider'],
-  ];
+const FLOWS = ['TOP_UP', 'WITHDRAW'];
+const RESOLUTIONS: Resolution[] = ['released', 'refunded'];
 
-  it.each(cases)('%s resolved %s → %s loses', (flow, resolution, loser) => {
-    expect(userLostDispute(flow, resolution)).toBe(loser === 'user');
-    expect(providerLostDispute(flow, resolution)).toBe(loser === 'provider');
-  });
-
-  it('never blames both parties for the same outcome', () => {
-    for (const [flow, resolution] of cases.map(([f, r]) => [f, r] as const)) {
-      expect(userLostDispute(flow, resolution) && providerLostDispute(flow, resolution)).toBe(false);
+describe('the filters the reputation queries use cannot drift from the rules they mean', () => {
+  it('every combination the provider-lost filter names is one the rule agrees with', () => {
+    for (const { flow, resolution } of PROVIDER_LOST_WHERE) {
+      expect(providerLostDispute(flow, resolution)).toBe(true);
     }
   });
 
-  it('always blames exactly one party, so no outcome goes unrecorded', () => {
-    for (const [flow, resolution] of cases.map(([f, r]) => [f, r] as const)) {
-      expect(userLostDispute(flow, resolution) || providerLostDispute(flow, resolution)).toBe(true);
+  it('every combination the user-lost filter names is one the rule agrees with', () => {
+    for (const { flow, resolution } of USER_LOST_WHERE) {
+      expect(userLostDispute(flow, resolution)).toBe(true);
+    }
+  });
+
+  it('neither filter leaves out a combination its rule would catch', () => {
+    for (const flow of FLOWS) {
+      for (const resolution of RESOLUTIONS) {
+        const named = (list: { flow: string; resolution: Resolution }[]) =>
+          list.some((e) => e.flow === flow && e.resolution === resolution);
+        expect(named(PROVIDER_LOST_WHERE)).toBe(providerLostDispute(flow, resolution));
+        expect(named(USER_LOST_WHERE)).toBe(userLostDispute(flow, resolution));
+      }
+    }
+  });
+
+  it('the two are exclusive: one verdict never loses for both parties', () => {
+    for (const flow of FLOWS) {
+      for (const resolution of RESOLUTIONS) {
+        expect(providerLostDispute(flow, resolution) && userLostDispute(flow, resolution)).toBe(
+          false,
+        );
+      }
     }
   });
 });

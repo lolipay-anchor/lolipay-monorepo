@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonId, PersonService } from '../person/person.service';
+import { USER_LOST_WHERE } from './dispute-outcome';
 
 type OrderQueryable = PrismaService | Prisma.TransactionClient;
 
@@ -152,10 +153,7 @@ export class UserReputationService implements OnModuleInit {
       where: {
         resolution: { not: null },
         status: { in: ['RELEASED', 'REFUNDED'] },
-        OR: [
-          { flow: 'TOP_UP', resolution: 'refunded' },
-          { flow: 'WITHDRAW', resolution: 'released' },
-        ],
+        OR: USER_LOST_WHERE,
       },
       select: { id: true, userAddress: true },
     });
