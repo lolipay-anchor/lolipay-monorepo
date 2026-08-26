@@ -1,6 +1,6 @@
 import {
   ALERT_SAMPLE_LIMIT,
-  ALERT_TEXT_LIMIT,
+  ALERT_TEXT_BUDGET,
   fiatPaymentOverdueWhere,
   openDisputesWhere,
   releaseOverdueWhere,
@@ -35,9 +35,9 @@ describe('the conditions an operator is alerted about', () => {
     expect(flows).toContain('WITHDRAW');
   });
 
-  it('the sample limit is a real bound and the text limit is smaller than it', () => {
+  it('the sample is bounded and the message budget fits inside what a webhook accepts', () => {
     expect(ALERT_SAMPLE_LIMIT).toBeGreaterThan(0);
-    expect(ALERT_TEXT_LIMIT).toBeGreaterThan(0);
-    expect(ALERT_TEXT_LIMIT).toBeLessThanOrEqual(ALERT_SAMPLE_LIMIT);
+    expect(ALERT_TEXT_BUDGET).toBeGreaterThan(0);
+    expect(ALERT_TEXT_BUDGET).toBeLessThan(2000);
   });
 });

@@ -3933,3 +3933,101 @@ fn a_second_dispute_extends_the_remedy_it_cannot_suspend() {
     );
     assert_eq!(after_second, 4000 + 86_400);
 }
+
+#[test]
+fn a_settlement_stops_being_reachable_after_a_bounded_tail() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 3600;
+    client.set_config(&cfg);
+
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+    let psd = client.get_trade(&id32(&env, 1)).post_settle_deadline;
+
+    env.ledger().with_mut(|l| l.timestamp = psd);
+    client.raise_dispute(&id32(&env, 1), &provider);
+
+    env.ledger().with_mut(|l| l.timestamp = psd + 31_536_000);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
+
+    let t = client.get_trade(&id32(&env, 1));
+    assert!(t.liability_established, "a late verdict is still a verdict");
+    assert_eq!(
+        t.slash_deadline,
+        psd + 2 * 86_400 + 86_400,
+        "a verdict a year late must not open a fresh window a year late"
+    );
+    assert!(
+        t.slash_deadline < env.ledger().timestamp(),
+        "the window is already closed by the time that verdict lands"
+    );
+}
+
+#[test]
+fn the_ceiling_never_takes_back_a_window_already_earned() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 3600;
+    client.set_config(&cfg);
+
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+    let psd = client.get_trade(&id32(&env, 1)).post_settle_deadline;
+
+    env.ledger().with_mut(|l| l.timestamp = psd);
+    client.raise_dispute(&id32(&env, 1), &provider);
+    let earned = client.get_trade(&id32(&env, 1)).slash_deadline;
+
+    env.ledger().with_mut(|l| l.timestamp = psd + 10_000_000);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
+
+    assert!(
+        client.get_trade(&id32(&env, 1)).slash_deadline >= earned,
+        "clamping a late verdict must never shorten a window someone was already relying on"
+    );
+}
+
+#[test]
+fn a_prompt_verdict_is_untouched_by_the_ceiling() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+
+    env.ledger().with_mut(|l| l.timestamp = 600);
+    client.raise_dispute(&id32(&env, 1), &provider);
+    env.ledger().with_mut(|l| l.timestamp = 700);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).slash_deadline, 700 + 86_400);
+}
+
+#[test]
+fn the_slowest_honest_administrator_still_gets_a_full_grace() {
+    let (env, client, admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    let mut cfg = client.get_config();
+    cfg.dispute_window = 3600;
+    client.set_config(&cfg);
+
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.confirm_and_release(&id32(&env, 1));
+    let psd = client.get_trade(&id32(&env, 1)).post_settle_deadline;
+
+    env.ledger().with_mut(|l| l.timestamp = psd);
+    client.raise_dispute(&id32(&env, 1), &provider);
+    let resolver_deadline = client.get_trade(&id32(&env, 1)).resolver_deadline;
+
+    env.ledger().with_mut(|l| l.timestamp = resolver_deadline + 1);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &admin);
+
+    let left = client.get_trade(&id32(&env, 1)).slash_deadline - (resolver_deadline + 1);
+    assert_eq!(left, 86_400, "the fallback that acts the moment its turn opens loses nothing");
+}
