@@ -76,7 +76,7 @@ dump_minio() {
   local out="$BACKUP_DIR/minio-$STAMP.tar.gpg"
   local tmp="$out.partial"
   log "archiving minio data from container $MINIO_NAME"
-  if ! docker exec "$MINIO_NAME" tar -C /data -cf - . | encrypt_to "$tmp"; then
+  if ! docker cp "$MINIO_NAME:/data/." - | encrypt_to "$tmp"; then
     rm -f "$tmp"
     die "minio archive failed; no backup written"
   fi
