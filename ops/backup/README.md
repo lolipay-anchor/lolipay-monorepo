@@ -15,7 +15,7 @@ That is the whole justification. It is not "databases should have backups".
 1. Refuses to start unless the passphrase file exists with mode 600 or 400, both containers are running, and there is at least 1 GiB free.
 2. `pg_dump -Fc` out of the running Postgres container, straight into `gpg --symmetric --cipher-algo AES256`. The plaintext never touches disk.
 3. Tars MinIO's `/data` through the same encryption.
-4. **Decrypts both files end to end** to confirm they are readable and intact before doing anything else. AES256 in GPG carries an integrity check, so a truncated or corrupted file fails here rather than on the day you need it.
+4. **Decrypts both files end to end** to confirm they are readable and intact before doing anything else. AES256 in GPG carries an integrity check, so a file that cannot be decrypted fails here, and a minio archive that decrypts to fewer than two tar entries fails here too rather than on the day you need it.
 5. Ships off-site, if `BACKUP_OFFSITE_CMD` is set. If it is not set, it says so loudly.
 6. Only then prunes anything older than the retention window.
 
@@ -25,12 +25,15 @@ The ordering in 4–6 is the point. **A failed run never deletes a good backup**
 
 ## Install
 
-Needs root: the `lolipay` user is not in the `docker` group, and the group is empty, so everything here goes through systemd as root.
+Needs root: everything here goes through systemd as root. The `lolipay` user *is* in the
+`docker` group, which is root-equivalent — a separate decision worth revisiting, and not the
+reason these units run as root.
 
 ```bash
 sudo mkdir -p /etc/lolipay /var/backups/lolipay
 sudo chmod 700 /var/backups/lolipay
 
+sudo install -m 600 /dev/null /etc/lolipay/backup.key
 openssl rand -base64 48 | sudo tee /etc/lolipay/backup.key > /dev/null
 sudo chmod 600 /etc/lolipay/backup.key
 ```
@@ -88,8 +91,25 @@ MinIO:
 sudo gpg --batch --pinentry-mode loopback \
   --passphrase-file /etc/lolipay/backup.key \
   --decrypt /var/backups/lolipay/minio-<stamp>.tar.gpg \
-  | sudo docker exec -i <minio-container> tar -C /data -xf -
+  | sudo docker cp - <minio-container>:/data
 ```
+
+`docker cp` **merges** — it does not delete files the archive does not contain. Restoring
+over a non-empty `/data` interleaves stale metadata and orphaned part files with the restored
+set, which an erasure-coded backend handles worse than an empty target. Empty it first, with
+the container stopped:
+
+```bash
+sudo docker stop <minio-container>
+sudo docker run --rm -v lolipayprod_minio-data:/data alpine find /data -mindepth 1 -delete
+sudo docker start <minio-container>
+```
+
+Then run the decrypt-and-copy above, and restart the container afterwards.
+
+The `tar` form that used to be documented here **cannot work**: the `minio/minio` image ships
+no `tar`. That is the same defect that stopped the backup leg from ever running, and it was
+left in the recovery leg for a day after the backup leg was fixed.
 
 Get the container names with `sudo docker compose -f services/coordinator/docker-compose.yml ps`.
 

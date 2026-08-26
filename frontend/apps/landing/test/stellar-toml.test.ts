@@ -9,7 +9,6 @@ const GOOD = {
   STELLAR_NETWORK_PASSPHRASE: 'Test SDF Network ; September 2015',
   SEP10_SIGNING_PUBLIC: SIGNING_PUBLIC,
   WEB_AUTH_ENDPOINT: 'https://api.lolipay.app/auth',
-  TRANSFER_SERVER_SEP0024: 'https://api.lolipay.app/sep24',
 }
 
 let saved: Record<string, string | undefined>
@@ -76,10 +75,8 @@ describe('the toml carries the fields the acceptance suite reads', () => {
     expect(await body()).toMatch(/^WEB_AUTH_ENDPOINT="https:\/\/api\.lolipay\.app\/auth"$/m)
   })
 
-  it('carries the sep24 transfer server', async () => {
-    expect(await body()).toMatch(
-      /^TRANSFER_SERVER_SEP0024="https:\/\/api\.lolipay\.app\/sep24"$/m,
-    )
+  it('does not advertise a sep24 transfer server, because there is no sep24 server', async () => {
+    expect(await body()).not.toMatch(/TRANSFER_SERVER_SEP0024/)
   })
 
   it('emits every line as a quoted key and value, so the file parses', async () => {
@@ -100,7 +97,6 @@ describe('the toml carries the fields the acceptance suite reads', () => {
       'NETWORK_PASSPHRASE',
       'SIGNING_KEY',
       'WEB_AUTH_ENDPOINT',
-      'TRANSFER_SERVER_SEP0024',
     ])
   })
 })
@@ -122,7 +118,7 @@ describe('a misconfigured anchor refuses to describe itself', () => {
     expect(await body()).not.toMatch(/NETWORK_PASSPHRASE=/)
   })
 
-  it.each(['WEB_AUTH_ENDPOINT', 'TRANSFER_SERVER_SEP0024'])(
+  it.each(['WEB_AUTH_ENDPOINT'])(
     'refuses a plaintext %s, which the suite rejects',
     async (key) => {
       process.env[key] = 'http://api.lolipay.app/auth'
@@ -131,7 +127,7 @@ describe('a misconfigured anchor refuses to describe itself', () => {
     },
   )
 
-  it.each(['WEB_AUTH_ENDPOINT', 'TRANSFER_SERVER_SEP0024'])(
+  it.each(['WEB_AUTH_ENDPOINT'])(
     'refuses a trailing slash on %s, which the suite rejects',
     async (key) => {
       process.env[key] = 'https://api.lolipay.app/auth/'
@@ -278,7 +274,7 @@ describe('the currencies section', () => {
     process.env.USDC_ASSET_ISSUER = 'not-a-key'
     const body = await (await GET()).text()
     expect(body).not.toContain('[[CURRENCIES]]')
-    expect(body).toContain('TRANSFER_SERVER_SEP0024=')
+    expect(body).toContain('WEB_AUTH_ENDPOINT=')
   })
 
   it('omits itself when the code could never be a Stellar asset code', async () => {

@@ -77,8 +77,8 @@ dump_minio() {
   local tmp="$out.partial"
   log "archiving minio data from container $MINIO_NAME"
   if ! docker cp "$MINIO_NAME:/data/." - | encrypt_to "$tmp"; then
-    rm -f "$tmp"
-    die "minio archive failed; no backup written"
+    rm -f "$tmp" "$BACKUP_DIR/pg-$STAMP.dump.gpg"
+    die "minio archive failed; the postgres dump for this stamp was removed so no half-pair is left behind"
   fi
   [ -s "$tmp" ] || { rm -f "$tmp"; die "minio archive produced an empty file"; }
   mv "$tmp" "$out"
@@ -92,7 +92,20 @@ verify_readable() {
       --passphrase-file "$PASSPHRASE_FILE" \
       --decrypt "$f" >/dev/null 2>&1 \
     || die "cannot decrypt $f with the configured passphrase; treating this run as failed"
-  log "verified decryptable end to end: $(basename "$f")"
+  case "$(basename "$f")" in
+    minio-*)
+      local entries
+      entries="$(gpg --batch --quiet --pinentry-mode loopback \
+                   --passphrase-file "$PASSPHRASE_FILE" --decrypt "$f" 2>/dev/null \
+                 | tar -tf - 2>/dev/null | wc -l)"
+      [ "$entries" -ge 2 ] \
+        || die "$f decrypts but holds $entries tar entries; an archive of nothing is not a backup"
+      log "verified decryptable and a real archive ($entries entries): $(basename "$f")"
+      ;;
+    *)
+      log "verified decryptable end to end: $(basename "$f")"
+      ;;
+  esac
 }
 
 ship_offsite() {
@@ -107,6 +120,7 @@ ship_offsite() {
 prune_old() {
   log "pruning backups older than $RETENTION_DAYS days"
   find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.gpg' -mtime "+$RETENTION_DAYS" -print -delete
+  find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.partial' -mmin +120 -print -delete
 }
 
 restore_test() {
@@ -114,6 +128,10 @@ restore_test() {
   [ -n "$dump" ] || dump="$(ls -1t "$BACKUP_DIR"/pg-*.dump.gpg 2>/dev/null | head -1)"
   [ -n "$dump" ] || die "no postgres dump found to restore-test"
   [ -f "$dump" ] || die "$dump does not exist"
+
+  local stamp="${dump##*/pg-}"; stamp="${stamp%%.dump.gpg}"
+  [ -f "$BACKUP_DIR/minio-$stamp.tar.gpg" ] \
+    || die "no minio archive for $stamp; half a backup restores to an unarbitrable trade"
 
   local scratch="lolipay_restore_test_$$"
   local started
@@ -125,19 +143,30 @@ restore_test() {
 
   if ! gpg --batch --quiet --pinentry-mode loopback \
         --passphrase-file "$PASSPHRASE_FILE" --decrypt "$dump" \
-      | docker exec -i "$PG_NAME" pg_restore -U "$PG_USER" -d "$scratch" --no-owner --no-privileges; then
+      | docker exec -i "$PG_NAME" pg_restore -U "$PG_USER" -d "$scratch" --no-owner --no-privileges --exit-on-error; then
     docker exec "$PG_NAME" psql -U "$PG_USER" -d postgres -c "DROP DATABASE IF EXISTS $scratch;" >/dev/null || true
     die "pg_restore failed; this backup is NOT usable"
   fi
 
-  local tables
+  local tables live configs
   tables="$(docker exec "$PG_NAME" psql -U "$PG_USER" -d "$scratch" -tAc \
     "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")"
-  docker exec "$PG_NAME" psql -U "$PG_USER" -d postgres -c "DROP DATABASE IF EXISTS $scratch;" >/dev/null
+  live="$(docker exec "$PG_NAME" psql -U "$PG_USER" -d "$PG_DB" -tAc \
+    "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")"
+  configs="$(docker exec "$PG_NAME" psql -U "$PG_USER" -d "$scratch" -tAc \
+    'SELECT count(*) FROM "Config";' 2>/dev/null || echo 0)"
 
   local elapsed=$(( $(date +%s) - started ))
-  [ "$tables" -gt 0 ] || die "restore produced 0 tables; this backup is NOT usable"
-  log "restore test PASSED: $tables tables in ${elapsed}s (this is the measured RTO for the database leg)"
+  if [ "$tables" != "$live" ]; then
+    docker exec "$PG_NAME" psql -U "$PG_USER" -d postgres -c "DROP DATABASE IF EXISTS $scratch;" >/dev/null || true
+    die "restore produced $tables tables but the live schema has $live; this backup is NOT usable"
+  fi
+  if [ "$configs" -lt 1 ]; then
+    docker exec "$PG_NAME" psql -U "$PG_USER" -d postgres -c "DROP DATABASE IF EXISTS $scratch;" >/dev/null || true
+    die "restore produced $tables tables but no Config row; the schema came back and the data did not"
+  fi
+  docker exec "$PG_NAME" psql -U "$PG_USER" -d postgres -c "DROP DATABASE IF EXISTS $scratch;" >/dev/null
+  log "restore test PASSED: $tables tables matching live, data present, in ${elapsed}s (measured RTO for the database leg)"
 }
 
 main() {

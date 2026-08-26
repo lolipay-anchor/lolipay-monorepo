@@ -49,11 +49,6 @@ const FIELDS: { key: string; env: string; check?: (value: string) => string | nu
   { key: 'NETWORK_PASSPHRASE', env: 'STELLAR_NETWORK_PASSPHRASE', check: knownNetwork },
   { key: 'SIGNING_KEY', env: 'SEP10_SIGNING_PUBLIC', check: stellarPublicKey },
   { key: 'WEB_AUTH_ENDPOINT', env: 'WEB_AUTH_ENDPOINT', check: httpsEndpoint },
-  {
-    key: 'TRANSFER_SERVER_SEP0024',
-    env: 'TRANSFER_SERVER_SEP0024',
-    check: httpsEndpoint,
-  },
 ]
 
 export function currenciesSection(): { toml: string } | { omitted: string } {
