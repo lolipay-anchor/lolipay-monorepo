@@ -18,7 +18,7 @@ use crate::storage::{
 use crate::types::{Config, DisputeView, Error, StakeInfo};
 
 const MAX_COOLDOWN_SECS: u64 = 90 * 24 * 60 * 60;
-const MIN_COOLDOWN_SECS: u64 = 2 * 24 * 60 * 60 + 1;
+const MIN_COOLDOWN_SECS: u64 = 4 * 24 * 60 * 60 + 1;
 pub(crate) const ESCROW_TRADE_NOT_FOUND: u32 = 5;
 
 #[contract]

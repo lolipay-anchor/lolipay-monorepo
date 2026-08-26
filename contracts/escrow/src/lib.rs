@@ -33,7 +33,7 @@ const MIN_DISPUTE_WINDOW: u64 = ATTEST_GRACE_SECS;
 pub const MAX_EARLY_RELEASE_PROVIDERS: u32 = 20;
 const MAX_PLATFORM_FEE_BPS: u32 = 500;
 
-const MAX_DISPUTE_WINDOW: u64 = 604_800;
+const MAX_DISPUTE_WINDOW: u64 = 86_400;
 
 #[contract]
 pub struct EscrowContract;
