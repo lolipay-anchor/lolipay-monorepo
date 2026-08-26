@@ -66,7 +66,7 @@ describe('OrderService.createFromQuote — market-aware order creation (Phase 4 
       },
     } as any;
     withTxSupport(prisma);
-    const stellar = { hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
+    const stellar = { getStakeInfo: jest.fn().mockResolvedValue({ staked: '1000000000000', unbonding: '0', unbond_available_at: 0, min_stake: '1', eligible: true }),  hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
     const matching = {
       pickLp: jest
         .fn()

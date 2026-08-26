@@ -18,6 +18,7 @@ import { MarketsService } from '../market/markets.service';
 import { NotificationService } from '../notification/notification.service';
 import { mapRoles, newTradeId, Flow, getFiatPayer } from './order.params';
 import { serializeOrderBase } from './order.serialize';
+import { lpExposure, LP_CAPACITY_LOCK_NAMESPACE } from './lp-exposure';
 import { ConfigCache } from '../config/config-cache';
 import {
   OrderStatusService,
@@ -145,6 +146,12 @@ export class OrderService {
 
     const lp = await this.matching.pickLp(rail, quote.fiatCurrency, personId);
 
+    const stake = await this.stellar.getStakeInfo(lp.stellarAddress);
+    if (BigInt(stake.unbonding) > 0n) {
+      throw new ServiceUnavailableException('no eligible LP available');
+    }
+    const lpBond = BigInt(stake.staked);
+
     const roles = mapRoles(flow, userAddress, lp.stellarAddress);
 
     const userPaymentDetails = flow === 'WITHDRAW' ? userPaymentMethod : undefined;
@@ -204,6 +211,12 @@ export class OrderService {
       try {
         order = await this.prisma.$transaction(async (tx) => {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${personId}))`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LP_CAPACITY_LOCK_NAMESPACE}, hashtext(${lp.id}))`;
+
+          const committed = await lpExposure(tx, lp.id, Math.floor(Date.now() / 1000));
+          if (committed + quote.usdcAmount > lpBond) {
+            throw new ServiceUnavailableException('no eligible LP available');
+          }
 
           const used = await this.userReputation.used24hBaseUnits(personId, tx);
           if (used + quote.usdcAmount > limitBase) {

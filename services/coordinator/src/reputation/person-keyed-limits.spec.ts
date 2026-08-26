@@ -114,6 +114,7 @@ function makeWorld(opts: { personCreateThrows?: boolean } = {}) {
       })),
     },
     $executeRaw: jest.fn(async () => 0),
+    $queryRaw: jest.fn(async () => [{ total: '0' }]),
   };
   client.$transaction = jest.fn(async (cb: any) => cb(client));
 
@@ -121,7 +122,7 @@ function makeWorld(opts: { personCreateThrows?: boolean } = {}) {
   const reputation = new UserReputationService(client, personSvc);
   jest.spyOn(reputation, 'dailyLimitBaseUnits').mockReturnValue(LIMIT_BASE);
 
-  const stellar = { hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
+  const stellar = { getStakeInfo: jest.fn().mockResolvedValue({ staked: '1000000000000', unbonding: '0', unbond_available_at: 0, min_stake: '1', eligible: true }),  hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
   const matching = {
     pickLp: jest.fn().mockResolvedValue({
       id: 'lp1',

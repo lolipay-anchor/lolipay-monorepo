@@ -86,7 +86,7 @@ describe('OrderService.createFromQuote — per-tier daily limit re-check (Phase 
       },
     } as any;
     withTxSupport(prisma);
-    const stellar = { hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
+    const stellar = { getStakeInfo: jest.fn().mockResolvedValue({ staked: '1000000000000', unbonding: '0', unbond_available_at: 0, min_stake: '1', eligible: true }),  hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
     const matching = {
       pickLp: jest.fn().mockResolvedValue({ id: 'lp1', stellarAddress: LP, paymentMethodId: 'pm1', details: 'BCA 123' }),
     } as any;

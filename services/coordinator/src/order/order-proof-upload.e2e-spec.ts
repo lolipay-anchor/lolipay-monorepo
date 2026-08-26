@@ -64,6 +64,7 @@ describe('Payment proof + dispute evidence uploads (e2e)', () => {
       .overrideProvider(StellarReadService)
       .useValue({
         isEligible: jest.fn().mockResolvedValue(true),
+        getStakeInfo: jest.fn().mockResolvedValue({ staked: '1000000000000', unbonding: '0', unbond_available_at: 0, min_stake: '1', eligible: true }),
         getTradeStatus: jest.fn().mockResolvedValue(null),
         getTradeStatusStrict: jest.fn().mockResolvedValue(null),
         hasUsdcTrustline: jest.fn().mockResolvedValue(true),

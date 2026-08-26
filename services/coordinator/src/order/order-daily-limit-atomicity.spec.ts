@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { OrderService } from './order.service';
+import { LP_CAPACITY_LOCK_NAMESPACE } from './lp-exposure';
 import { orderStatusFor, orderTxFor } from './test-helpers';
 
 describe('OrderService.createFromQuote — advisory-lock transaction wiring (SECURITY MEDIUM fix wave)', () => {
@@ -64,7 +65,8 @@ describe('OrderService.createFromQuote — advisory-lock transaction wiring (SEC
     };
     const txExecuteRaw = jest.fn().mockResolvedValue(0);
 
-    const tx = { quote: txQuote, order: txOrder, $executeRaw: txExecuteRaw };
+    const txQueryRaw = jest.fn().mockResolvedValue([{ total: '0' }]);
+    const tx = { quote: txQuote, order: txOrder, $executeRaw: txExecuteRaw, $queryRaw: txQueryRaw };
 
     const transactionSpy = jest.fn((cb: (tx: any) => unknown) => cb(tx));
 
@@ -94,7 +96,7 @@ describe('OrderService.createFromQuote — advisory-lock transaction wiring (SEC
       ),
     } as any;
 
-    const stellar = { hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
+    const stellar = { getStakeInfo: jest.fn().mockResolvedValue({ staked: '1000000000000', unbonding: '0', unbond_available_at: 0, min_stake: '1', eligible: true }),  hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
     const matching = {
       pickLp: jest.fn().mockResolvedValue({ id: 'lp1', stellarAddress: LP, paymentMethodId: 'pm1', details: 'BCA 123' }),
     } as any;
@@ -117,13 +119,30 @@ describe('OrderService.createFromQuote — advisory-lock transaction wiring (SEC
     const { svc, txExecuteRaw } = makeSvc();
     await svc.createFromQuote(USER, 'q1', 'bank details');
 
-    expect(txExecuteRaw).toHaveBeenCalledTimes(1);
+    expect(txExecuteRaw).toHaveBeenCalledTimes(2);
     const [strings, ...values] = txExecuteRaw.mock.calls[0];
     const sql = strings.join('?');
     expect(sql).toContain('pg_advisory_xact_lock');
     expect(sql).toContain('hashtext');
     expect(values).toContain('person-test');
     expect(values).not.toContain(USER);
+  });
+
+  it('locks the person before the provider, so two callers can never take them in opposite orders', async () => {
+    const { svc, txExecuteRaw } = makeSvc();
+    await svc.createFromQuote(USER, 'q1', 'bank details');
+
+    const keysInOrder = txExecuteRaw.mock.calls.map((call: any[]) => call.slice(1).flat());
+    expect(keysInOrder).toEqual([['person-test'], [LP_CAPACITY_LOCK_NAMESPACE, 'lp1']]);
+  });
+
+  it('refuses the match when the provider is already committed up to its bond', async () => {
+    const { svc, tx } = makeSvc();
+    (tx.$queryRaw as jest.Mock).mockResolvedValue([{ total: '999999999999999' }]);
+
+    await expect(svc.createFromQuote(USER, 'q1', 'bank details')).rejects.toThrow(
+      'no eligible LP available',
+    );
   });
 
   it('never takes the advisory lock (or touches quote/order) on the OUTSIDE-of-tx prisma client', async () => {
@@ -160,7 +179,7 @@ describe('OrderService.createFromQuote — advisory-lock transaction wiring (SEC
     const { svc, txExecuteRaw } = makeSvc({ quoteConsumeCount: 0 });
     await expect(svc.createFromQuote(USER, 'q1', 'bank details')).rejects.toBeInstanceOf(ConflictException);
 
-    expect(txExecuteRaw).toHaveBeenCalledTimes(1);
+    expect(txExecuteRaw).toHaveBeenCalledTimes(2);
   });
 
   it('happy path still creates the order via the tx client end-to-end', async () => {

@@ -49,7 +49,7 @@ describe('OrderService — Phase 5A per-order contractId cutover', () => {
       lp: { findUnique: jest.fn() },
     } as any;
 
-    const stellar = {
+    const stellar = { getStakeInfo: jest.fn().mockResolvedValue({ staked: '1000000000000', unbonding: '0', unbond_available_at: 0, min_stake: '1', eligible: true }), 
       buildMarkFiatPaidTx: jest.fn().mockResolvedValue({ xdr: 'x', networkPassphrase: 'p' }),
       buildCreateTradeTx: jest.fn().mockResolvedValue({ xdr: 'x', networkPassphrase: 'p' }),
       buildConfirmReleaseTx: jest.fn().mockResolvedValue({ xdr: 'x', networkPassphrase: 'p' }),
@@ -120,7 +120,7 @@ describe('OrderService — Phase 5A per-order contractId cutover', () => {
       },
     } as any;
     withTxSupport(prisma);
-    const stellar = { hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
+    const stellar = { getStakeInfo: jest.fn().mockResolvedValue({ staked: '1000000000000', unbonding: '0', unbond_available_at: 0, min_stake: '1', eligible: true }),  hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
     const matching = {
       pickLp: jest.fn().mockResolvedValue({ id: 'lp1', stellarAddress: LP_ADDR, paymentMethodId: 'pm1', details: 'BCA 123' }),
     } as any;
