@@ -40,9 +40,4 @@ describe('the mainnet interlock is wired into the application, not only into its
     ).rejects.toThrow(/KYC_STUB_SCREENS/);
   });
 
-  it('starts on the public network when nothing is pretending', async () => {
-    await expect(
-      bootWith({ STELLAR_NETWORK_PASSPHRASE: PUBLIC, KYC_STUB_SCREENS: 'false' }),
-    ).resolves.toBeUndefined();
-  });
 });

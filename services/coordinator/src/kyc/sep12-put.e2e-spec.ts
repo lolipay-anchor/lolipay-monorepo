@@ -207,6 +207,26 @@ describe('PUT /customer registers a customer without keeping what it was told', 
     expect(again.status).toBe(403);
   });
 
+  it('does not let a refusal be washed off by coming back under a different memo', async () => {
+    const kp = Keypair.random();
+    const refused = await anchorToken(app, kp, 1001);
+    await request(app.getHttpServer())
+      .put('/customer').set('Authorization', `Bearer ${refused}`)
+      .send({ memo: '1001', memo_type: 'id', ...complete, first_name: 'REJECT' })
+      .expect(202);
+
+    const bare = await anchorToken(app, kp);
+    const laundered = await request(app.getHttpServer())
+      .put('/customer').set('Authorization', `Bearer ${bare}`).send(complete);
+    expect(laundered.status).toBe(403);
+
+    const sibling = await anchorToken(app, kp, 2002);
+    const other = await request(app.getHttpServer())
+      .put('/customer').set('Authorization', `Bearer ${sibling}`)
+      .send({ memo: '2002', memo_type: 'id', ...complete });
+    expect(other.status).toBe(403);
+  });
+
   it('refuses a body field nobody named', async () => {
     const jwt = await anchorToken(app, Keypair.random());
     const res = await request(app.getHttpServer())

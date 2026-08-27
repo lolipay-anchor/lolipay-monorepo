@@ -40,9 +40,10 @@ export class Sep12Service {
     const standing = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
     if (!standing) return 0;
     if (standing.status === 'REJECTED') {
+      if (standing.rejectionReason === null && standing.screenedAt === null) return 0;
       await this.prisma.kycVerification.update({
         where: { customerRef },
-        data: { rejectionReason: null, providerRef: null, screenedAt: null, verifiedAt: null },
+        data: { rejectionReason: null, screenedAt: null, verifiedAt: null },
       });
       return 1;
     }
@@ -51,12 +52,17 @@ export class Sep12Service {
   }
 
   async put(customerRef: string, fields: Record<string, string>) {
-    const standing = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
-    if (standing?.status === 'REJECTED') {
+    const person = await this.people.lookupPerson(customerRef);
+    const refused = await this.prisma.kycVerification.findFirst({
+      where: {
+        status: 'REJECTED',
+        OR: [{ customerRef }, ...(person ? [{ personId: person.id }] : [])],
+      },
+    });
+    if (refused) {
       throw new ForbiddenException('this identity was refused and cannot be resubmitted here');
     }
     const decision = await this.provider.start(fields);
-    const person = await this.people.lookupPerson(customerRef);
     const state = {
       personId: person?.id ?? null,
       status: decision.status,

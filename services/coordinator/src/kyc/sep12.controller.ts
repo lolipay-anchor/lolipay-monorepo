@@ -38,14 +38,14 @@ export class Sep12Controller {
   @AllowTokenClasses('sep10')
   async get(@Req() req: any, @Query() query: CustomerQueryDto) {
     const subject: string = req.user.address;
-    const { account } = speaksFor(subject);
+    const speaking = speaksFor(subject);
     if (query.id !== undefined && query.id !== subject) {
       throw new NotFoundException('no customer by that id belongs to this account');
     }
-    if (query.account !== undefined && query.account !== account) {
+    if (query.account !== undefined && query.account !== speaking.account) {
       throw new NotFoundException('no customer by that account belongs to this token');
     }
-    if (query.memo && query.memo !== speaksFor(subject).memo) {
+    if (query.memo !== undefined && query.memo !== speaking.memo) {
       throw new NotFoundException('no customer by that memo belongs to this token');
     }
     return this.sep12.get(subject);
@@ -72,7 +72,7 @@ export class Sep12Controller {
     if (dto.account !== undefined && dto.account !== speaking.account) {
       throw new BadRequestException('account does not match the account this token speaks for');
     }
-    if (dto.memo && dto.memo !== speaking.memo) {
+    if (dto.memo !== undefined && dto.memo !== speaking.memo) {
       throw new BadRequestException('memo does not match the memo this token carries');
     }
     const { account: _a, memo: _m, memo_type: _mt, type: _t, ...fields } = dto;

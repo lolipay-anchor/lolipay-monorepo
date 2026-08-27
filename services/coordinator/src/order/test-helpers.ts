@@ -31,6 +31,7 @@ export function verifiedCustomerStub(customerRef?: string) {
         ? { customerRef: where.customerRef, status: 'ACCEPTED', screenedAt: new Date() }
         : null,
     ),
+    findFirst: jest.fn().mockResolvedValue(null),
   };
 }
 

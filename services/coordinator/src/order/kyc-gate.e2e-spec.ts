@@ -206,6 +206,30 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
       .post('/orders').set('Authorization', `Bearer ${jwt}`)
       .send({ quoteId: q.body.quote_id })
       .expect(201);
+  }, 30_000);
+
+  it('closes on a person refused anywhere, even where they had already been accepted', async () => {
+    const { jwt, quoteId, userAddress } = await aDepositQuote();
+    await accept(userAddress);
+
+    const person = await prisma.walletLink.findUnique({
+      where: { stellarAddress: userAddress },
+    });
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: `${userAddress}:4242`,
+        personId: person!.personId,
+        status: 'REJECTED',
+        screenedAt: new Date(),
+      },
+    });
+
+    const before = await prisma.order.count();
+    const res = await request(app.getHttpServer())
+      .post('/orders').set('Authorization', `Bearer ${jwt}`).send({ quoteId });
+    expect(res.status).toBe(403);
+    expect(res.body.message).toBe(REFUSAL);
+    expect(await prisma.order.count()).toBe(before);
   });
 
   it('no second creator of an Order row has appeared', () => {
