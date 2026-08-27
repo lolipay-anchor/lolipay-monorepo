@@ -3,11 +3,20 @@ import helmet from 'helmet';
 import { applyCors } from './anchor/anchor-cors';
 import { AppConfigService } from './config/app-config.service';
 
+export const RAW_BODY_ROUTE = '/webhooks/didit';
+
 export function configureHttp(app: INestApplication): void {
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(helmet());
   applyCors(app, app.get(AppConfigService).corsOrigins);
-  app.use(require('express').json({ limit: '100kb' }));
+  app.use(
+    require('express').json({
+      limit: '100kb',
+      verify: (req: any, _res: unknown, buf: Buffer) => {
+        if (req.url?.startsWith(RAW_BODY_ROUTE)) req.rawBody = buf;
+      },
+    }),
+  );
   app.use(require('express').urlencoded({ extended: false, limit: '100kb' }));
   app.useGlobalPipes(
     new ValidationPipe({

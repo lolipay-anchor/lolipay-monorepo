@@ -28,6 +28,7 @@ export class AppConfigService {
   get adminAddresses() { return (this.c.get<string>('ADMIN_ADDRESSES') ?? '').split(',').map(s => s.trim()).filter(Boolean); }
   get rpcUrl() { return this.req('STELLAR_RPC_URL'); }
   get networkPassphrase() { return this.req('STELLAR_NETWORK_PASSPHRASE'); }
+  get diditWebhookSecret(): string { return this.c.get<string>('DIDIT_WEBHOOK_SECRET') ?? ''; }
   get kycStubScreens(): boolean { return (this.c.get<string>('KYC_STUB_SCREENS') ?? 'false').toLowerCase() === 'true'; }
   get stakingContractId() { return this.req('STAKING_CONTRACT_ID'); }
   get escrowContractId() { return this.req('ESCROW_CONTRACT_ID'); }
