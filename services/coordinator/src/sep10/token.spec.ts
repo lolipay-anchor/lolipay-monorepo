@@ -318,3 +318,43 @@ describe('a revoked wallet does not get a fresh token', () => {
   });
 });
 
+
+describe('a challenge stops being accepted when it says it does', () => {
+  function expiredChallenge(svc: Sep10Service, secondsPast: number): string {
+    const xdr = challenge(svc);
+    const tx = new Transaction(xdr, Networks.TESTNET);
+    const maxTime = Number(tx.timeBounds!.maxTime);
+    jest.spyOn(Date, 'now').mockReturnValue((maxTime + secondsPast) * 1000);
+    return signedBy(xdr, CLIENT);
+  }
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('refuses a challenge one second past its own maxTime', async () => {
+    const svc = makeService();
+    await expect(svc.issueToken(expiredChallenge(svc, 1))).rejects.toThrow(BadRequestException);
+  });
+
+  it('refuses one that the sdk would still have admitted inside its hidden grace', async () => {
+    const svc = makeService();
+    await expect(svc.issueToken(expiredChallenge(svc, 120))).rejects.toThrow(BadRequestException);
+  });
+
+  it('still accepts one a second before its maxTime', async () => {
+    const deps = makeDeps(null);
+    const svc = makeService(deps);
+    await expect(svc.issueToken(expiredChallenge(svc, -1))).resolves.toBe('a-token');
+  });
+
+  it('never records a consumed challenge for longer than it is accepted', async () => {
+    const deps = makeDeps(null);
+    const svc = makeService(deps);
+    const xdr = challenge(svc);
+    const maxTime = Number(new Transaction(xdr, Networks.TESTNET).timeBounds!.maxTime);
+
+    await svc.issueToken(signedBy(xdr, CLIENT));
+
+    const [, expiresAt] = deps.consumed.consume.mock.calls[0];
+    expect(expiresAt.getTime()).toBe(maxTime * 1000);
+  });
+});

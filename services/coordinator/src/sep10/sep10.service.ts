@@ -152,6 +152,9 @@ export class Sep10Service {
     const tx = new Transaction(transactionXdr, this.cfg.networkPassphrase);
     const nonce = Buffer.from((tx.operations[0] as { value: Uint8Array }).value).toString();
     const maxTime = Number(tx.timeBounds?.maxTime ?? 0);
+    if (Math.floor(Date.now() / 1000) > maxTime) {
+      throw new BadRequestException('this challenge has expired');
+    }
     return {
       clientAccountID: parsed.clientAccountID,
       memo: parsed.memo,
