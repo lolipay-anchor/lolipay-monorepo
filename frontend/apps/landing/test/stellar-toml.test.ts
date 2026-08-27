@@ -358,3 +358,41 @@ describe('the currencies section', () => {
     expect(body.split('"').length % 2).toBe(1)
   })
 })
+
+describe('KYC_SERVER is announced only once it exists', () => {
+  const setKyc = (value: string | undefined) => {
+    if (value === undefined) delete process.env.KYC_SERVER
+    else process.env.KYC_SERVER = value
+  }
+  afterEach(() => setKyc(undefined))
+
+  it('announces it when it is set', async () => {
+    setKyc('https://api.lolipay.app')
+    const res = await GET()
+    expect(res.status).toBe(200)
+    expect(await res.text()).toMatch(/^KYC_SERVER="https:\/\/api\.lolipay\.app"$/m)
+  })
+
+  it('serves a complete toml when it is not set, rather than refusing to describe the anchor', async () => {
+    setKyc(undefined)
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(body).not.toMatch(/KYC_SERVER/)
+    expect(body).toMatch(/SIGNING_KEY=/)
+    expect(body).toMatch(/WEB_AUTH_ENDPOINT=/)
+    expect(body).toMatch(/\[DOCUMENTATION\]/)
+  })
+
+  it.each([
+    ['plain http', 'http://api.lolipay.app'],
+    ['a trailing slash', 'https://api.lolipay.app/'],
+    ['a query string', 'https://api.lolipay.app?a=1'],
+    ['a quote', 'https://api.lolipay.app/"x'],
+  ])('omits it rather than serving something broken when it carries %s', async (_name, value) => {
+    setKyc(value)
+    const res = await GET()
+    expect(res.status).toBe(200)
+    expect(await res.text()).not.toMatch(/KYC_SERVER/)
+  })
+})

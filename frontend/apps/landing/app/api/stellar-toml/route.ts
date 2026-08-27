@@ -166,6 +166,15 @@ function render(): { toml: string } | { problem: string } {
     if (complaint) return { problem: `${field.env} ${complaint}` }
     lines.push(`${field.key}="${value}"`)
   }
+  const kycServer = process.env.KYC_SERVER
+  if (kycServer) {
+    const complaint = usableInAToml(kycServer) ?? httpsEndpoint(kycServer)
+    if (complaint) {
+      console.warn(`stellar.toml: KYC_SERVER was omitted — KYC_SERVER ${complaint}`)
+    } else {
+      lines.push(`KYC_SERVER="${kycServer}"`)
+    }
+  }
   lines.push('VERSION="2.7.0"')
   const currencies = currenciesSection()
   if ('omitted' in currencies) {
