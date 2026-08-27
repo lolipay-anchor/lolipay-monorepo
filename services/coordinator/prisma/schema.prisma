@@ -267,6 +267,7 @@ model Person {
   id          String       @id @default(uuid())
   wallets     WalletLink[]
   orders      Order[]
+  kyc         KycVerification[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 }
@@ -308,4 +309,27 @@ model AlertState {
   firstSeenAt DateTime @default(now())
   lastSentAt  DateTime
   sendCount   Int      @default(1)
+}
+
+model KycVerification {
+  customerRef     String    @id
+  person          Person?   @relation(fields: [personId], references: [id])
+  personId        String?
+  status          KycStatus @default(NEEDS_INFO)
+  providerRef     String?
+  rejectionReason String?
+  screenedAt      DateTime?
+  verifiedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([personId])
+  @@index([status])
+}
+
+enum KycStatus {
+  NEEDS_INFO
+  PROCESSING
+  ACCEPTED
+  REJECTED
 }
