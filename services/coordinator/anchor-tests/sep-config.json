@@ -31,6 +31,10 @@
       }
     },
     "createCustomer": "toBeCreated",
-    "deleteCustomer": "toBeDeleted"
+    "deleteCustomer": "toBeDeleted",
+    "sameAccountDifferentMemos": [
+      "sendingClient",
+      "receivingClient"
+    ]
   }
 }
