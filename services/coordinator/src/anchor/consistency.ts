@@ -1,3 +1,5 @@
+import { StellarToml, Transaction } from '@stellar/stellar-sdk';
+
 export interface AdvertisedAnchor {
   SIGNING_KEY?: string;
   WEB_AUTH_ENDPOINT?: string;
@@ -60,4 +62,59 @@ function hostOf(endpoint: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+export interface AnchorProbe {
+  resolveToml?: (domain: string) => Promise<Record<string, string>>;
+  fetchImpl?: (url: string) => Promise<{ ok: boolean; text: () => Promise<string> }>;
+  readChallenge?: (transaction: string, networkPassphrase: string) => ServedChallenge;
+  timeoutMs?: number;
+}
+
+export async function checkAnchorIdentity(
+  domain: string,
+  probe: AnchorProbe = {},
+): Promise<string[]> {
+  const timeout = probe.timeoutMs ?? 15000;
+  const fetchImpl = probe.fetchImpl ?? defaultFetch(timeout);
+  const resolveToml = probe.resolveToml ?? defaultResolve(timeout);
+  const toml = await resolveToml(domain);
+
+  if (!toml.WEB_AUTH_ENDPOINT) {
+    throw new Error('the toml advertises no WEB_AUTH_ENDPOINT, so there is nothing to cross-check');
+  }
+
+  const probeAccount = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+  const res = await fetchImpl(`${toml.WEB_AUTH_ENDPOINT}?account=${probeAccount}`);
+  if (!res.ok) throw new Error(`${toml.WEB_AUTH_ENDPOINT} answered ${(res as { status?: number }).status ?? 'badly'}`);
+  const answer = JSON.parse(await res.text()) as { transaction: string; network_passphrase: string };
+
+  const read = probe.readChallenge ?? readServedChallenge;
+  return compareAnchorIdentity(toml, read(answer.transaction, answer.network_passphrase), domain);
+}
+
+export function readServedChallenge(transaction: string, networkPassphrase: string): ServedChallenge {
+  const tx = new Transaction(transaction, networkPassphrase);
+  const webAuthOp = tx.operations.find(
+    (op) => (op as { name?: string }).name === 'web_auth_domain',
+  ) as { value: Uint8Array } | undefined;
+  const homeDomainKey = (tx.operations[0] as { name?: string }).name ?? '';
+  return {
+    source: tx.source,
+    webAuthDomain: webAuthOp ? Buffer.from(webAuthOp.value).toString() : '',
+    homeDomain: homeDomainKey.replace(/ auth$/, ''),
+    networkPassphrase,
+  };
+}
+
+function defaultResolve(timeoutMs: number) {
+  return async (domain: string): Promise<Record<string, string>> =>
+    (await StellarToml.Resolver.resolve(domain, {
+      timeout: timeoutMs,
+      allowedRedirects: 3,
+    })) as Record<string, string>;
+}
+
+function defaultFetch(timeoutMs: number) {
+  return (url: string) => fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
 }

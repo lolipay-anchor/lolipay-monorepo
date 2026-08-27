@@ -7,6 +7,7 @@ import { OutboxService } from '../outbox/outbox.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { AppConfigService } from '../config/app-config.service';
 import { cooldownFloorSecs } from '../config/contract-limits';
+import { checkAnchorIdentity } from '../anchor/consistency';
 import {
   ALERT_SAMPLE_LIMIT,
   DISPUTE_STALE_DAYS,
@@ -28,6 +29,7 @@ export const MONITORING_ALERT_SCOPE = [
   'delivery_failing',
   'slash_window_open',
   'cooldown_below_floor',
+  'anchor_identity',
 ];
 
 @Injectable()
@@ -121,6 +123,10 @@ export class MonitoringService {
       fiat_payment_overdue: overdueFunded,
       indexer_lag_seconds: indexerLagSeconds,
     };
+  }
+
+  protected checkAnchor(domain: string): Promise<string[]> {
+    return checkAnchorIdentity(domain);
   }
 
   private running = false;
@@ -262,6 +268,24 @@ export class MonitoringService {
       this.log.warn(
         `could not check the deployed cooldown against the floor: ${e instanceof Error ? e.message : String(e)}`,
       );
+    }
+
+    if (this.cfg.anchorHomeDomain) {
+      try {
+        for (const problem of await this.checkAnchor(this.cfg.anchorHomeDomain)) {
+          alerts.push({
+            key: 'anchor_identity',
+            fingerprint: problem,
+            urgency: 'urgent',
+            text: `the anchor no longer agrees with what it publishes about itself: ${problem}`,
+          });
+        }
+      } catch (e) {
+        incomplete.add('anchor_identity');
+        this.log.warn(
+          `could not ask the anchor whether it agrees with itself: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
     }
 
     if (m.indexer_lag_seconds == null) {

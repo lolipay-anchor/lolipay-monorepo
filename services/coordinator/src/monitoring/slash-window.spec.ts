@@ -395,3 +395,63 @@ describe('the restitution scan cannot clear while the thing that feeds it is beh
     expect(incomplete.has('slash_window_open')).toBe(false);
   });
 });
+
+describe('the anchor is watched for disagreeing with itself', () => {
+  const base = {
+    generated_at: 'now',
+    orders_by_status: {},
+    open_disputes: 0,
+    release_overdue: 0,
+    fiat_payment_overdue: 0,
+    indexer_lag_seconds: 5,
+  };
+
+  function monitoring(check: () => Promise<string[]>) {
+    const prisma = {
+      order: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        groupBy: jest.fn().mockResolvedValue([]),
+      },
+      config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
+      indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
+    } as any;
+    const svc = new MonitoringService(
+      prisma,
+      { raise: jest.fn() } as any,
+      { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any,
+      {
+        getTradeStatus: jest.fn(async () => null),
+        getSlashedSoFar: jest.fn(async () => 0n),
+        stakingCooldownSecs: jest.fn(async () => 432_000),
+      } as any,
+      { escrowContractId: 'CESCROW', anchorHomeDomain: 'lolipay.app' } as any,
+    );
+    (svc as any).checkAnchor = check;
+    return svc;
+  }
+
+  it('raises when the toml and the live challenge name different signing keys', async () => {
+    const alerts = await monitoring(async () => [
+      'the toml advertises SIGNING_KEY GBS7 but the challenge is sourced by GA3H',
+    ]).buildAlerts(base as any);
+
+    const found = alerts.find((a) => a.key.startsWith('anchor_identity'));
+    expect(found?.urgency).toBe('urgent');
+    expect(found?.text).toContain('GBS7');
+  });
+
+  it('says nothing when the anchor agrees with itself', async () => {
+    const alerts = await monitoring(async () => []).buildAlerts(base as any);
+    expect(alerts.find((a) => a.key.startsWith('anchor_identity'))).toBeUndefined();
+  });
+
+  it('marks the family incomplete when it could not reach the anchor at all', async () => {
+    const incomplete = new Set<string>();
+    await monitoring(async () => {
+      throw new Error('connection refused');
+    }).buildAlerts(base as any, incomplete);
+
+    expect(incomplete.has('anchor_identity')).toBe(true);
+  });
+});
