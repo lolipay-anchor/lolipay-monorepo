@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { OrderService } from './order.service';
-import { withTxSupport, orderStatusFor, orderTxFor } from './test-helpers';
+import { withTxSupport, orderStatusFor, orderTxFor, verifiedCustomerStub } from './test-helpers';
 
 describe('OrderService.createFromQuote — per-tier daily limit re-check (Phase 6 Task 3)', () => {
   const USER = 'GUSER';
@@ -85,6 +85,7 @@ describe('OrderService.createFromQuote — per-tier daily limit re-check (Phase 
         }),
       },
     } as any;
+    (prisma as any).kycVerification = verifiedCustomerStub();
     withTxSupport(prisma);
     const stellar = { getStakeInfo: jest.fn().mockResolvedValue({ staked: '1000000000000', unbonding: '0', unbond_available_at: 0, min_stake: '1', eligible: true }),  hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
     const matching = {

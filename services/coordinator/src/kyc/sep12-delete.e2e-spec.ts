@@ -57,13 +57,13 @@ describe('DELETE /customer forgets a customer without forgetting the wallet', ()
     expect(after.body.id).toBeUndefined();
   });
 
-  it('succeeds for a customer the anchor never registered', async () => {
+  it('says so plainly when there was nothing to forget, rather than reporting a deletion it did not make', async () => {
     const kp = Keypair.random();
     const jwt = await anchorToken(app, kp);
     const del = await request(app.getHttpServer())
       .delete(`/customer/${kp.publicKey()}`)
       .set('Authorization', `Bearer ${jwt}`);
-    expect(del.status).toBe(200);
+    expect(del.status).toBe(404);
   });
 
   it('refuses to forget an account the token does not speak for', async () => {

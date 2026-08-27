@@ -11,7 +11,7 @@ import { StellarReadService } from '../stellar/stellar-read.service';
 import { PRICE_ADAPTER } from '../rate/rate.module';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { configureHttp } from '../http-setup';
-import { sessionToken } from '../auth/auth-test-helpers';
+import { sessionToken, anchorToken } from '../auth/auth-test-helpers';
 import { invalidateAllConfigCaches } from '../config/config-cache';
 
 const noopStorage = {
@@ -24,7 +24,12 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
   let app: INestApplication;
   let prisma: PrismaService;
 
+  let savedStubScreens: string | undefined;
+
   beforeAll(async () => {
+    savedStubScreens = process.env.KYC_STUB_SCREENS;
+    process.env.KYC_STUB_SCREENS = 'true';
+
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PRICE_ADAPTER)
       .useValue({ name: 'fake', fetchPrices: jest.fn().mockResolvedValue({ IDR: '16000' }) })
@@ -74,6 +79,8 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
   });
 
   afterAll(async () => {
+    if (savedStubScreens === undefined) delete process.env.KYC_STUB_SCREENS;
+    else process.env.KYC_STUB_SCREENS = savedStubScreens;
     await app.close();
   });
 
@@ -174,6 +181,30 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
     await request(app.getHttpServer())
       .post('/orders').set('Authorization', `Bearer ${jwt}`)
       .send({ quoteId: q.body.quote_id, userPaymentMethod: 'BNI 111222333' })
+      .expect(201);
+  });
+
+  it('a customer who registers through the anchor door can then open a deposit', async () => {
+    const kp = Keypair.random();
+    const anchor = await anchorToken(app, kp);
+    await request(app.getHttpServer())
+      .put('/customer')
+      .set('Authorization', `Bearer ${anchor}`)
+      .send({
+        first_name: 'Dewi', last_name: 'Lestari', email_address: 'dewi@example.com',
+        id_type: 'id_card', id_country_code: 'IDN',
+      })
+      .expect(202);
+
+    const jwt = await sessionToken(app, kp);
+    const q = await request(app.getHttpServer())
+      .post('/quotes').set('Authorization', `Bearer ${jwt}`)
+      .send({ flow: 'TOP_UP', rail: 'BANK', usdcAmount: '1000000000' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/orders').set('Authorization', `Bearer ${jwt}`)
+      .send({ quoteId: q.body.quote_id })
       .expect(201);
   });
 

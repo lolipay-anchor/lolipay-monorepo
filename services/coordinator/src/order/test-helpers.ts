@@ -31,9 +31,6 @@ export function verifiedCustomerStub() {
 }
 
 export function withTxSupport<T extends Record<string, any>>(prisma: T): T {
-  if (!(prisma as Record<string, any>).kycVerification) {
-    (prisma as Record<string, any>).kycVerification = verifiedCustomerStub();
-  }
   (prisma as Record<string, any>).$transaction = jest.fn((cb: (tx: T) => unknown) => cb(prisma));
   (prisma as Record<string, any>).$executeRaw = jest.fn().mockResolvedValue(0);
   (prisma as Record<string, any>).$queryRaw = jest.fn().mockResolvedValue([{ total: '0' }]);

@@ -3,6 +3,8 @@ import { KycDecision, KycProvider, REQUIRED_KYC_FIELDS } from './kyc-provider';
 
 @Injectable()
 export class StubKycProvider implements KycProvider {
+  constructor(private readonly screens: boolean) {}
+
   async start(fields: Record<string, string>): Promise<KycDecision> {
     if (REQUIRED_KYC_FIELDS.some((f) => !fields[f]?.trim())) {
       return { status: 'NEEDS_INFO', screened: false };
@@ -14,6 +16,6 @@ export class StubKycProvider implements KycProvider {
         rejectionReason: 'the operator marked this identity as refused',
       };
     }
-    return { status: 'ACCEPTED', screened: false };
+    return { status: 'ACCEPTED', screened: this.screens };
   }
 }

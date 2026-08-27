@@ -132,6 +132,64 @@ describe('PUT /customer registers a customer without keeping what it was told', 
     for (const value of Object.values(complete)) expect(said).not.toContain(value);
   });
 
+  it('refuses a memo the token does not carry, rather than registering the wrong end user', async () => {
+    const kp = Keypair.random();
+    const bare = await anchorToken(app, kp);
+    const res = await request(app.getHttpServer())
+      .put('/customer')
+      .set('Authorization', `Bearer ${bare}`)
+      .send({ account: kp.publicKey(), memo: '1001', memo_type: 'id', ...complete });
+    expect(res.status).toBe(400);
+  });
+
+  it('refuses a memo that contradicts the one the token carries', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp, 1001);
+    const res = await request(app.getHttpServer())
+      .put('/customer')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ memo: '1002', memo_type: 'id', ...complete });
+    expect(res.status).toBe(400);
+  });
+
+  it('refuses an account that is not the one the token speaks for', async () => {
+    const jwt = await anchorToken(app, Keypair.random());
+    const res = await request(app.getHttpServer())
+      .put('/customer')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ account: Keypair.random().publicKey(), ...complete });
+    expect(res.status).toBe(400);
+  });
+
+  it('does not let a customer lift their own refusal by asking again', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    await request(app.getHttpServer())
+      .put('/customer').set('Authorization', `Bearer ${jwt}`)
+      .send({ ...complete, first_name: 'REJECT' }).expect(202);
+
+    const again = await request(app.getHttpServer())
+      .put('/customer').set('Authorization', `Bearer ${jwt}`).send(complete);
+    expect(again.status).toBe(403);
+
+    const still = await request(app.getHttpServer())
+      .get('/customer').set('Authorization', `Bearer ${jwt}`).expect(200);
+    expect(still.body.status).toBe('REJECTED');
+  });
+
+  it('tells a refused customer that it was refused, which the specification requires', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    await request(app.getHttpServer())
+      .put('/customer').set('Authorization', `Bearer ${jwt}`)
+      .send({ ...complete, first_name: 'REJECT' }).expect(202);
+
+    const got = await request(app.getHttpServer())
+      .get('/customer').set('Authorization', `Bearer ${jwt}`).expect(200);
+    expect(got.body.status).toBe('REJECTED');
+    expect(typeof got.body.message).toBe('string');
+  });
+
   it('refuses a body field nobody named', async () => {
     const jwt = await anchorToken(app, Keypair.random());
     const res = await request(app.getHttpServer())

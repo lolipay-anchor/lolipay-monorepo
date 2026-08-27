@@ -106,6 +106,22 @@ describe('GET /customer tells a caller where their verification stands', () => {
     expect(tooLong.status).toBe(400);
   });
 
+  it('does not answer for a customer the caller did not register', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const stranger = Keypair.random().publicKey();
+    await prisma.kycVerification.create({
+      data: { customerRef: stranger, status: 'ACCEPTED', screenedAt: new Date() },
+    });
+
+    for (const q of [`id=${stranger}`, `account=${stranger}`]) {
+      const res = await request(app.getHttpServer())
+        .get(`/customer?${q}`)
+        .set('Authorization', `Bearer ${jwt}`);
+      expect(res.status).toBe(404);
+    }
+  });
+
   it('accepts the query fields the acceptance suite actually sends', async () => {
     const kp = Keypair.random();
     const jwt = await anchorToken(app, kp);

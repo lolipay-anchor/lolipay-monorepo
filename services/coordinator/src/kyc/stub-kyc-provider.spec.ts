@@ -10,7 +10,7 @@ const complete = {
 };
 
 describe('the stub stands in for a provider that cannot be reached yet', () => {
-  const p = new StubKycProvider();
+  const p = new StubKycProvider(false);
 
   it('accepts a customer who supplied every field the suite fixture carries', async () => {
     expect(await p.start(complete)).toEqual({ status: 'ACCEPTED', screened: false });
@@ -40,6 +40,17 @@ describe('the stub stands in for a provider that cannot be reached yet', () => {
     for (const fields of paths) {
       expect((await p.start(fields)).screened).toBe(false);
     }
+  });
+
+  it('reports screening only when an operator has said this stack may pretend to screen', async () => {
+    const pretending = new StubKycProvider(true);
+    expect((await pretending.start(complete)).screened).toBe(true);
+  });
+
+  it('still refuses to pretend on a path it did not accept', async () => {
+    const pretending = new StubKycProvider(true);
+    expect((await pretending.start({ first_name: 'Budi' })).screened).toBe(false);
+    expect((await pretending.start({ ...complete, first_name: 'REJECT' })).screened).toBe(false);
   });
 
   it.each(REQUIRED_KYC_FIELDS)('needs information when %s is absent', async (field) => {

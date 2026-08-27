@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonService } from '../person/person.service';
 import {
@@ -26,14 +26,26 @@ export class Sep12Service {
     if (row.status === 'NEEDS_INFO') {
       return { id: row.customerRef, status: row.status, fields: KYC_FIELD_DESCRIPTORS };
     }
+    if (row.status === 'REJECTED') {
+      return {
+        id: row.customerRef,
+        status: row.status,
+        message: row.rejectionReason ?? 'this identity was refused',
+      };
+    }
     return { id: row.customerRef, status: row.status, provided_fields: PROVIDED };
   }
 
-  async forget(customerRef: string) {
-    await this.prisma.kycVerification.deleteMany({ where: { customerRef } });
+  async forget(customerRef: string): Promise<number> {
+    const { count } = await this.prisma.kycVerification.deleteMany({ where: { customerRef } });
+    return count;
   }
 
   async put(customerRef: string, fields: Record<string, string>) {
+    const standing = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
+    if (standing?.status === 'REJECTED') {
+      throw new ForbiddenException('this identity was refused and cannot be resubmitted here');
+    }
     const decision = await this.provider.start(fields);
     const person = await this.people.lookupPerson(customerRef);
     const state = {
