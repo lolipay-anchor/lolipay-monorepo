@@ -95,6 +95,18 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     expect([201, 400, 429]).toContain(res.status);
   });
 
+  it.each([
+    ['a path spelled with different capitals', '/Webhooks/Didit', 'application/json'],
+    ['a form content type the json parser declines', '/webhooks/didit', 'application/x-www-form-urlencoded'],
+    ['no content type at all', '/webhooks/didit', ''],
+  ])('refuses a delivery arriving as %s, where the bytes were never captured', async (_n, path, ct) => {
+    const raw = body();
+    const req = request(app.getHttpServer()).post(path);
+    if (ct) req.set('content-type', ct);
+    const res = await req.set(signed(raw)).send(raw);
+    expect(res.status).toBe(401);
+  });
+
   it('never repeats a vendor payload back to the caller', async () => {
     const raw = body({ vendor_data: 'GSECRETSUBJECT', extra_field: 'Budi Santoso' });
     const res = await post(raw, signed(raw));

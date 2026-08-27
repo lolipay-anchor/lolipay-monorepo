@@ -14,11 +14,15 @@ export function verifyDiditDelivery(delivery: {
 
   if (!secret) return { trusted: false, reason: 'no webhook secret is configured' };
 
+  if (!Buffer.isBuffer(raw) || raw.length === 0) {
+    return { trusted: false, reason: 'the bytes of this delivery were not captured' };
+  }
+
   const sent = Number(timestamp);
-  if (!Number.isFinite(sent) || timestamp.trim() === '') {
+  if (!Number.isFinite(sent)) {
     return { trusted: false, reason: 'timestamp is outside the freshness window' };
   }
-  if (Math.abs(Math.floor(Date.now() / 1000) - sent) > DIDIT_FRESHNESS_SECS) {
+  if (Math.abs(Math.floor(Date.now() / 1000) - sent) >= DIDIT_FRESHNESS_SECS) {
     return { trusted: false, reason: 'timestamp is outside the freshness window' };
   }
 

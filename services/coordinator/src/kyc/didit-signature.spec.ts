@@ -76,9 +76,21 @@ describe('a delivery is trusted only when its bytes were signed by the shared se
     expect(res).toEqual({ trusted: false, reason: 'no webhook secret is configured' });
   });
 
-  it('does not treat an empty body as a special case in either direction', () => {
+  it('refuses a delivery whose bytes were never captured, rather than hashing nothing', () => {
     const empty = Buffer.alloc(0);
-    expect(verifyDiditDelivery(delivery({ raw: empty })).trusted).toBe(true);
-    expect(verifyDiditDelivery({ ...delivery(), raw: empty }).trusted).toBe(false);
+    const res = verifyDiditDelivery(delivery({ raw: empty }));
+    expect(res).toEqual({ trusted: false, reason: 'the bytes of this delivery were not captured' });
+  });
+
+  it('refuses when the raw body is missing entirely', () => {
+    const res = verifyDiditDelivery({ ...delivery(), raw: undefined as unknown as Buffer });
+    expect(res).toEqual({ trusted: false, reason: 'the bytes of this delivery were not captured' });
+  });
+
+  it.each([
+    ['exactly at the edge of the window', 300, false],
+    ['one second inside it', 299, true],
+  ])('treats a timestamp %s as trusted=%s', (_n, offset, trusted) => {
+    expect(verifyDiditDelivery(delivery({ timestamp: String(now() - offset) })).trusted).toBe(trusted);
   });
 });
