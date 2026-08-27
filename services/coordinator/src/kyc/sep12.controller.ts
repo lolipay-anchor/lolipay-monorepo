@@ -1,4 +1,17 @@
-import { Body, Controller, Get, HttpCode, Put, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  HttpCode,
+  Param,
+  Put,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { baseStellarAccount } from '../sep10/account-signers.service';
 import { AuthGuard } from '@nestjs/passport';
 import { AllowTokenClasses } from '../auth/token-class.interceptor';
 import { CustomerQueryDto } from './dto/customer-query.dto';
@@ -14,6 +27,17 @@ export class Sep12Controller {
   @AllowTokenClasses('sep10')
   async get(@Req() req: any, @Query() _query: CustomerQueryDto) {
     return this.sep12.get(req.user.address);
+  }
+
+  @Delete(':account')
+  @HttpCode(200)
+  @AllowTokenClasses('sep10')
+  async forget(@Req() req: any, @Param('account') account: string) {
+    const subject: string = req.user.address;
+    if (account !== baseStellarAccount(subject.split(':')[0])) {
+      throw new ForbiddenException('this token does not speak for that account');
+    }
+    await this.sep12.forget(subject);
   }
 
   @Put()

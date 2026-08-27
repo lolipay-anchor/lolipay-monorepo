@@ -29,6 +29,10 @@ export class Sep12Service {
     return { id: row.customerRef, status: row.status, provided_fields: PROVIDED };
   }
 
+  async forget(customerRef: string) {
+    await this.prisma.kycVerification.deleteMany({ where: { customerRef } });
+  }
+
   async put(customerRef: string, fields: Record<string, string>) {
     const decision = await this.provider.start(fields);
     const person = await this.people.lookupPerson(customerRef);
