@@ -1,5 +1,5 @@
 import { OrderService } from './order.service';
-import { makeUserReputationStub, onChainTradeFor, orderStatusFor, orderTxFor } from './test-helpers';
+import { makeUserReputationStub, onChainTradeFor, orderStatusFor, orderTxFor, verifiedCustomerStub } from './test-helpers';
 
 const USER_ADDR = 'GUSER';
 const LP_ADDR = 'GLP';
@@ -37,6 +37,7 @@ function makeSvc(orderOverrides: Partial<any> = {}, onChainStatus: string | null
   const order = makeOrder(orderOverrides);
   const onChain = onChainStatus ? onChainTradeFor(order, onChainStatus) : null;
   const prisma = {
+    kycVerification: verifiedCustomerStub(),
     order: {
       findUnique: jest.fn().mockResolvedValue(order),
       update: jest.fn().mockImplementation(async ({ data }: any) => ({ ...order, ...data })),

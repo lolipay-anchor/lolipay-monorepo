@@ -1,7 +1,8 @@
 import { INestApplication, Logger } from '@nestjs/common';
 import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
-import { bootAuthApp, anchorToken } from '../auth/auth-test-helpers';
+import { bootAuthApp, anchorToken, sessionToken } from '../auth/auth-test-helpers';
+import { PrismaService } from '../prisma/prisma.service';
 
 const complete = {
   first_name: 'Budi',
@@ -14,8 +15,11 @@ const complete = {
 describe('PUT /customer registers a customer without keeping what it was told', () => {
   let app: INestApplication;
 
+  let prisma: PrismaService;
+
   beforeAll(async () => {
     app = await bootAuthApp();
+    prisma = app.get(PrismaService);
   });
 
   afterAll(async () => {
@@ -225,6 +229,25 @@ describe('PUT /customer registers a customer without keeping what it was told', 
       .put('/customer').set('Authorization', `Bearer ${sibling}`)
       .send({ memo: '2002', memo_type: 'id', ...complete });
     expect(other.status).toBe(403);
+  });
+
+  it('never writes a customer without the person it belongs to, which is what the refusal is resolved through', async () => {
+    const cases: Array<[string, () => Promise<string>]> = [
+      ['an anchor token', async () => anchorToken(app, Keypair.random())],
+      ['an anchor token carrying a memo', async () => anchorToken(app, Keypair.random(), 7007)],
+      ['a session token', async () => sessionToken(app, Keypair.random())],
+    ];
+
+    for (const [, mint] of cases) {
+      const jwt = await mint();
+      const put = await request(app.getHttpServer())
+        .put('/customer').set('Authorization', `Bearer ${jwt}`).send(complete).expect(202);
+      const row = await prisma.kycVerification.findUnique({
+        where: { customerRef: put.body.id },
+      });
+      expect(row).not.toBeNull();
+      expect(row!.personId).not.toBeNull();
+    }
   });
 
   it('refuses a body field nobody named', async () => {

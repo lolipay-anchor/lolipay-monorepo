@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { OrderService } from './order.service';
-import { makeUserReputationStub, onChainTradeFor, orderStatusFor, orderTxFor } from './test-helpers';
+import { makeUserReputationStub, onChainTradeFor, orderStatusFor, orderTxFor, verifiedCustomerStub } from './test-helpers';
 
 const fakeStorage = {} as any;
 
@@ -40,6 +40,7 @@ describe('OrderService — an on-chain trade must bind to the order before it co
   function makeSvc(orderOverrides: Partial<any> = {}, stellarOverrides: any = {}) {
     const order = makeOrder(orderOverrides);
     const prisma = {
+      kycVerification: verifiedCustomerStub(),
       order: {
         findUnique: jest.fn().mockResolvedValue(order),
         update: jest.fn().mockImplementation(async ({ data }: any) => ({ ...order, ...data })),

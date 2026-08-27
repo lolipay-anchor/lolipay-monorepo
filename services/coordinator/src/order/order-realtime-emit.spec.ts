@@ -1,5 +1,5 @@
 import { OrderService } from './order.service';
-import { makeUserReputationStub, onChainTradeFor, orderStatusFor, orderTxFor } from './test-helpers';
+import { makeUserReputationStub, onChainTradeFor, orderStatusFor, orderTxFor, verifiedCustomerStub } from './test-helpers';
 
 const fakeStorage = {} as any;
 
@@ -46,6 +46,7 @@ describe('OrderStatusService.refreshOrderStatus — realtime emit on chain-confi
     const order = makeOrder(orderOverrides);
     const updated = { ...order, status: onChainStatus ?? order.status };
     const prisma = {
+      kycVerification: verifiedCustomerStub(),
       order: {
         findUnique: jest.fn().mockResolvedValue({ ...order }),
         update: jest.fn().mockResolvedValue(updated),
@@ -111,6 +112,7 @@ describe('OrderStatusService.refreshOrderStatus — realtime emit on chain-confi
   it('never throws when realtime is omitted, since it is an optional dependency', async () => {
     const order = makeOrder();
     const prisma = {
+      kycVerification: verifiedCustomerStub(),
       order: {
         findUnique: jest.fn().mockResolvedValue({ ...order }),
         update: jest.fn().mockResolvedValue({ ...order, status: 'FUNDED' }),

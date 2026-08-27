@@ -107,6 +107,26 @@ export class OrderService {
     return { ...val, online: lp.online };
   }
 
+  private async identityVerified(
+    userAddress: string,
+    personId: string,
+    db: {
+      kycVerification: {
+        findUnique: (a: any) => Promise<any>;
+        findFirst: (a: any) => Promise<any>;
+      };
+    },
+  ): Promise<boolean> {
+    const verification = await db.kycVerification.findUnique({
+      where: { customerRef: userAddress },
+    });
+    if (verification?.status !== 'ACCEPTED' || verification.screenedAt === null) return false;
+    const refused = await db.kycVerification.findFirst({
+      where: { personId, status: 'REJECTED' },
+    });
+    return !refused;
+  }
+
   private async assertIdentityVerified(
     userAddress: string,
     personId: string,
@@ -117,19 +137,11 @@ export class OrderService {
       };
     },
   ): Promise<void> {
-    const refuse = () => {
+    if (!(await this.identityVerified(userAddress, personId, db))) {
       throw new ForbiddenException(
         'identity verification is required before a deposit can be opened',
       );
-    };
-    const verification = await db.kycVerification.findUnique({
-      where: { customerRef: userAddress },
-    });
-    if (verification?.status !== 'ACCEPTED' || verification.screenedAt === null) refuse();
-    const refused = await db.kycVerification.findFirst({
-      where: { personId, status: 'REJECTED' },
-    });
-    if (refused) refuse();
+    }
   }
 
   async createFromQuote(
@@ -300,7 +312,15 @@ export class OrderService {
     const fiatPayer = currentOrder.lp
       ? getFiatPayer(currentOrder.flow as Flow, currentOrder.userAddress, currentOrder.lp.stellarAddress)
       : undefined;
-    const shouldReveal = isFundedOrLater && fiatPayer !== undefined && callerAddress === fiatPayer;
+    const mayReveal = isFundedOrLater && fiatPayer !== undefined && callerAddress === fiatPayer;
+    const shouldReveal =
+      mayReveal &&
+      (currentOrder.flow !== 'TOP_UP' ||
+        (await this.identityVerified(
+          currentOrder.userAddress,
+          currentOrder.personId,
+          this.prisma,
+        )));
 
     const config = await this.getConfig();
     const serialized = serializeOrderBase(currentOrder, config);

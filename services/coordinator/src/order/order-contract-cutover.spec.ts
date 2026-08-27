@@ -37,6 +37,7 @@ describe('OrderService — Phase 5A per-order contractId cutover', () => {
   function makeSvc(orderOverrides: Partial<any> = {}, stellarOverrides: any = {}) {
     const order = makeOrder(orderOverrides);
     const prisma = {
+      kycVerification: verifiedCustomerStub(),
       order: {
         findUnique: jest.fn().mockResolvedValue(order),
         update: jest.fn().mockResolvedValue(order),
@@ -88,6 +89,7 @@ describe('OrderService — Phase 5A per-order contractId cutover', () => {
         findUnique: jest.fn().mockResolvedValue(quote),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      kycVerification: verifiedCustomerStub(),
       order: {
         create: jest.fn().mockImplementation(({ data }: any) =>
           Promise.resolve({

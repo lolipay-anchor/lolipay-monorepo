@@ -12,6 +12,7 @@ import { PRICE_ADAPTER } from '../rate/rate.module';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { configureHttp } from '../http-setup';
 import { sessionToken, anchorToken } from '../auth/auth-test-helpers';
+import { onChainTradeFor } from './test-helpers';
 import { invalidateAllConfigCaches } from '../config/config-cache';
 
 const noopStorage = {
@@ -231,6 +232,28 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
     expect(res.body.message).toBe(REFUSAL);
     expect(await prisma.order.count()).toBe(before);
   });
+
+  it('stops revealing where to send money once the verdict behind it is gone', async () => {
+    const { jwt, quoteId, userAddress } = await aDepositQuote();
+    await accept(userAddress);
+    const created = await request(app.getHttpServer())
+      .post('/orders').set('Authorization', `Bearer ${jwt}`).send({ quoteId }).expect(201);
+
+    const orderId = created.body.order.id as string;
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    const stellar = app.get(StellarReadService) as any;
+    stellar.getTradeStatus = jest.fn(async () => onChainTradeFor(order, 'FUNDED'));
+
+    const shown = await request(app.getHttpServer())
+      .get(`/orders/${orderId}`).set('Authorization', `Bearer ${jwt}`).expect(200);
+    expect(shown.body.payment_instructions).toBeDefined();
+
+    await prisma.kycVerification.deleteMany({ where: { customerRef: userAddress } });
+
+    const withheld = await request(app.getHttpServer())
+      .get(`/orders/${orderId}`).set('Authorization', `Bearer ${jwt}`).expect(200);
+    expect(withheld.body.payment_instructions).toBeUndefined();
+  }, 30_000);
 
   it('no second creator of an Order row has appeared', () => {
     const src = readFileSync(path.resolve(__dirname, 'order.service.ts'), 'utf8');
