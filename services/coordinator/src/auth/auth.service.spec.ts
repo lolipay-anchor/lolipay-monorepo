@@ -30,8 +30,61 @@ function makeService(cfgOverrides: Record<string, any> = {}) {
     walletLink: { findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE' }) },
     lp: { findUnique: jest.fn().mockResolvedValue(null) },
   } as any;
-  return { svc: new AuthService(jwt, cfg, prisma, { proveWallet: jest.fn().mockResolvedValue({ id: 'person-test' }) } as any), jwt, cfg, prisma };
+  const consumed = { consume: jest.fn().mockResolvedValue(true) } as any;
+  return {
+    svc: new AuthService(
+      jwt,
+      cfg,
+      prisma,
+      { proveWallet: jest.fn().mockResolvedValue({ id: 'person-test' }) } as any,
+      consumed,
+    ),
+    jwt,
+    cfg,
+    prisma,
+    consumed,
+  };
 }
+
+describe('a signature that has already bought a session cannot buy another', () => {
+  it('refuses the second use of one challenge', async () => {
+    const { svc, consumed } = makeService();
+    const kp = Keypair.random();
+    const challenge = svc.issueChallenge(kp.publicKey());
+    const signature = signSep53(kp, challenge);
+
+    await expect(svc.verify(kp.publicKey(), challenge, signature)).resolves.toBe('jwt-token');
+
+    consumed.consume.mockResolvedValueOnce(false);
+    await expect(svc.verify(kp.publicKey(), challenge, signature)).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('consumes the nonce, not the whole challenge, and bounds it by the challenge expiry', async () => {
+    const { svc, consumed } = makeService();
+    const kp = Keypair.random();
+    const challenge = svc.issueChallenge(kp.publicKey());
+
+    await svc.verify(kp.publicKey(), challenge, signSep53(kp, challenge));
+
+    const [nonce, expiresAt] = consumed.consume.mock.calls[0];
+    expect(nonce).toBe(challenge.split(':')[2]);
+    expect(expiresAt).toEqual(new Date(Number(challenge.split(':')[3])));
+  });
+
+  it('does not spend the nonce when the signature is wrong, so a wrong guess cannot lock the real holder out', async () => {
+    const { svc, consumed } = makeService();
+    const kp = Keypair.random();
+    const challenge = svc.issueChallenge(kp.publicKey());
+
+    await expect(
+      svc.verify(kp.publicKey(), challenge, signSep53(Keypair.random(), challenge)),
+    ).rejects.toThrow(UnauthorizedException);
+
+    expect(consumed.consume).not.toHaveBeenCalled();
+  });
+});
 
 describe('AuthService (stateless HMAC challenge)', () => {
   it('round-trips: issue → sign → verify returns a JWT', async () => {

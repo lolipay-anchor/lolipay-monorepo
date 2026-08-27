@@ -186,7 +186,7 @@ export class MaintenanceService {
     });
     if (spent.count > 0) this.log.log(`pruned ${spent.count} spent wallet-link challenge(s)`);
 
-    const anchor = await this.prisma.sep10ConsumedChallenge.deleteMany({
+    const anchor = await this.prisma.consumedChallenge.deleteMany({
       where: { expiresAt: { lt: new Date() } },
     });
     if (anchor.count > 0) this.log.log(`pruned ${anchor.count} spent SEP-10 challenge(s)`);

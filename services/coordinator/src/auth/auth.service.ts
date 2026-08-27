@@ -7,6 +7,7 @@ import { jwtSignOptions } from './jwt-options';
 import { AppConfigService } from '../config/app-config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonService } from '../person/person.service';
+import { ConsumedChallengeService } from './consumed-challenge.service';
 
 const PREFIX = 'lolipay-auth';
 
@@ -19,6 +20,7 @@ export class AuthService {
     private cfg: AppConfigService,
     private prisma: PrismaService,
     private people: PersonService,
+    private consumed: ConsumedChallengeService,
   ) {}
 
   private reject(address: string, reason: string): never {
@@ -55,6 +57,12 @@ export class AuthService {
     if (!verifySep53(address, challenge, signature)) {
       this.reject(address, 'bad signature');
     }
+
+    const spent = await this.consumed.consume(nonce, new Date(exp));
+    if (!spent) {
+      this.reject(address, 'this challenge has already been used');
+    }
+
     await this.people.proveWallet(address, 'SEP53');
 
     const role = await resolveRole(address, this.prisma, this.cfg.adminAddresses, 'session');

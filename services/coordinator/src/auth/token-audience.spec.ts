@@ -52,7 +52,7 @@ describe('a token minted for somewhere else is not a token here', () => {
     const jwt = { signAsync: jest.fn().mockResolvedValue('t') } as any;
     const svc = new AuthService(jwt, makeCfg(), makePrisma(), {
       proveWallet: jest.fn().mockResolvedValue({ id: 'p1' }),
-    } as any);
+    } as any, { consume: jest.fn().mockResolvedValue(true) } as any);
 
     await (svc as any).mintFor('GUSER');
 

@@ -7,6 +7,7 @@ import { PersonModule } from '../person/person.module';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { RolesGuard } from './roles.guard';
+import { ConsumedChallengeService } from './consumed-challenge.service';
 
 @Module({
   imports: [
@@ -18,7 +19,7 @@ import { RolesGuard } from './roles.guard';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, RolesGuard],
+  providers: [ConsumedChallengeService, AuthService, JwtStrategy, RolesGuard],
   exports: [AuthService, RolesGuard],
 })
 export class AuthModule {}

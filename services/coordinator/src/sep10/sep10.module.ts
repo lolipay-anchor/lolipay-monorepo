@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { Sep10Controller } from './sep10.controller';
 import { Sep10Service } from './sep10.service';
 import { AccountSignersService } from './account-signers.service';
-import { ConsumedChallengeService } from './consumed-challenge.service';
+import { ConsumedChallengeService } from '../auth/consumed-challenge.service';
 import { PersonModule } from '../person/person.module';
 import { JwtModule } from '@nestjs/jwt';
 import { AppConfigService } from '../config/app-config.service';

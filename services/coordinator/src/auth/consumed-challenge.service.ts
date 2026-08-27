@@ -7,7 +7,7 @@ export class ConsumedChallengeService {
 
   async consume(nonce: string, expiresAt: Date): Promise<boolean> {
     try {
-      await this.prisma.sep10ConsumedChallenge.create({ data: { nonce, expiresAt } });
+      await this.prisma.consumedChallenge.create({ data: { nonce, expiresAt } });
       return true;
     } catch (err) {
       if (isUniqueViolation(err)) return false;

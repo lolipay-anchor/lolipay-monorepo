@@ -294,7 +294,7 @@ model WalletLinkChallenge {
   @@index([expiresAt])
 }
 
-model Sep10ConsumedChallenge {
+model ConsumedChallenge {
   nonce     String   @id
   expiresAt DateTime
   createdAt DateTime @default(now())

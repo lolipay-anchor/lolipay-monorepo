@@ -10,7 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PersonService } from '../person/person.service';
 import { jwtSignOptions } from '../auth/jwt-options';
 import { AccountSignersService, baseStellarAccount } from './account-signers.service';
-import { ConsumedChallengeService } from './consumed-challenge.service';
+import { ConsumedChallengeService } from '../auth/consumed-challenge.service';
 import { AppConfigService } from '../config/app-config.service';
 
 export const CHALLENGE_TIMEOUT_SECONDS = 900;
