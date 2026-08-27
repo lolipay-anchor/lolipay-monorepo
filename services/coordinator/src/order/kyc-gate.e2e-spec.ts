@@ -96,10 +96,16 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
     return { jwt, quoteId: q.body.quote_id as string, userAddress: kp.publicKey() };
   }
 
+  async function personOf(userAddress: string): Promise<string> {
+    const link = await prisma.walletLink.findUnique({ where: { stellarAddress: userAddress } });
+    return link!.personId;
+  }
+
   async function accept(userAddress: string, extra: Record<string, unknown> = {}) {
     await prisma.kycVerification.create({
       data: {
         customerRef: userAddress,
+        personId: await personOf(userAddress),
         status: 'ACCEPTED',
         screenedAt: new Date(),
         verifiedAt: new Date(),
@@ -249,6 +255,49 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
     expect(shown.body.payment_instructions).toBeDefined();
 
     await prisma.kycVerification.deleteMany({ where: { customerRef: userAddress } });
+
+    const withheld = await request(app.getHttpServer())
+      .get(`/orders/${orderId}`).set('Authorization', `Bearer ${jwt}`).expect(200);
+    expect(withheld.body.payment_instructions).toBeUndefined();
+  }, 30_000);
+
+  it.each([
+    [
+      'the screening that backed it turns out never to have run',
+      async (userAddress: string) =>
+        prisma.kycVerification.update({
+          where: { customerRef: userAddress },
+          data: { screenedAt: null },
+        }),
+    ],
+    [
+      'a refusal lands against the person under another memo',
+      async (userAddress: string) =>
+        prisma.kycVerification.create({
+          data: {
+            customerRef: `${userAddress}:9009`,
+            personId: await personOf(userAddress),
+            status: 'REJECTED',
+            screenedAt: new Date(),
+          },
+        }),
+    ],
+  ])('stops revealing where to send money when %s', async (_name, revoke) => {
+    const { jwt, quoteId, userAddress } = await aDepositQuote();
+    await accept(userAddress);
+    const created = await request(app.getHttpServer())
+      .post('/orders').set('Authorization', `Bearer ${jwt}`).send({ quoteId }).expect(201);
+
+    const orderId = created.body.order.id as string;
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    const stellar = app.get(StellarReadService) as any;
+    stellar.getTradeStatus = jest.fn(async () => onChainTradeFor(order, 'FUNDED'));
+
+    const shown = await request(app.getHttpServer())
+      .get(`/orders/${orderId}`).set('Authorization', `Bearer ${jwt}`).expect(200);
+    expect(shown.body.payment_instructions).toBeDefined();
+
+    await revoke(userAddress);
 
     const withheld = await request(app.getHttpServer())
       .get(`/orders/${orderId}`).set('Authorization', `Bearer ${jwt}`).expect(200);

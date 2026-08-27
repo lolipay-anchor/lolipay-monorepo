@@ -121,7 +121,6 @@ describe('OrderService — Phase 5A per-order contractId cutover', () => {
         }),
       },
     } as any;
-    (prisma as any).kycVerification = verifiedCustomerStub();
     withTxSupport(prisma);
     const stellar = { getStakeInfo: jest.fn().mockResolvedValue({ staked: '1000000000000', unbonding: '0', unbond_available_at: 0, min_stake: '1', eligible: true }),  hasUsdcTrustline: jest.fn().mockResolvedValue(true) } as any;
     const matching = {

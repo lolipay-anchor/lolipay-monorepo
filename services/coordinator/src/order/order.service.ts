@@ -117,10 +117,12 @@ export class OrderService {
       };
     },
   ): Promise<boolean> {
+    if (!personId) return false;
     const verification = await db.kycVerification.findUnique({
       where: { customerRef: userAddress },
     });
-    if (verification?.status !== 'ACCEPTED' || verification.screenedAt === null) return false;
+    if (verification?.status !== 'ACCEPTED' || !verification.screenedAt) return false;
+    if (verification.personId != null && verification.personId !== personId) return false;
     const refused = await db.kycVerification.findFirst({
       where: { personId, status: 'REJECTED' },
     });
