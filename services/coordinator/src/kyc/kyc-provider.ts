@@ -25,6 +25,6 @@ export const KYC_FIELD_DESCRIPTORS: Record<string, { type: string; description: 
   first_name: { type: 'string', description: 'given name as it appears on the identity document' },
   last_name: { type: 'string', description: 'family name as it appears on the identity document' },
   email_address: { type: 'string', description: 'an address that can receive verification mail' },
-  id_type: { type: 'string', description: 'the kind of identity document, for example id_card' },
+  id_type: { type: 'string', description: 'the kind of identity document being presented' },
   id_country_code: { type: 'string', description: 'ISO 3166-1 alpha-3 code of the issuing country' },
 };
