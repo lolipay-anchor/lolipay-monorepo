@@ -328,6 +328,8 @@ export class OrderService {
     const serialized = serializeOrderBase(currentOrder, config);
     if (shouldReveal) {
       serialized.payment_instructions = getPaymentInstructions(currentOrder);
+    } else if (mayReveal) {
+      serialized.payment_instructions_withheld = 'kyc_required';
     }
 
     if (currentOrder.lpId && currentOrder.lp) {

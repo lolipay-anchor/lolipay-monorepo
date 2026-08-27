@@ -259,6 +259,7 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
     const withheld = await request(app.getHttpServer())
       .get(`/orders/${orderId}`).set('Authorization', `Bearer ${jwt}`).expect(200);
     expect(withheld.body.payment_instructions).toBeUndefined();
+    expect(withheld.body.payment_instructions_withheld).toBe('kyc_required');
   }, 30_000);
 
   it.each([
@@ -302,6 +303,19 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
     const withheld = await request(app.getHttpServer())
       .get(`/orders/${orderId}`).set('Authorization', `Bearer ${jwt}`).expect(200);
     expect(withheld.body.payment_instructions).toBeUndefined();
+    expect(withheld.body.payment_instructions_withheld).toBe('kyc_required');
+  }, 30_000);
+
+  it('says nothing about withholding on an order that simply is not funded yet', async () => {
+    const { jwt, quoteId, userAddress } = await aDepositQuote();
+    await accept(userAddress);
+    const created = await request(app.getHttpServer())
+      .post('/orders').set('Authorization', `Bearer ${jwt}`).send({ quoteId }).expect(201);
+
+    const res = await request(app.getHttpServer())
+      .get(`/orders/${created.body.order.id}`).set('Authorization', `Bearer ${jwt}`).expect(200);
+    expect(res.body.payment_instructions).toBeUndefined();
+    expect(res.body.payment_instructions_withheld).toBeUndefined();
   }, 30_000);
 
   it('no second creator of an Order row has appeared', () => {
