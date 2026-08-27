@@ -184,7 +184,7 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
       .expect(201);
   });
 
-  it('a customer who registers through the anchor door can then open a deposit', async () => {
+  it('a customer who registers through the anchor door can then open a deposit, on a stack permitted to pretend it screened', async () => {
     const kp = Keypair.random();
     const anchor = await anchorToken(app, kp);
     await request(app.getHttpServer())

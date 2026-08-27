@@ -190,6 +190,23 @@ describe('PUT /customer registers a customer without keeping what it was told', 
     expect(typeof got.body.message).toBe('string');
   });
 
+  it('does not let a refused customer wash the refusal off by deleting themselves first', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    await request(app.getHttpServer())
+      .put('/customer').set('Authorization', `Bearer ${jwt}`)
+      .send({ ...complete, first_name: 'REJECT' }).expect(202);
+    await request(app.getHttpServer())
+      .put('/customer').set('Authorization', `Bearer ${jwt}`).send(complete).expect(403);
+
+    await request(app.getHttpServer())
+      .delete(`/customer/${kp.publicKey()}`).set('Authorization', `Bearer ${jwt}`).expect(200);
+
+    const again = await request(app.getHttpServer())
+      .put('/customer').set('Authorization', `Bearer ${jwt}`).send(complete);
+    expect(again.status).toBe(403);
+  });
+
   it('refuses a body field nobody named', async () => {
     const jwt = await anchorToken(app, Keypair.random());
     const res = await request(app.getHttpServer())

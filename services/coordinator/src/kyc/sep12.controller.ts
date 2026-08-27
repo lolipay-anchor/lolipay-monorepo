@@ -22,7 +22,11 @@ import { Sep12Service } from './sep12.service';
 
 function speaksFor(subject: string): { account: string; memo?: string } {
   const [head, memo] = subject.split(':');
-  return { account: baseStellarAccount(head), memo };
+  try {
+    return { account: baseStellarAccount(head), memo };
+  } catch {
+    throw new NotFoundException('this token names an account that cannot be read');
+  }
 }
 
 @Controller('customer')
@@ -40,6 +44,9 @@ export class Sep12Controller {
     }
     if (query.account !== undefined && query.account !== account) {
       throw new NotFoundException('no customer by that account belongs to this token');
+    }
+    if (query.memo && query.memo !== speaksFor(subject).memo) {
+      throw new NotFoundException('no customer by that memo belongs to this token');
     }
     return this.sep12.get(subject);
   }
@@ -65,7 +72,7 @@ export class Sep12Controller {
     if (dto.account !== undefined && dto.account !== speaking.account) {
       throw new BadRequestException('account does not match the account this token speaks for');
     }
-    if (dto.memo !== undefined && dto.memo !== speaking.memo) {
+    if (dto.memo && dto.memo !== speaking.memo) {
       throw new BadRequestException('memo does not match the memo this token carries');
     }
     const { account: _a, memo: _m, memo_type: _mt, type: _t, ...fields } = dto;

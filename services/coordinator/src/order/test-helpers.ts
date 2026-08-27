@@ -24,9 +24,13 @@ export function makeUserReputationStub(
   } as unknown as UserReputationService;
 }
 
-export function verifiedCustomerStub() {
+export function verifiedCustomerStub(customerRef?: string) {
   return {
-    findUnique: jest.fn().mockResolvedValue({ status: 'ACCEPTED', screenedAt: new Date() }),
+    findUnique: jest.fn(async ({ where }: any) =>
+      customerRef === undefined || where.customerRef === customerRef
+        ? { customerRef: where.customerRef, status: 'ACCEPTED', screenedAt: new Date() }
+        : null,
+    ),
   };
 }
 

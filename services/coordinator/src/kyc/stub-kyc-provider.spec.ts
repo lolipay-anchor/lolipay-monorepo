@@ -13,7 +13,11 @@ describe('the stub stands in for a provider that cannot be reached yet', () => {
   const p = new StubKycProvider(false);
 
   it('accepts a customer who supplied every field the suite fixture carries', async () => {
-    expect(await p.start(complete)).toEqual({ status: 'ACCEPTED', screened: false });
+    expect(await p.start(complete)).toEqual({
+      status: 'ACCEPTED',
+      screened: false,
+      providerRef: 'stub',
+    });
   });
 
   it('leaves a customer needing information when a required field is missing', async () => {
@@ -44,7 +48,15 @@ describe('the stub stands in for a provider that cannot be reached yet', () => {
 
   it('reports screening only when an operator has said this stack may pretend to screen', async () => {
     const pretending = new StubKycProvider(true);
-    expect((await pretending.start(complete)).screened).toBe(true);
+    const out = await pretending.start(complete);
+    expect(out.screened).toBe(true);
+    expect(out.providerRef).toBe('stub');
+  });
+
+  it('names itself on the record, so a pretended screening is never mistaken for a real one', async () => {
+    for (const screens of [true, false]) {
+      expect((await new StubKycProvider(screens).start(complete)).providerRef).toBe('stub');
+    }
   });
 
   it('still refuses to pretend on a path it did not accept', async () => {

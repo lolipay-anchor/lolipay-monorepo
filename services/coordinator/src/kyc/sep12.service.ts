@@ -37,6 +37,15 @@ export class Sep12Service {
   }
 
   async forget(customerRef: string): Promise<number> {
+    const standing = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
+    if (!standing) return 0;
+    if (standing.status === 'REJECTED') {
+      await this.prisma.kycVerification.update({
+        where: { customerRef },
+        data: { rejectionReason: null, providerRef: null, screenedAt: null, verifiedAt: null },
+      });
+      return 1;
+    }
     const { count } = await this.prisma.kycVerification.deleteMany({ where: { customerRef } });
     return count;
   }
