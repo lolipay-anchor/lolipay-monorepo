@@ -20,9 +20,27 @@ export class Sep12Service {
     @Inject(KYC_PROVIDER) private provider: KycProvider,
   ) {}
 
+  private async standingRefusal(customerRef: string) {
+    const person = await this.people.lookupPerson(customerRef);
+    if (!person) return null;
+    return this.prisma.kycVerification.findFirst({
+      where: { status: 'REJECTED', OR: [{ customerRef }, { personId: person.id }] },
+    });
+  }
+
   async get(customerRef: string) {
     const row = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
-    if (!row) return { status: 'NEEDS_INFO', fields: KYC_FIELD_DESCRIPTORS };
+    if (!row) {
+      const refusal = await this.standingRefusal(customerRef);
+      if (refusal) {
+        return {
+          id: refusal.customerRef,
+          status: refusal.status,
+          message: refusal.rejectionReason ?? 'this identity was refused',
+        };
+      }
+      return { status: 'NEEDS_INFO', fields: KYC_FIELD_DESCRIPTORS };
+    }
     if (row.status === 'NEEDS_INFO') {
       return { id: row.customerRef, status: row.status, fields: KYC_FIELD_DESCRIPTORS };
     }
@@ -38,7 +56,7 @@ export class Sep12Service {
 
   async forget(customerRef: string): Promise<number> {
     const standing = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
-    if (!standing) return 0;
+    if (!standing) return (await this.standingRefusal(customerRef)) ? 1 : 0;
     if (standing.status === 'REJECTED') {
       if (standing.rejectionReason === null && standing.screenedAt === null) return 0;
       await this.prisma.kycVerification.update({
@@ -53,11 +71,11 @@ export class Sep12Service {
 
   async put(customerRef: string, fields: Record<string, string>) {
     const person = await this.people.lookupPerson(customerRef);
+    if (!person) {
+      throw new ForbiddenException('this wallet is no longer permitted to register a customer');
+    }
     const refused = await this.prisma.kycVerification.findFirst({
-      where: {
-        status: 'REJECTED',
-        OR: [{ customerRef }, ...(person ? [{ personId: person.id }] : [])],
-      },
+      where: { status: 'REJECTED', OR: [{ customerRef }, { personId: person.id }] },
     });
     if (refused) {
       throw new ForbiddenException('this identity was refused and cannot be resubmitted here');

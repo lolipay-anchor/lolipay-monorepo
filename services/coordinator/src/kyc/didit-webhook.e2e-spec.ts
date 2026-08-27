@@ -103,7 +103,8 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     const raw = body();
     const req = request(app.getHttpServer()).post(path);
     if (ct) req.set('content-type', ct);
-    const res = await req.set(signed(raw)).send(raw);
+    const sent = req.set(signed(raw)).send(raw);
+    const res = await (ct ? sent : (sent as any).unset('Content-Type'));
     expect(res.status).toBe(401);
   });
 

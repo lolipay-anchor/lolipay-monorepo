@@ -42,6 +42,7 @@ function opened(path: string): boolean {
 }
 
 describe('an anchor token is refused everywhere a session token is admitted', () => {
+
   let app: INestApplication;
   let routes: Route[];
   let session: string;
@@ -60,11 +61,12 @@ describe('an anchor token is refused everywhere a session token is admitted', ()
   });
 
   it('found the application routes rather than an empty list', () => {
-    expect(routes.length).toBeGreaterThan(20);
+    expect(routes.length).toBeGreaterThanOrEqual(50);
   });
 
   it('refuses the anchor token on every route the session token reaches', async () => {
     const admitted: Route[] = [];
+    const refusedToBoth: Route[] = [];
     const leaked: string[] = [];
 
     for (const route of routes) {
@@ -78,18 +80,24 @@ describe('an anchor token is refused everywhere a session token is admitted', ()
       const withSession = await (request(app.getHttpServer()) as any)
         [verb](url)
         .set('Authorization', `Bearer ${session}`);
-      if (withSession.status === 401 || withSession.status === 403) continue;
-      admitted.push(route);
+      const sessionAdmitted = withSession.status !== 401 && withSession.status !== 403;
+      if (sessionAdmitted) admitted.push(route);
+      else refusedToBoth.push(route);
 
       const withAnchor = await (request(app.getHttpServer()) as any)
         [verb](url)
         .set('Authorization', `Bearer ${anchor}`);
-      if (withAnchor.status !== 403 && !opened(route.path)) {
-        leaked.push(`${route.method} ${route.path} -> ${withAnchor.status}`);
+      const anchorRefused = withAnchor.status === 401 || withAnchor.status === 403;
+      if (!anchorRefused && !opened(route.path)) {
+        const note = sessionAdmitted ? '' : ' (a session token is refused here too)';
+        leaked.push(`${route.method} ${route.path}${note} -> ${withAnchor.status}`);
       }
     }
 
-    expect(admitted.length).toBeGreaterThan(5);
     expect(leaked).toEqual([]);
+    expect(admitted.length + refusedToBoth.length).toBeGreaterThanOrEqual(45);
+    for (const named of ['/admin/config', '/orders', '/customer', '/lp/assignments', '/webhooks/didit']) {
+      expect(routes.some((r) => r.path === named)).toBe(true);
+    }
   }, 180_000);
 });

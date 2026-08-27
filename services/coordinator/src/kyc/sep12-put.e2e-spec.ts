@@ -250,6 +250,35 @@ describe('PUT /customer registers a customer without keeping what it was told', 
     }
   });
 
+  it('tells a refused person they are refused, at every memo, rather than inviting them to try again', async () => {
+    const kp = Keypair.random();
+    const refused = await anchorToken(app, kp, 3001);
+    await request(app.getHttpServer())
+      .put('/customer').set('Authorization', `Bearer ${refused}`)
+      .send({ memo: '3001', memo_type: 'id', ...complete, first_name: 'REJECT' })
+      .expect(202);
+
+    const sibling = await anchorToken(app, kp, 3002);
+    const seen = await request(app.getHttpServer())
+      .get('/customer').set('Authorization', `Bearer ${sibling}`).expect(200);
+    expect(seen.body.status).toBe('REJECTED');
+    expect(seen.body.fields).toBeUndefined();
+  });
+
+  it('does not claim to hold nothing about a person it has refused', async () => {
+    const kp = Keypair.random();
+    const refused = await anchorToken(app, kp, 4001);
+    await request(app.getHttpServer())
+      .put('/customer').set('Authorization', `Bearer ${refused}`)
+      .send({ memo: '4001', memo_type: 'id', ...complete, first_name: 'REJECT' })
+      .expect(202);
+
+    const sibling = await anchorToken(app, kp, 4002);
+    const del = await request(app.getHttpServer())
+      .delete(`/customer/${kp.publicKey()}`).set('Authorization', `Bearer ${sibling}`);
+    expect(del.status).not.toBe(404);
+  });
+
   it('refuses a body field nobody named', async () => {
     const jwt = await anchorToken(app, Keypair.random());
     const res = await request(app.getHttpServer())

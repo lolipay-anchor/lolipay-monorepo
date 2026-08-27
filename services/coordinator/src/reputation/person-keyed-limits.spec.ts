@@ -71,7 +71,7 @@ function makeWorld(opts: { personCreateThrows?: boolean } = {}) {
         },
       })),
     },
-    kycVerification: verifiedCustomerStub(),
+    kycVerification: verifiedCustomerStub(undefined, (ref: string) => links.get(ref)?.personId),
     order: {
       create: jest.fn(async ({ data }: any) => {
         const row = {

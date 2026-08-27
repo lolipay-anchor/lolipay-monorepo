@@ -24,14 +24,25 @@ export function makeUserReputationStub(
   } as unknown as UserReputationService;
 }
 
-export function verifiedCustomerStub(customerRef?: string) {
+export function verifiedCustomerStub(
+  customerRef?: string,
+  personId: string | ((ref: string) => string | undefined) = 'person-test',
+) {
+  const owner = (ref: string) => (typeof personId === 'function' ? personId(ref) : personId);
   return {
     findUnique: jest.fn(async ({ where }: any) =>
       customerRef === undefined || where.customerRef === customerRef
-        ? { customerRef: where.customerRef, status: 'ACCEPTED', screenedAt: new Date() }
+        ? {
+            customerRef: where.customerRef,
+            personId: owner(where.customerRef),
+            status: 'ACCEPTED',
+            screenedAt: new Date(),
+          }
         : null,
     ),
-    findFirst: jest.fn().mockResolvedValue(null),
+    findFirst: jest.fn(async ({ where }: any) =>
+      where.status === 'REJECTED' ? null : { personId: where.personId },
+    ),
   };
 }
 

@@ -83,13 +83,15 @@ describe('a delivery is trusted only when its bytes were signed by the shared se
   });
 
   it('refuses when the raw body is missing entirely', () => {
-    const res = verifyDiditDelivery({ ...delivery(), raw: undefined as unknown as Buffer });
+    const res = verifyDiditDelivery({ ...delivery(), raw: undefined });
     expect(res).toEqual({ trusted: false, reason: 'the bytes of this delivery were not captured' });
   });
 
   it.each([
-    ['exactly at the edge of the window', 300, false],
-    ['one second inside it', 299, true],
+    ['exactly at the past edge of the window', 300, false],
+    ['exactly at the future edge of the window', -300, false],
+    ['one second inside it, in the past', 299, true],
+    ['one second inside it, in the future', -299, true],
   ])('treats a timestamp %s as trusted=%s', (_n, offset, trusted) => {
     expect(verifyDiditDelivery(delivery({ timestamp: String(now() - offset) })).trusted).toBe(trusted);
   });

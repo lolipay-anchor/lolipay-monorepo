@@ -18,7 +18,7 @@ describe('OrderService — an on-chain trade must bind to the order before it co
       tradeId: FAKE_TRADE_ID,
       contractId: CONTRACT,
       userAddress: USER_ADDR,
-      personId: 'person-binding',
+      personId: 'person-test',
       flow: 'TOP_UP',
       status: 'MATCHED',
       fiatCurrency: 'IDR',

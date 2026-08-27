@@ -5,7 +5,7 @@ export const DIDIT_FRESHNESS_SECS = 300;
 export type DeliveryVerdict = { trusted: boolean; reason?: string };
 
 export function verifyDiditDelivery(delivery: {
-  raw: Buffer;
+  raw: Buffer | undefined;
   signature: string;
   timestamp: string;
   secret: string;

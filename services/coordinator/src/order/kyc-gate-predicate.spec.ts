@@ -34,6 +34,10 @@ describe('the predicate that governs both the deposit gate and the reveal gate',
     await expect(check(dbWith(row), G, 'person-1')).resolves.toBe(false);
   });
 
+  it('refuses a row bound to nobody, which no live row is and only a fixture can be', async () => {
+    await expect(check(dbWith(verifiedRow({ personId: null })), G, 'person-1')).resolves.toBe(false);
+  });
+
   it('refuses a row bound to somebody else, which a re-linked wallet would leave behind', async () => {
     await expect(check(dbWith(verifiedRow({ personId: 'person-2' })), G, 'person-1')).resolves.toBe(
       false,
@@ -51,7 +55,7 @@ describe('the predicate that governs both the deposit gate and the reveal gate',
     ['empty', ''],
     ['null', null],
   ])('refuses outright when the person is %s, rather than asking a question that has no filter', async (_n, personId) => {
-    const db = dbWith(verifiedRow());
+    const db = dbWith(verifiedRow({ personId: null }));
     await expect(check(db, G, personId)).resolves.toBe(false);
     expect(db.kycVerification.findFirst).not.toHaveBeenCalled();
   });

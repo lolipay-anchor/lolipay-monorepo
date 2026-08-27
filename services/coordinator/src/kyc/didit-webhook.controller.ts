@@ -1,5 +1,4 @@
 import { Controller, HttpCode, Logger, Post, Req, UnauthorizedException } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
 import { AppConfigService } from '../config/app-config.service';
 import { verifyDiditDelivery } from './didit-signature';
 
@@ -11,7 +10,6 @@ export class DiditWebhookController {
 
   @Post('didit')
   @HttpCode(200)
-  @Throttle({ default: { limit: 300, ttl: 60_000 } })
   async receive(@Req() req: any): Promise<void> {
     const verdict = verifyDiditDelivery({
       raw: req.rawBody,

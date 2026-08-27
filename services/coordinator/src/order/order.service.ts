@@ -122,7 +122,7 @@ export class OrderService {
       where: { customerRef: userAddress },
     });
     if (verification?.status !== 'ACCEPTED' || !verification.screenedAt) return false;
-    if (verification.personId != null && verification.personId !== personId) return false;
+    if (verification.personId !== personId) return false;
     const refused = await db.kycVerification.findFirst({
       where: { personId, status: 'REJECTED' },
     });

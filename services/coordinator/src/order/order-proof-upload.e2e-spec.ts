@@ -121,8 +121,23 @@ describe('Payment proof + dispute evidence uploads (e2e)', () => {
     });
     await prisma.order.deleteMany({});
     await prisma.kycVerification.deleteMany({ where: { customerRef: userKp.publicKey() } });
+    const kycPerson = await prisma.person.create({ data: {} });
+    await prisma.walletLink.upsert({
+      where: { stellarAddress: userKp.publicKey() },
+      update: { personId: kycPerson.id, status: 'ACTIVE' },
+      create: {
+        stellarAddress: userKp.publicKey(),
+        personId: kycPerson.id,
+        authMethod: 'SEP53',
+      },
+    });
     await prisma.kycVerification.create({
-      data: { customerRef: userKp.publicKey(), status: 'ACCEPTED', screenedAt: new Date() },
+      data: {
+        customerRef: userKp.publicKey(),
+        personId: kycPerson.id,
+        status: 'ACCEPTED',
+        screenedAt: new Date(),
+      },
     });
     await prisma.paymentMethod.deleteMany({});
     await prisma.lp.deleteMany({});
