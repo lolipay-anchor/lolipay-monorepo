@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { LP_CAPACITY_LOCK_NAMESPACE } from './lp-exposure';
-import { orderStatusFor, orderTxFor } from './test-helpers';
+import { orderStatusFor, orderTxFor, verifiedCustomerStub } from './test-helpers';
 
 describe('OrderService.createFromQuote — advisory-lock transaction wiring (SECURITY MEDIUM fix wave)', () => {
   const USER = 'GUSER';
@@ -66,11 +66,13 @@ describe('OrderService.createFromQuote — advisory-lock transaction wiring (SEC
     const txExecuteRaw = jest.fn().mockResolvedValue(0);
 
     const txQueryRaw = jest.fn().mockResolvedValue([{ total: '0' }]);
-    const tx = { quote: txQuote, order: txOrder, $executeRaw: txExecuteRaw, $queryRaw: txQueryRaw };
+    const tx = { quote: txQuote, order: txOrder, $executeRaw: txExecuteRaw, $queryRaw: txQueryRaw,
+      kycVerification: verifiedCustomerStub() };
 
     const transactionSpy = jest.fn((cb: (tx: any) => unknown) => cb(tx));
 
     const prisma = {
+      kycVerification: verifiedCustomerStub(),
       quote: {
         findUnique: jest.fn().mockResolvedValue(quote),
 

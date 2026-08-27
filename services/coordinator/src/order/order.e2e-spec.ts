@@ -113,6 +113,10 @@ describe('Order lifecycle (e2e)', () => {
       },
     });
     await prisma.order.deleteMany({});
+    await prisma.kycVerification.deleteMany({ where: { customerRef: userKp.publicKey() } });
+    await prisma.kycVerification.create({
+      data: { customerRef: userKp.publicKey(), status: 'ACCEPTED', screenedAt: new Date() },
+    });
     await prisma.paymentMethod.deleteMany({});
     await prisma.lp.deleteMany({});
     const lp = await prisma.lp.upsert({

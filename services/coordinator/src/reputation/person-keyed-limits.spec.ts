@@ -2,7 +2,7 @@ import { ServiceUnavailableException } from '@nestjs/common';
 import { OrderService } from '../order/order.service';
 import { PersonId, PersonService } from '../person/person.service';
 import { UserReputationService } from './user-reputation.service';
-import { orderStatusFor, orderTxFor } from '../order/test-helpers';
+import { orderStatusFor, orderTxFor, verifiedCustomerStub } from '../order/test-helpers';
 
 const ADDR_1 = 'GWALLETONE';
 const ADDR_2 = 'GWALLETTWO';
@@ -71,6 +71,7 @@ function makeWorld(opts: { personCreateThrows?: boolean } = {}) {
         },
       })),
     },
+    kycVerification: verifiedCustomerStub(),
     order: {
       create: jest.fn(async ({ data }: any) => {
         const row = {

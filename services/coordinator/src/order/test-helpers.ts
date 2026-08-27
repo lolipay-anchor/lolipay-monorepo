@@ -24,7 +24,16 @@ export function makeUserReputationStub(
   } as unknown as UserReputationService;
 }
 
+export function verifiedCustomerStub() {
+  return {
+    findUnique: jest.fn().mockResolvedValue({ status: 'ACCEPTED', screenedAt: new Date() }),
+  };
+}
+
 export function withTxSupport<T extends Record<string, any>>(prisma: T): T {
+  if (!(prisma as Record<string, any>).kycVerification) {
+    (prisma as Record<string, any>).kycVerification = verifiedCustomerStub();
+  }
   (prisma as Record<string, any>).$transaction = jest.fn((cb: (tx: T) => unknown) => cb(prisma));
   (prisma as Record<string, any>).$executeRaw = jest.fn().mockResolvedValue(0);
   (prisma as Record<string, any>).$queryRaw = jest.fn().mockResolvedValue([{ total: '0' }]);
