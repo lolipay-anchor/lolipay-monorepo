@@ -6,6 +6,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { resolveRole, isTokenClass } from './role.util';
 import { jwtVerifyOptions } from './jwt-options';
 
+const SUBJECT = /^(G[A-Z2-7]{55}(:\d{1,20})?|M[A-Z2-7]{68})$/;
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
@@ -25,6 +27,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: { sub?: unknown; cls?: unknown }) {
     if (typeof payload.sub !== 'string' || !payload.sub) {
       throw new UnauthorizedException('token subject missing');
+    }
+    if (!SUBJECT.test(payload.sub)) {
+      throw new UnauthorizedException('token subject is not an address this anchor mints');
     }
     if (!isTokenClass(payload.cls)) {
       throw new UnauthorizedException('token class missing or unrecognised');

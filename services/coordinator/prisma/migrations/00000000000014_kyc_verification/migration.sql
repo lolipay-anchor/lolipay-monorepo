@@ -20,8 +20,5 @@ CREATE TABLE "KycVerification" (
 -- CreateIndex
 CREATE INDEX "KycVerification_personId_idx" ON "KycVerification"("personId");
 
--- CreateIndex
-CREATE INDEX "KycVerification_status_idx" ON "KycVerification"("status");
-
 -- AddForeignKey
-ALTER TABLE "KycVerification" ADD CONSTRAINT "KycVerification_personId_fkey" FOREIGN KEY ("personId") REFERENCES "Person"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "KycVerification" ADD CONSTRAINT "KycVerification_personId_fkey" FOREIGN KEY ("personId") REFERENCES "Person"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

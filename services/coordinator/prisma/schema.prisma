@@ -313,7 +313,7 @@ model AlertState {
 
 model KycVerification {
   customerRef     String    @id
-  person          Person?   @relation(fields: [personId], references: [id])
+  person          Person?   @relation(fields: [personId], references: [id], onDelete: Restrict)
   personId        String?
   status          KycStatus @default(NEEDS_INFO)
   providerRef     String?
@@ -324,7 +324,6 @@ model KycVerification {
   updatedAt       DateTime  @updatedAt
 
   @@index([personId])
-  @@index([status])
 }
 
 enum KycStatus {

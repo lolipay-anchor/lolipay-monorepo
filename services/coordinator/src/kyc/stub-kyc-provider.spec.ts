@@ -1,4 +1,5 @@
 import { StubKycProvider } from './stub-kyc-provider';
+import { REQUIRED_KYC_FIELDS } from './kyc-provider';
 
 const complete = {
   first_name: 'Budi',
@@ -12,7 +13,7 @@ describe('the stub stands in for a provider that cannot be reached yet', () => {
   const p = new StubKycProvider();
 
   it('accepts a customer who supplied every field the suite fixture carries', async () => {
-    expect(await p.start(complete)).toEqual({ status: 'ACCEPTED', screened: true });
+    expect(await p.start(complete)).toEqual({ status: 'ACCEPTED', screened: false });
   });
 
   it('leaves a customer needing information when a required field is missing', async () => {
@@ -29,9 +30,24 @@ describe('the stub stands in for a provider that cannot be reached yet', () => {
     expect(out.rejectionReason).toBeDefined();
   });
 
-  it('never reports a screening it did not perform', async () => {
-    for (const fields of [{ first_name: 'Budi' }, { ...complete, first_name: 'REJECT' }]) {
+  it('never reports a screening it did not perform, on any path it can take', async () => {
+    const paths: Record<string, string>[] = [
+      complete,
+      { first_name: 'Budi' },
+      { ...complete, first_name: 'REJECT' },
+      {},
+    ];
+    for (const fields of paths) {
       expect((await p.start(fields)).screened).toBe(false);
     }
+  });
+
+  it.each(REQUIRED_KYC_FIELDS)('needs information when %s is absent', async (field) => {
+    const { [field]: _dropped, ...without } = complete;
+    expect((await p.start(without)).status).toBe('NEEDS_INFO');
+  });
+
+  it('reads REJECT however the caller spaced or cased it', async () => {
+    expect((await p.start({ ...complete, first_name: '  reject ' })).status).toBe('REJECTED');
   });
 });

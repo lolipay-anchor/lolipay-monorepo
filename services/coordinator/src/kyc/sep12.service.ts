@@ -1,7 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonService } from '../person/person.service';
-import { baseStellarAccount } from '../sep10/account-signers.service';
 import {
   KYC_FIELD_DESCRIPTORS,
   KYC_PROVIDER,
@@ -32,7 +31,7 @@ export class Sep12Service {
 
   async put(customerRef: string, fields: Record<string, string>) {
     const decision = await this.provider.start(fields);
-    const person = await this.people.lookupPerson(baseStellarAccount(customerRef.split(':')[0]));
+    const person = await this.people.lookupPerson(customerRef);
     const state = {
       personId: person?.id ?? null,
       status: decision.status,

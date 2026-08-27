@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { baseStellarAccount } from '../sep10/account-signers.service';
 import { randomBytes } from 'crypto';
 import { verifySep53 } from '../auth/sep53';
 import { PrismaService } from '../prisma/prisma.service';
@@ -36,9 +37,9 @@ export class PersonService {
     }
   }
 
-  async lookupPerson(address: string): Promise<Person | null> {
+  async lookupPerson(subject: string): Promise<Person | null> {
     const link = await this.prisma.walletLink.findUnique({
-      where: { stellarAddress: address },
+      where: { stellarAddress: baseStellarAccount(subject.split(':')[0]) },
       include: { person: true },
     });
     if (!link || link.status !== 'ACTIVE') return null;

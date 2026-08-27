@@ -14,6 +14,6 @@ export class StubKycProvider implements KycProvider {
         rejectionReason: 'the operator marked this identity as refused',
       };
     }
-    return { status: 'ACCEPTED', screened: true };
+    return { status: 'ACCEPTED', screened: false };
   }
 }

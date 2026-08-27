@@ -1,9 +1,13 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { resolveRole } from './role.util';
 
-function prismaWith(link: unknown, lpAt?: string) {
+function prismaWith(link: unknown, lpAt?: string, linkedAt: string = G) {
   return {
-    walletLink: { findUnique: jest.fn().mockResolvedValue(link) },
+    walletLink: {
+      findUnique: jest.fn(async ({ where }: any) =>
+        where.stellarAddress === linkedAt ? link : null,
+      ),
+    },
     lp: {
       findUnique: jest.fn(async ({ where }: any) =>
         lpAt && where.stellarAddress === lpAt ? { status: 'APPROVED' } : null,
@@ -16,6 +20,14 @@ const ACTIVE = { status: 'ACTIVE' };
 const G = 'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRS';
 
 describe('a subject that names a sub-identity still resolves to the account that was proven', () => {
+  it('refuses a subject whose own account is unproven even when another address is linked', async () => {
+    const victim = 'GVICTIM7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVAAA';
+    const prisma = prismaWith(ACTIVE, undefined, victim);
+    await expect(resolveRole(`${G}:1234`, prisma, [], 'sep10')).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
   it('looks a memoed subject up by the account before the colon', async () => {
     const prisma = prismaWith(ACTIVE);
     await expect(resolveRole(`${G}:1234`, prisma, [], 'sep10')).resolves.toBe('user');
@@ -23,11 +35,13 @@ describe('a subject that names a sub-identity still resolves to the account that
   });
 
   it('looks a muxed subject up by its underlying account', async () => {
-    const prisma = prismaWith(ACTIVE);
     const muxed = 'MA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVAAAAAAAAAAAAAJLK';
+    const underlying = 'GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ';
+    const prisma = prismaWith(ACTIVE, undefined, underlying);
     await expect(resolveRole(muxed, prisma, [], 'sep10')).resolves.toBe('user');
-    const asked = prisma.walletLink.findUnique.mock.calls[0][0].where.stellarAddress;
-    expect(asked.startsWith('G')).toBe(true);
+    expect(prisma.walletLink.findUnique).toHaveBeenCalledWith({
+      where: { stellarAddress: underlying },
+    });
   });
 
   it('still refuses a memoed subject whose account was never proven', async () => {
