@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/app-config.service';
 import { baseUnitsToUsdc } from '../money/money';
@@ -116,6 +117,31 @@ export class Sep24Service {
     if (!row) throw new NotFoundException('this anchor holds no such transaction for you');
     const [transaction] = await this.dress([row]);
     return { transaction };
+  }
+
+  async openInteractive(
+    subject: string,
+    personId: string,
+    body: { asset_code?: string; account?: string },
+  ) {
+    if (!body.asset_code) {
+      throw new BadRequestException('asset_code is required');
+    }
+    if (body.asset_code !== this.cfg.usdcAssetCode) {
+      throw new BadRequestException(`this anchor does not serve ${body.asset_code}`);
+    }
+    if (body.account !== undefined && !StrKey.isValidEd25519PublicKey(body.account.split(':')[0])) {
+      throw new BadRequestException('account is not a Stellar address');
+    }
+
+    const row = await this.prisma.sep24Transaction.create({
+      data: { personId, stellarAccount: subject, assetCode: body.asset_code },
+    });
+    return {
+      type: 'interactive_customer_info_needed',
+      url: `${this.cfg.anchorBaseUrl}/sep24/interactive/${row.id}`,
+      id: row.id,
+    };
   }
 
   async moreInfo(id: string): Promise<string> {

@@ -1,12 +1,32 @@
-import { Controller, Get, Header, Param, Query, Req, Res, UseGuards } from '@nestjs/common';
+import {
+  Body, Controller, ForbiddenException, Get, Header, HttpCode, Param, Post, Query, Req, Res, UseGuards,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { Sep24AuthGuard } from './sep24-auth.guard';
 import { Sep24Service } from './sep24.service';
 import { AllowTokenClasses } from '../auth/token-class.interceptor';
+import { DepositInteractiveDto } from './deposit-interactive.dto';
+import { PersonService } from '../person/person.service';
 
 @Controller('sep24')
 export class Sep24Controller {
-  constructor(private sep24: Sep24Service) {}
+  constructor(
+    private sep24: Sep24Service,
+    private people: PersonService,
+  ) {}
+
+  @Post('transactions/deposit/interactive')
+  @HttpCode(200)
+  @UseGuards(Sep24AuthGuard)
+  @AllowTokenClasses('sep10')
+  async openDeposit(@Req() req: any, @Body() body: DepositInteractiveDto) {
+    const subject: string = req.user.address;
+    const person = await this.people.lookupPerson(subject);
+    if (!person) {
+      throw new ForbiddenException('this wallet is no longer permitted to open a deposit');
+    }
+    return this.sep24.openInteractive(subject, person.id, body);
+  }
 
   @Get('info')
   async info() {
