@@ -10,6 +10,14 @@ export function baseUnitsToUsdc(base: bigint): number {
   return Number(whole) + Number(frac) / 1e7;
 }
 
+export function baseUnitsToUsdcString(base: bigint): string {
+  const negative = base < 0n;
+  const magnitude = negative ? -base : base;
+  const whole = magnitude / USDC_BASE_UNITS;
+  const frac = magnitude % USDC_BASE_UNITS;
+  return `${negative ? '-' : ''}${whole}.${frac.toString().padStart(7, '0')}`;
+}
+
 export function splitFees(usdc: bigint, platformBps: number, lpBps: number) {
   const platformFee = applyBps(usdc, platformBps);
   const lpFee = applyBps(usdc, lpBps);
