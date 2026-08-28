@@ -75,8 +75,31 @@ describe('the toml carries the fields the acceptance suite reads', () => {
     expect(await body()).toMatch(/^WEB_AUTH_ENDPOINT="https:\/\/api\.lolipay\.app\/auth"$/m)
   })
 
-  it('does not advertise a sep24 transfer server, because there is no sep24 server', async () => {
+  it('does not advertise a sep24 transfer server when none is configured', async () => {
+    delete process.env.TRANSFER_SERVER_SEP0024
     expect(await body()).not.toMatch(/TRANSFER_SERVER_SEP0024/)
+  })
+
+  it('advertises the sep24 transfer server once one is configured, or no wallet can find it', async () => {
+    process.env.TRANSFER_SERVER_SEP0024 = 'https://api.lolipay.app/sep24'
+    try {
+      expect(await body()).toMatch(
+        /^TRANSFER_SERVER_SEP0024="https:\/\/api\.lolipay\.app\/sep24"$/m,
+      )
+    } finally {
+      delete process.env.TRANSFER_SERVER_SEP0024
+    }
+  })
+
+  it('omits a sep24 transfer server it cannot trust rather than serving a broken one', async () => {
+    process.env.TRANSFER_SERVER_SEP0024 = 'http://api.lolipay.app/sep24/'
+    try {
+      const served = await body()
+      expect(served).not.toMatch(/TRANSFER_SERVER_SEP0024/)
+      expect(served).toMatch(/^SIGNING_KEY=/m)
+    } finally {
+      delete process.env.TRANSFER_SERVER_SEP0024
+    }
   })
 
   it('emits every top-level line as a quoted key and value, so the file parses', async () => {
@@ -103,6 +126,25 @@ describe('the toml carries the fields the acceptance suite reads', () => {
       'WEB_AUTH_ENDPOINT',
       'VERSION',
     ])
+  })
+
+  it('keeps the sep24 transfer server inside the head block, in order, when it is configured', async () => {
+    process.env.TRANSFER_SERVER_SEP0024 = 'https://api.lolipay.app/sep24'
+    try {
+      const all = (await body()).split('\n').filter((l) => l.trim() !== '')
+      const keys = all
+        .slice(0, all.findIndex((l) => l.startsWith('[')))
+        .map((l) => l.split('=')[0])
+      expect(keys).toEqual([
+        'NETWORK_PASSPHRASE',
+        'SIGNING_KEY',
+        'WEB_AUTH_ENDPOINT',
+        'TRANSFER_SERVER_SEP0024',
+        'VERSION',
+      ])
+    } finally {
+      delete process.env.TRANSFER_SERVER_SEP0024
+    }
   })
 })
 

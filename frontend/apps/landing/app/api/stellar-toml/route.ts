@@ -175,6 +175,17 @@ function render(): { toml: string } | { problem: string } {
       lines.push(`KYC_SERVER="${kycServer}"`)
     }
   }
+  const transferServer = process.env.TRANSFER_SERVER_SEP0024
+  if (transferServer) {
+    const complaint = usableInAToml(transferServer) ?? httpsEndpoint(transferServer)
+    if (complaint) {
+      console.warn(
+        `stellar.toml: TRANSFER_SERVER_SEP0024 was omitted — TRANSFER_SERVER_SEP0024 ${complaint}`,
+      )
+    } else {
+      lines.push(`TRANSFER_SERVER_SEP0024="${transferServer}"`)
+    }
+  }
   lines.push('VERSION="2.7.0"')
   const currencies = currenciesSection()
   if ('omitted' in currencies) {
