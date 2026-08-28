@@ -5,15 +5,14 @@ import { KycDecision, KycProvider, REQUIRED_KYC_FIELDS } from './kyc-provider';
 export class StubKycProvider implements KycProvider {
   async start(_customerRef: string, fields: Record<string, string>): Promise<KycDecision> {
     if (REQUIRED_KYC_FIELDS.some((f) => !fields[f]?.trim())) {
-      return { status: 'NEEDS_INFO', providerRef: 'stub' };
+      return { status: 'NEEDS_INFO' };
     }
     if (fields.first_name.trim().toUpperCase() === 'REJECT') {
       return {
         status: 'REJECTED',
-        providerRef: 'stub',
         rejectionReason: 'the operator marked this identity as refused',
       };
     }
-    return { status: 'ACCEPTED', providerRef: 'stub' };
+    return { status: 'ACCEPTED' };
   }
 }

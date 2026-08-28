@@ -1,3 +1,4 @@
+import { Networks } from '@stellar/stellar-sdk';
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from './app-config.service';
@@ -11,6 +12,19 @@ export class ConfigBootService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    if (this.cfg.networkPassphrase === Networks.PUBLIC) {
+      if (this.cfg.diditEnvironment !== 'live') {
+        throw new Error(
+          `refusing to start: DIDIT_ENVIRONMENT is ${this.cfg.diditEnvironment} while the network is public, and a mocked environment reports screenings that never happened`,
+        );
+      }
+      if (!this.cfg.diditApiKey || !this.cfg.diditWorkflowId) {
+        throw new Error(
+          'refusing to start: the network is public and no identity verification provider is configured, so every customer would be accepted by a stub',
+        );
+      }
+    }
+
     if (!this.cfg.usdcAssetCode) {
       throw new Error(
         'refusing to start: USDC_ASSET_CODE is empty, so the coordinator does not know which asset the escrow settles in',

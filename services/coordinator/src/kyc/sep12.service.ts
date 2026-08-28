@@ -27,6 +27,15 @@ export class Sep12Service {
     private refusals: DiditRefusalsService,
   ) {}
 
+  private async recordIncomplete(customerRef: string, personId: string) {
+    await this.prisma.kycVerification.upsert({
+      where: { customerRef },
+      create: { customerRef, personId, status: 'NEEDS_INFO' },
+      update: { personId, status: 'NEEDS_INFO' },
+    });
+    return { id: customerRef };
+  }
+
   async applyDelivery(conclusion: DiditConclusion, deliveredAt: Date): Promise<void> {
     const customerRef = conclusion.customerRef;
     if (typeof customerRef !== 'string' || customerRef.length === 0) {
@@ -61,6 +70,7 @@ export class Sep12Service {
           standing.providerRef &&
           standing.providerRef !== conclusion.providerRef
         ) {
+          this.refusals.record('a delivery named a session this customer is not following');
           return;
         }
         if (!refusing && standing.deliveredAt && standing.deliveredAt > deliveredAt) return;
@@ -158,6 +168,15 @@ export class Sep12Service {
     if (refused) {
       throw new ForbiddenException('this identity was refused and cannot be resubmitted here');
     }
+    if (REQUIRED_KYC_FIELDS.some((f) => !fields[f]?.trim())) {
+      return this.recordIncomplete(customerRef, person.id);
+    }
+
+    const inFlight = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
+    if (inFlight?.status === 'PROCESSING' && inFlight.providerRef) {
+      return { id: customerRef };
+    }
+
     const decision = await this.provider.start(customerRef, fields);
     const state = {
       personId: person?.id ?? null,

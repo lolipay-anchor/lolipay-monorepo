@@ -216,7 +216,7 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
     const body = JSON.stringify({
       event_id: 'gate-proof',
       timestamp: Math.floor(Date.now() / 1000),
-      session_id: 'stub',
+      session_id: '7b1e0c2a-4f6d-4a1b-9c33-8ad5f0e21b47',
       status: 'Approved',
       vendor_data: kp.publicKey(),
       environment: 'sandbox',

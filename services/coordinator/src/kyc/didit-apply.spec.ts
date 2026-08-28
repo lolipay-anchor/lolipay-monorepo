@@ -196,3 +196,53 @@ describe('applying what a delivery concluded', () => {
     expect(store.row.screenedAt).toBeNull();
   });
 });
+
+describe('registering a customer does not spend on every attempt', () => {
+  const complete = {
+    first_name: 'Budi', last_name: 'Santoso', email_address: 'budi@example.com',
+    id_type: 'id_card', id_country_code: 'IDN',
+  };
+
+  function putSvc(row: any) {
+    const store = { row };
+    const prisma: any = {
+      kycVerification: {
+        findUnique: jest.fn(async () => store.row),
+        findFirst: jest.fn(async () => null),
+        upsert: jest.fn(async ({ create }: any) => (store.row = create)),
+      },
+    };
+    const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
+    const provider = { start: jest.fn(async () => ({ status: 'PROCESSING', providerRef: 'sess-new' })) } as any;
+    const refusals = { record: jest.fn(), applied: jest.fn(), state: jest.fn() } as any;
+    const svc = new Sep12Service(prisma, people, provider, { diditEnvironment: 'sandbox' } as any, refusals);
+    return { svc, provider, store };
+  }
+
+  it('does not open a session for a submission that is missing what the provider needs', async () => {
+    const { svc, provider } = putSvc(null);
+    await svc.put(REF, { first_name: 'Budi' });
+    expect(provider.start).not.toHaveBeenCalled();
+  });
+
+  it('does not open a session for an empty submission', async () => {
+    const { svc, provider } = putSvc(null);
+    await svc.put(REF, {});
+    expect(provider.start).not.toHaveBeenCalled();
+  });
+
+  it('reuses a session that is already in flight rather than buying another', async () => {
+    const { svc, provider } = putSvc({
+      customerRef: REF, status: 'PROCESSING', providerRef: 'sess-open',
+    });
+    const res = await svc.put(REF, complete);
+    expect(provider.start).not.toHaveBeenCalled();
+    expect(res).toEqual({ id: REF });
+  });
+
+  it('opens one when the submission is complete and nothing is in flight', async () => {
+    const { svc, provider } = putSvc(null);
+    await svc.put(REF, complete);
+    expect(provider.start).toHaveBeenCalledWith(REF, complete);
+  });
+});

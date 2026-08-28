@@ -3,6 +3,7 @@ import { AppConfigService } from '../config/app-config.service';
 import { KycDecision, KycProvider } from './kyc-provider';
 
 export const DIDIT_SESSION_URL = 'https://verification.didit.me/v3/session/';
+export const DIDIT_TIMEOUT_MS = 10_000;
 
 type Fetcher = (url: string, init: any) => Promise<any>;
 
@@ -24,9 +25,11 @@ export class DiditKycProvider implements KycProvider {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'content-type': 'application/json' },
       body: JSON.stringify({ workflow_id: workflowId, vendor_data: customerRef }),
+      signal: AbortSignal.timeout(DIDIT_TIMEOUT_MS),
     });
 
     if (!res.ok) {
+      await res.text?.().catch(() => undefined);
       throw new ServiceUnavailableException('identity verification could not be started');
     }
 

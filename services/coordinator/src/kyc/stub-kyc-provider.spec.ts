@@ -10,14 +10,20 @@ const complete = {
 };
 
 describe('the stub stands in for a provider that cannot be reached yet', () => {
+  it('invents no session reference, because it opened no session', async () => {
+    for (const fields of [complete, { first_name: 'Budi' }, { ...complete, first_name: 'REJECT' }]) {
+      expect((await new StubKycProvider().start('GABC', fields)).providerRef).toBeUndefined();
+    }
+  });
+
   const p = new StubKycProvider();
 
   it('accepts a customer who supplied every field the suite fixture carries', async () => {
-    expect(await p.start('GABC', complete)).toEqual({ status: 'ACCEPTED', providerRef: 'stub' });
+    expect(await p.start('GABC', complete)).toEqual({ status: 'ACCEPTED' });
   });
 
   it('leaves a customer needing information when a required field is missing', async () => {
-    expect(await p.start('GABC', { first_name: 'Budi' })).toEqual({ status: 'NEEDS_INFO', providerRef: 'stub' });
+    expect(await p.start('GABC', { first_name: 'Budi' })).toEqual({ status: 'NEEDS_INFO' });
   });
 
   it('needs information when a required field is present but blank', async () => {

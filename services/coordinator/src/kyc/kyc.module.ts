@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AppConfigService } from '../config/app-config.service';
 import { PersonModule } from '../person/person.module';
@@ -10,9 +10,14 @@ import { StubKycProvider } from './stub-kyc-provider';
 import { DiditKycProvider } from './didit-kyc-provider';
 
 export function chooseKycProvider(cfg: AppConfigService) {
-  return cfg.diditApiKey && cfg.diditWorkflowId
-    ? new DiditKycProvider(cfg)
-    : new StubKycProvider();
+  if (cfg.diditApiKey && cfg.diditWorkflowId) {
+    new Logger('Kyc').log(`identity verification runs through the provider, environment ${cfg.diditEnvironment}`);
+    return new DiditKycProvider(cfg);
+  }
+  new Logger('Kyc').warn(
+    'identity verification runs through the stub: no provider is configured, so no screening will ever happen',
+  );
+  return new StubKycProvider();
 }
 
 @Module({

@@ -95,3 +95,38 @@ describe('ConfigBootService', () => {
     warn.mockRestore();
   });
 });
+
+describe('a stack that only pretends to screen must never be the one taking real money', () => {
+  const PUBLIC = 'Public Global Stellar Network ; September 2015';
+  const TESTNET = 'Test SDF Network ; September 2015';
+  const vendor = { diditApiKey: 'k', diditWorkflowId: 'wf' };
+
+  const boot = (over: Record<string, unknown>) => {
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    return new ConfigBootService(prisma, makeCfg({ ...vendor, ...over })).onModuleInit();
+  };
+
+  it('refuses to start on the public network while pointed at a mocked environment', async () => {
+    await expect(boot({ networkPassphrase: PUBLIC, diditEnvironment: 'sandbox' })).rejects.toThrow(
+      /DIDIT_ENVIRONMENT/,
+    );
+  });
+
+  it('refuses to start on the public network with no verification provider configured', async () => {
+    await expect(
+      boot({ networkPassphrase: PUBLIC, diditEnvironment: 'live', diditApiKey: '' }),
+    ).rejects.toThrow(/identity verification/i);
+  });
+
+  it('starts on the public network when it is pointed at the real thing', async () => {
+    await expect(
+      boot({ networkPassphrase: PUBLIC, diditEnvironment: 'live' }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('leaves a test network alone, because there is no real money there to protect', async () => {
+    await expect(
+      boot({ networkPassphrase: TESTNET, diditEnvironment: 'sandbox', diditApiKey: '' }),
+    ).resolves.toBeUndefined();
+  });
+});
