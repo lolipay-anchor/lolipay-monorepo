@@ -44,7 +44,13 @@ function adverse(entry: any): boolean {
   if (cleared(entry)) return false;
   if (entry?.warnings && !emptyOrAbsent(entry.warnings)) {
     const list = Array.isArray(entry.warnings) ? entry.warnings : [entry.warnings];
-    if (list.every((w: unknown) => w === NOT_PERFORMED)) return false;
+    if (
+      list.every((w: unknown) => w === NOT_PERFORMED) &&
+      entry.total_hits === 0 &&
+      emptyOrAbsent(entry.hits)
+    ) {
+      return false;
+    }
   }
   return true;
 }

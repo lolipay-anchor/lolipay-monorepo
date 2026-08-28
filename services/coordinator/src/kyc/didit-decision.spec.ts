@@ -193,3 +193,50 @@ describe('a refusal names the worst thing that happened, not the first one check
     expect(res.rejectionReason).toBe('sanctions or watchlist match');
   });
 });
+
+describe('a warning never outranks a hit that is sitting right beside it', () => {
+  const matchedButLabelledUnscreenable = {
+    status: 'Declined',
+    total_hits: 5,
+    hits: [{ sanction_matches: [{ name: 'OFAC' }] }],
+    warnings: ['COULD_NOT_PERFORM_AML_SCREENING'],
+  };
+
+  it('refuses a screening that carried matches, however it labelled itself', () => {
+    const res = readDiditDecision(
+      payload({
+        status: 'Declined',
+        decision: { aml_screenings: [matchedButLabelledUnscreenable] },
+      }),
+    );
+    expect(res.status).toBe('REJECTED');
+    expect(res.rejectionReason).toBe('sanctions or watchlist match');
+  });
+
+  it('refuses it even when a failed document offers an easier way out', () => {
+    const res = readDiditDecision(
+      payload({
+        status: 'Declined',
+        decision: {
+          aml_screenings: [matchedButLabelledUnscreenable],
+          id_verifications: [{ status: 'Declined' }],
+        },
+      }),
+    );
+    expect(res.status).toBe('REJECTED');
+    expect(res.rejectionReason).toBe('sanctions or watchlist match');
+  });
+
+  it('still lets a genuinely empty unperformed screening invite a retry beside a failed document', () => {
+    const res = readDiditDecision(
+      payload({
+        status: 'Declined',
+        decision: {
+          aml_screenings: [unperformed],
+          id_verifications: [{ status: 'Declined' }],
+        },
+      }),
+    );
+    expect(res.status).toBe('NEEDS_INFO');
+  });
+});
