@@ -1,9 +1,23 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
+import { Sep12Service } from '../kyc/sep12.service';
+import { RateService } from '../rate/rate.service';
+import { OrderService } from '../order/order.service';
 import { AppConfigService } from '../config/app-config.service';
 import { baseUnitsToUsdc } from '../money/money';
 import { serializeSep24, Sep24Record, Sep24TransactionJson } from './sep24-transaction';
+import { mintInteractiveToken, readInteractiveToken } from './interactive-token';
+import { escapeHtml, interactiveScreen, page } from './interactive-page';
+import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
+import { sep24Status } from './sep24-status';
 import {
   SEP24_PAGE_DEFAULT,
   SEP24_PAGE_MAX,
@@ -26,9 +40,14 @@ const ORDER_FIELDS = {
 
 @Injectable()
 export class Sep24Service {
+  private readonly log = new Logger('Sep24');
+
   constructor(
     private prisma: PrismaService,
     private cfg: AppConfigService,
+    private sep12: Sep12Service,
+    private rate: RateService,
+    private orders: OrderService,
   ) {}
 
   private assets() {
@@ -160,9 +179,131 @@ export class Sep24Service {
     });
     return {
       type: 'interactive_customer_info_needed',
-      url: `${this.cfg.anchorBaseUrl}/sep24/interactive/${row.id}`,
+      url: `${this.cfg.anchorBaseUrl}/sep24/interactive/${row.id}?token=${mintInteractiveToken(
+        this.cfg,
+        row.id,
+        subject,
+      )}`,
       id: row.id,
     };
+  }
+
+  async interactiveState(id: string, token: string) {
+    const { account } = readInteractiveToken(this.cfg, token, id);
+    const row = await this.prisma.sep24Transaction.findUnique({
+      where: { id },
+      include: { order: { select: { ...ORDER_FIELDS, id: true, lpPaymentDetails: true, expiresAt: true } } },
+    });
+    if (!row || row.stellarAccount !== account) {
+      throw new NotFoundException('this anchor holds no such transaction');
+    }
+    const kyc = await this.prisma.kycVerification.findUnique({
+      where: { customerRef: row.stellarAccount },
+    });
+    return { row, kyc, account };
+  }
+
+  interactiveUrl(id: string, token: string): string {
+    return `${this.cfg.anchorBaseUrl}/sep24/interactive/${id}?token=${encodeURIComponent(token)}`;
+  }
+
+  async renderInteractive(id: string, token: string): Promise<string> {
+    const { row, kyc } = await this.interactiveState(id, token);
+    const screen = this.screenFor(row, kyc);
+    const post = (suffix: string) =>
+      `${this.interactiveUrl(id, token).replace('/sep24/interactive/', '/sep24/interactive/')}`.replace(
+        `/sep24/interactive/${id}?`,
+        `/sep24/interactive/${id}${suffix}?`,
+      );
+
+    if (screen === 'refused') {
+      return page('Verification refused', `<p>${escapeHtml(kyc?.rejectionReason ?? 'This identity was refused.')}</p>`);
+    }
+    if (screen === 'identity') {
+      const fields = REQUIRED_KYC_FIELDS.map(
+        (f) => `<p><label>${escapeHtml(f.replace(/_/g, ' '))}<br><input name="${escapeHtml(f)}" required></label></p>`,
+      ).join('');
+      return page(
+        'Verify your identity',
+        `<form method="post" action="${escapeHtml(post('/identity'))}">${fields}<button type="submit">Continue</button></form>`,
+      );
+    }
+    if (screen === 'waiting_on_identity') {
+      return page('Checking your identity', '<p>This usually takes a moment. This page refreshes itself.</p>', 10);
+    }
+    if (screen === 'amount') {
+      return page(
+        'How much would you like to deposit?',
+        `<form method="post" action="${escapeHtml(post('/amount'))}"><p><label>Amount in IDR<br><input name="fiat_amount" inputmode="numeric" required></label></p><button type="submit">Continue</button></form>`,
+      );
+    }
+    if (screen === 'waiting_on_escrow') {
+      return page('Preparing your deposit', '<p>A liquidity provider is locking the USDC in escrow. This page refreshes itself.</p>', 10);
+    }
+    if (screen === 'instructions') {
+      const o = row.order as any;
+      return page(
+        'Send your rupiah',
+        [
+          `<p>Send <strong>${escapeHtml(o.fiatAmount)}</strong> ${escapeHtml(o.fiatCurrency)} to:</p>`,
+          `<pre>${escapeHtml(o.lpPaymentDetails ?? 'your provider will be shown here')}</pre>`,
+          `<p>Reference: <strong>${escapeHtml(o.ref ?? '')}</strong></p>`,
+          '<p>You may close this window. Your wallet will show the deposit once it settles.</p>',
+        ].join(''),
+        30,
+      );
+    }
+    return page('Deposit status', `<p>Status: <strong>${escapeHtml(sep24Status(row.order as any))}</strong></p>`);
+  }
+
+  async submitIdentity(id: string, token: string, fields: Record<string, string>) {
+    const { row, kyc } = await this.interactiveState(id, token);
+    if (this.screenFor(row, kyc) !== 'identity') {
+      throw new ForbiddenException('this deposit is not waiting for identity details');
+    }
+    await this.sep12.put(row.stellarAccount, fields);
+    const after = await this.prisma.kycVerification.findUnique({
+      where: { customerRef: row.stellarAccount },
+    });
+    return after?.verificationUrl ?? null;
+  }
+
+  private screenFor(row: any, kyc: any) {
+    return interactiveScreen({
+      kycStatus: kyc?.status ?? null,
+      screened: kyc?.status === 'ACCEPTED' && kyc.screenedAt !== null,
+      orderStatus: (row.order?.status as any) ?? null,
+    });
+  }
+
+  async submitAmount(id: string, token: string, rawAmount: unknown) {
+    const { row, kyc } = await this.interactiveState(id, token);
+    if (row.orderId) return;
+    if (this.screenFor(row, kyc) !== 'amount') {
+      throw new ForbiddenException(
+        'this deposit is not at the point of naming an amount; reopen the page to see where it is',
+      );
+    }
+
+    const digits = String(rawAmount ?? '').replace(/[^0-9]/g, '');
+    if (digits.length === 0 || digits.length > 18) {
+      throw new BadRequestException('name an amount in rupiah');
+    }
+    const quote = await this.rate.createQuote(row.stellarAccount, 'TOP_UP', 'BANK', {
+      fiatAmount: BigInt(digits),
+    });
+    const created = await this.orders.createFromQuote(row.stellarAccount, quote.id);
+    const orderId = String((created.order as Record<string, unknown>).id);
+    const linked = await this.prisma.sep24Transaction.updateMany({
+      where: { id, orderId: null, stellarAccount: row.stellarAccount },
+      data: { orderId },
+    });
+    if (linked.count !== 1) {
+      this.log.warn(
+        `a deposit order was created and could not be bound to its SEP-24 transaction ${id}; it will expire on its own`,
+      );
+      throw new ConflictException('this deposit was already opened');
+    }
   }
 
   async moreInfo(id: string): Promise<string> {

@@ -53,6 +53,42 @@ export class Sep24Controller {
     return this.sep24.one(req.user.address, query);
   }
 
+  @Get('interactive/:id')
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Header('content-type', 'text/html; charset=utf-8')
+  async interactive(@Param('id') id: string, @Query('token') token: string) {
+    return this.sep24.renderInteractive(id, String(token ?? ''));
+  }
+
+  @Post('interactive/:id/identity')
+  @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
+  @Header('content-type', 'text/html; charset=utf-8')
+  async identity(
+    @Param('id') id: string,
+    @Query('token') token: string,
+    @Body() body: Record<string, unknown>,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const fields: Record<string, string> = {};
+    for (const [k, v] of Object.entries(body ?? {})) {
+      if (typeof v === 'string') fields[k] = v;
+    }
+    const url = await this.sep24.submitIdentity(id, String(token ?? ''), fields);
+    res.redirect(302, url ?? `${this.sep24.interactiveUrl(id, String(token ?? ''))}`);
+  }
+
+  @Post('interactive/:id/amount')
+  @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
+  async amount(
+    @Param('id') id: string,
+    @Query('token') token: string,
+    @Body() body: Record<string, unknown>,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    await this.sep24.submitAmount(id, String(token ?? ''), body.fiat_amount);
+    res.redirect(302, this.sep24.interactiveUrl(id, String(token ?? '')));
+  }
+
   @Get('more-info/:id')
   @Header('content-type', 'text/html; charset=utf-8')
   async moreInfo(@Param('id') id: string, @Res({ passthrough: true }) _res: Response) {

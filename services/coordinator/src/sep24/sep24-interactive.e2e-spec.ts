@@ -40,6 +40,19 @@ describe('opening a deposit from a wallet that has never met this anchor', () =>
     });
   });
 
+  it('hands back a link that carries its own authority, not just an identifier', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const res = await http()
+      .post(PATH)
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+    const url = new URL(res.body.url);
+    expect(url.pathname).toBe(`/sep24/interactive/${res.body.id}`);
+    expect(url.searchParams.get('token')).toMatch(/^[\w-]+\.[\w-]+\.[\w-]+$/);
+  });
+
   it('returns exactly three keys, because the schema forbids any other', async () => {
     const kp = Keypair.random();
     const jwt = await anchorToken(app, kp);
