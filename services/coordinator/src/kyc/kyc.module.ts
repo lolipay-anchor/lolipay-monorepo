@@ -14,7 +14,7 @@ import { StubKycProvider } from './stub-kyc-provider';
   providers: [Sep12Service, {
       provide: KYC_PROVIDER,
       inject: [AppConfigService],
-      useFactory: (cfg: AppConfigService) => new StubKycProvider(cfg.kycStubScreens),
+      useFactory: (_cfg: AppConfigService) => new StubKycProvider(),
     }],
   exports: [Sep12Service],
 })

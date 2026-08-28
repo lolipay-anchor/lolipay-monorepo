@@ -4,13 +4,13 @@ export { KycStatus };
 
 export interface KycDecision {
   status: KycStatus;
-  screened: boolean;
   rejectionReason?: string;
   providerRef?: string;
+  verificationUrl?: string;
 }
 
 export interface KycProvider {
-  start(fields: Record<string, string>): Promise<KycDecision>;
+  start(customerRef: string, fields: Record<string, string>): Promise<KycDecision>;
 }
 
 export const KYC_PROVIDER = Symbol('KYC_PROVIDER');

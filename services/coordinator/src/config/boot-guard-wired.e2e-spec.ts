@@ -1,43 +1,35 @@
-import { Test } from '@nestjs/testing';
-import { ThrottlerStorage } from '@nestjs/throttler';
-import { AppModule } from '../app.module';
-import { AccountSignersService } from '../sep10/account-signers.service';
+import { readFileSync } from 'fs';
+import path from 'path';
+import { StubKycProvider } from '../kyc/stub-kyc-provider';
 
-const PUBLIC = 'Public Global Stellar Network ; September 2015';
-
-const noopStorage = {
-  increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
+const complete = {
+  first_name: 'Budi',
+  last_name: 'Santoso',
+  email_address: 'budi@example.com',
+  id_type: 'id_card',
+  id_country_code: 'IDN',
 };
 
-async function bootWith(env: Record<string, string>) {
-  const saved: Record<string, string | undefined> = {};
-  for (const [k, v] of Object.entries(env)) {
-    saved[k] = process.env[k];
-    process.env[k] = v;
-  }
-  try {
-    const mod = await Test.createTestingModule({ imports: [AppModule] })
-      .overrideProvider(ThrottlerStorage)
-      .useValue(noopStorage)
-      .overrideProvider(AccountSignersService)
-      .useValue({ load: jest.fn().mockResolvedValue(null) })
-      .compile();
-    const app = mod.createNestApplication();
-    await app.init();
-    await app.close();
-  } finally {
-    for (const [k, v] of Object.entries(saved)) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  }
-}
-
-describe('the mainnet interlock is wired into the application, not only into its own unit test', () => {
-  it('refuses to start on the public network while the stub may pretend to screen', async () => {
-    await expect(
-      bootWith({ STELLAR_NETWORK_PASSPHRASE: PUBLIC, KYC_STUB_SCREENS: 'true' }),
-    ).rejects.toThrow(/KYC_STUB_SCREENS/);
+describe('no configuration can make this anchor report a screening it did not perform', () => {
+  it('offers no way for the stub to say a screening happened', async () => {
+    const decision = await new StubKycProvider().start('GABC', complete);
+    expect(Object.keys(decision)).not.toContain('screened');
+    expect(JSON.stringify(decision)).not.toContain('screen');
   });
 
+  it('leaves the screening timestamp to the delivery handler alone', () => {
+    const service = readFileSync(path.resolve(__dirname, '../kyc/sep12.service.ts'), 'utf8');
+    const writers = service
+      .split('\n')
+      .filter((l) => l.includes('screenedAt:') && !l.includes('screenedAt: null'));
+    expect(writers).toHaveLength(1);
+    expect(writers[0]).toContain('deliveredAt');
+  });
+
+  it('no longer offers an environment variable that could turn pretending on', () => {
+    const template = readFileSync(path.resolve(__dirname, '../../.env.example'), 'utf8');
+    expect(template).not.toMatch(/KYC_STUB_SCREENS/);
+    const config = readFileSync(path.resolve(__dirname, 'app-config.service.ts'), 'utf8');
+    expect(config).not.toMatch(/kycStubScreens/i);
+  });
 });

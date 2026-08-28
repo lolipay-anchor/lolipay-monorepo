@@ -95,28 +95,3 @@ describe('ConfigBootService', () => {
     warn.mockRestore();
   });
 });
-
-describe('a stack that only pretends to screen must never be the one taking real money', () => {
-  const PUBLIC = 'Public Global Stellar Network ; September 2015';
-  const TESTNET = 'Test SDF Network ; September 2015';
-
-  it('refuses to start on the public network while the stub is told to report screening', async () => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
-    const cfg = makeCfg({ networkPassphrase: PUBLIC, kycStubScreens: true });
-    await expect(new ConfigBootService(prisma, cfg).onModuleInit()).rejects.toThrow(
-      /KYC_STUB_SCREENS/,
-    );
-  });
-
-  it('starts on the public network when the stub is not pretending', async () => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
-    const cfg = makeCfg({ networkPassphrase: PUBLIC, kycStubScreens: false });
-    await expect(new ConfigBootService(prisma, cfg).onModuleInit()).resolves.toBeUndefined();
-  });
-
-  it('allows a test network to pretend, because there is no real money to protect there', async () => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
-    const cfg = makeCfg({ networkPassphrase: TESTNET, kycStubScreens: true });
-    await expect(new ConfigBootService(prisma, cfg).onModuleInit()).resolves.toBeUndefined();
-  });
-});

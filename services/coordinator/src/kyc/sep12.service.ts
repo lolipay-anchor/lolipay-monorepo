@@ -158,13 +158,12 @@ export class Sep12Service {
     if (refused) {
       throw new ForbiddenException('this identity was refused and cannot be resubmitted here');
     }
-    const decision = await this.provider.start(fields);
+    const decision = await this.provider.start(customerRef, fields);
     const state = {
       personId: person?.id ?? null,
       status: decision.status,
       providerRef: decision.providerRef ?? null,
       rejectionReason: decision.rejectionReason ?? null,
-      screenedAt: decision.screened ? new Date() : null,
       verifiedAt: decision.status === 'ACCEPTED' ? new Date() : null,
     };
     await this.prisma.kycVerification.upsert({

@@ -31,7 +31,6 @@ export class AppConfigService {
   get diditWebhookSecret(): string { return this.c.get<string>('DIDIT_WEBHOOK_SECRET') ?? ''; }
   get diditWorkflowId(): string { return this.c.get<string>('DIDIT_WORKFLOW_ID') ?? ''; }
   get diditEnvironment(): string { return this.c.get<string>('DIDIT_ENVIRONMENT') ?? 'live'; }
-  get kycStubScreens(): boolean { return (this.c.get<string>('KYC_STUB_SCREENS') ?? 'false').toLowerCase() === 'true'; }
   get stakingContractId() { return this.req('STAKING_CONTRACT_ID'); }
   get escrowContractId() { return this.req('ESCROW_CONTRACT_ID'); }
 

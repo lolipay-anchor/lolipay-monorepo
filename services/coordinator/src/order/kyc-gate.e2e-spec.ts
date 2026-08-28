@@ -13,6 +13,7 @@ import { ThrottlerStorage } from '@nestjs/throttler';
 import { configureHttp } from '../http-setup';
 import { sessionToken, anchorToken } from '../auth/auth-test-helpers';
 import { onChainTradeFor } from './test-helpers';
+import { createHmac } from 'crypto';
 import { invalidateAllConfigCaches } from '../config/config-cache';
 
 const noopStorage = {
@@ -25,11 +26,14 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
   let app: INestApplication;
   let prisma: PrismaService;
 
-  let savedStubScreens: string | undefined;
+  let savedSecret: string | undefined;
+  let savedEnvironment: string | undefined;
 
   beforeAll(async () => {
-    savedStubScreens = process.env.KYC_STUB_SCREENS;
-    process.env.KYC_STUB_SCREENS = 'true';
+    savedSecret = process.env.DIDIT_WEBHOOK_SECRET;
+    savedEnvironment = process.env.DIDIT_ENVIRONMENT;
+    process.env.DIDIT_WEBHOOK_SECRET = 'example-webhook-secret-not-a-real-one';
+    process.env.DIDIT_ENVIRONMENT = 'sandbox';
 
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PRICE_ADAPTER)
@@ -80,8 +84,10 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
   });
 
   afterAll(async () => {
-    if (savedStubScreens === undefined) delete process.env.KYC_STUB_SCREENS;
-    else process.env.KYC_STUB_SCREENS = savedStubScreens;
+    if (savedSecret === undefined) delete process.env.DIDIT_WEBHOOK_SECRET;
+    else process.env.DIDIT_WEBHOOK_SECRET = savedSecret;
+    if (savedEnvironment === undefined) delete process.env.DIDIT_ENVIRONMENT;
+    else process.env.DIDIT_ENVIRONMENT = savedEnvironment;
     await app.close();
   });
 
@@ -191,7 +197,7 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
       .expect(201);
   });
 
-  it('a customer who registers through the anchor door can then open a deposit, on a stack permitted to pretend it screened', async () => {
+  it('a customer verified by a delivery the anchor trusted can then open a deposit', async () => {
     const kp = Keypair.random();
     const anchor = await anchorToken(app, kp);
     await request(app.getHttpServer())
@@ -202,6 +208,23 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
         id_type: 'id_card', id_country_code: 'IDN',
       })
       .expect(202);
+
+    const body = JSON.stringify({
+      event_id: 'gate-proof',
+      timestamp: Math.floor(Date.now() / 1000),
+      session_id: 'stub',
+      status: 'Approved',
+      vendor_data: kp.publicKey(),
+      environment: 'sandbox',
+      decision: { aml_screenings: [{ status: 'Approved', total_hits: 0, hits: [], warnings: [] }] },
+    });
+    await request(app.getHttpServer())
+      .post('/webhooks/didit')
+      .set('content-type', 'application/json')
+      .set('x-signature', createHmac('sha256', process.env.DIDIT_WEBHOOK_SECRET!).update(Buffer.from(body, 'utf8')).digest('hex'))
+      .set('x-timestamp', String(Math.floor(Date.now() / 1000)))
+      .send(body)
+      .expect(200);
 
     const jwt = await sessionToken(app, kp);
     const q = await request(app.getHttpServer())

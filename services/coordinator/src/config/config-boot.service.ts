@@ -1,4 +1,3 @@
-import { Networks } from '@stellar/stellar-sdk';
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from './app-config.service';
@@ -12,11 +11,6 @@ export class ConfigBootService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    if (this.cfg.kycStubScreens && this.cfg.networkPassphrase === Networks.PUBLIC) {
-      throw new Error(
-        'refusing to start: KYC_STUB_SCREENS is on while the network is public, so a stub that performs no sanctions screening would be reporting that it had',
-      );
-    }
     if (!this.cfg.usdcAssetCode) {
       throw new Error(
         'refusing to start: USDC_ASSET_CODE is empty, so the coordinator does not know which asset the escrow settles in',
