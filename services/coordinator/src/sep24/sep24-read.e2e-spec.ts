@@ -45,6 +45,12 @@ describe('the SEP-24 surface a wallet reads before it ever deposits', () => {
       expect(body.features.claimable_balances).toBe(false);
     });
 
+    it('publishes the fee a wallet would otherwise have no way to learn', async () => {
+      const { body } = await http().get('/sep24/info');
+      expect(typeof body.deposit.USDC.fee_percent).toBe('number');
+      expect(body.deposit.USDC.fee_percent).toBeGreaterThan(0);
+    });
+
     it('states every numeric limit as a number, which the schema demands', async () => {
       const { body } = await http().get('/sep24/info');
       for (const [key, value] of Object.entries(body.deposit.USDC)) {

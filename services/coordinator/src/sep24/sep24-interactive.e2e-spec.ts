@@ -103,6 +103,35 @@ describe('opening a deposit from a wallet that has never met this anchor', () =>
       .expect(200);
   });
 
+  it('does not refuse a wallet for sending a SEP-9 field the spec says it may send', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    await http()
+      .post(PATH)
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({
+        asset_code: 'USDC',
+        birth_date: '1990-01-01',
+        address: 'Jalan Merdeka 1',
+        bank_number: '1234567890',
+        source_asset: 'iso4217:IDR',
+        wallet_name: 'Some Wallet',
+      })
+      .expect(200);
+  });
+
+  it('keeps nothing it was not asked for, even while accepting it', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const res = await http()
+      .post(PATH)
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC', bank_number: '1234567890' })
+      .expect(200);
+    const row = await prisma.sep24Transaction.findUnique({ where: { id: res.body.id } });
+    expect(JSON.stringify(row)).not.toContain('1234567890');
+  });
+
   it('reads a form-encoded body, which is what the spec tells wallets they may send', async () => {
     const kp = Keypair.random();
     const jwt = await anchorToken(app, kp);
@@ -112,6 +141,28 @@ describe('opening a deposit from a wallet that has never met this anchor', () =>
       .type('form')
       .send({ asset_code: 'USDC' })
       .expect(200);
+  });
+
+  it('reads a multipart body, which the spec names as the encoding wallets should use', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const res = await http()
+      .post(PATH)
+      .set('Authorization', `Bearer ${jwt}`)
+      .field('asset_code', 'USDC')
+      .field('account', kp.publicKey())
+      .expect(200);
+    expect(res.body.type).toBe('interactive_customer_info_needed');
+  });
+
+  it('still refuses a multipart body that names an asset it does not serve', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    await http()
+      .post(PATH)
+      .set('Authorization', `Bearer ${jwt}`)
+      .field('asset_code', 'NOT_SUPPORTED')
+      .expect(400);
   });
 
   it('records the transaction against the person the token speaks for', async () => {

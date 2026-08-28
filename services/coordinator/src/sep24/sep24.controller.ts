@@ -2,11 +2,12 @@ import {
   Body, Controller, ForbiddenException, Get, Header, HttpCode, Param, Post, Query, Req, Res, UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { AnyFilesInterceptor } from '@nestjs/platform-express';
+import { UseInterceptors } from '@nestjs/common';
 import type { Response } from 'express';
 import { Sep24AuthGuard } from './sep24-auth.guard';
 import { Sep24Service } from './sep24.service';
 import { AllowTokenClasses } from '../auth/token-class.interceptor';
-import { DepositInteractiveDto } from './deposit-interactive.dto';
 import { TransactionsQueryDto, TransactionQueryDto } from './sep24-query.dto';
 import { PersonService } from '../person/person.service';
 
@@ -19,10 +20,11 @@ export class Sep24Controller {
 
   @Post('transactions/deposit/interactive')
   @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
+  @UseInterceptors(AnyFilesInterceptor({ limits: { files: 0, fieldSize: 4096, fields: 40 } }))
   @HttpCode(200)
   @UseGuards(Sep24AuthGuard)
   @AllowTokenClasses('sep10')
-  async openDeposit(@Req() req: any, @Body() body: DepositInteractiveDto) {
+  async openDeposit(@Req() req: any, @Body() body: Record<string, unknown>) {
     const subject: string = req.user.address;
     const person = await this.people.lookupPerson(subject);
     if (!person) {

@@ -49,6 +49,7 @@ export class Sep24Service {
           enabled: true,
           min_amount: baseUnitsToUsdc(config?.minOrder ?? 0n),
           max_amount: baseUnitsToUsdc(config?.maxOrder ?? 0n),
+          fee_percent: ((config?.platformFeeBps ?? 0) + (config?.lpFeeBps ?? 0)) / 100,
         },
       },
       withdraw: { [code]: { enabled: false } },
@@ -126,18 +127,18 @@ export class Sep24Service {
     return { transaction };
   }
 
-  async openInteractive(
-    subject: string,
-    personId: string,
-    body: { asset_code?: string; account?: string },
-  ) {
-    if (!body.asset_code) {
+  async openInteractive(subject: string, personId: string, body: Record<string, unknown>) {
+    const assetCode = body.asset_code;
+    if (typeof assetCode !== 'string' || assetCode.length === 0) {
       throw new BadRequestException('asset_code is required');
     }
-    if (body.asset_code !== this.cfg.usdcAssetCode) {
-      throw new BadRequestException(`this anchor does not serve ${body.asset_code}`);
+    if (assetCode !== this.cfg.usdcAssetCode) {
+      throw new BadRequestException(`this anchor does not serve ${assetCode}`);
     }
     if (body.account !== undefined) {
+      if (typeof body.account !== 'string' || body.account.length > 96) {
+        throw new BadRequestException('account is not a Stellar address');
+      }
       const named = body.account.split(':')[0];
       const known =
         StrKey.isValidEd25519PublicKey(named) ||
@@ -154,7 +155,7 @@ export class Sep24Service {
     }
 
     const row = await this.prisma.sep24Transaction.create({
-      data: { personId, stellarAccount: subject, assetCode: body.asset_code },
+      data: { personId, stellarAccount: subject, assetCode },
     });
     return {
       type: 'interactive_customer_info_needed',
