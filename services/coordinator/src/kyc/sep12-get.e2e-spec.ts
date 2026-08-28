@@ -78,6 +78,29 @@ describe('GET /customer tells a caller where their verification stands', () => {
     expect(res.body.id).toBe(kp.publicKey());
   });
 
+  it('never calls a customer accepted while the screening it requires has not happened', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: kp.publicKey(),
+        personId: await personFor(kp.publicKey()),
+        status: 'ACCEPTED',
+        verifiedAt: new Date(),
+        screenedAt: null,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/customer')
+      .set('Authorization', `Bearer ${jwt}`)
+      .expect(200);
+
+    expect(res.body.status).toBe('PROCESSING');
+    expect(res.body.status).not.toBe('ACCEPTED');
+    expect(String(res.body.message)).toMatch(/screening/i);
+  });
+
   it('keeps two memos on one account apart', async () => {
     const kp = Keypair.random();
     const withMemo = await anchorToken(app, kp, 4242);

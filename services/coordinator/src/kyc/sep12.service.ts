@@ -69,7 +69,7 @@ export class Sep12Service {
 
     const refusing = conclusion.status === 'REJECTED';
 
-    await this.prisma.$transaction(async (tx) => {
+    const written = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${DIDIT_DELIVERY_LOCK}, hashtext(${person.id}))`;
 
       const elsewhere = await tx.kycVerification.findFirst({
@@ -92,8 +92,9 @@ export class Sep12Service {
         if (!refusing && standing.deliveredAt && standing.deliveredAt > deliveredAt) return;
       }
       await this.writeDelivery(tx, customerRef, person.id, conclusion, deliveredAt, standing);
-      this.refusals.applied();
+      return true;
     });
+    if (written) this.refusals.applied();
   }
 
   private async writeDelivery(
