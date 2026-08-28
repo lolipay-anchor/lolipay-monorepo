@@ -1,5 +1,6 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service';
+import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 import { KycDecision, KycProvider } from './kyc-provider';
 
 export const DIDIT_SESSION_URL = 'https://verification.didit.me/v3/session/';
@@ -11,14 +12,20 @@ type Fetcher = (url: string, init: any) => Promise<any>;
 export class DiditKycProvider implements KycProvider {
   constructor(
     private cfg: AppConfigService,
+    private refusals: DiditRefusalsService,
     private fetcher: Fetcher = fetch,
   ) {}
+
+  private refuse(reason: string): never {
+    this.refusals.record(reason);
+    throw new ServiceUnavailableException(reason);
+  }
 
   async start(customerRef: string, _fields: Record<string, string>): Promise<KycDecision> {
     const apiKey = this.cfg.diditApiKey;
     const workflowId = this.cfg.diditWorkflowId;
     if (!apiKey || !workflowId) {
-      throw new ServiceUnavailableException('identity verification is not configured');
+      this.refuse('identity verification is not configured');
     }
 
     const res = await this.fetcher(DIDIT_SESSION_URL, {
@@ -30,12 +37,12 @@ export class DiditKycProvider implements KycProvider {
 
     if (!res.ok) {
       await res.text?.().catch(() => undefined);
-      throw new ServiceUnavailableException('identity verification could not be started');
+      this.refuse('identity verification could not be started');
     }
 
     const session = await res.json();
     if (!session?.session_id || !session?.url) {
-      throw new ServiceUnavailableException('identity verification returned no session');
+      this.refuse('identity verification returned no session');
     }
 
     return {

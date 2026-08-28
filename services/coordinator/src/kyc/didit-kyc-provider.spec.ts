@@ -22,7 +22,8 @@ function provider(reply: { status: number; body: unknown }, cfg: Record<string, 
     diditWorkflowId: 'wf-1',
     ...cfg,
   } as any;
-  return { p: new DiditKycProvider(config, fetcher), fetcher };
+  const refusals = { record: jest.fn(), applied: jest.fn(), state: jest.fn() } as any;
+  return { p: new DiditKycProvider(config, refusals, fetcher), fetcher, refusals };
 }
 
 const created = { session_id: 'sess-1', url: 'https://verify.didit.me/session/abc', status: 'Not Started' };
@@ -80,6 +81,18 @@ describe('opening a verification a customer can actually complete', () => {
     const { p, fetcher } = provider({ status: 201, body: created }, cfg);
     await expect(p.start(REF, fields)).rejects.toThrow(ServiceUnavailableException);
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('records a provider that would not answer, so an outage is not only the customer s problem', async () => {
+    const { p, refusals } = provider({ status: 502, body: { detail: 'nope' } });
+    await expect(p.start(REF, fields)).rejects.toThrow();
+    expect(refusals.record).toHaveBeenCalledWith(expect.stringContaining('verification'));
+  });
+
+  it('records a session it could not open even before calling anybody', async () => {
+    const { p, refusals } = provider({ status: 201, body: created }, { diditApiKey: '' });
+    await expect(p.start(REF, fields)).rejects.toThrow();
+    expect(refusals.record).toHaveBeenCalled();
   });
 
   it('never puts the key in the message a caller might see', async () => {

@@ -319,6 +319,7 @@ model KycVerification {
   providerRef     String?
   rejectionReason String?
   environment     String?
+  verificationUrl String?
   deliveredAt     DateTime?
   screenedAt      DateTime?
   verifiedAt      DateTime?

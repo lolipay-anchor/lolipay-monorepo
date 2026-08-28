@@ -209,11 +209,13 @@ describe('registering a customer does not spend on every attempt', () => {
       kycVerification: {
         findUnique: jest.fn(async () => store.row),
         findFirst: jest.fn(async () => null),
-        upsert: jest.fn(async ({ create }: any) => (store.row = create)),
+        upsert: jest.fn(async ({ create, update }: any) =>
+          (store.row = store.row ? { ...store.row, ...update } : create),
+        ),
       },
     };
     const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
-    const provider = { start: jest.fn(async () => ({ status: 'PROCESSING', providerRef: 'sess-new' })) } as any;
+    const provider = { start: jest.fn(async () => ({ status: 'PROCESSING', providerRef: 'sess-new', verificationUrl: 'https://verify.didit.me/session/abc' })) } as any;
     const refusals = { record: jest.fn(), applied: jest.fn(), state: jest.fn() } as any;
     const svc = new Sep12Service(prisma, people, provider, { diditEnvironment: 'sandbox' } as any, refusals);
     return { svc, provider, store };
@@ -238,6 +240,25 @@ describe('registering a customer does not spend on every attempt', () => {
     const res = await svc.put(REF, complete);
     expect(provider.start).not.toHaveBeenCalled();
     expect(res).toEqual({ id: REF });
+  });
+
+  it('does not carry a previous screening across to a new registration', async () => {
+    const { svc, store } = putSvc({
+      customerRef: REF, status: 'REJECTED', providerRef: 'sess-old',
+      screenedAt: new Date('2026-01-01'), deliveredAt: new Date('2026-01-01'),
+      environment: 'live', rejectionReason: 'old',
+    });
+    store.row.status = 'NEEDS_INFO';
+    await svc.put(REF, complete);
+    expect(store.row.screenedAt).toBeNull();
+    expect(store.row.deliveredAt).toBeNull();
+    expect(store.row.environment).toBeNull();
+  });
+
+  it('keeps the link to where a customer must go to finish verifying', async () => {
+    const { svc, store } = putSvc(null);
+    await svc.put(REF, complete);
+    expect(store.row.verificationUrl).toBe('https://verify.didit.me/session/abc');
   });
 
   it('opens one when the submission is complete and nothing is in flight', async () => {

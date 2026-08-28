@@ -182,8 +182,12 @@ export class Sep12Service {
       personId: person?.id ?? null,
       status: decision.status,
       providerRef: decision.providerRef ?? null,
+      verificationUrl: decision.verificationUrl ?? null,
       rejectionReason: decision.rejectionReason ?? null,
       verifiedAt: decision.status === 'ACCEPTED' ? new Date() : null,
+      screenedAt: null,
+      deliveredAt: null,
+      environment: null,
     };
     await this.prisma.kycVerification.upsert({
       where: { customerRef },

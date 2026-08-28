@@ -8,11 +8,12 @@ import { Sep12Service } from './sep12.service';
 import { KYC_PROVIDER } from './kyc-provider';
 import { StubKycProvider } from './stub-kyc-provider';
 import { DiditKycProvider } from './didit-kyc-provider';
+import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 
-export function chooseKycProvider(cfg: AppConfigService) {
+export function chooseKycProvider(cfg: AppConfigService, refusals: DiditRefusalsService) {
   if (cfg.diditApiKey && cfg.diditWorkflowId) {
     new Logger('Kyc').log(`identity verification runs through the provider, environment ${cfg.diditEnvironment}`);
-    return new DiditKycProvider(cfg);
+    return new DiditKycProvider(cfg, refusals);
   }
   new Logger('Kyc').warn(
     'identity verification runs through the stub: no provider is configured, so no screening will ever happen',
@@ -25,8 +26,9 @@ export function chooseKycProvider(cfg: AppConfigService) {
   controllers: [Sep12Controller, DiditWebhookController],
   providers: [Sep12Service, {
       provide: KYC_PROVIDER,
-      inject: [AppConfigService],
-      useFactory: (cfg: AppConfigService) => chooseKycProvider(cfg),
+      inject: [AppConfigService, DiditRefusalsService],
+      useFactory: (cfg: AppConfigService, refusals: DiditRefusalsService) =>
+        chooseKycProvider(cfg, refusals),
     }],
   exports: [Sep12Service],
 })
