@@ -99,7 +99,7 @@ describe('ConfigBootService', () => {
 describe('a stack that only pretends to screen must never be the one taking real money', () => {
   const PUBLIC = 'Public Global Stellar Network ; September 2015';
   const TESTNET = 'Test SDF Network ; September 2015';
-  const vendor = { diditApiKey: 'k', diditWorkflowId: 'wf' };
+  const vendor = { diditApiKey: 'k', diditWorkflowId: 'wf', diditWebhookSecret: 'shared' };
 
   const boot = (over: Record<string, unknown>) => {
     const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
@@ -122,6 +122,12 @@ describe('a stack that only pretends to screen must never be the one taking real
     await expect(
       boot({ networkPassphrase: PUBLIC, diditEnvironment: 'live' }),
     ).resolves.toBeUndefined();
+  });
+
+  it('refuses to start with a provider configured and no shared secret to trust it by', async () => {
+    await expect(
+      boot({ networkPassphrase: TESTNET, diditEnvironment: 'sandbox', diditWebhookSecret: '' }),
+    ).rejects.toThrow(/DIDIT_WEBHOOK_SECRET/);
   });
 
   it('leaves a test network alone, because there is no real money there to protect', async () => {

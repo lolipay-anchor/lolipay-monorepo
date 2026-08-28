@@ -16,8 +16,16 @@ export class DiditKycProvider implements KycProvider {
     private fetcher: Fetcher = fetch,
   ) {}
 
+  private started: number[] = [];
+
+  private overBudget(): boolean {
+    const cutoff = Date.now() - 86_400_000;
+    this.started = this.started.filter((t) => t > cutoff);
+    return this.started.length >= this.cfg.diditDailySessionBudget;
+  }
+
   private refuse(reason: string): never {
-    this.refusals.record(reason);
+    this.refusals.providerFailed(reason);
     throw new ServiceUnavailableException(reason);
   }
 
@@ -26,6 +34,12 @@ export class DiditKycProvider implements KycProvider {
     const workflowId = this.cfg.diditWorkflowId;
     if (!apiKey || !workflowId) {
       this.refuse('identity verification is not configured');
+    }
+
+    if (this.overBudget()) {
+      this.refuse(
+        `this anchor has already opened ${this.started.length} verifications in the last day, which is its whole budget`,
+      );
     }
 
     const res = await this.fetcher(DIDIT_SESSION_URL, {
@@ -45,6 +59,8 @@ export class DiditKycProvider implements KycProvider {
       this.refuse('identity verification returned no session');
     }
 
+    this.started.push(Date.now());
+    this.refusals.providerAnswered();
     return {
       status: 'PROCESSING',
       providerRef: String(session.session_id),

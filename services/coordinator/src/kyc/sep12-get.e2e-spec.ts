@@ -46,11 +46,27 @@ describe('GET /customer tells a caller where their verification stands', () => {
     }
   });
 
+
+  async function personFor(address: string): Promise<string> {
+    const link = await prisma.walletLink.findUnique({ where: { stellarAddress: address } });
+    if (link) return link.personId;
+    const person = await prisma.person.create({ data: {} });
+    await prisma.walletLink.create({
+      data: { stellarAddress: address, personId: person.id, authMethod: 'SEP10' },
+    });
+    return person.id;
+  }
+
   it('finds the customer from the token alone, with neither id nor account', async () => {
     const kp = Keypair.random();
     const jwt = await anchorToken(app, kp);
     await prisma.kycVerification.create({
-      data: { customerRef: kp.publicKey(), status: 'ACCEPTED', screenedAt: new Date() },
+      data: {
+        customerRef: kp.publicKey(),
+        personId: await personFor(kp.publicKey()),
+        status: 'ACCEPTED',
+        screenedAt: new Date(),
+      },
     });
 
     const res = await request(app.getHttpServer())
@@ -66,7 +82,12 @@ describe('GET /customer tells a caller where their verification stands', () => {
     const kp = Keypair.random();
     const withMemo = await anchorToken(app, kp, 4242);
     await prisma.kycVerification.create({
-      data: { customerRef: kp.publicKey(), status: 'ACCEPTED', screenedAt: new Date() },
+      data: {
+        customerRef: kp.publicKey(),
+        personId: await personFor(kp.publicKey()),
+        status: 'ACCEPTED',
+        screenedAt: new Date(),
+      },
     });
 
     const res = await request(app.getHttpServer())
@@ -82,7 +103,12 @@ describe('GET /customer tells a caller where their verification stands', () => {
     const kp = Keypair.random();
     const jwt = await sessionToken(app, kp);
     await prisma.kycVerification.create({
-      data: { customerRef: kp.publicKey(), status: 'ACCEPTED', screenedAt: new Date() },
+      data: {
+        customerRef: kp.publicKey(),
+        personId: await personFor(kp.publicKey()),
+        status: 'ACCEPTED',
+        screenedAt: new Date(),
+      },
     });
     const res = await request(app.getHttpServer())
       .get('/customer')
@@ -111,7 +137,12 @@ describe('GET /customer tells a caller where their verification stands', () => {
     const jwt = await anchorToken(app, kp);
     const stranger = Keypair.random().publicKey();
     await prisma.kycVerification.create({
-      data: { customerRef: stranger, status: 'ACCEPTED', screenedAt: new Date() },
+      data: {
+        customerRef: stranger,
+        personId: await personFor(stranger),
+        status: 'ACCEPTED',
+        screenedAt: new Date(),
+      },
     });
 
     for (const q of [`id=${stranger}`, `account=${stranger}`]) {

@@ -32,6 +32,10 @@ export class AppConfigService {
   get diditApiKey(): string { return this.c.get<string>('DIDIT_API_KEY') ?? ''; }
   get diditWorkflowId(): string { return this.c.get<string>('DIDIT_WORKFLOW_ID') ?? ''; }
   get diditEnvironment(): string { return this.c.get<string>('DIDIT_ENVIRONMENT') ?? 'live'; }
+  get diditDailySessionBudget(): number {
+    const raw = Number(this.c.get<string>('DIDIT_DAILY_SESSION_BUDGET'));
+    return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 200;
+  }
   get stakingContractId() { return this.req('STAKING_CONTRACT_ID'); }
   get escrowContractId() { return this.req('ESCROW_CONTRACT_ID'); }
 

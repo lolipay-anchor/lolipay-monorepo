@@ -80,12 +80,13 @@ export function readDiditDecision(payload: any): DiditConclusion {
 
   if (status === 'Declined') {
     if (foundSomething(payload)) {
+      return { ...base, status: 'REJECTED', rejectionReason: 'sanctions or watchlist match' };
+    }
+    if (couldNotScreen(payload)) {
       return {
         ...base,
         status: 'REJECTED',
-        rejectionReason: couldNotScreen(payload)
-          ? 'the required screening could not be carried out'
-          : 'sanctions or watchlist match',
+        rejectionReason: 'the required screening could not be carried out',
       };
     }
     if (documentFailed(payload)) return { ...base, status: 'NEEDS_INFO' };

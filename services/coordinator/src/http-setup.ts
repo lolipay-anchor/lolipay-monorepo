@@ -13,7 +13,8 @@ export function configureHttp(app: INestApplication): void {
     require('express').json({
       limit: '100kb',
       verify: (req: any, _res: unknown, buf: Buffer) => {
-        if (req.url?.startsWith(RAW_BODY_ROUTE)) req.rawBody = buf;
+        const path = String(req.url ?? '').split('?')[0].toLowerCase();
+        if (path.startsWith(RAW_BODY_ROUTE)) req.rawBody = buf;
       },
     }),
   );

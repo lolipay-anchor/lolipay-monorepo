@@ -1,3 +1,4 @@
+import { Throttle } from '@nestjs/throttler';
 import {
   BadRequestException,
   Body,
@@ -63,6 +64,7 @@ export class Sep12Controller {
     if (forgotten === 0) throw new NotFoundException('this anchor holds nothing about that customer');
   }
 
+  @Throttle({ default: { ttl: 3_600_000, limit: 10 } })
   @Put()
   @HttpCode(202)
   @AllowTokenClasses('sep10')

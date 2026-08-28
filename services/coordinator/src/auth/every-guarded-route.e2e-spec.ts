@@ -95,6 +95,7 @@ describe('an anchor token is refused everywhere a session token is admitted', ()
     }
 
     expect(leaked).toEqual([]);
+    expect(admitted.length).toBeGreaterThanOrEqual(5);
     expect(admitted.length + refusedToBoth.length).toBeGreaterThanOrEqual(45);
     for (const named of ['/admin/config', '/orders', '/customer', '/lp/assignments', '/webhooks/didit']) {
       expect(routes.some((r) => r.path === named)).toBe(true);

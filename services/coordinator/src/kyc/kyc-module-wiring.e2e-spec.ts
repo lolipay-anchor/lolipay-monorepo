@@ -11,7 +11,7 @@ const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
 };
 
-async function bootWith(env: Record<string, string>): Promise<INestApplication> {
+async function boot(): Promise<INestApplication> {
   const mod = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(ThrottlerStorage)
     .useValue(noopStorage)
@@ -41,21 +41,48 @@ describe('the application resolves the provider its configuration names', () => 
   });
 
   it('resolves the vendor when a key and a workflow are configured', async () => {
-    set({ DIDIT_API_KEY: 'example-key-not-a-real-one', DIDIT_WORKFLOW_ID: 'wf-1' });
-    const app = await bootWith({});
-    expect(app.get(KYC_PROVIDER)).toBeInstanceOf(DiditKycProvider);
-    await app.close();
+    set({
+      DIDIT_API_KEY: 'example-key-not-a-real-one',
+      DIDIT_WORKFLOW_ID: 'wf-1',
+      DIDIT_WEBHOOK_SECRET: 'example-secret-not-a-real-one',
+    });
+    const app = await boot();
+    try {
+      expect(app.get(KYC_PROVIDER)).toBeInstanceOf(DiditKycProvider);
+    } finally {
+      await app.close();
+    }
   });
 
   it('resolves the stub when nothing is configured', async () => {
     set({ DIDIT_API_KEY: undefined, DIDIT_WORKFLOW_ID: undefined });
-    const app = await bootWith({});
+    const app = await boot();
     expect(app.get(KYC_PROVIDER)).toBeInstanceOf(StubKycProvider);
     await app.close();
   });
 
   it('refuses to start at all when a required setting is empty', async () => {
     set({ USDC_ASSET_ISSUER: '' });
-    await expect(bootWith({})).rejects.toThrow(/refusing to start/);
+    await expect(boot()).rejects.toThrow(/refusing to start/);
+  });
+
+  it('refuses to start on the public network while pointed at a mocked environment', async () => {
+    set({
+      STELLAR_NETWORK_PASSPHRASE: 'Public Global Stellar Network ; September 2015',
+      DIDIT_API_KEY: 'example-key-not-a-real-one',
+      DIDIT_WORKFLOW_ID: 'wf-1',
+      DIDIT_WEBHOOK_SECRET: 'example-secret-not-a-real-one',
+      DIDIT_ENVIRONMENT: 'sandbox',
+    });
+    await expect(boot()).rejects.toThrow(/DIDIT_ENVIRONMENT/);
+  });
+
+  it('refuses to start with a provider configured and no shared secret to trust it by', async () => {
+    set({
+      DIDIT_API_KEY: 'example-key-not-a-real-one',
+      DIDIT_WORKFLOW_ID: 'wf-1',
+      DIDIT_WEBHOOK_SECRET: '',
+    });
+    await expect(boot()).rejects.toThrow(/DIDIT_WEBHOOK_SECRET/);
   });
 });

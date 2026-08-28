@@ -209,16 +209,22 @@ describe('registering a customer does not spend on every attempt', () => {
       kycVerification: {
         findUnique: jest.fn(async () => store.row),
         findFirst: jest.fn(async () => null),
+        count: jest.fn(async () => 0),
         upsert: jest.fn(async ({ create, update }: any) =>
           (store.row = store.row ? { ...store.row, ...update } : create),
         ),
       },
+      $executeRaw: jest.fn(async () => 0),
+      $transaction: jest.fn(async (fn: any) => fn(prisma)),
     };
     const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
     const provider = { start: jest.fn(async () => ({ status: 'PROCESSING', providerRef: 'sess-new', verificationUrl: 'https://verify.didit.me/session/abc' })) } as any;
-    const refusals = { record: jest.fn(), applied: jest.fn(), state: jest.fn() } as any;
+    const refusals = {
+      record: jest.fn(), applied: jest.fn(), state: jest.fn(),
+      providerFailed: jest.fn(), providerAnswered: jest.fn(), couldNotAuthenticate: jest.fn(),
+    } as any;
     const svc = new Sep12Service(prisma, people, provider, { diditEnvironment: 'sandbox' } as any, refusals);
-    return { svc, provider, store };
+    return { svc, provider, store, prisma };
   }
 
   it('does not open a session for a submission that is missing what the provider needs', async () => {
@@ -261,9 +267,72 @@ describe('registering a customer does not spend on every attempt', () => {
     expect(store.row.verificationUrl).toBe('https://verify.didit.me/session/abc');
   });
 
+  it('never buys a second session for a customer who is already verified', async () => {
+    const screened = new Date('2026-02-02');
+    const { svc, provider, store } = putSvc({
+      customerRef: REF, status: 'ACCEPTED', providerRef: 'sess-done',
+      screenedAt: screened, verifiedAt: screened, environment: 'sandbox',
+    });
+    const res = await svc.put(REF, complete);
+    expect(provider.start).not.toHaveBeenCalled();
+    expect(store.row.status).toBe('ACCEPTED');
+    expect(store.row.screenedAt).toBe(screened);
+    expect(res).toEqual({ id: REF });
+  });
+
+  it('does not write when a refusal lands while the provider was being called', async () => {
+    const { svc, store, prisma } = putSvc(null);
+    prisma.kycVerification.findFirst = jest
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({ customerRef: REF, status: 'REJECTED', personId: 'person-1' });
+    await svc.put(REF, complete);
+    expect(store.row).toBeNull();
+  });
+
   it('opens one when the submission is complete and nothing is in flight', async () => {
     const { svc, provider } = putSvc(null);
     await svc.put(REF, complete);
     expect(provider.start).toHaveBeenCalledWith(REF, complete);
+  });
+});
+
+describe('two requests arriving together buy one session, not two', () => {
+  const complete = {
+    first_name: 'Budi', last_name: 'Santoso', email_address: 'budi@example.com',
+    id_type: 'id_card', id_country_code: 'IDN',
+  };
+
+  it('opens a single verification when the same customer asks twice at once', async () => {
+    const store: any = { row: null };
+    const prisma: any = {
+      kycVerification: {
+        findUnique: jest.fn(async () => store.row),
+        findFirst: jest.fn(async () => null),
+        count: jest.fn(async () => 0),
+        upsert: jest.fn(async ({ create, update }: any) =>
+          (store.row = store.row ? { ...store.row, ...update } : create),
+        ),
+      },
+      $executeRaw: jest.fn(async () => 0),
+      $transaction: jest.fn(async (fn: any) => fn(prisma)),
+    };
+    const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
+    const start = jest.fn(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(() => resolve({ status: 'PROCESSING', providerRef: 'sess-1' }), 20),
+        ),
+    );
+    const refusals = {
+      record: jest.fn(), applied: jest.fn(), state: jest.fn(),
+      providerFailed: jest.fn(), providerAnswered: jest.fn(), couldNotAuthenticate: jest.fn(),
+    } as any;
+    const svc = new Sep12Service(
+      prisma, people, { start } as any, { diditEnvironment: 'sandbox' } as any, refusals,
+    );
+
+    await Promise.all([svc.put(REF, complete), svc.put(REF, complete)]);
+    expect(start).toHaveBeenCalledTimes(1);
   });
 });

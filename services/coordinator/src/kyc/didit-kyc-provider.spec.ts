@@ -10,7 +10,7 @@ const fields = {
   id_country_code: 'IDN',
 };
 
-function provider(reply: { status: number; body: unknown }, cfg: Record<string, string> = {}) {
+function provider(reply: { status: number; body: unknown }, cfg: Record<string, unknown> = {}) {
   const fetcher = jest.fn(async () => ({
     ok: reply.status >= 200 && reply.status < 300,
     status: reply.status,
@@ -20,9 +20,17 @@ function provider(reply: { status: number; body: unknown }, cfg: Record<string, 
   const config = {
     diditApiKey: 'example-api-key-not-a-real-one',
     diditWorkflowId: 'wf-1',
+    diditDailySessionBudget: 200,
     ...cfg,
   } as any;
-  const refusals = { record: jest.fn(), applied: jest.fn(), state: jest.fn() } as any;
+  const refusals = {
+    record: jest.fn(),
+    applied: jest.fn(),
+    state: jest.fn(),
+    providerFailed: jest.fn(),
+    providerAnswered: jest.fn(),
+    couldNotAuthenticate: jest.fn(),
+  } as any;
   return { p: new DiditKycProvider(config, refusals, fetcher), fetcher, refusals };
 }
 
@@ -83,16 +91,32 @@ describe('opening a verification a customer can actually complete', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it('stops buying once the day s whole budget is spent, rather than emptying the account', async () => {
+    const { p, fetcher } = provider({ status: 201, body: created }, { diditDailySessionBudget: 2 });
+    await p.start(REF, fields);
+    await p.start(REF, fields);
+    await expect(p.start(REF, fields)).rejects.toThrow(/budget/);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses a session the provider answered with an error status, however well formed the body', async () => {
+    const { p } = provider({
+      status: 403,
+      body: { session_id: 'sess-1', url: 'https://verify.didit.me/u/sess-1' },
+    });
+    await expect(p.start(REF, fields)).rejects.toThrow(ServiceUnavailableException);
+  });
+
   it('records a provider that would not answer, so an outage is not only the customer s problem', async () => {
     const { p, refusals } = provider({ status: 502, body: { detail: 'nope' } });
     await expect(p.start(REF, fields)).rejects.toThrow();
-    expect(refusals.record).toHaveBeenCalledWith(expect.stringContaining('verification'));
+    expect(refusals.providerFailed).toHaveBeenCalledWith(expect.stringContaining('verification'));
   });
 
   it('records a session it could not open even before calling anybody', async () => {
     const { p, refusals } = provider({ status: 201, body: created }, { diditApiKey: '' });
     await expect(p.start(REF, fields)).rejects.toThrow();
-    expect(refusals.record).toHaveBeenCalled();
+    expect(refusals.providerFailed).toHaveBeenCalled();
   });
 
   it('never puts the key in the message a caller might see', async () => {

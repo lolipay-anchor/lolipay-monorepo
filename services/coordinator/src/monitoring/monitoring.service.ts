@@ -32,6 +32,8 @@ export const MONITORING_ALERT_SCOPE = [
   'cooldown_below_floor',
   'anchor_identity',
   'didit_deliveries_refused',
+  'didit_provider_unreachable',
+  'didit_deliveries_unauthenticated',
 ];
 
 @Injectable()
@@ -300,6 +302,30 @@ export class MonitoringService {
         text:
           `${refusals.count} identity verification deliveries were refused since the last check ` +
           `— the most recent because ${refusals.lastReason}. While this continues no deposit can be opened.`,
+      });
+    }
+
+    if (refusals.unauthenticated > 0) {
+      alerts.push({
+        key: 'didit_deliveries_unauthenticated',
+        fingerprint: refusals.unauthenticatedReason ?? 'unknown',
+        urgency: 'routine',
+        text:
+          `${refusals.unauthenticated} deliveries arrived that this anchor could not authenticate ` +
+          `— the most recent because ${refusals.unauthenticatedReason}. Either the shared secret has ` +
+          `drifted from the provider's, or something is posting to the endpoint.`,
+      });
+    }
+
+    if (refusals.providerFailures > 0) {
+      alerts.push({
+        key: 'didit_provider_unreachable',
+        fingerprint: refusals.providerReason ?? 'unknown',
+        urgency: 'urgent',
+        text:
+          `${refusals.providerFailures} attempts to start an identity verification failed since ` +
+          `the last check — the most recent because ${refusals.providerReason}. ` +
+          `No new customer can begin verification while this continues.`,
       });
     }
 

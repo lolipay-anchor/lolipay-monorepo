@@ -27,11 +27,23 @@ export class Sep12Service {
     private refusals: DiditRefusalsService,
   ) {}
 
+  private readonly opening = new Set<string>();
+
   private async recordIncomplete(customerRef: string, personId: string) {
     await this.prisma.kycVerification.upsert({
       where: { customerRef },
       create: { customerRef, personId, status: 'NEEDS_INFO' },
-      update: { personId, status: 'NEEDS_INFO' },
+      update: {
+        personId,
+        status: 'NEEDS_INFO',
+        providerRef: null,
+        verificationUrl: null,
+        rejectionReason: null,
+        verifiedAt: null,
+        screenedAt: null,
+        deliveredAt: null,
+        environment: null,
+      },
     });
     return { id: customerRef };
   }
@@ -49,7 +61,11 @@ export class Sep12Service {
     }
 
     const person = await this.people.lookupPerson(customerRef);
-    if (!person) return;
+    if (!person) {
+      return this.refusals.record(
+        'a delivery named a customer this anchor has never registered, which means it is pointed at the wrong application or workflow',
+      );
+    }
 
     const refusing = conclusion.status === 'REJECTED';
 
@@ -139,6 +155,16 @@ export class Sep12Service {
         message: row.rejectionReason ?? 'this identity was refused',
       };
     }
+    if (row.status === 'ACCEPTED' && row.screenedAt === null) {
+      return {
+        id: row.customerRef,
+        status: 'PROCESSING',
+        provided_fields: PROVIDED,
+        message:
+          'identity checks passed, but the screening this anchor requires has not been completed, ' +
+          'so no deposit can be opened yet',
+      };
+    }
     return { id: row.customerRef, status: row.status, provided_fields: PROVIDED };
   }
 
@@ -153,7 +179,9 @@ export class Sep12Service {
       });
       return 1;
     }
-    const { count } = await this.prisma.kycVerification.deleteMany({ where: { customerRef } });
+    const { count } = await this.prisma.kycVerification.deleteMany({
+      where: { customerRef, status: { not: 'REJECTED' } },
+    });
     return count;
   }
 
@@ -173,13 +201,23 @@ export class Sep12Service {
     }
 
     const inFlight = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
+    if (inFlight?.status === 'ACCEPTED') {
+      return { id: customerRef };
+    }
     if (inFlight?.status === 'PROCESSING' && inFlight.providerRef) {
       return { id: customerRef };
     }
 
-    const decision = await this.provider.start(customerRef, fields);
+    if (this.opening.has(customerRef)) return { id: customerRef };
+    this.opening.add(customerRef);
+    let decision;
+    try {
+      decision = await this.provider.start(customerRef, fields);
+    } finally {
+      this.opening.delete(customerRef);
+    }
     const state = {
-      personId: person?.id ?? null,
+      personId: person.id,
       status: decision.status,
       providerRef: decision.providerRef ?? null,
       verificationUrl: decision.verificationUrl ?? null,
@@ -189,10 +227,17 @@ export class Sep12Service {
       deliveredAt: null,
       environment: null,
     };
-    await this.prisma.kycVerification.upsert({
-      where: { customerRef },
-      create: { customerRef, ...state },
-      update: state,
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${DIDIT_DELIVERY_LOCK}, hashtext(${person.id}))`;
+      const refusedMeanwhile = await tx.kycVerification.findFirst({
+        where: { status: 'REJECTED', OR: [{ customerRef }, { personId: person.id }] },
+      });
+      if (refusedMeanwhile) return;
+      await tx.kycVerification.upsert({
+        where: { customerRef },
+        create: { customerRef, ...state },
+        update: state,
+      });
     });
     return { id: customerRef };
   }

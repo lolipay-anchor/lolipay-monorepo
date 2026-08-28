@@ -25,6 +25,17 @@ describe('DELETE /customer forgets a customer without forgetting the wallet', ()
     await app.close();
   });
 
+
+  async function personFor(address: string): Promise<string> {
+    const link = await prisma.walletLink.findUnique({ where: { stellarAddress: address } });
+    if (link) return link.personId;
+    const person = await prisma.person.create({ data: {} });
+    await prisma.walletLink.create({
+      data: { stellarAddress: address, personId: person.id, authMethod: 'SEP10' },
+    });
+    return person.id;
+  }
+
   it('refuses a caller who presents no token', async () => {
     const res = await request(app.getHttpServer()).delete(`/customer/${Keypair.random().publicKey()}`);
     expect([401, 403]).toContain(res.status);
@@ -71,7 +82,11 @@ describe('DELETE /customer forgets a customer without forgetting the wallet', ()
     const theirs = Keypair.random();
     const jwt = await anchorToken(app, mine);
     await prisma.kycVerification.create({
-      data: { customerRef: theirs.publicKey(), status: 'ACCEPTED' },
+      data: {
+        customerRef: theirs.publicKey(),
+        personId: await personFor(theirs.publicKey()),
+        status: 'ACCEPTED',
+      },
     });
 
     const del = await request(app.getHttpServer())

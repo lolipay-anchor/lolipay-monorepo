@@ -12,6 +12,12 @@ export class ConfigBootService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    if (this.cfg.diditApiKey && this.cfg.diditWorkflowId && !this.cfg.diditWebhookSecret) {
+      throw new Error(
+        'refusing to start: an identity provider is configured but DIDIT_WEBHOOK_SECRET is not, so every verdict it sends would be refused and no deposit could ever open',
+      );
+    }
+
     if (this.cfg.networkPassphrase === Networks.PUBLIC) {
       if (this.cfg.diditEnvironment !== 'live') {
         throw new Error(

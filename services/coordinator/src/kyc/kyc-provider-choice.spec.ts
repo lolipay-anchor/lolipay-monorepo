@@ -2,7 +2,15 @@ import { chooseKycProvider } from './kyc.module';
 import { DiditKycProvider } from './didit-kyc-provider';
 import { StubKycProvider } from './stub-kyc-provider';
 
-const counter = () => ({ record: jest.fn(), applied: jest.fn(), state: jest.fn() }) as any;
+const counter = () =>
+  ({
+    record: jest.fn(),
+    applied: jest.fn(),
+    state: jest.fn(),
+    providerFailed: jest.fn(),
+    providerAnswered: jest.fn(),
+    couldNotAuthenticate: jest.fn(),
+  }) as any;
 
 const cfg = (over: Record<string, string> = {}) =>
   ({ diditApiKey: 'k', diditWorkflowId: 'wf', ...over }) as any;

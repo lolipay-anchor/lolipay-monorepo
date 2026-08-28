@@ -28,7 +28,7 @@ export class DiditWebhookController {
 
     if (!verdict.trusted) {
       this.log.warn(`refused a delivery on /webhooks/didit: ${verdict.reason}`);
-      this.refusals.record(verdict.reason ?? 'unknown');
+      this.refusals.couldNotAuthenticate(verdict.reason ?? 'unknown');
       throw new UnauthorizedException('this delivery was not signed by the shared secret');
     }
 
@@ -37,6 +37,7 @@ export class DiditWebhookController {
       payload = JSON.parse(raw.toString('utf8'));
     } catch {
       this.log.warn('a signed delivery on /webhooks/didit did not carry readable json');
+      this.refusals.record('a signed delivery did not carry readable json');
       return;
     }
 

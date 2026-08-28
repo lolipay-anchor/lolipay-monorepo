@@ -106,7 +106,6 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
   });
 
   it.each([
-    ['a path spelled with different capitals', '/Webhooks/Didit', 'application/json'],
     ['a form content type the json parser declines', '/webhooks/didit', 'application/x-www-form-urlencoded'],
     ['no content type at all', '/webhooks/didit', ''],
   ])('refuses a delivery arriving as %s, where the bytes were never captured', async (_n, path, ct) => {
@@ -115,6 +114,26 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     if (ct) req.set('content-type', ct);
     const sent = req.set(signed(raw)).send(raw);
     const res = await (ct ? sent : (sent as any).unset('Content-Type'));
+    expect(res.status).toBe(401);
+  });
+
+  it('reads a delivery whose path was registered with different capitals, because the signature authenticates it and the spelling does not', async () => {
+    const raw = body();
+    const res = await request(app.getHttpServer())
+      .post('/Webhooks/Didit')
+      .set('content-type', 'application/json')
+      .set(signed(raw))
+      .send(raw);
+    expect(res.status).toBe(200);
+  });
+
+  it('still refuses an unsigned delivery on that same differently spelled path', async () => {
+    const raw = body();
+    const res = await request(app.getHttpServer())
+      .post('/Webhooks/Didit')
+      .set('content-type', 'application/json')
+      .set({ 'x-signature': 'deadbeef', 'x-timestamp': String(Math.floor(Date.now() / 1000)) })
+      .send(raw);
     expect(res.status).toBe(401);
   });
 
@@ -194,8 +213,10 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
       environment: 'sandbox',
       decision: { aml_screenings: [] },
     });
+    const before = await prisma.kycVerification.count();
     const res = await post(raw, signed(raw));
     expect(res.status).toBe(200);
+    expect(await prisma.kycVerification.count()).toBe(before);
   });
 
   it('never repeats a vendor payload back to the caller', async () => {

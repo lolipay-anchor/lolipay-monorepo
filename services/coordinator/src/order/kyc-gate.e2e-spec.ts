@@ -145,7 +145,12 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
   it('refuses an accepted identity that no sanctions screening ever touched', async () => {
     const { jwt, quoteId, userAddress } = await aDepositQuote();
     await prisma.kycVerification.create({
-      data: { customerRef: userAddress, status: 'ACCEPTED', verifiedAt: new Date() },
+      data: {
+        customerRef: userAddress,
+        personId: await personOf(userAddress),
+        status: 'ACCEPTED',
+        verifiedAt: new Date(),
+      },
     });
     const res = await request(app.getHttpServer())
       .post('/orders').set('Authorization', `Bearer ${jwt}`).send({ quoteId });
@@ -157,7 +162,10 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
     const { jwt, quoteId, userAddress } = await aDepositQuote();
     await prisma.kycVerification.create({
       data: {
-        customerRef: userAddress, status: 'REJECTED', screenedAt: new Date(),
+        customerRef: userAddress,
+        personId: await personOf(userAddress),
+        status: 'REJECTED',
+        screenedAt: new Date(),
         rejectionReason: 'sanctions list match',
       },
     });
