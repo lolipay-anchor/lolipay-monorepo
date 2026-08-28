@@ -61,3 +61,33 @@ describe('anchor endpoints answer every origin, and never with credentials', () 
     expect(opts.origin).toBe('*');
   });
 });
+
+describe('a wallet that never heard of lolipay can reach the SEP-24 surface', () => {
+  const SEP24 = [
+    '/sep24/info',
+    '/sep24/transaction',
+    '/sep24/transactions',
+    '/sep24/transactions/deposit/interactive',
+    '/sep24/more-info/abc',
+  ];
+
+  it.each(SEP24)('treats %s as anchor surface, not as an allowlisted origin', (path) => {
+    const opts = anchorCorsOptions(path, ['https://app.lolipay.app']);
+    expect(opts.origin).toBe('*');
+    expect(opts.credentials).toBe(false);
+  });
+
+  it.each(SEP24)('lets %s carry the bearer token four of these endpoints require', (path) => {
+    expect(anchorCorsOptions(path, []).allowedHeaders).toContain('Authorization');
+  });
+
+  it('still answers a wildcard for the SEP-10 endpoint it already served', () => {
+    expect(anchorCorsOptions('/auth', []).origin).toBe('*');
+  });
+
+  it('does not turn an ordinary route into anchor surface by having sep24 in its name', () => {
+    expect(anchorCorsOptions('/orders/sep24', ['https://app.lolipay.app']).origin).toEqual([
+      'https://app.lolipay.app',
+    ]);
+  });
+});

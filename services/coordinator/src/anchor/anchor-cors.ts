@@ -7,11 +7,13 @@ export interface AnchorCorsOptions {
 }
 
 const ANCHOR_PATHS = ['/auth'];
+const ANCHOR_PREFIXES = ['/sep24/'];
 
 export function isAnchorPath(path: string): boolean {
   const lowered = path.toLowerCase();
   const normalised = lowered.length > 1 && lowered.endsWith('/') ? lowered.slice(0, -1) : lowered;
-  return ANCHOR_PATHS.includes(normalised);
+  if (ANCHOR_PATHS.includes(normalised)) return true;
+  return ANCHOR_PREFIXES.some((prefix) => `${normalised}/`.startsWith(prefix));
 }
 
 export function anchorCorsOptions(path: string, allowlist: string[]): AnchorCorsOptions {
@@ -20,7 +22,7 @@ export function anchorCorsOptions(path: string, allowlist: string[]): AnchorCors
       origin: '*',
       credentials: false,
       methods: ['GET', 'POST', 'OPTIONS'],
-      allowedHeaders: ['Content-Type'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
     };
   }
   return {
