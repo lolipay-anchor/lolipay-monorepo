@@ -86,11 +86,13 @@ describe('opening a verification a customer can actually complete', () => {
   });
 
   it('stops buying once the day s whole budget is spent, rather than emptying the account', async () => {
-    const { p, fetcher } = provider({ status: 201, body: created }, { diditDailySessionBudget: 2 });
+    const { p, fetcher, refusals } = provider({ status: 201, body: created }, { diditDailySessionBudget: 2 });
     await p.start(REF, fields);
     await p.start(REF, fields);
     await expect(p.start(REF, fields)).rejects.toThrow(/budget/);
     expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(refusals.state().overBudget).toBe(1);
+    expect(refusals.state().providerFailures).toBe(0);
   });
 
   it('refuses a session the provider answered with an error status, however well formed the body', async () => {

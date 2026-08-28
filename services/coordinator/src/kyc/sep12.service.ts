@@ -136,7 +136,7 @@ export class Sep12Service {
       const refusal = await this.standingRefusal(customerRef);
       if (refusal) {
         return {
-          id: refusal.customerRef,
+          id: customerRef,
           status: refusal.status,
           message: refusal.rejectionReason ?? 'this identity was refused',
         };
@@ -168,28 +168,29 @@ export class Sep12Service {
 
   async forget(customerRef: string): Promise<number> {
     const standing = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
-    if (!standing) {
-      const elsewhere = await this.standingRefusal(customerRef);
-      if (!elsewhere) return 0;
-      if (elsewhere.rejectionReason === null && elsewhere.screenedAt === null) return 1;
-      await this.prisma.kycVerification.update({
-        where: { customerRef: elsewhere.customerRef },
+    if (standing && standing.status !== 'REJECTED') {
+      const { count } = await this.prisma.kycVerification.deleteMany({
+        where: { customerRef, status: { not: 'REJECTED' } },
+      });
+      return count;
+    }
+
+    const person = await this.people.lookupPerson(customerRef);
+    if (!person) return standing ? 1 : 0;
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${person.id}))`;
+      const refusals = await tx.kycVerification.findMany({
+        where: { status: 'REJECTED', OR: [{ customerRef }, { personId: person.id }] },
+        select: { customerRef: true },
+      });
+      if (refusals.length === 0) return 0;
+      await tx.kycVerification.updateMany({
+        where: { customerRef: { in: refusals.map((r) => r.customerRef) } },
         data: { rejectionReason: null, screenedAt: null, verifiedAt: null },
       });
       return 1;
-    }
-    if (standing.status === 'REJECTED') {
-      if (standing.rejectionReason === null && standing.screenedAt === null) return 0;
-      await this.prisma.kycVerification.update({
-        where: { customerRef },
-        data: { rejectionReason: null, screenedAt: null, verifiedAt: null },
-      });
-      return 1;
-    }
-    const { count } = await this.prisma.kycVerification.deleteMany({
-      where: { customerRef, status: { not: 'REJECTED' } },
     });
-    return count;
   }
 
   async put(customerRef: string, fields: Record<string, string>) {
@@ -232,6 +233,18 @@ export class Sep12Service {
       };
       await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${person.id}))`;
+        const settledMeanwhile = await tx.kycVerification.findUnique({ where: { customerRef } });
+        if (
+          settledMeanwhile?.status === 'ACCEPTED' ||
+          (settledMeanwhile?.status === 'PROCESSING' &&
+            settledMeanwhile.providerRef &&
+            settledMeanwhile.providerRef !== decision.providerRef)
+        ) {
+          this.log.warn(
+            'a verification session was opened and discarded because the customer was settled while it was being created',
+          );
+          return;
+        }
         const refusedMeanwhile = await tx.kycVerification.findFirst({
           where: { status: 'REJECTED', OR: [{ customerRef }, { personId: person.id }] },
         });

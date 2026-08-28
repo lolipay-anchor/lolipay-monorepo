@@ -182,3 +182,11 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     expect(keys).not.toContain('didit_provider_unreachable');
   });
 });
+
+describe('a new alert reaches the operator only if its family is in scope', () => {
+  it('carries the spending ceiling in the scope the monitor raises under', () => {
+    expect(MONITORING_ALERT_SCOPE).toContain('didit_budget_exhausted');
+    expect(MONITORING_ALERT_SCOPE).toContain('didit_provider_unreachable');
+    expect(MONITORING_ALERT_SCOPE).toContain('didit_deliveries_unauthenticated');
+  });
+});

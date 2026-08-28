@@ -36,6 +36,7 @@ export class DiditKycProvider implements KycProvider {
       this.refuse('identity verification is not configured');
     }
 
+    if (!this.overBudget()) this.refusals.spendResumed();
     if (this.overBudget()) {
       const reason = `this anchor has already opened ${this.started.length} verifications in the last day, which is its whole budget`;
       this.refusals.budgetExhausted(reason);
@@ -74,7 +75,6 @@ export class DiditKycProvider implements KycProvider {
     }
 
     this.refusals.providerAnswered();
-    this.refusals.spendResumed();
     return {
       status: 'PROCESSING',
       providerRef: String(session.session_id),

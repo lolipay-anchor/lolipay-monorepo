@@ -19,7 +19,7 @@ function svc(row: any, environment = 'sandbox', personRefusal: any = null) {
   prisma.$executeRaw = jest.fn().mockResolvedValue(0);
   const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
   const cfg = { diditEnvironment: environment } as any;
-  const refusals = { record: jest.fn(), applied: jest.fn(), state: jest.fn() } as any;
+  const refusals = new DiditRefusalsService();
   return { s: new Sep12Service(prisma, people, {} as any, cfg, refusals), store, prisma, people, refusals };
 }
 
@@ -161,13 +161,15 @@ describe('applying what a delivery concluded', () => {
   it('counts a delivery it drops, so a silent failure still reaches somebody', async () => {
     const { s, refusals } = svc(null, 'live');
     await s.applyDelivery(accepted(), AT);
-    expect(refusals.record).toHaveBeenCalledWith(expect.stringContaining('environment'));
+    expect(refusals.state().count).toBe(1);
+    expect(String(refusals.state().lastReason)).toContain('environment');
   });
 
   it('clears the count once a delivery is finally acted on', async () => {
     const { s, refusals } = svc(null);
+    refusals.record('an earlier delivery this anchor could not act on');
     await s.applyDelivery(accepted(), AT);
-    expect(refusals.applied).toHaveBeenCalled();
+    expect(refusals.state().count).toBe(0);
   });
 
   it('takes the lock on the person, because the rule it guards spans every address they own', async () => {
@@ -391,41 +393,47 @@ describe('the refusal counter survives a delivery that did not commit', () => {
   });
 });
 
-describe('forgetting a customer does not reach beyond the person asking', () => {
-  function forgetSvc(own: any, elsewhere: any) {
+describe('forgetting a customer reaches every refusal that person carries, and nothing else', () => {
+  function forgetSvc(own: any, refusals: any[], person: any = { id: 'person-1' }) {
     const updates: any[] = [];
+    const tx: any = {
+      $executeRaw: jest.fn(async () => 0),
+      kycVerification: {
+        findMany: jest.fn(async () => refusals),
+        updateMany: jest.fn(async (args: any) => {
+          updates.push(args);
+          return { count: refusals.length };
+        }),
+      },
+    };
     const prisma: any = {
       kycVerification: {
         findUnique: jest.fn(async () => own),
-        findFirst: jest.fn(async () => elsewhere),
-        update: jest.fn(async (args: any) => updates.push(args)),
         deleteMany: jest.fn(async () => ({ count: 1 })),
       },
+      $transaction: jest.fn(async (fn: any) => fn(tx)),
     };
-    const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
+    const people = { lookupPerson: jest.fn(async () => person) } as any;
     const svc = new Sep12Service(
       prisma, people, {} as any, { diditEnvironment: 'sandbox' } as any,
       new DiditRefusalsService(),
     );
-    return { svc, updates, prisma };
+    return { svc, updates, tx };
   }
 
-  it('redacts the refusal it found for this person rather than reporting a deletion that never happened', async () => {
-    const count = await forgetSvc(null, {
-      customerRef: 'GSIBLING', status: 'REJECTED',
-      rejectionReason: 'sanctions or watchlist match', screenedAt: new Date(),
-    }).svc.forget(REF);
-    expect(count).toBe(1);
+  it('redacts every wallet this person was refused under, not whichever row came back first', async () => {
+    const { svc, updates } = forgetSvc(null, [
+      { customerRef: 'GONE' },
+      { customerRef: 'GTWO' },
+    ]);
+    expect(await svc.forget(REF)).toBe(1);
+    expect(updates).toHaveLength(1);
+    expect(updates[0].where.customerRef.in.sort()).toEqual(['GONE', 'GTWO']);
   });
 
   it('never lifts the refusal itself, only the words describing it', async () => {
-    const { svc, updates } = forgetSvc(null, {
-      customerRef: 'GSIBLING', status: 'REJECTED',
-      rejectionReason: 'sanctions or watchlist match', screenedAt: new Date(),
-    });
+    const { svc, updates } = forgetSvc(null, [{ customerRef: 'GONE' }]);
     await svc.forget(REF);
-    expect(updates).toHaveLength(1);
-    expect(updates[0].where).toEqual({ customerRef: 'GSIBLING' });
     expect(Object.keys(updates[0].data).sort()).toEqual(
       ['rejectionReason', 'screenedAt', 'verifiedAt'],
     );
@@ -433,17 +441,128 @@ describe('forgetting a customer does not reach beyond the person asking', () => 
     expect(updates[0].data).not.toHaveProperty('personId');
   });
 
-  it('touches nothing when this person carries no refusal anywhere', async () => {
-    const { svc, updates } = forgetSvc(null, null);
+  it('takes the person lock, because the refusals it redacts span every wallet they own', async () => {
+    const { svc, tx } = forgetSvc(null, [{ customerRef: 'GONE' }]);
+    await svc.forget(REF);
+    const text = tx.$executeRaw.mock.calls[0][0].join('?');
+    expect(text).toContain('pg_advisory_xact_lock(hashtext(');
+  });
+
+  it('reports holding nothing only when this person really carries no refusal', async () => {
+    const { svc, updates } = forgetSvc(null, []);
     expect(await svc.forget(REF)).toBe(0);
     expect(updates).toHaveLength(0);
   });
+});
 
-  it('writes nothing twice when the refusal has already been redacted', async () => {
-    const { svc, updates } = forgetSvc(null, {
-      customerRef: 'GSIBLING', status: 'REJECTED', rejectionReason: null, screenedAt: null,
+describe('a session bought while the customer was being settled elsewhere is discarded, not written', () => {
+  const complete = {
+    first_name: 'Budi', last_name: 'Santoso', email_address: 'budi@example.com',
+    id_type: 'id_card', id_country_code: 'IDN',
+  };
+
+  it('never demotes a customer a delivery accepted while the vendor was answering', async () => {
+    const screened = new Date('2026-04-04');
+    const store: any = {
+      row: { customerRef: REF, status: 'NEEDS_INFO', personId: 'person-1' },
+    };
+    const tx: any = {
+      $executeRaw: jest.fn(async () => 0),
+      kycVerification: {
+        findUnique: jest.fn(async () => store.row),
+        findFirst: jest.fn(async () => null),
+        upsert: jest.fn(async ({ update }: any) => (store.row = { ...store.row, ...update })),
+      },
+    };
+    const prisma: any = {
+      kycVerification: {
+        findUnique: jest.fn(async () => store.row),
+        findFirst: jest.fn(async () => null),
+      },
+      $transaction: jest.fn(async (fn: any) => fn(tx)),
+    };
+    const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
+    const provider = {
+      start: jest.fn(async () => {
+        store.row = {
+          customerRef: REF, personId: 'person-1', status: 'ACCEPTED',
+          providerRef: 'sess-webhook', screenedAt: screened, environment: 'sandbox',
+        };
+        return { status: 'PROCESSING', providerRef: 'sess-new' };
+      }),
+    } as any;
+    const svc = new Sep12Service(
+      prisma, people, provider, { diditEnvironment: 'sandbox' } as any,
+      new DiditRefusalsService(),
+    );
+
+    await svc.put(REF, complete);
+    expect(store.row.status).toBe('ACCEPTED');
+    expect(store.row.screenedAt).toBe(screened);
+    expect(store.row.providerRef).toBe('sess-webhook');
+    expect(tx.kycVerification.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe('the guards this anchor relies on are the ones it actually takes', () => {
+  const complete = {
+    first_name: 'Budi', last_name: 'Santoso', email_address: 'budi@example.com',
+    id_type: 'id_card', id_country_code: 'IDN',
+  };
+
+  function harness(row: any) {
+    const store = { row };
+    const prisma: any = {
+      kycVerification: {
+        findUnique: jest.fn(async () => store.row),
+        findFirst: jest.fn(async () => null),
+        upsert: jest.fn(async ({ create, update }: any) =>
+          (store.row = store.row ? { ...store.row, ...update } : create),
+        ),
+      },
+      $executeRaw: jest.fn(async () => 0),
+      $transaction: jest.fn(async (fn: any) => fn(prisma)),
+    };
+    const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
+    const provider = {
+      start: jest.fn(async () => ({ status: 'PROCESSING', providerRef: 'sess-new' })),
+    } as any;
+    const svc = new Sep12Service(
+      prisma, people, provider, { diditEnvironment: 'sandbox' } as any,
+      new DiditRefusalsService(),
+    );
+    return { svc, prisma, store, provider };
+  }
+
+  it('buys a session under the same lock the delivery path takes, or the two do not exclude each other', async () => {
+    const { svc, prisma } = harness(null);
+    await svc.put(REF, complete);
+    const text = prisma.$executeRaw.mock.calls[0][0].join('?');
+    expect(text).toContain('pg_advisory_xact_lock(hashtext(');
+    expect(text).not.toMatch(/pg_advisory_xact_lock\(\s*\?/);
+  });
+
+  it('keeps the provenance of a delivery already received when a later submission arrives incomplete', async () => {
+    const delivered = new Date('2026-05-05');
+    const { svc, store } = harness({
+      customerRef: REF, personId: 'person-1', status: 'NEEDS_INFO',
+      deliveredAt: delivered, environment: 'sandbox', providerRef: 'sess-old',
     });
-    expect(await svc.forget(REF)).toBe(1);
-    expect(updates).toHaveLength(0);
+    await svc.put(REF, {});
+    expect(store.row.deliveredAt).toBe(delivered);
+    expect(store.row.environment).toBe('sandbox');
+  });
+
+  it('holds the concurrency guard until the row exists, not merely until the vendor answers', async () => {
+    const { svc, provider, prisma } = harness(null);
+    let insideTransaction: Promise<any> | null = null;
+    prisma.$transaction = jest.fn(async (fn: any) => {
+      insideTransaction = svc.put(REF, complete);
+      await new Promise((r) => setTimeout(r, 5));
+      return fn(prisma);
+    });
+    await svc.put(REF, complete);
+    await insideTransaction;
+    expect(provider.start).toHaveBeenCalledTimes(1);
   });
 });

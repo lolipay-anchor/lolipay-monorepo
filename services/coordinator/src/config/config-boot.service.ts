@@ -12,6 +12,13 @@ export class ConfigBootService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    const budgetRaw = (process.env.DIDIT_DAILY_SESSION_BUDGET ?? '').trim();
+    if (budgetRaw !== '' && !(Number.isFinite(Number(budgetRaw)) && Number(budgetRaw) >= 0)) {
+      throw new Error(
+        `refusing to start: DIDIT_DAILY_SESSION_BUDGET is ${JSON.stringify(budgetRaw)}, which is not a number, and a spend ceiling that cannot be read would silently become the default`,
+      );
+    }
+
     if (this.cfg.diditApiKey && this.cfg.diditWorkflowId && !this.cfg.diditWebhookSecret) {
       throw new Error(
         'refusing to start: an identity provider is configured but DIDIT_WEBHOOK_SECRET is not, so every verdict it sends would be refused and no deposit could ever open',

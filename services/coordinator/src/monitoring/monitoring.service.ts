@@ -176,6 +176,7 @@ export class MonitoringService {
     }
 
     await this.alerts.raise(MONITORING_ALERT_SCOPE, alerts, incomplete);
+    this.diditRefusals.seen();
   }
 
   async buildAlerts(
@@ -306,7 +307,6 @@ export class MonitoringService {
       });
     }
 
-    this.diditRefusals.seen();
     if (refusals.unauthenticated > 0) {
       alerts.push({
         key: 'didit_deliveries_unauthenticated',
