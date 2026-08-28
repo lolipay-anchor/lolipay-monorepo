@@ -125,7 +125,7 @@ export class IndexerService {
     return Math.max(1, latest.sequence - LOOKBACK_LEDGERS);
   }
 
-  private async applyEvent(ev: { topic: any[]; value: any; contractId?: any }): Promise<number> {
+  private async applyEvent(ev: { topic: any[]; value: any; contractId?: any; txHash?: string }): Promise<number> {
     if (!ev.topic || ev.topic.length < 2) return 0;
     const toScVal = (t: any) =>
       typeof t === 'string' ? xdr.ScVal.fromXdr(t, 'base64') : t;
@@ -188,6 +188,7 @@ export class IndexerService {
         extra = {
           settledAt: onChain && onChain.settledAt > 0 ? new Date(onChain.settledAt * 1000) : new Date(),
           ...(onChain?.postSettleDeadline ? { postSettleDeadline: onChain.postSettleDeadline } : {}),
+          ...(ev.txHash ? { settlementTxHash: String(ev.txHash) } : {}),
         };
       }
       const res = await this.prisma.order.updateMany({

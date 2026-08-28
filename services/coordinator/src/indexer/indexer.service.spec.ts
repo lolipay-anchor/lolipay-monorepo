@@ -191,6 +191,34 @@ describe('IndexerService.applyEvent', () => {
     expect(prisma.order.updateMany.mock.calls[0][0].data.status).toBe('FIAT_PAID');
   });
 
+  it('keeps the transaction hash the chain reported, because SEP-24 cannot report completed without one', async () => {
+    const { svc, prisma } = make('FIAT_PAID');
+    const advanced = await svc.applyEvent({
+      topic: [TOPIC_RELEASED, tradeIdTopic(TRADE_ID_A)],
+      value: VALUE_EMPTY,
+      contractId: 'CXXX',
+      txHash: 'a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801',
+    } as any);
+    expect(advanced).toBe(1);
+    const written = prisma.order.updateMany.mock.calls[0][0].data;
+    expect(written.status).toBe('RELEASED');
+    expect(written.settlementTxHash).toBe(
+      'a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801',
+    );
+  });
+
+  it('settles even when the chain reported no hash, rather than refusing the transition', async () => {
+    const { svc, prisma } = make('FIAT_PAID');
+    await svc.applyEvent({
+      topic: [TOPIC_RELEASED, tradeIdTopic(TRADE_ID_A)],
+      value: VALUE_EMPTY,
+      contractId: 'CXXX',
+    } as any);
+    const written = prisma.order.updateMany.mock.calls[0][0].data;
+    expect(written.status).toBe('RELEASED');
+    expect(written.settlementTxHash).toBeUndefined();
+  });
+
   it('does NOT notify (and returns 0) when the order is already ahead — notify-gate fix', async () => {
     const { svc, prisma, notifications } = make('RELEASED');
     const advanced = await svc.applyEvent({
