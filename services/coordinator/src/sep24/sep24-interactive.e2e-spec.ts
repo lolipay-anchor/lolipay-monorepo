@@ -127,3 +127,36 @@ describe('opening a deposit from a wallet that has never met this anchor', () =>
     expect(row?.personId).toBeTruthy();
   });
 });
+
+describe('the account a deposit credits is the one its token speaks for', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    app = await bootAuthApp();
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('refuses to open a deposit that names somebody else s account', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const stranger = Keypair.random().publicKey();
+    const res = await request(app.getHttpServer())
+      .post(PATH)
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC', account: stranger })
+      .expect(400);
+    expect(String(res.body.message ?? res.body.error)).toMatch(/token speaks for|another/i);
+  });
+
+  it('accepts the caller naming their own account, which is what a wallet does', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    await request(app.getHttpServer())
+      .post(PATH)
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC', account: kp.publicKey() })
+      .expect(200);
+  });
+});

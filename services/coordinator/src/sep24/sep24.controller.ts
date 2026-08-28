@@ -1,11 +1,13 @@
 import {
   Body, Controller, ForbiddenException, Get, Header, HttpCode, Param, Post, Query, Req, Res, UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { Sep24AuthGuard } from './sep24-auth.guard';
 import { Sep24Service } from './sep24.service';
 import { AllowTokenClasses } from '../auth/token-class.interceptor';
 import { DepositInteractiveDto } from './deposit-interactive.dto';
+import { TransactionsQueryDto, TransactionQueryDto } from './sep24-query.dto';
 import { PersonService } from '../person/person.service';
 
 @Controller('sep24')
@@ -16,6 +18,7 @@ export class Sep24Controller {
   ) {}
 
   @Post('transactions/deposit/interactive')
+  @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
   @HttpCode(200)
   @UseGuards(Sep24AuthGuard)
   @AllowTokenClasses('sep10')
@@ -29,6 +32,7 @@ export class Sep24Controller {
   }
 
   @Get('info')
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   async info() {
     return this.sep24.info();
   }
@@ -36,14 +40,14 @@ export class Sep24Controller {
   @Get('transactions')
   @UseGuards(Sep24AuthGuard)
   @AllowTokenClasses('sep10')
-  async list(@Req() req: any, @Query() query: Record<string, string>) {
+  async list(@Req() req: any, @Query() query: TransactionsQueryDto) {
     return this.sep24.list(req.user.address, query);
   }
 
   @Get('transaction')
   @UseGuards(Sep24AuthGuard)
   @AllowTokenClasses('sep10')
-  async one(@Req() req: any, @Query() query: Record<string, string>) {
+  async one(@Req() req: any, @Query() query: TransactionQueryDto) {
     return this.sep24.one(req.user.address, query);
   }
 

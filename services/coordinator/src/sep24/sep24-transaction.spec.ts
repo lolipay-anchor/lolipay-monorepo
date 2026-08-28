@@ -66,14 +66,28 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
     expect(out.status).toBe('pending_user_transfer_start');
     expect(out.amount_in).toBe('4000000');
     expect(out.amount_in_asset).toBe('iso4217:IDR');
-    expect(out.amount_out).toBe('25.0000000');
     expect(out.amount_out_asset).toMatch(/^stellar:USDC:G/);
   });
 
-  it('quotes fees the way the current spec asks, not the deprecated way', () => {
+  it('promises only what the escrow will actually pay, after the fees it takes on chain', () => {
     const out = serializeSep24(tx({ order: order() }), BASE);
-    expect(out.fee_details).toEqual({ total: expect.any(String), asset: 'iso4217:IDR' });
+    expect(out.amount_out).toBe('24.6250000');
+    expect(out.amount_out).not.toBe('25.0000000');
+  });
+
+  it('quotes the fee in the asset it is taken from, which is USDC and never rupiah', () => {
+    const out = serializeSep24(tx({ order: order() }), BASE);
+    expect(out.fee_details).toEqual({
+      total: '0.3750000',
+      asset: `stellar:USDC:${BASE.usdcIssuer}`,
+    });
     expect(out).not.toHaveProperty('amount_fee');
+  });
+
+  it('adds up: what the user is promised plus the fee is the whole escrowed amount', () => {
+    const out = serializeSep24(tx({ order: order() }), BASE);
+    const asUnits = (v: string) => BigInt(v.replace('.', ''));
+    expect(asUnits(out.amount_out!) + asUnits(out.fee_details!.total)).toBe(250000000n);
   });
 
   it('adds the settlement hash and completion time only once released', () => {

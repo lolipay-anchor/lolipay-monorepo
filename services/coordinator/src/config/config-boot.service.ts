@@ -20,9 +20,23 @@ export class ConfigBootService implements OnModuleInit {
     }
 
     const base = this.cfg.anchorBaseUrl ?? '';
-    if (!base.startsWith('https://')) {
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(base);
+    } catch {
+      parsed = null;
+    }
+    if (
+      !parsed ||
+      parsed.protocol !== 'https:' ||
+      !parsed.host ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash
+    ) {
       throw new Error(
-        `refusing to start: ANCHOR_BASE_URL is ${JSON.stringify(base)}, and SEP-24 must publish an absolute https URL for every transaction it serves`,
+        `refusing to start: ANCHOR_BASE_URL is ${JSON.stringify(base)}, and every URL this anchor hands a wallet is built from it — it must be a plain https origin with no credentials, query or fragment`,
       );
     }
 

@@ -1,5 +1,5 @@
 import type { OrderStatus } from '../generated/prisma/client';
-import { applyBps, baseUnitsToUsdcString } from '../money/money';
+import { baseUnitsToUsdcString, splitFees } from '../money/money';
 import { sep24Status, Sep24Status } from './sep24-status';
 
 export interface Sep24Order {
@@ -58,17 +58,17 @@ export function serializeSep24(record: Sep24Record, assets: Sep24Assets): Sep24T
   const order = record.order;
   if (!order) return json;
 
-  const fiat = `iso4217:${order.fiatCurrency}`;
+  const usdc = `stellar:USDC:${assets.usdcIssuer}`;
+  const { platformFee, lpFee, net } = splitFees(
+    order.usdcAmount,
+    order.platformFeeBps,
+    order.lpFeeBps,
+  );
   json.amount_in = order.fiatAmount.toString();
-  json.amount_in_asset = fiat;
-  json.amount_out = baseUnitsToUsdcString(order.usdcAmount);
-  json.amount_out_asset = `stellar:USDC:${assets.usdcIssuer}`;
-  json.fee_details = {
-    total: (
-      applyBps(order.fiatAmount, order.platformFeeBps) + applyBps(order.fiatAmount, order.lpFeeBps)
-    ).toString(),
-    asset: fiat,
-  };
+  json.amount_in_asset = `iso4217:${order.fiatCurrency}`;
+  json.amount_out = baseUnitsToUsdcString(net);
+  json.amount_out_asset = usdc;
+  json.fee_details = { total: baseUnitsToUsdcString(platformFee + lpFee), asset: usdc };
 
   if (status === 'completed') {
     if (order.settlementTxHash) json.stellar_transaction_id = order.settlementTxHash;

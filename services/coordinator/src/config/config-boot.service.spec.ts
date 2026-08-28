@@ -146,6 +146,18 @@ describe('an anchor that cannot name itself cannot serve SEP-24', () => {
     ).rejects.toThrow(/ANCHOR_BASE_URL/);
   });
 
+  it.each([
+    ['a host smuggled behind credentials', 'https://api.lolipay.app@evil.com'],
+    ['a bare scheme with no host', 'https://'],
+    ['a query string a wallet would carry into the webview', 'https://api.lolipay.app?next=evil'],
+    ['a fragment', 'https://api.lolipay.app#evil'],
+  ])('refuses %s, because every URL handed to a wallet is built from this value', async (_n, value) => {
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    await expect(
+      new ConfigBootService(prisma, makeCfg({ anchorBaseUrl: value })).onModuleInit(),
+    ).rejects.toThrow(/ANCHOR_BASE_URL/);
+  });
+
   it('refuses a base url that is not https, because more_info_url must be absolute and trusted', async () => {
     const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
     await expect(

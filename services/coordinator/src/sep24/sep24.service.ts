@@ -4,6 +4,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/app-config.service';
 import { baseUnitsToUsdc } from '../money/money';
 import { serializeSep24, Sep24Record, Sep24TransactionJson } from './sep24-transaction';
+import {
+  SEP24_PAGE_DEFAULT,
+  SEP24_PAGE_MAX,
+  TransactionsQueryDto,
+  TransactionQueryDto,
+} from './sep24-query.dto';
 
 const ORDER_FIELDS = {
   status: true,
@@ -14,6 +20,7 @@ const ORDER_FIELDS = {
   lpFeeBps: true,
   settlementTxHash: true,
   settledAt: true,
+  personId: true,
 } as const;
 
 @Injectable()
@@ -49,32 +56,34 @@ export class Sep24Service {
     };
   }
 
-  private async screened(personId: string): Promise<boolean> {
-    const row = await this.prisma.kycVerification.findFirst({
-      where: { personId, status: 'ACCEPTED', screenedAt: { not: null } },
-      select: { customerRef: true },
+  private async screenedPeople(personIds: string[]): Promise<Set<string>> {
+    if (personIds.length === 0) return new Set();
+    const rows = await this.prisma.kycVerification.findMany({
+      where: { personId: { in: personIds }, status: 'ACCEPTED', screenedAt: { not: null } },
+      select: { personId: true },
     });
-    return row !== null;
+    return new Set(rows.map((r) => r.personId));
   }
 
   private async dress(rows: any[]): Promise<Sep24TransactionJson[]> {
-    const out: Sep24TransactionJson[] = [];
-    for (const row of rows) {
-      const record: Sep24Record = {
-        id: row.id,
-        stellarAccount: row.stellarAccount,
-        startedAt: row.startedAt,
-        kycVerified: await this.screened(row.personId),
-        order: row.order ?? null,
-      };
-      out.push(serializeSep24(record, this.assets()));
-    }
-    return out;
+    const screened = await this.screenedPeople([...new Set(rows.map((r) => r.personId))]);
+    return rows.map((row) =>
+      serializeSep24(
+        {
+          id: row.id,
+          stellarAccount: row.stellarAccount,
+          startedAt: row.startedAt,
+          kycVerified: screened.has(row.personId),
+          order: row.order && row.order.personId === row.personId ? row.order : null,
+        } as Sep24Record,
+        this.assets(),
+      ),
+    );
   }
 
   async list(
     subject: string,
-    query: { asset_code?: string; limit?: string; no_older_than?: string; kind?: string },
+    query: TransactionsQueryDto,
   ) {
     this.assertAssetServed(query.asset_code);
     if (query.kind !== undefined && query.kind !== 'deposit') return { transactions: [] };
@@ -83,10 +92,7 @@ export class Sep24Service {
     if (since && Number.isNaN(since.getTime())) {
       throw new BadRequestException('no_older_than is not a readable time');
     }
-    const take = query.limit ? Number(query.limit) : undefined;
-    if (take !== undefined && (!Number.isFinite(take) || take < 1)) {
-      throw new BadRequestException('limit is not a positive number');
-    }
+    const take = Math.min(query.limit ?? SEP24_PAGE_DEFAULT, SEP24_PAGE_MAX);
 
     const rows = await this.prisma.sep24Transaction.findMany({
       where: {
@@ -94,13 +100,13 @@ export class Sep24Service {
         ...(since ? { startedAt: { gte: since } } : {}),
       },
       orderBy: { startedAt: 'desc' },
-      ...(take !== undefined ? { take } : {}),
+      take,
       include: { order: { select: ORDER_FIELDS } },
     });
     return { transactions: await this.dress(rows) };
   }
 
-  async one(subject: string, query: { id?: string; stellar_transaction_id?: string; external_transaction_id?: string }) {
+  async one(subject: string, query: TransactionQueryDto) {
     const where = query.id
       ? { id: query.id }
       : query.stellar_transaction_id
@@ -130,8 +136,16 @@ export class Sep24Service {
     if (body.asset_code !== this.cfg.usdcAssetCode) {
       throw new BadRequestException(`this anchor does not serve ${body.asset_code}`);
     }
-    if (body.account !== undefined && !StrKey.isValidEd25519PublicKey(body.account.split(':')[0])) {
-      throw new BadRequestException('account is not a Stellar address');
+    if (body.account !== undefined) {
+      const named = body.account.split(':')[0];
+      if (!StrKey.isValidEd25519PublicKey(named) && !StrKey.isValidMed25519PublicKey(named)) {
+        throw new BadRequestException('account is not a Stellar address');
+      }
+      if (body.account !== subject && named !== subject.split(':')[0]) {
+        throw new BadRequestException(
+          'this anchor credits the account its token speaks for, and will not deposit to another',
+        );
+      }
     }
 
     const row = await this.prisma.sep24Transaction.create({
