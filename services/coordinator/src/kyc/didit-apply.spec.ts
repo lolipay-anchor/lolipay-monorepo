@@ -177,6 +177,14 @@ describe('applying what a delivery concluded', () => {
     expect(JSON.stringify(sql)).toContain('person-1');
   });
 
+  it('takes it in the same lock space the rest of the anchor uses for a person, or it excludes nothing', async () => {
+    const { s, prisma } = svc(null);
+    await s.applyDelivery(accepted(), AT);
+    const text = prisma.$executeRaw.mock.calls[0][0].join('?');
+    expect(text).toContain('pg_advisory_xact_lock(hashtext(');
+    expect(text).not.toMatch(/pg_advisory_xact_lock\(\s*\?/);
+  });
+
   it('ignores a delivery that names no customer', async () => {
     const { s, prisma } = svc(null);
     await s.applyDelivery(accepted({ customerRef: undefined }), AT);
@@ -380,5 +388,62 @@ describe('the refusal counter survives a delivery that did not commit', () => {
     );
     expect(refusals.state().count).toBe(1);
     expect(String(refusals.state().lastReason)).toMatch(/revoked link|misdirected/);
+  });
+});
+
+describe('forgetting a customer does not reach beyond the person asking', () => {
+  function forgetSvc(own: any, elsewhere: any) {
+    const updates: any[] = [];
+    const prisma: any = {
+      kycVerification: {
+        findUnique: jest.fn(async () => own),
+        findFirst: jest.fn(async () => elsewhere),
+        update: jest.fn(async (args: any) => updates.push(args)),
+        deleteMany: jest.fn(async () => ({ count: 1 })),
+      },
+    };
+    const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
+    const svc = new Sep12Service(
+      prisma, people, {} as any, { diditEnvironment: 'sandbox' } as any,
+      new DiditRefusalsService(),
+    );
+    return { svc, updates, prisma };
+  }
+
+  it('redacts the refusal it found for this person rather than reporting a deletion that never happened', async () => {
+    const count = await forgetSvc(null, {
+      customerRef: 'GSIBLING', status: 'REJECTED',
+      rejectionReason: 'sanctions or watchlist match', screenedAt: new Date(),
+    }).svc.forget(REF);
+    expect(count).toBe(1);
+  });
+
+  it('never lifts the refusal itself, only the words describing it', async () => {
+    const { svc, updates } = forgetSvc(null, {
+      customerRef: 'GSIBLING', status: 'REJECTED',
+      rejectionReason: 'sanctions or watchlist match', screenedAt: new Date(),
+    });
+    await svc.forget(REF);
+    expect(updates).toHaveLength(1);
+    expect(updates[0].where).toEqual({ customerRef: 'GSIBLING' });
+    expect(Object.keys(updates[0].data).sort()).toEqual(
+      ['rejectionReason', 'screenedAt', 'verifiedAt'],
+    );
+    expect(updates[0].data).not.toHaveProperty('status');
+    expect(updates[0].data).not.toHaveProperty('personId');
+  });
+
+  it('touches nothing when this person carries no refusal anywhere', async () => {
+    const { svc, updates } = forgetSvc(null, null);
+    expect(await svc.forget(REF)).toBe(0);
+    expect(updates).toHaveLength(0);
+  });
+
+  it('writes nothing twice when the refusal has already been redacted', async () => {
+    const { svc, updates } = forgetSvc(null, {
+      customerRef: 'GSIBLING', status: 'REJECTED', rejectionReason: null, screenedAt: null,
+    });
+    expect(await svc.forget(REF)).toBe(1);
+    expect(updates).toHaveLength(0);
   });
 });
