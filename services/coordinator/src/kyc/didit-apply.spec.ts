@@ -18,7 +18,8 @@ function svc(row: any, environment = 'sandbox', personRefusal: any = null) {
   prisma.$executeRaw = jest.fn().mockResolvedValue(0);
   const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
   const cfg = { diditEnvironment: environment } as any;
-  return { s: new Sep12Service(prisma, people, {} as any, cfg), store, prisma, people };
+  const refusals = { record: jest.fn(), applied: jest.fn(), state: jest.fn() } as any;
+  return { s: new Sep12Service(prisma, people, {} as any, cfg, refusals), store, prisma, people, refusals };
 }
 
 const accepted = (over: Record<string, unknown> = {}) => ({
@@ -62,12 +63,13 @@ describe('applying what a delivery concluded', () => {
     expect(prisma.kycVerification.update).not.toHaveBeenCalled();
   });
 
-  it('ignores a delivery about a different session than the one this row is following', async () => {
+  it('ignores an approval from a session the row is not following, which a refusal is allowed to override', async () => {
     const { s, store } = svc({
-      customerRef: REF, status: 'ACCEPTED', providerRef: 'sess-1', deliveredAt: EARLIER,
+      customerRef: REF, status: 'ACCEPTED', providerRef: 'sess-1', deliveredAt: EARLIER, screenedAt: EARLIER,
     });
-    await s.applyDelivery(accepted({ providerRef: 'sess-9', status: 'REJECTED' }), AT);
-    expect(store.row.status).toBe('ACCEPTED');
+    await s.applyDelivery(accepted({ providerRef: 'sess-9' }), AT);
+    expect(store.row.providerRef).toBe('sess-1');
+    expect(store.row.deliveredAt).toBe(EARLIER);
   });
 
   it('never lifts a refusal, whatever a later delivery says', async () => {
@@ -138,6 +140,40 @@ describe('applying what a delivery concluded', () => {
     );
     expect(store.row.status).toBe('ACCEPTED');
     expect(store.row.screenedAt).toBe(EARLIER);
+  });
+
+  it.each([
+    ['a session the row never followed', 'sess-9'],
+    ['no session at all, as ongoing monitoring sends', undefined],
+  ])('applies a refusal arriving from %s, because a hit is not tied to a verification session', async (_n, ref) => {
+    const { s, store } = svc({
+      customerRef: REF, status: 'ACCEPTED', providerRef: 'sess-1', deliveredAt: AT, screenedAt: AT,
+    });
+    await s.applyDelivery(
+      accepted({ status: 'REJECTED', screened: false, providerRef: ref, rejectionReason: 'sanctions or watchlist match' }),
+      EARLIER,
+    );
+    expect(store.row.status).toBe('REJECTED');
+    expect(store.row.screenedAt).toBeNull();
+  });
+
+  it('counts a delivery it drops, so a silent failure still reaches somebody', async () => {
+    const { s, refusals } = svc(null, 'live');
+    await s.applyDelivery(accepted(), AT);
+    expect(refusals.record).toHaveBeenCalledWith(expect.stringContaining('environment'));
+  });
+
+  it('clears the count once a delivery is finally acted on', async () => {
+    const { s, refusals } = svc(null);
+    await s.applyDelivery(accepted(), AT);
+    expect(refusals.applied).toHaveBeenCalled();
+  });
+
+  it('takes the lock on the person, because the rule it guards spans every address they own', async () => {
+    const { s, prisma } = svc(null);
+    await s.applyDelivery(accepted(), AT);
+    const sql = prisma.$executeRaw.mock.calls[0];
+    expect(JSON.stringify(sql)).toContain('person-1');
   });
 
   it('ignores a delivery that names no customer', async () => {

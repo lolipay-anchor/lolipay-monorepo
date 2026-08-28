@@ -19,7 +19,7 @@ function screenings(payload: any): any[] {
 }
 
 const CLEARED_SCREENING = 'Approved';
-const REFUSED_SCREENING = 'Declined';
+const NOT_PERFORMED = 'COULD_NOT_PERFORM_AML_SCREENING';
 const PASSED_DOCUMENT = 'Approved';
 
 function emptyOrAbsent(value: unknown): boolean {
@@ -40,8 +40,24 @@ function ranAndFoundNothing(payload: any): boolean {
   return list.every(cleared);
 }
 
+function adverse(entry: any): boolean {
+  if (cleared(entry)) return false;
+  if (entry?.warnings && !emptyOrAbsent(entry.warnings)) {
+    const list = Array.isArray(entry.warnings) ? entry.warnings : [entry.warnings];
+    if (list.every((w: unknown) => w === NOT_PERFORMED)) return false;
+  }
+  return true;
+}
+
 function foundSomething(payload: any): boolean {
-  return screenings(payload).some((s) => s?.status === REFUSED_SCREENING);
+  return screenings(payload).some(adverse);
+}
+
+function couldNotScreen(payload: any): boolean {
+  return screenings(payload).some((s) => {
+    const list = Array.isArray(s?.warnings) ? s.warnings : [];
+    return list.includes(NOT_PERFORMED);
+  });
 }
 
 function documentFailed(payload: any): boolean {
@@ -64,7 +80,13 @@ export function readDiditDecision(payload: any): DiditConclusion {
 
   if (status === 'Declined') {
     if (foundSomething(payload)) {
-      return { ...base, status: 'REJECTED', rejectionReason: 'sanctions or watchlist match' };
+      return {
+        ...base,
+        status: 'REJECTED',
+        rejectionReason: couldNotScreen(payload)
+          ? 'the required screening could not be carried out'
+          : 'sanctions or watchlist match',
+      };
     }
     if (documentFailed(payload)) return { ...base, status: 'NEEDS_INFO' };
     return { ...base, status: 'REJECTED', rejectionReason: 'the refusal carried no readable cause' };

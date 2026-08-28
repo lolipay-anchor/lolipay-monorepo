@@ -71,11 +71,11 @@ describe('what the anchor concludes from a delivery', () => {
     expect(readDiditDecision(payload({ decision: { aml_screenings: [odd] } })).screened).toBe(false);
   });
 
-  it('does not refuse permanently on a hit count the screening itself did not act on', () => {
+  it('does not let a document problem rescue a screening the anchor could not read as clean', () => {
     const res = readDiditDecision(
       payload({ status: 'Declined', decision: { aml_screenings: [belowThreshold], id_verifications: [{ status: 'Expired' }] } }),
     );
-    expect(res.status).toBe('NEEDS_INFO');
+    expect(res.status).toBe('REJECTED');
   });
 
   it.each([['Expired'], ['Not Finished'], ['In Review']])(
@@ -87,6 +87,24 @@ describe('what the anchor concludes from a delivery', () => {
       expect(res.status).toBe('NEEDS_INFO');
     },
   );
+
+  it.each([
+    ['a screening still under review while the document also failed', inReview, 'Declined'],
+    ['a screening the vendor approved over hits, while the document failed', belowThreshold, 'Declined'],
+    ['a screening still under review and a document merely expired', inReview, 'Expired'],
+  ])('lets an adverse finding dominate: %s', (_n, screening, docStatus) => {
+    const res = readDiditDecision(
+      payload({ status: 'Declined', decision: { aml_screenings: [screening], id_verifications: [{ status: docStatus }] } }),
+    );
+    expect(res.status).toBe('REJECTED');
+  });
+
+  it('does not tell a customer they matched a watchlist when the screening merely could not run', () => {
+    const unperformedEntry = { status: 'Declined', total_hits: 0, hits: [], warnings: ['COULD_NOT_PERFORM_AML_SCREENING'] };
+    const res = readDiditDecision(payload({ status: 'Declined', decision: { aml_screenings: [unperformedEntry] } }));
+    expect(res.status).toBe('REJECTED');
+    expect(res.rejectionReason).not.toContain('watchlist');
+  });
 
   it('refuses an identity the screening found on a list', () => {
     const res = readDiditDecision(payload({ status: 'Declined', decision: { aml_screenings: [hit] } }));

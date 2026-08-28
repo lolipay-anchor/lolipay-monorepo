@@ -2,6 +2,7 @@ import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonService } from '../person/person.service';
 import { AppConfigService } from '../config/app-config.service';
+import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 import { DiditConclusion } from './didit-decision';
 
 const DIDIT_DELIVERY_LOCK = 2;
@@ -23,13 +24,20 @@ export class Sep12Service {
     private people: PersonService,
     @Inject(KYC_PROVIDER) private provider: KycProvider,
     private cfg: AppConfigService,
+    private refusals: DiditRefusalsService,
   ) {}
 
   async applyDelivery(conclusion: DiditConclusion, deliveredAt: Date): Promise<void> {
     const customerRef = conclusion.customerRef;
-    if (typeof customerRef !== 'string' || customerRef.length === 0) return;
-    if (conclusion.unrecognisedStatus !== undefined) return;
-    if (conclusion.environment !== this.cfg.diditEnvironment) return;
+    if (typeof customerRef !== 'string' || customerRef.length === 0) {
+      return this.refusals.record('a delivery named no customer this anchor can read');
+    }
+    if (conclusion.unrecognisedStatus !== undefined) {
+      return this.refusals.record('a delivery reported a status this anchor does not recognise');
+    }
+    if (conclusion.environment !== this.cfg.diditEnvironment) {
+      return this.refusals.record('a delivery came from an environment this deployment is not configured for');
+    }
 
     const person = await this.people.lookupPerson(customerRef);
     if (!person) return;
@@ -37,7 +45,7 @@ export class Sep12Service {
     const refusing = conclusion.status === 'REJECTED';
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${DIDIT_DELIVERY_LOCK}, hashtext(${customerRef}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${DIDIT_DELIVERY_LOCK}, hashtext(${person.id}))`;
 
       const elsewhere = await tx.kycVerification.findFirst({
         where: { status: 'REJECTED', personId: person.id, NOT: { customerRef } },
@@ -48,6 +56,7 @@ export class Sep12Service {
       if (standing) {
         if (standing.status === 'REJECTED') return;
         if (
+          !refusing &&
           standing.status === 'ACCEPTED' &&
           standing.providerRef &&
           standing.providerRef !== conclusion.providerRef
@@ -57,6 +66,7 @@ export class Sep12Service {
         if (!refusing && standing.deliveredAt && standing.deliveredAt > deliveredAt) return;
       }
       await this.writeDelivery(tx, customerRef, person.id, conclusion, deliveredAt, standing);
+      this.refusals.applied();
     });
   }
 

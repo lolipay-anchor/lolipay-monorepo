@@ -44,6 +44,7 @@ export class DiditWebhookController {
     const now = Math.floor(Date.now() / 1000);
     if (!Number.isFinite(sent) || Math.abs(now - sent) >= DIDIT_FRESHNESS_SECS) {
       this.log.warn('a signed delivery carried a time this anchor will not order by');
+      this.refusals.record('a delivery carried a time this anchor will not order by');
       return;
     }
 

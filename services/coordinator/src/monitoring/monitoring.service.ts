@@ -291,7 +291,7 @@ export class MonitoringService {
       }
     }
 
-    const refusals = this.diditRefusals.drain();
+    const refusals = this.diditRefusals.state();
     if (refusals.count > 0) {
       alerts.push({
         key: 'didit_deliveries_refused',
