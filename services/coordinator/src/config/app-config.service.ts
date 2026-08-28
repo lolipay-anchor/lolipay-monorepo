@@ -24,6 +24,10 @@ export class AppConfigService {
   get sep10SigningKey() { return this.c.get<string>('SEP10_SIGNING_KEY'); }
   get anchorHomeDomain() { return this.c.get<string>('ANCHOR_HOME_DOMAIN'); }
   get sep10WebAuthDomain() { return this.c.get<string>('SEP10_WEB_AUTH_DOMAIN'); }
+  get anchorBaseUrl(): string {
+    const raw = (this.c.get<string>('ANCHOR_BASE_URL') ?? '').trim();
+    return raw.endsWith('/') ? raw.slice(0, -1) : raw;
+  }
   get challengeTtl() { return Number(this.c.get('AUTH_CHALLENGE_TTL_SECONDS') ?? 120); }
   get adminAddresses() { return (this.c.get<string>('ADMIN_ADDRESSES') ?? '').split(',').map(s => s.trim()).filter(Boolean); }
   get rpcUrl() { return this.req('STELLAR_RPC_URL'); }

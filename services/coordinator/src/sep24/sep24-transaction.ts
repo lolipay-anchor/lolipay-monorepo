@@ -9,8 +9,8 @@ export interface Sep24Order {
   fiatCurrency: string;
   platformFeeBps: number;
   lpFeeBps: number;
-  releaseTxHash: string | null;
-  releasedAt: Date | null;
+  settlementTxHash: string | null;
+  settledAt: Date | null;
 }
 
 export interface Sep24Record {
@@ -71,8 +71,8 @@ export function serializeSep24(record: Sep24Record, assets: Sep24Assets): Sep24T
   };
 
   if (status === 'completed') {
-    if (order.releaseTxHash) json.stellar_transaction_id = order.releaseTxHash;
-    if (order.releasedAt) json.completed_at = order.releasedAt.toISOString();
+    if (order.settlementTxHash) json.stellar_transaction_id = order.settlementTxHash;
+    if (order.settledAt) json.completed_at = order.settledAt.toISOString();
   }
   return json;
 }

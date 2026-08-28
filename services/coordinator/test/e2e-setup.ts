@@ -1,6 +1,8 @@
 process.env.DATABASE_URL =
   process.env.DATABASE_URL ||
   'postgresql://lolipay:lolipay@localhost:5432/lolipay?schema=public';
+process.env.ANCHOR_BASE_URL =
+  process.env.ANCHOR_BASE_URL || 'https://api.lolipay.app';
 process.env.JWT_SECRET =
   process.env.JWT_SECRET || 'test-jwt-secret-e2e-0123456789abcdef';
 process.env.JWT_TTL_SECONDS = process.env.JWT_TTL_SECONDS || '900';

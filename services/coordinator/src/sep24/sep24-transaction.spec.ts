@@ -22,8 +22,8 @@ const order = (over: Record<string, unknown> = {}) => ({
   platformFeeBps: 50,
   lpFeeBps: 100,
   spreadBps: 0,
-  releaseTxHash: null,
-  releasedAt: null,
+  settlementTxHash: null,
+  settledAt: null,
   ...over,
 }) as any;
 
@@ -78,7 +78,7 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
 
   it('adds the settlement hash and completion time only once released', () => {
     const done = serializeSep24(
-      tx({ order: order({ status: 'RELEASED', releaseTxHash: 'abc123', releasedAt: new Date('2026-08-28T11:00:00.000Z') }) }),
+      tx({ order: order({ status: 'RELEASED', settlementTxHash: 'abc123', settledAt: new Date('2026-08-28T11:00:00.000Z') }) }),
       BASE,
     );
     expect(done.status).toBe('completed');

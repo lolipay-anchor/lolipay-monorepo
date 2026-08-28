@@ -111,6 +111,7 @@ model Order {
   proofAmount         BigInt?
   proofPaidAt         DateTime?
   settledAt           DateTime?
+  settlementTxHash    String?
   postSettleDeadline  BigInt?
   resolverDisputed    Boolean     @default(false)
   onChainDisputedBy   String?
@@ -130,6 +131,7 @@ model Order {
   @@index([lpId, status])
   @@index([status])
   @@unique([proofRrn, lpId])
+  sep24               Sep24Transaction?
 }
 
 model UserProfile {
@@ -268,6 +270,7 @@ model Person {
   wallets     WalletLink[]
   orders      Order[]
   kyc         KycVerification[]
+  sep24       Sep24Transaction[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 }
@@ -309,6 +312,20 @@ model AlertState {
   firstSeenAt DateTime @default(now())
   lastSentAt  DateTime
   sendCount   Int      @default(1)
+}
+
+model Sep24Transaction {
+  id             String   @id @default(uuid())
+  person         Person   @relation(fields: [personId], references: [id], onDelete: Restrict)
+  personId       String
+  stellarAccount String
+  assetCode      String
+  order          Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderId        String?  @unique
+  startedAt      DateTime @default(now())
+
+  @@index([stellarAccount, startedAt])
+  @@index([personId])
 }
 
 model KycVerification {

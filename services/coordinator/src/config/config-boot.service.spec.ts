@@ -15,6 +15,7 @@ function makeCfg(over: Record<string, unknown> = {}) {
   return {
     priceDeviationMaxBps: 100,
     platformWallet: WALLET,
+    anchorBaseUrl: 'https://api.lolipay.app',
     usdcAssetCode: 'USDC',
     usdcAssetIssuer: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
     ...over,
@@ -134,5 +135,21 @@ describe('a stack that only pretends to screen must never be the one taking real
     await expect(
       boot({ networkPassphrase: TESTNET, diditEnvironment: 'sandbox', diditApiKey: '' }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('an anchor that cannot name itself cannot serve SEP-24', () => {
+  it('refuses to start without an absolute https base url', async () => {
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    await expect(
+      new ConfigBootService(prisma, makeCfg({ anchorBaseUrl: '' })).onModuleInit(),
+    ).rejects.toThrow(/ANCHOR_BASE_URL/);
+  });
+
+  it('refuses a base url that is not https, because more_info_url must be absolute and trusted', async () => {
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    await expect(
+      new ConfigBootService(prisma, makeCfg({ anchorBaseUrl: 'http://api.lolipay.app' })).onModuleInit(),
+    ).rejects.toThrow(/ANCHOR_BASE_URL/);
   });
 });

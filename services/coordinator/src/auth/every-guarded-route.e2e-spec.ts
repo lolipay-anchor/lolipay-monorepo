@@ -3,7 +3,7 @@ import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
 import { bootAuthApp, sessionToken, anchorToken } from './auth-test-helpers';
 
-const OPENED_TO_ANCHOR_TOKENS = ['/customer'];
+const OPENED_TO_ANCHOR_TOKENS = ['/customer', '/sep24'];
 
 const SAMPLE: Record<string, string> = {
   ':id': '00000000-0000-4000-8000-000000000000',

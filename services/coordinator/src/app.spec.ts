@@ -30,6 +30,7 @@ class PrismaServiceStub {
 describe('Health', () => {
   let app: INestApplication;
   beforeAll(async () => {
+    process.env.ANCHOR_BASE_URL = process.env.ANCHOR_BASE_URL || 'https://api.lolipay.app';
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)
       .useClass(PrismaServiceStub)

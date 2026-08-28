@@ -19,6 +19,13 @@ export class ConfigBootService implements OnModuleInit {
       );
     }
 
+    const base = this.cfg.anchorBaseUrl ?? '';
+    if (!base.startsWith('https://')) {
+      throw new Error(
+        `refusing to start: ANCHOR_BASE_URL is ${JSON.stringify(base)}, and SEP-24 must publish an absolute https URL for every transaction it serves`,
+      );
+    }
+
     if (this.cfg.diditApiKey && this.cfg.diditWorkflowId && !this.cfg.diditWebhookSecret) {
       throw new Error(
         'refusing to start: an identity provider is configured but DIDIT_WEBHOOK_SECRET is not, so every verdict it sends would be refused and no deposit could ever open',

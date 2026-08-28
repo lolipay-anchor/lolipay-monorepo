@@ -13,6 +13,7 @@ import { NotificationModule } from './notification/notification.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { KycModule } from './kyc/kyc.module';
+import { Sep24Module } from './sep24/sep24.module';
 import { AuthModule } from './auth/auth.module';
 import { StellarModule } from './stellar/stellar.module';
 import { RateModule } from './rate/rate.module';
@@ -46,6 +47,7 @@ class HealthController {
     StorageModule,
     PrismaModule,
     KycModule,
+    Sep24Module,
     ReputationModule,
     AuthModule,
     StellarModule,
