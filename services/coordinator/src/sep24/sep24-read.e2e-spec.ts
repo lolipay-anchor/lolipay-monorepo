@@ -39,6 +39,12 @@ describe('the SEP-24 surface a wallet reads before it ever deposits', () => {
       expect(body.withdraw.USDC.enabled).toBe(false);
     });
 
+    it('says plainly that it cannot create accounts, or wallets assume it can', async () => {
+      const { body } = await http().get('/sep24/info');
+      expect(body.features.account_creation).toBe(false);
+      expect(body.features.claimable_balances).toBe(false);
+    });
+
     it('states every numeric limit as a number, which the schema demands', async () => {
       const { body } = await http().get('/sep24/info');
       for (const [key, value] of Object.entries(body.deposit.USDC)) {
@@ -118,5 +124,108 @@ describe('the SEP-24 surface a wallet reads before it ever deposits', () => {
     it('answers 404 for a transaction that does not exist', async () => {
       await http().get('/sep24/more-info/7a1f0c9e-0000-4000-8000-0000000000ff').expect(404);
     });
+  });
+});
+
+describe('listing transactions the way the acceptance suite reads them', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+  let jwt: string;
+  let account: string;
+  let rows: { id: string; startedAt: Date }[];
+
+  beforeAll(async () => {
+    app = await bootAuthApp();
+    prisma = app.get(PrismaService);
+    const kp = Keypair.random();
+    account = kp.publicKey();
+    jwt = await anchorToken(app, kp);
+    const link = await prisma.walletLink.findUnique({ where: { stellarAddress: account } });
+    rows = [];
+    for (let i = 0; i < 3; i += 1) {
+      const row = await prisma.sep24Transaction.create({
+        data: {
+          personId: link!.personId,
+          stellarAccount: account,
+          assetCode: 'USDC',
+          startedAt: new Date(Date.UTC(2026, 0, 1 + i, 12, 0, 0)),
+        },
+      });
+      rows.push({ id: row.id, startedAt: row.startedAt });
+    }
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  const list = (qs: string) =>
+    request(app.getHttpServer())
+      .get(`/sep24/transactions?asset_code=USDC${qs}`)
+      .set('Authorization', `Bearer ${jwt}`)
+      .expect(200);
+
+  it('returns them newest first, which the suite checks pairwise', async () => {
+    const { body } = await list('');
+    const times = body.transactions.map((t: any) => Date.parse(t.started_at));
+    expect(times).toEqual([...times].sort((a, b) => b - a));
+    expect(body.transactions[0].id).toBe(rows[2].id);
+  });
+
+  it('treats no_older_than as inclusive, or the suite gets one row where it needs two', async () => {
+    const middle = rows[1].startedAt.toISOString();
+    const { body } = await list(`&no_older_than=${middle}`);
+    const ids = body.transactions.map((t: any) => t.id);
+    expect(ids).toContain(rows[1].id);
+    expect(ids).toContain(rows[2].id);
+    expect(ids).not.toContain(rows[0].id);
+  });
+
+  it('honours limit', async () => {
+    const { body } = await list('&limit=1');
+    expect(body.transactions).toHaveLength(1);
+  });
+
+  it('returns nothing for kind=withdrawal, because this anchor holds no withdrawals', async () => {
+    const { body } = await list('&kind=withdrawal');
+    expect(body.transactions).toEqual([]);
+  });
+
+  it('returns the deposits for kind=deposit', async () => {
+    const { body } = await list('&kind=deposit');
+    expect(body.transactions.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('reads an absent kind as absent, not as a filter that matches nothing', async () => {
+    const { body } = await list('&kind=');
+    expect(body.transactions.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('refuses a limit that would reach the database as nonsense', async () => {
+    await request(app.getHttpServer())
+      .get('/sep24/transactions?asset_code=USDC&limit=1e21')
+      .set('Authorization', `Bearer ${jwt}`)
+      .expect(400);
+  });
+
+  it('says a customer is screened only when a screening actually happened', async () => {
+    const link = await prisma.walletLink.findUnique({ where: { stellarAddress: account } });
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: account,
+        personId: link!.personId,
+        status: 'ACCEPTED',
+        screenedAt: null,
+      },
+    });
+    const unscreened = await list('');
+    expect(unscreened.body.transactions[0].kyc_verified).toBe(false);
+
+    await prisma.kycVerification.update({
+      where: { customerRef: account },
+      data: { screenedAt: new Date() },
+    });
+    const screened = await list('');
+    expect(screened.body.transactions[0].kyc_verified).toBe(true);
   });
 });

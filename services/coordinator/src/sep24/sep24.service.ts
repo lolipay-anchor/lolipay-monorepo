@@ -53,6 +53,7 @@ export class Sep24Service {
       },
       withdraw: { [code]: { enabled: false } },
       fee: { enabled: false },
+      features: { account_creation: false, claimable_balances: false },
     };
   }
 
@@ -86,7 +87,7 @@ export class Sep24Service {
     query: TransactionsQueryDto,
   ) {
     this.assertAssetServed(query.asset_code);
-    if (query.kind !== undefined && query.kind !== 'deposit') return { transactions: [] };
+    if (query.kind && query.kind !== 'deposit') return { transactions: [] };
 
     const since = query.no_older_than ? new Date(query.no_older_than) : undefined;
     if (since && Number.isNaN(since.getTime())) {
@@ -138,7 +139,11 @@ export class Sep24Service {
     }
     if (body.account !== undefined) {
       const named = body.account.split(':')[0];
-      if (!StrKey.isValidEd25519PublicKey(named) && !StrKey.isValidMed25519PublicKey(named)) {
+      const known =
+        StrKey.isValidEd25519PublicKey(named) ||
+        StrKey.isValidMed25519PublicKey(named) ||
+        StrKey.isValidContract(named);
+      if (!known) {
         throw new BadRequestException('account is not a Stellar address');
       }
       if (body.account !== subject && named !== subject.split(':')[0]) {

@@ -91,3 +91,27 @@ describe('a wallet that never heard of lolipay can reach the SEP-24 surface', ()
     ]);
   });
 });
+
+describe('the KYC server the toml advertises is reachable from a browser wallet', () => {
+  it.each(['/customer', '/customer/GABCDEF', '/customer/callback'])(
+    'treats %s as anchor surface, because a wallet drives SEP-12 itself',
+    (path) => {
+      const opts = anchorCorsOptions(path, ['https://app.lolipay.app']);
+      expect(opts.origin).toBe('*');
+      expect(opts.credentials).toBe(false);
+      expect(opts.allowedHeaders).toContain('Authorization');
+    },
+  );
+
+  it('does not turn an ordinary route into anchor surface by starting with the same letters', () => {
+    expect(anchorCorsOptions('/customers-admin', ['https://app.lolipay.app']).origin).toEqual([
+      'https://app.lolipay.app',
+    ]);
+  });
+
+  it('allows the verbs SEP-12 needs, not only the ones SEP-10 does', () => {
+    expect(anchorCorsOptions('/customer', []).methods).toEqual(
+      expect.arrayContaining(['GET', 'PUT', 'DELETE', 'OPTIONS']),
+    );
+  });
+});

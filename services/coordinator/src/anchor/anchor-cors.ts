@@ -6,8 +6,8 @@ export interface AnchorCorsOptions {
   allowedHeaders: string[];
 }
 
-const ANCHOR_PATHS = ['/auth'];
-const ANCHOR_PREFIXES = ['/sep24/'];
+const ANCHOR_PATHS = ['/auth', '/customer'];
+const ANCHOR_PREFIXES = ['/sep24/', '/customer/'];
 
 export function isAnchorPath(path: string): boolean {
   const lowered = path.toLowerCase();
@@ -21,7 +21,7 @@ export function anchorCorsOptions(path: string, allowlist: string[]): AnchorCors
     return {
       origin: '*',
       credentials: false,
-      methods: ['GET', 'POST', 'OPTIONS'],
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
     };
   }
