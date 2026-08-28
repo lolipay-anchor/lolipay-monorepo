@@ -318,6 +318,8 @@ model KycVerification {
   status          KycStatus @default(NEEDS_INFO)
   providerRef     String?
   rejectionReason String?
+  environment     String?
+  deliveredAt     DateTime?
   screenedAt      DateTime?
   verifiedAt      DateTime?
   createdAt       DateTime  @default(now())

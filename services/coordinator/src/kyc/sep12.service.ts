@@ -1,6 +1,8 @@
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonService } from '../person/person.service';
+import { AppConfigService } from '../config/app-config.service';
+import { DiditConclusion } from './didit-decision';
 import {
   KYC_FIELD_DESCRIPTORS,
   KYC_PROVIDER,
@@ -18,7 +20,42 @@ export class Sep12Service {
     private prisma: PrismaService,
     private people: PersonService,
     @Inject(KYC_PROVIDER) private provider: KycProvider,
+    private cfg: AppConfigService,
   ) {}
+
+  async applyDelivery(conclusion: DiditConclusion, deliveredAt: Date): Promise<void> {
+    const customerRef = conclusion.customerRef;
+    if (!customerRef) return;
+
+    const person = await this.people.lookupPerson(customerRef);
+    if (!person) return;
+
+    const standing = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
+    if (standing) {
+      if (standing.status === 'REJECTED') return;
+      if (standing.providerRef && standing.providerRef !== conclusion.providerRef) return;
+      if (standing.deliveredAt && standing.deliveredAt > deliveredAt) return;
+    }
+
+    const sameEnvironment = conclusion.environment === this.cfg.diditEnvironment;
+    const screened = conclusion.screened && sameEnvironment;
+    const state = {
+      personId: person.id,
+      status: conclusion.status,
+      providerRef: conclusion.providerRef ?? null,
+      environment: conclusion.environment ?? null,
+      rejectionReason: conclusion.rejectionReason ?? null,
+      deliveredAt,
+      screenedAt: screened ? deliveredAt : null,
+      verifiedAt: conclusion.status === 'ACCEPTED' ? deliveredAt : null,
+    };
+
+    if (standing) {
+      await this.prisma.kycVerification.update({ where: { customerRef }, data: state });
+    } else {
+      await this.prisma.kycVerification.create({ data: { customerRef, ...state } });
+    }
+  }
 
   private async standingRefusal(customerRef: string) {
     const person = await this.people.lookupPerson(customerRef);

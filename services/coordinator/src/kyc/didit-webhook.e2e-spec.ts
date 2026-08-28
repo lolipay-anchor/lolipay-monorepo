@@ -1,7 +1,9 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { createHmac } from 'crypto';
-import { bootAuthApp } from '../auth/auth-test-helpers';
+import { bootAuthApp, sessionToken } from '../auth/auth-test-helpers';
+import { Keypair } from '@stellar/stellar-sdk';
+import { PrismaService } from '../prisma/prisma.service';
 
 const PATH = '/webhooks/didit';
 const now = () => Math.floor(Date.now() / 1000);
@@ -34,14 +36,22 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     'x-timestamp': ts,
   });
 
+  let prisma: PrismaService;
+  let savedEnv: string | undefined;
+
   beforeAll(async () => {
     process.env.DIDIT_WEBHOOK_SECRET = 'example-webhook-secret-not-a-real-one';
+    savedEnv = process.env.DIDIT_ENVIRONMENT;
+    process.env.DIDIT_ENVIRONMENT = 'sandbox';
     secret = process.env.DIDIT_WEBHOOK_SECRET;
     app = await bootAuthApp();
+    prisma = app.get(PrismaService);
   });
 
   afterAll(async () => {
     delete process.env.DIDIT_WEBHOOK_SECRET;
+    if (savedEnv === undefined) delete process.env.DIDIT_ENVIRONMENT;
+    else process.env.DIDIT_ENVIRONMENT = savedEnv;
     await app.close();
   });
 
@@ -106,6 +116,54 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     const sent = req.set(signed(raw)).send(raw);
     const res = await (ct ? sent : (sent as any).unset('Content-Type'));
     expect(res.status).toBe(401);
+  });
+
+  it('records a screened approval against a person the anchor already knows', async () => {
+    const kp = Keypair.random();
+    await sessionToken(app, kp);
+
+    const raw = JSON.stringify({
+      event_id: 'e-1',
+      webhook_type: 'status.updated',
+      timestamp: Math.floor(Date.now() / 1000),
+      session_id: 'sess-live-1',
+      status: 'Approved',
+      vendor_data: kp.publicKey(),
+      environment: 'sandbox',
+      decision: { aml_screenings: [{ status: 'Approved', total_hits: 0, hits: [], warnings: [] }] },
+    });
+    await post(raw, signed(raw)).expect(200);
+
+    const row = await prisma.kycVerification.findUnique({
+      where: { customerRef: kp.publicKey() },
+    });
+    expect(row).not.toBeNull();
+    expect(row!.status).toBe('ACCEPTED');
+    expect(row!.screenedAt).not.toBeNull();
+    expect(row!.environment).toBe('sandbox');
+    expect(row!.personId).not.toBeNull();
+  });
+
+  it('refuses to call a customer screened when the delivery came from another environment', async () => {
+    const kp = Keypair.random();
+    await sessionToken(app, kp);
+
+    const raw = JSON.stringify({
+      event_id: 'e-2',
+      timestamp: Math.floor(Date.now() / 1000),
+      session_id: 'sess-live-2',
+      status: 'Approved',
+      vendor_data: kp.publicKey(),
+      environment: 'live',
+      decision: { aml_screenings: [{ status: 'Approved', total_hits: 0, hits: [], warnings: [] }] },
+    });
+    await post(raw, signed(raw)).expect(200);
+
+    const row = await prisma.kycVerification.findUnique({
+      where: { customerRef: kp.publicKey() },
+    });
+    expect(row!.status).toBe('ACCEPTED');
+    expect(row!.screenedAt).toBeNull();
   });
 
   it('never repeats a vendor payload back to the caller', async () => {
