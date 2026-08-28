@@ -131,3 +131,63 @@ describe('DELETE /customer forgets a customer without forgetting the wallet', ()
     expect(link?.status).toBe('ACTIVE');
   });
 });
+
+describe('erasure reaches every refusal a person carries, against the real database', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+
+  beforeAll(async () => {
+    app = await bootAuthApp();
+    prisma = app.get(PrismaService);
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('redacts both refused wallets when a third asks to be forgotten, and lifts neither refusal', async () => {
+    const asking = Keypair.random();
+    const jwt = await anchorToken(app, asking);
+    const link = await prisma.walletLink.findUnique({
+      where: { stellarAddress: asking.publicKey() },
+    });
+    const personId = link!.personId;
+
+    const refused: string[] = [];
+    for (const n of [1, 2]) {
+      const other = Keypair.random().publicKey();
+      await prisma.walletLink.create({
+        data: { stellarAddress: other, personId, authMethod: 'SEP10' },
+      });
+      await prisma.kycVerification.create({
+        data: {
+          customerRef: other,
+          personId,
+          status: 'REJECTED',
+          rejectionReason: `sanctions or watchlist match ${n}`,
+          screenedAt: new Date(),
+          verifiedAt: new Date(),
+        },
+      });
+      refused.push(other);
+    }
+
+    const res = await request(app.getHttpServer())
+      .delete(`/customer/${asking.publicKey()}`)
+      .set('Authorization', `Bearer ${jwt}`);
+    expect(res.status).toBe(200);
+
+    const rows = await prisma.kycVerification.findMany({
+      where: { customerRef: { in: refused } },
+      orderBy: { customerRef: 'asc' },
+    });
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.status).toBe('REJECTED');
+      expect(row.rejectionReason).toBeNull();
+      expect(row.screenedAt).toBeNull();
+      expect(row.verifiedAt).toBeNull();
+      expect(row.personId).toBe(personId);
+    }
+  });
+});
