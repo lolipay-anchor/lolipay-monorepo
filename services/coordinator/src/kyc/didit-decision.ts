@@ -82,6 +82,7 @@ export function readDiditDecision(payload: any): DiditConclusion {
     if (foundSomething(payload)) {
       return { ...base, status: 'REJECTED', rejectionReason: 'sanctions or watchlist match' };
     }
+    if (documentFailed(payload)) return { ...base, status: 'NEEDS_INFO' };
     if (couldNotScreen(payload)) {
       return {
         ...base,
@@ -89,7 +90,6 @@ export function readDiditDecision(payload: any): DiditConclusion {
         rejectionReason: 'the required screening could not be carried out',
       };
     }
-    if (documentFailed(payload)) return { ...base, status: 'NEEDS_INFO' };
     return { ...base, status: 'REJECTED', rejectionReason: 'the refusal carried no readable cause' };
   }
 

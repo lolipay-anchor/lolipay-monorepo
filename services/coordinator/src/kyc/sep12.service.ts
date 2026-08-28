@@ -1,11 +1,10 @@
-import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonService } from '../person/person.service';
 import { AppConfigService } from '../config/app-config.service';
 import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 import { DiditConclusion } from './didit-decision';
 
-const DIDIT_DELIVERY_LOCK = 2;
 import {
   KYC_FIELD_DESCRIPTORS,
   KYC_PROVIDER,
@@ -27,6 +26,7 @@ export class Sep12Service {
     private refusals: DiditRefusalsService,
   ) {}
 
+  private readonly log = new Logger('Sep12');
   private readonly opening = new Set<string>();
 
   private async recordIncomplete(customerRef: string, personId: string) {
@@ -40,9 +40,6 @@ export class Sep12Service {
         verificationUrl: null,
         rejectionReason: null,
         verifiedAt: null,
-        screenedAt: null,
-        deliveredAt: null,
-        environment: null,
       },
     });
     return { id: customerRef };
@@ -63,14 +60,14 @@ export class Sep12Service {
     const person = await this.people.lookupPerson(customerRef);
     if (!person) {
       return this.refusals.record(
-        'a delivery named a customer this anchor has never registered, which means it is pointed at the wrong application or workflow',
+        'a delivery named a customer with no wallet this anchor currently accepts, which is either a revoked link or a misdirected integration',
       );
     }
 
     const refusing = conclusion.status === 'REJECTED';
 
     const written = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${DIDIT_DELIVERY_LOCK}, hashtext(${person.id}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${person.id}))`;
 
       const elsewhere = await tx.kycVerification.findFirst({
         where: { status: 'REJECTED', personId: person.id, NOT: { customerRef } },
@@ -171,7 +168,16 @@ export class Sep12Service {
 
   async forget(customerRef: string): Promise<number> {
     const standing = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
-    if (!standing) return (await this.standingRefusal(customerRef)) ? 1 : 0;
+    if (!standing) {
+      const elsewhere = await this.standingRefusal(customerRef);
+      if (!elsewhere) return 0;
+      if (elsewhere.rejectionReason === null && elsewhere.screenedAt === null) return 1;
+      await this.prisma.kycVerification.update({
+        where: { customerRef: elsewhere.customerRef },
+        data: { rejectionReason: null, screenedAt: null, verifiedAt: null },
+      });
+      return 1;
+    }
     if (standing.status === 'REJECTED') {
       if (standing.rejectionReason === null && standing.screenedAt === null) return 0;
       await this.prisma.kycVerification.update({
@@ -197,10 +203,6 @@ export class Sep12Service {
     if (refused) {
       throw new ForbiddenException('this identity was refused and cannot be resubmitted here');
     }
-    if (REQUIRED_KYC_FIELDS.some((f) => !fields[f]?.trim())) {
-      return this.recordIncomplete(customerRef, person.id);
-    }
-
     const inFlight = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
     if (inFlight?.status === 'ACCEPTED') {
       return { id: customerRef };
@@ -209,37 +211,45 @@ export class Sep12Service {
       return { id: customerRef };
     }
 
+    if (REQUIRED_KYC_FIELDS.some((f) => !fields[f]?.trim())) {
+      return this.recordIncomplete(customerRef, person.id);
+    }
+
     if (this.opening.has(customerRef)) return { id: customerRef };
     this.opening.add(customerRef);
-    let decision;
     try {
-      decision = await this.provider.start(customerRef, fields);
+      const decision = await this.provider.start(customerRef, fields);
+      const state = {
+        personId: person.id,
+        status: decision.status,
+        providerRef: decision.providerRef ?? null,
+        verificationUrl: decision.verificationUrl ?? null,
+        rejectionReason: decision.rejectionReason ?? null,
+        verifiedAt: decision.status === 'ACCEPTED' ? new Date() : null,
+        screenedAt: null,
+        deliveredAt: null,
+        environment: null,
+      };
+      await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${person.id}))`;
+        const refusedMeanwhile = await tx.kycVerification.findFirst({
+          where: { status: 'REJECTED', OR: [{ customerRef }, { personId: person.id }] },
+        });
+        if (refusedMeanwhile) {
+          this.log.warn(
+            'a verification session was opened and discarded because a refusal landed while it was being created',
+          );
+          return;
+        }
+        await tx.kycVerification.upsert({
+          where: { customerRef },
+          create: { customerRef, ...state },
+          update: state,
+        });
+      });
     } finally {
       this.opening.delete(customerRef);
     }
-    const state = {
-      personId: person.id,
-      status: decision.status,
-      providerRef: decision.providerRef ?? null,
-      verificationUrl: decision.verificationUrl ?? null,
-      rejectionReason: decision.rejectionReason ?? null,
-      verifiedAt: decision.status === 'ACCEPTED' ? new Date() : null,
-      screenedAt: null,
-      deliveredAt: null,
-      environment: null,
-    };
-    await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${DIDIT_DELIVERY_LOCK}, hashtext(${person.id}))`;
-      const refusedMeanwhile = await tx.kycVerification.findFirst({
-        where: { status: 'REJECTED', OR: [{ customerRef }, { personId: person.id }] },
-      });
-      if (refusedMeanwhile) return;
-      await tx.kycVerification.upsert({
-        where: { customerRef },
-        create: { customerRef, ...state },
-        update: state,
-      });
-    });
     return { id: customerRef };
   }
 }

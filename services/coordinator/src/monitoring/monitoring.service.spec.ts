@@ -49,7 +49,8 @@ function make(opts: {
       return { sent: list, cleared: [] };
     }),
   } as any;
-  return { svc: new MonitoringService(prisma, alerts, new DiditRefusalsService(), { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any, { escrowContractId: 'CESCROW' } as any), prisma, alerts, raised };
+  const refusals = new DiditRefusalsService();
+  return { refusals, svc: new MonitoringService(prisma, alerts, refusals, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any, { escrowContractId: 'CESCROW' } as any), prisma, alerts, raised };
 }
 
 describe('MonitoringService', () => {
@@ -131,5 +132,53 @@ describe('MonitoringService', () => {
     });
     await svc.checkAndAlert();
     expect(raised[0].list.map((x: any) => x.text).join(' ')).toMatch(/indexer has never run/i);
+  });
+});
+
+describe('an operator can tell an outage, a probe and a spending ceiling apart', () => {
+  const keyOf = (raised: any[]) => raised.flatMap((r) => r.list.map((a: any) => a.key));
+  const quiet = () =>
+    make({ disputes: 0, releaseOverdue: 0, fiatOverdue: 0, indexerAgeMs: 1000 });
+
+  it('raises nothing about identity verification while nothing has gone wrong', async () => {
+    const { svc, raised } = quiet();
+    await svc.checkAndAlert();
+    expect(keyOf(raised).filter((k: string) => k.startsWith('didit_'))).toEqual([]);
+  });
+
+  it('raises an urgent alert when a delivery this anchor trusted could not be acted on', async () => {
+    const { svc, raised, refusals } = quiet();
+    refusals.record('a delivery named no customer this anchor can read');
+    await svc.checkAndAlert();
+    const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_deliveries_refused');
+    expect(alert).toBeDefined();
+    expect(alert.urgency).toBe('urgent');
+  });
+
+  it('does not page anyone urgently because a stranger posted to the public endpoint', async () => {
+    const { svc, raised, refusals } = quiet();
+    refusals.couldNotAuthenticate('signature does not match the bytes that arrived');
+    await svc.checkAndAlert();
+    const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_deliveries_unauthenticated');
+    expect(alert).toBeDefined();
+    expect(alert.urgency).not.toBe('urgent');
+  });
+
+  it('says a provider would not answer, and says it urgently', async () => {
+    const { svc, raised, refusals } = quiet();
+    refusals.providerFailed('identity verification could not be started');
+    await svc.checkAndAlert();
+    const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_provider_unreachable');
+    expect(alert).toBeDefined();
+    expect(alert.urgency).toBe('urgent');
+  });
+
+  it('does not call its own configured ceiling a provider failure', async () => {
+    const { svc, raised, refusals } = quiet();
+    refusals.budgetExhausted('this anchor has already opened 200 verifications in the last day, which is its whole budget');
+    await svc.checkAndAlert();
+    const keys = keyOf(raised);
+    expect(keys).toContain('didit_budget_exhausted');
+    expect(keys).not.toContain('didit_provider_unreachable');
   });
 });

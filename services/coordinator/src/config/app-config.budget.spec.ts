@@ -12,8 +12,16 @@ describe('the anchor never spends without a ceiling it can name', () => {
     expect(cfg('25').diditDailySessionBudget).toBe(25);
   });
 
-  it('refuses a ceiling of zero or nonsense rather than reading it as no limit', () => {
-    expect(cfg('0').diditDailySessionBudget).toBe(200);
+  it('honours a ceiling of zero as an operator saying spend nothing', () => {
+    expect(cfg('0').diditDailySessionBudget).toBe(0);
+  });
+
+  it('does not read an unset value as a ceiling of zero, which would stop every customer', () => {
+    expect(cfg('').diditDailySessionBudget).toBe(200);
+    expect(cfg('   ').diditDailySessionBudget).toBe(200);
+  });
+
+  it('refuses nonsense rather than reading it as no limit', () => {
     expect(cfg('-5').diditDailySessionBudget).toBe(200);
     expect(cfg('banyak').diditDailySessionBudget).toBe(200);
   });

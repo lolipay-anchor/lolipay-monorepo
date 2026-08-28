@@ -37,11 +37,25 @@ export class DiditKycProvider implements KycProvider {
     }
 
     if (this.overBudget()) {
-      this.refuse(
-        `this anchor has already opened ${this.started.length} verifications in the last day, which is its whole budget`,
-      );
+      const reason = `this anchor has already opened ${this.started.length} verifications in the last day, which is its whole budget`;
+      this.refusals.budgetExhausted(reason);
+      throw new ServiceUnavailableException(reason);
     }
 
+    const reserved = Date.now();
+    this.started.push(reserved);
+    try {
+      return await this.open(customerRef);
+    } catch (e) {
+      const held = this.started.lastIndexOf(reserved);
+      if (held >= 0) this.started.splice(held, 1);
+      throw e;
+    }
+  }
+
+  private async open(customerRef: string): Promise<KycDecision> {
+    const apiKey = this.cfg.diditApiKey;
+    const workflowId = this.cfg.diditWorkflowId;
     const res = await this.fetcher(DIDIT_SESSION_URL, {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'content-type': 'application/json' },
@@ -59,8 +73,8 @@ export class DiditKycProvider implements KycProvider {
       this.refuse('identity verification returned no session');
     }
 
-    this.started.push(Date.now());
     this.refusals.providerAnswered();
+    this.refusals.spendResumed();
     return {
       status: 'PROCESSING',
       providerRef: String(session.session_id),

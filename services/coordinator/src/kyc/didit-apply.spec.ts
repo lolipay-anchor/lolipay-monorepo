@@ -1,4 +1,5 @@
 import { Sep12Service } from './sep12.service';
+import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 
 const REF = 'GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ';
 const AT = new Date('2026-08-28T05:00:00.000Z');
@@ -219,10 +220,7 @@ describe('registering a customer does not spend on every attempt', () => {
     };
     const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
     const provider = { start: jest.fn(async () => ({ status: 'PROCESSING', providerRef: 'sess-new', verificationUrl: 'https://verify.didit.me/session/abc' })) } as any;
-    const refusals = {
-      record: jest.fn(), applied: jest.fn(), state: jest.fn(),
-      providerFailed: jest.fn(), providerAnswered: jest.fn(), couldNotAuthenticate: jest.fn(),
-    } as any;
+    const refusals = new DiditRefusalsService();
     const svc = new Sep12Service(prisma, people, provider, { diditEnvironment: 'sandbox' } as any, refusals);
     return { svc, provider, store, prisma };
   }
@@ -265,6 +263,19 @@ describe('registering a customer does not spend on every attempt', () => {
     const { svc, store } = putSvc(null);
     await svc.put(REF, complete);
     expect(store.row.verificationUrl).toBe('https://verify.didit.me/session/abc');
+  });
+
+  it('cannot be made to erase its own screening record by submitting nothing', async () => {
+    const screened = new Date('2026-02-02');
+    const { svc, store } = putSvc({
+      customerRef: REF, status: 'ACCEPTED', providerRef: 'sess-done',
+      screenedAt: screened, verifiedAt: screened, deliveredAt: screened, environment: 'sandbox',
+    });
+    await svc.put(REF, {});
+    expect(store.row.screenedAt).toBe(screened);
+    expect(store.row.deliveredAt).toBe(screened);
+    expect(store.row.environment).toBe('sandbox');
+    expect(store.row.status).toBe('ACCEPTED');
   });
 
   it('never buys a second session for a customer who is already verified', async () => {
@@ -324,15 +335,50 @@ describe('two requests arriving together buy one session, not two', () => {
           setTimeout(() => resolve({ status: 'PROCESSING', providerRef: 'sess-1' }), 20),
         ),
     );
-    const refusals = {
-      record: jest.fn(), applied: jest.fn(), state: jest.fn(),
-      providerFailed: jest.fn(), providerAnswered: jest.fn(), couldNotAuthenticate: jest.fn(),
-    } as any;
+    const refusals = new DiditRefusalsService();
     const svc = new Sep12Service(
       prisma, people, { start } as any, { diditEnvironment: 'sandbox' } as any, refusals,
     );
 
     await Promise.all([svc.put(REF, complete), svc.put(REF, complete)]);
     expect(start).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the refusal counter survives a delivery that did not commit', () => {
+  it('does not clear itself when the write rolls back', async () => {
+    const refusals = new DiditRefusalsService();
+    refusals.record('an earlier delivery this anchor could not act on');
+    const prisma: any = {
+      $executeRaw: jest.fn(async () => 0),
+      $transaction: jest.fn(async () => {
+        throw new Error('the write did not commit');
+      }),
+    };
+    const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
+    const svc = new Sep12Service(
+      prisma, people, {} as any, { diditEnvironment: 'sandbox' } as any, refusals,
+    );
+    await expect(
+      svc.applyDelivery(
+        { customerRef: REF, status: 'ACCEPTED', providerRef: 'sess-1', screened: true, environment: 'sandbox' } as any,
+        new Date(),
+      ),
+    ).rejects.toThrow();
+    expect(refusals.state().count).toBe(1);
+  });
+
+  it('records a delivery naming somebody this anchor cannot resolve, rather than dropping it in silence', async () => {
+    const refusals = new DiditRefusalsService();
+    const people = { lookupPerson: jest.fn(async () => null) } as any;
+    const svc = new Sep12Service(
+      {} as any, people, {} as any, { diditEnvironment: 'sandbox' } as any, refusals,
+    );
+    await svc.applyDelivery(
+      { customerRef: REF, status: 'ACCEPTED', providerRef: 'sess-1', screened: true, environment: 'sandbox' } as any,
+      new Date(),
+    );
+    expect(refusals.state().count).toBe(1);
+    expect(String(refusals.state().lastReason)).toMatch(/revoked link|misdirected/);
   });
 });

@@ -154,3 +154,42 @@ describe('what the anchor concludes from a delivery', () => {
     expect(readDiditDecision(payload({ vendor_data: undefined })).customerRef).toBeUndefined();
   });
 });
+
+describe('a refusal names the worst thing that happened, not the first one checked', () => {
+  it('names the hit, not the gap, when one screening matched and another could not run', () => {
+    const res = readDiditDecision(
+      payload({ status: 'Declined', decision: { aml_screenings: [hit, unperformed] } }),
+    );
+    expect(res.status).toBe('REJECTED');
+    expect(res.rejectionReason).toBe('sanctions or watchlist match');
+  });
+
+  it('says the screening could not run when that is the only thing wrong', () => {
+    const res = readDiditDecision(
+      payload({ status: 'Declined', decision: { aml_screenings: [unperformed] } }),
+    );
+    expect(res.status).toBe('REJECTED');
+    expect(res.rejectionReason).toBe('the required screening could not be carried out');
+  });
+
+  it('invites a retry rather than banning a customer whose document failed, even though no screening could run without it', () => {
+    const res = readDiditDecision(
+      payload({
+        status: 'Declined',
+        decision: { aml_screenings: [unperformed], id_verifications: [{ status: 'Declined' }] },
+      }),
+    );
+    expect(res.status).toBe('NEEDS_INFO');
+  });
+
+  it('still bans a document failure that arrives beside a real match', () => {
+    const res = readDiditDecision(
+      payload({
+        status: 'Declined',
+        decision: { aml_screenings: [hit], id_verifications: [{ status: 'Declined' }] },
+      }),
+    );
+    expect(res.status).toBe('REJECTED');
+    expect(res.rejectionReason).toBe('sanctions or watchlist match');
+  });
+});

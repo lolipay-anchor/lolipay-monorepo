@@ -34,6 +34,7 @@ export const MONITORING_ALERT_SCOPE = [
   'didit_deliveries_refused',
   'didit_provider_unreachable',
   'didit_deliveries_unauthenticated',
+  'didit_budget_exhausted',
 ];
 
 @Injectable()
@@ -305,6 +306,7 @@ export class MonitoringService {
       });
     }
 
+    this.diditRefusals.seen();
     if (refusals.unauthenticated > 0) {
       alerts.push({
         key: 'didit_deliveries_unauthenticated',
@@ -317,14 +319,25 @@ export class MonitoringService {
       });
     }
 
+    if (refusals.overBudget > 0) {
+      alerts.push({
+        key: 'didit_budget_exhausted',
+        fingerprint: 'budget',
+        urgency: 'routine',
+        text:
+          `${refusals.overBudget} customers were turned away because ${refusals.budgetReason}. ` +
+          `This is the ceiling this anchor was configured with, not a provider failure.`,
+      });
+    }
+
     if (refusals.providerFailures > 0) {
       alerts.push({
         key: 'didit_provider_unreachable',
         fingerprint: refusals.providerReason ?? 'unknown',
         urgency: 'urgent',
         text:
-          `${refusals.providerFailures} attempts to start an identity verification failed since ` +
-          `the last check — the most recent because ${refusals.providerReason}. ` +
+          `${refusals.providerFailures} attempts to start an identity verification did not ` +
+          `produce a session — the most recent because ${refusals.providerReason}. ` +
           `No new customer can begin verification while this continues.`,
       });
     }

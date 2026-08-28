@@ -1,4 +1,5 @@
 import { ServiceUnavailableException } from '@nestjs/common';
+import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 import { DiditKycProvider } from './didit-kyc-provider';
 
 const REF = 'GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ';
@@ -23,14 +24,7 @@ function provider(reply: { status: number; body: unknown }, cfg: Record<string, 
     diditDailySessionBudget: 200,
     ...cfg,
   } as any;
-  const refusals = {
-    record: jest.fn(),
-    applied: jest.fn(),
-    state: jest.fn(),
-    providerFailed: jest.fn(),
-    providerAnswered: jest.fn(),
-    couldNotAuthenticate: jest.fn(),
-  } as any;
+  const refusals = new DiditRefusalsService();
   return { p: new DiditKycProvider(config, refusals, fetcher), fetcher, refusals };
 }
 
@@ -110,13 +104,14 @@ describe('opening a verification a customer can actually complete', () => {
   it('records a provider that would not answer, so an outage is not only the customer s problem', async () => {
     const { p, refusals } = provider({ status: 502, body: { detail: 'nope' } });
     await expect(p.start(REF, fields)).rejects.toThrow();
-    expect(refusals.providerFailed).toHaveBeenCalledWith(expect.stringContaining('verification'));
+    expect(refusals.state().providerFailures).toBe(1);
+    expect(String(refusals.state().providerReason)).toContain('verification');
   });
 
   it('records a session it could not open even before calling anybody', async () => {
     const { p, refusals } = provider({ status: 201, body: created }, { diditApiKey: '' });
     await expect(p.start(REF, fields)).rejects.toThrow();
-    expect(refusals.providerFailed).toHaveBeenCalled();
+    expect(refusals.state().providerFailures).toBe(1);
   });
 
   it('never puts the key in the message a caller might see', async () => {
@@ -124,5 +119,42 @@ describe('opening a verification a customer can actually complete', () => {
     await expect(p.start(REF, fields)).rejects.toThrow(
       expect.objectContaining({ message: expect.not.stringContaining('example-api-key') }),
     );
+  });
+});
+
+describe('a budget slot is held while the money is being spent', () => {
+  it('gives the slot back when the provider refuses, so an outage does not eat the day', async () => {
+    const { p, fetcher } = provider({ status: 502, body: { detail: 'nope' } }, {
+      diditDailySessionBudget: 2,
+    });
+    await expect(p.start(REF, fields)).rejects.toThrow();
+    await expect(p.start(REF, fields)).rejects.toThrow();
+    await expect(p.start(REF, fields)).rejects.toThrow();
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it('counts a slot the moment it is taken, so requests in flight together cannot overspend', async () => {
+    let release: (v: unknown) => void = () => {};
+    const gate = new Promise((r) => (release = r));
+    const fetcher = jest.fn(async () => {
+      await gate;
+      return {
+        ok: true,
+        status: 201,
+        json: async () => created,
+        text: async () => '',
+      };
+    }) as any;
+    const refusals = new DiditRefusalsService();
+    const p = new DiditKycProvider(
+      { diditApiKey: 'k', diditWorkflowId: 'wf', diditDailySessionBudget: 1 } as any,
+      refusals,
+      fetcher,
+    );
+    const first = p.start(REF, fields);
+    await expect(p.start('GOTHER', fields)).rejects.toThrow(/budget/);
+    release(null);
+    await first;
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
