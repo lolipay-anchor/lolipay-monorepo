@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../generated/prisma/client';
 import { Alert, AlertsService, Urgency } from './alerts.service';
+import { DiditRefusalsService } from './didit-refusals.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { AppConfigService } from '../config/app-config.service';
@@ -30,6 +31,7 @@ export const MONITORING_ALERT_SCOPE = [
   'slash_window_open',
   'cooldown_below_floor',
   'anchor_identity',
+  'didit_deliveries_refused',
 ];
 
 @Injectable()
@@ -38,6 +40,7 @@ export class MonitoringService {
   constructor(
     private prisma: PrismaService,
     private alerts: AlertsService,
+    private diditRefusals: DiditRefusalsService,
     private outbox: OutboxService,
     private stellar: StellarReadService,
     private cfg: AppConfigService,
@@ -286,6 +289,18 @@ export class MonitoringService {
           `could not ask the anchor whether it agrees with itself: ${e instanceof Error ? e.message : String(e)}`,
         );
       }
+    }
+
+    const refusals = this.diditRefusals.drain();
+    if (refusals.count > 0) {
+      alerts.push({
+        key: 'didit_deliveries_refused',
+        fingerprint: refusals.lastReason ?? 'unknown',
+        urgency: 'urgent',
+        text:
+          `${refusals.count} identity verification deliveries were refused since the last check ` +
+          `— the most recent because ${refusals.lastReason}. While this continues no deposit can be opened.`,
+      });
     }
 
     if (m.indexer_lag_seconds == null) {

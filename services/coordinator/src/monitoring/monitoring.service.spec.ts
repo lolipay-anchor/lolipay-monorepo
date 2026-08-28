@@ -1,4 +1,5 @@
 import { MonitoringService, MONITORING_ALERT_SCOPE } from './monitoring.service';
+import { DiditRefusalsService } from './didit-refusals.service';
 
 function rows(prefix: string, n: number) {
   return Array.from({ length: n }, (_, i) => ({
@@ -48,7 +49,7 @@ function make(opts: {
       return { sent: list, cleared: [] };
     }),
   } as any;
-  return { svc: new MonitoringService(prisma, alerts, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any, { escrowContractId: 'CESCROW' } as any), prisma, alerts, raised };
+  return { svc: new MonitoringService(prisma, alerts, new DiditRefusalsService(), { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any, { escrowContractId: 'CESCROW' } as any), prisma, alerts, raised };
 }
 
 describe('MonitoringService', () => {

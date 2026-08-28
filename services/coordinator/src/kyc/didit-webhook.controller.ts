@@ -1,8 +1,9 @@
 import { Controller, HttpCode, Logger, Post, Req, UnauthorizedException } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service';
-import { verifyDiditDelivery } from './didit-signature';
+import { DIDIT_FRESHNESS_SECS, verifyDiditDelivery } from './didit-signature';
 import { readDiditDecision } from './didit-decision';
 import { Sep12Service } from './sep12.service';
+import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 
 @Controller('webhooks')
 export class DiditWebhookController {
@@ -11,6 +12,7 @@ export class DiditWebhookController {
   constructor(
     private cfg: AppConfigService,
     private sep12: Sep12Service,
+    private refusals: DiditRefusalsService,
   ) {}
 
   @Post('didit')
@@ -26,6 +28,7 @@ export class DiditWebhookController {
 
     if (!verdict.trusted) {
       this.log.warn(`refused a delivery on /webhooks/didit: ${verdict.reason}`);
+      this.refusals.record(verdict.reason ?? 'unknown');
       throw new UnauthorizedException('this delivery was not signed by the shared secret');
     }
 
@@ -37,14 +40,21 @@ export class DiditWebhookController {
       return;
     }
 
+    const sent = Number((payload as any)?.timestamp);
+    const now = Math.floor(Date.now() / 1000);
+    if (!Number.isFinite(sent) || Math.abs(now - sent) >= DIDIT_FRESHNESS_SECS) {
+      this.log.warn('a signed delivery carried a time this anchor will not order by');
+      return;
+    }
+
     const conclusion = readDiditDecision(payload);
     if (conclusion.unrecognisedStatus !== undefined) {
       this.log.warn(
-        `a delivery reported a status this anchor does not recognise: ${conclusion.unrecognisedStatus}`,
+        `a delivery reported a status this anchor does not recognise: ${JSON.stringify(
+          conclusion.unrecognisedStatus.slice(0, 40),
+        )}`,
       );
     }
-    const sent = Number((payload as any)?.timestamp);
-    const deliveredAt = Number.isFinite(sent) ? new Date(sent * 1000) : new Date();
-    await this.sep12.applyDelivery(conclusion, deliveredAt);
+    await this.sep12.applyDelivery(conclusion, new Date(sent * 1000));
   }
 }

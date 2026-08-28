@@ -144,7 +144,7 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     expect(row!.personId).not.toBeNull();
   });
 
-  it('refuses to call a customer screened when the delivery came from another environment', async () => {
+  it('writes nothing at all when the delivery came from another environment', async () => {
     const kp = Keypair.random();
     await sessionToken(app, kp);
 
@@ -162,8 +162,40 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     const row = await prisma.kycVerification.findUnique({
       where: { customerRef: kp.publicKey() },
     });
-    expect(row!.status).toBe('ACCEPTED');
-    expect(row!.screenedAt).toBeNull();
+    expect(row).toBeNull();
+  });
+
+  it.each([
+    ['a timestamp in milliseconds, which would sort past every later delivery', () => Date.now()],
+    ['a timestamp far in the future', () => Math.floor(Date.now() / 1000) + 86400],
+    ['a timestamp far in the past', () => Math.floor(Date.now() / 1000) - 86400],
+    ['no timestamp the anchor can read', () => 'tomorrow'],
+  ])('writes nothing for a delivery carrying %s', async (_n, bodyTime) => {
+    const kp = Keypair.random();
+    await sessionToken(app, kp);
+    const raw = JSON.stringify({
+      timestamp: bodyTime(),
+      session_id: 'sess-clock',
+      status: 'Approved',
+      vendor_data: kp.publicKey(),
+      environment: 'sandbox',
+      decision: { aml_screenings: [{ status: 'Approved', total_hits: 0, hits: [], warnings: [] }] },
+    });
+    await post(raw, signed(raw)).expect(200);
+    expect(await prisma.kycVerification.findUnique({ where: { customerRef: kp.publicKey() } })).toBeNull();
+  });
+
+  it('writes nothing when the delivery names its customer as something that is not an address', async () => {
+    const raw = JSON.stringify({
+      timestamp: Math.floor(Date.now() / 1000),
+      session_id: 'sess-odd',
+      status: 'Approved',
+      vendor_data: { not: 'a string' },
+      environment: 'sandbox',
+      decision: { aml_screenings: [] },
+    });
+    const res = await post(raw, signed(raw));
+    expect(res.status).toBe(200);
   });
 
   it('never repeats a vendor payload back to the caller', async () => {

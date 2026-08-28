@@ -3,6 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PersonService } from '../person/person.service';
 import { AppConfigService } from '../config/app-config.service';
 import { DiditConclusion } from './didit-decision';
+
+const DIDIT_DELIVERY_LOCK = 2;
 import {
   KYC_FIELD_DESCRIPTORS,
   KYC_PROVIDER,
@@ -25,20 +27,49 @@ export class Sep12Service {
 
   async applyDelivery(conclusion: DiditConclusion, deliveredAt: Date): Promise<void> {
     const customerRef = conclusion.customerRef;
-    if (!customerRef) return;
+    if (typeof customerRef !== 'string' || customerRef.length === 0) return;
+    if (conclusion.unrecognisedStatus !== undefined) return;
+    if (conclusion.environment !== this.cfg.diditEnvironment) return;
 
     const person = await this.people.lookupPerson(customerRef);
     if (!person) return;
 
-    const standing = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
-    if (standing) {
-      if (standing.status === 'REJECTED') return;
-      if (standing.providerRef && standing.providerRef !== conclusion.providerRef) return;
-      if (standing.deliveredAt && standing.deliveredAt > deliveredAt) return;
-    }
+    const refusing = conclusion.status === 'REJECTED';
 
-    const sameEnvironment = conclusion.environment === this.cfg.diditEnvironment;
-    const screened = conclusion.screened && sameEnvironment;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${DIDIT_DELIVERY_LOCK}, hashtext(${customerRef}))`;
+
+      const elsewhere = await tx.kycVerification.findFirst({
+        where: { status: 'REJECTED', personId: person.id, NOT: { customerRef } },
+      });
+      if (elsewhere && !refusing) return;
+
+      const standing = await tx.kycVerification.findUnique({ where: { customerRef } });
+      if (standing) {
+        if (standing.status === 'REJECTED') return;
+        if (
+          standing.status === 'ACCEPTED' &&
+          standing.providerRef &&
+          standing.providerRef !== conclusion.providerRef
+        ) {
+          return;
+        }
+        if (!refusing && standing.deliveredAt && standing.deliveredAt > deliveredAt) return;
+      }
+      await this.writeDelivery(tx, customerRef, person.id, conclusion, deliveredAt, standing);
+    });
+  }
+
+  private async writeDelivery(
+    tx: any,
+    customerRef: string,
+    personId: string,
+    conclusion: DiditConclusion,
+    deliveredAt: Date,
+    standing: unknown,
+  ): Promise<void> {
+    const person = { id: personId };
+    const screened = conclusion.screened;
     const state = {
       personId: person.id,
       status: conclusion.status,
@@ -51,9 +82,9 @@ export class Sep12Service {
     };
 
     if (standing) {
-      await this.prisma.kycVerification.update({ where: { customerRef }, data: state });
+      await tx.kycVerification.update({ where: { customerRef }, data: state });
     } else {
-      await this.prisma.kycVerification.create({ data: { customerRef, ...state } });
+      await tx.kycVerification.create({ data: { customerRef, ...state } });
     }
   }
 

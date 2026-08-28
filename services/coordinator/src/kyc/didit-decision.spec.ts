@@ -2,6 +2,8 @@ import { readDiditDecision } from './didit-decision';
 
 const clean = { status: 'Approved', total_hits: 0, hits: [], warnings: [] };
 const hit = { status: 'Declined', total_hits: 2, hits: [{ sanction_matches: [{}] }], warnings: [] };
+const belowThreshold = { status: 'Approved', total_hits: 3, hits: [{}], warnings: [] };
+const inReview = { status: 'In Review', total_hits: 1, hits: [{}], warnings: [] };
 const unperformed = { status: 'Declined', total_hits: 0, hits: [], warnings: ['COULD_NOT_PERFORM_AML_SCREENING'] };
 
 const payload = (over: Record<string, unknown> = {}) => ({
@@ -42,6 +44,49 @@ describe('what the anchor concludes from a delivery', () => {
     const res = readDiditDecision(payload({ decision: { aml_screenings: [clean, hit] } }));
     expect(res.screened).toBe(false);
   });
+
+  it('does not call a customer screened when the screening carried hits, however the vendor weighed them', () => {
+    const res = readDiditDecision(payload({ decision: { aml_screenings: [belowThreshold] } }));
+    expect(res.status).toBe('ACCEPTED');
+    expect(res.screened).toBe(false);
+  });
+
+  it.each([
+    ['an entry with nothing in it at all', {}],
+    ['a hit count that is not a number', { status: 'Approved', total_hits: '0', hits: [], warnings: [] }],
+    ['a hit count that is absent', { status: 'Approved', hits: [], warnings: [] }],
+    ['warnings in a shape the anchor cannot read', { status: 'Approved', total_hits: 0, hits: [], warnings: 'none' }],
+    ['warnings carrying anything at all', { status: 'Approved', total_hits: 0, hits: [], warnings: [{ code: 'X' }] }],
+    ['hits present despite a zero count', { status: 'Approved', total_hits: 0, hits: [{}], warnings: [] }],
+  ])('refuses to read %s as a clean screening', (_n, entry) => {
+    expect(readDiditDecision(payload({ decision: { aml_screenings: [entry] } })).screened).toBe(false);
+  });
+
+  it('does not call a customer screened while a screening is still under review', () => {
+    expect(readDiditDecision(payload({ decision: { aml_screenings: [inReview] } })).screened).toBe(false);
+  });
+
+  it('does not treat an unrecognised screening verdict as cleared', () => {
+    const odd = { status: 'Something', total_hits: 0, hits: [], warnings: [] };
+    expect(readDiditDecision(payload({ decision: { aml_screenings: [odd] } })).screened).toBe(false);
+  });
+
+  it('does not refuse permanently on a hit count the screening itself did not act on', () => {
+    const res = readDiditDecision(
+      payload({ status: 'Declined', decision: { aml_screenings: [belowThreshold], id_verifications: [{ status: 'Expired' }] } }),
+    );
+    expect(res.status).toBe('NEEDS_INFO');
+  });
+
+  it.each([['Expired'], ['Not Finished'], ['In Review']])(
+    'lets a customer try again when the document outcome was %s rather than a refusal',
+    (docStatus) => {
+      const res = readDiditDecision(
+        payload({ status: 'Declined', decision: { aml_screenings: [clean], id_verifications: [{ status: docStatus }] } }),
+      );
+      expect(res.status).toBe('NEEDS_INFO');
+    },
+  );
 
   it('refuses an identity the screening found on a list', () => {
     const res = readDiditDecision(payload({ status: 'Declined', decision: { aml_screenings: [hit] } }));

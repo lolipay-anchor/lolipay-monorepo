@@ -2,7 +2,6 @@ import { KycStatus } from '../generated/prisma/client';
 
 const PROCESSING_STATUSES = ['Not Started', 'In Progress', 'In Review'];
 const RETRYABLE_STATUSES = ['Awaiting User', 'Resubmitted', 'Abandoned', 'Expired', 'Kyc Expired'];
-const NOT_PERFORMED = 'COULD_NOT_PERFORM_AML_SCREENING';
 
 export interface DiditConclusion {
   status: KycStatus;
@@ -19,23 +18,35 @@ function screenings(payload: any): any[] {
   return Array.isArray(list) ? list : [];
 }
 
+const CLEARED_SCREENING = 'Approved';
+const REFUSED_SCREENING = 'Declined';
+const PASSED_DOCUMENT = 'Approved';
+
+function emptyOrAbsent(value: unknown): boolean {
+  return value === undefined || value === null || (Array.isArray(value) && value.length === 0);
+}
+
+function cleared(entry: any): boolean {
+  if (entry?.status !== CLEARED_SCREENING) return false;
+  if (typeof entry.total_hits !== 'number' || entry.total_hits !== 0) return false;
+  if (!emptyOrAbsent(entry.hits)) return false;
+  if (!emptyOrAbsent(entry.warnings)) return false;
+  return true;
+}
+
 function ranAndFoundNothing(payload: any): boolean {
   const list = screenings(payload);
   if (list.length === 0) return false;
-  return list.every(
-    (s) =>
-      Number(s?.total_hits ?? 0) === 0 &&
-      !(Array.isArray(s?.warnings) ? s.warnings : []).includes(NOT_PERFORMED),
-  );
+  return list.every(cleared);
 }
 
 function foundSomething(payload: any): boolean {
-  return screenings(payload).some((s) => Number(s?.total_hits ?? 0) > 0);
+  return screenings(payload).some((s) => s?.status === REFUSED_SCREENING);
 }
 
 function documentFailed(payload: any): boolean {
   const list = payload?.decision?.id_verifications;
-  return Array.isArray(list) && list.some((d) => d?.status === 'Declined');
+  return Array.isArray(list) && list.some((d) => d?.status !== PASSED_DOCUMENT);
 }
 
 export function readDiditDecision(payload: any): DiditConclusion {

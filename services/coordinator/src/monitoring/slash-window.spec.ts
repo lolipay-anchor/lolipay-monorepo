@@ -1,4 +1,5 @@
 import { MonitoringService, MONITORING_ALERT_SCOPE } from './monitoring.service';
+import { DiditRefusalsService } from './didit-refusals.service';
 import { Alert } from './alerts.service';
 
 const NOW = new Date('2026-08-26T12:00:00Z');
@@ -23,9 +24,7 @@ function make(opts: {
       ? jest.fn().mockRejectedValue(new Error('rpc down'))
       : jest.fn().mockResolvedValue(opts.recovered ?? 0n),
   } as any;
-  const svc = new MonitoringService(
-    prisma,
-    { raise: jest.fn() } as any,
+  const svc = new MonitoringService(prisma, { raise: jest.fn() } as any, new DiditRefusalsService(),
     { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn() } as any,
     stellar,
     { escrowContractId: 'CESCROW' } as any,
@@ -251,9 +250,7 @@ describe('two ticks must not be able to wipe each other findings', () => {
       getTradeStatus: jest.fn().mockResolvedValue(null),
       getSlashedSoFar: jest.fn().mockResolvedValue(0n),
     } as any;
-    const svc = new MonitoringService(
-      prisma,
-      { raise } as any,
+    const svc = new MonitoringService(prisma, { raise } as any, new DiditRefusalsService(),
       { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn() } as any,
       stellar,
       { escrowContractId: 'CESCROW' } as any,
@@ -288,9 +285,7 @@ describe('two ticks must not be able to wipe each other findings', () => {
       config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
-    const svc = new MonitoringService(
-      prisma,
-      { raise } as any,
+    const svc = new MonitoringService(prisma, { raise } as any, new DiditRefusalsService(),
       { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn() } as any,
       { getTradeStatusStrict: jest.fn(), getTradeStatus: jest.fn(), getSlashedSoFar: jest.fn(), stakingCooldownSecs: jest.fn(async () => 349_201) } as any,
       { escrowContractId: 'CESCROW' } as any,
@@ -332,9 +327,7 @@ describe('the restitution scan cannot clear while the thing that feeds it is beh
       config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
-    return new MonitoringService(
-      prisma,
-      { raise: jest.fn() } as any,
+    return new MonitoringService(prisma, { raise: jest.fn() } as any, new DiditRefusalsService(),
       { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any,
       { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n), stakingCooldownSecs: jest.fn(async () => 349_201) } as any,
       { escrowContractId: 'CESCROW' } as any,
@@ -371,9 +364,7 @@ describe('the restitution scan cannot clear while the thing that feeds it is beh
       config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
-    const svc = new MonitoringService(
-      prisma,
-      { raise: jest.fn() } as any,
+    const svc = new MonitoringService(prisma, { raise: jest.fn() } as any, new DiditRefusalsService(),
       { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any,
       {
         getTradeStatus: jest.fn(async () => null),
@@ -416,9 +407,7 @@ describe('the anchor is watched for disagreeing with itself', () => {
       config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
     } as any;
-    const svc = new MonitoringService(
-      prisma,
-      { raise: jest.fn() } as any,
+    const svc = new MonitoringService(prisma, { raise: jest.fn() } as any, new DiditRefusalsService(),
       { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any,
       {
         getTradeStatus: jest.fn(async () => null),
