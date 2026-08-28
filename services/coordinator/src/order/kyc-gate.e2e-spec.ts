@@ -13,6 +13,8 @@ import { ThrottlerStorage } from '@nestjs/throttler';
 import { configureHttp } from '../http-setup';
 import { sessionToken, anchorToken } from '../auth/auth-test-helpers';
 import { onChainTradeFor } from './test-helpers';
+import { KYC_PROVIDER } from '../kyc/kyc-provider';
+import { StubKycProvider } from '../kyc/stub-kyc-provider';
 import { createHmac } from 'crypto';
 import { invalidateAllConfigCaches } from '../config/config-cache';
 
@@ -50,6 +52,8 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
       })
       .overrideProvider(ThrottlerStorage)
       .useValue(noopStorage)
+      .overrideProvider(KYC_PROVIDER)
+      .useValue(new StubKycProvider())
       .compile();
 
     app = mod.createNestApplication();

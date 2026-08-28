@@ -7,6 +7,8 @@ import { ThrottlerStorage } from '@nestjs/throttler';
 import { AppModule } from '../app.module';
 import { AccountSignersService } from '../sep10/account-signers.service';
 import { configureHttp } from '../http-setup';
+import { KYC_PROVIDER } from '../kyc/kyc-provider';
+import { StubKycProvider } from '../kyc/stub-kyc-provider';
 
 const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
@@ -18,6 +20,8 @@ export async function bootAuthApp(): Promise<INestApplication> {
     .useValue(noopStorage)
     .overrideProvider(AccountSignersService)
     .useValue({ load: jest.fn().mockResolvedValue(null) })
+    .overrideProvider(KYC_PROVIDER)
+    .useValue(new StubKycProvider())
     .compile();
   const app = mod.createNestApplication();
   configureHttp(app);

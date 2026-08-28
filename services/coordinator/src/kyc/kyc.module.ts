@@ -7,6 +7,13 @@ import { DiditWebhookController } from './didit-webhook.controller';
 import { Sep12Service } from './sep12.service';
 import { KYC_PROVIDER } from './kyc-provider';
 import { StubKycProvider } from './stub-kyc-provider';
+import { DiditKycProvider } from './didit-kyc-provider';
+
+export function chooseKycProvider(cfg: AppConfigService) {
+  return cfg.diditApiKey && cfg.diditWorkflowId
+    ? new DiditKycProvider(cfg)
+    : new StubKycProvider();
+}
 
 @Module({
   imports: [PrismaModule, PersonModule],
@@ -14,7 +21,7 @@ import { StubKycProvider } from './stub-kyc-provider';
   providers: [Sep12Service, {
       provide: KYC_PROVIDER,
       inject: [AppConfigService],
-      useFactory: (_cfg: AppConfigService) => new StubKycProvider(),
+      useFactory: (cfg: AppConfigService) => chooseKycProvider(cfg),
     }],
   exports: [Sep12Service],
 })

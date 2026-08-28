@@ -29,6 +29,7 @@ export class AppConfigService {
   get rpcUrl() { return this.req('STELLAR_RPC_URL'); }
   get networkPassphrase() { return this.req('STELLAR_NETWORK_PASSPHRASE'); }
   get diditWebhookSecret(): string { return this.c.get<string>('DIDIT_WEBHOOK_SECRET') ?? ''; }
+  get diditApiKey(): string { return this.c.get<string>('DIDIT_API_KEY') ?? ''; }
   get diditWorkflowId(): string { return this.c.get<string>('DIDIT_WORKFLOW_ID') ?? ''; }
   get diditEnvironment(): string { return this.c.get<string>('DIDIT_ENVIRONMENT') ?? 'live'; }
   get stakingContractId() { return this.req('STAKING_CONTRACT_ID'); }
