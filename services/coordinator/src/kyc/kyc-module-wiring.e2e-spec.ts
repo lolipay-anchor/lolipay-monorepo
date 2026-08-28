@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, Logger } from '@nestjs/common';
 import { AppModule } from '../app.module';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { AccountSignersService } from '../sep10/account-signers.service';
@@ -85,4 +85,38 @@ describe('the application resolves the provider its configuration names', () => 
     });
     await expect(boot()).rejects.toThrow(/DIDIT_WEBHOOK_SECRET/);
   });
+});
+
+describe('the boot-time screening check is actually reached by the container', () => {
+  const saved: Record<string, string | undefined> = {};
+  const set = (env: Record<string, string | undefined>) => {
+    for (const [k, v] of Object.entries(env)) {
+      if (!(k in saved)) saved[k] = process.env[k];
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+  afterEach(() => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
+  it('runs onModuleInit on the provider the factory produced, or the check would be dead code', async () => {
+    set({
+      DIDIT_API_KEY: 'example-key-not-a-real-one',
+      DIDIT_WORKFLOW_ID: 'wf-1',
+      DIDIT_WEBHOOK_SECRET: 'example-secret-not-a-real-one',
+    });
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const app = await boot();
+    try {
+      expect(app.get(KYC_PROVIDER)).toBeInstanceOf(DiditKycProvider);
+      expect(warn.mock.calls.flat().join(' ')).toMatch(/could not read which checks|CANNOT SCREEN/i);
+    } finally {
+      warn.mockRestore();
+      await app.close();
+    }
+  }, 30_000);
 });

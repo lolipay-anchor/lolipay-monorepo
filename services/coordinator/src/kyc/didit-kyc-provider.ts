@@ -1,10 +1,12 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service';
 import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 import { KycDecision, KycProvider } from './kyc-provider';
 
 export const DIDIT_SESSION_URL = 'https://verification.didit.me/v3/session/';
+export const DIDIT_WORKFLOWS_URL = 'https://verification.didit.me/v3/workflows/';
 export const DIDIT_TIMEOUT_MS = 10_000;
+export const DIDIT_BOOT_PROBE_MS = 5_000;
 
 type Fetcher = (url: string, init: any) => Promise<any>;
 
@@ -27,6 +29,38 @@ export class DiditKycProvider implements KycProvider {
   private refuse(reason: string): never {
     this.refusals.providerFailed(reason);
     throw new ServiceUnavailableException(reason);
+  }
+
+  async onModuleInit(): Promise<void> {
+    const log = new Logger('Kyc');
+    let features: string | undefined;
+    try {
+      const res = await this.fetcher(DIDIT_WORKFLOWS_URL, {
+        headers: { 'x-api-key': this.cfg.diditApiKey },
+        signal: AbortSignal.timeout(DIDIT_BOOT_PROBE_MS),
+      });
+      if (res.ok) {
+        const body: any = await res.json();
+        const rows = Array.isArray(body) ? body : (body?.results ?? []);
+        features = rows.find((w: any) => w?.workflow_id === this.cfg.diditWorkflowId)?.features;
+      }
+    } catch {
+      features = undefined;
+    }
+
+    if (features === undefined) {
+      log.warn(
+        'could not read which checks the configured verification workflow performs, so whether this deployment can screen is unknown; starting anyway',
+      );
+      return;
+    }
+    if (!/\bAML\b/i.test(features)) {
+      log.warn(
+        `this deployment CANNOT SCREEN: the configured workflow performs ${features}, with no AML step, so no customer will ever be screened and every deposit will refuse`,
+      );
+      return;
+    }
+    log.log(`the configured verification workflow performs ${features}`);
   }
 
   async start(customerRef: string, _fields: Record<string, string>): Promise<KycDecision> {
