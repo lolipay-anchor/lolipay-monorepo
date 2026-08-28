@@ -11,6 +11,7 @@ export interface Sep24Order {
   lpFeeBps: number;
   settlementTxHash: string | null;
   settledAt: Date | null;
+  ref: string | null;
 }
 
 export interface Sep24Record {
@@ -35,6 +36,7 @@ export interface Sep24TransactionJson {
   amount_out_asset?: string;
   fee_details?: { total: string; asset: string };
   stellar_transaction_id?: string;
+  external_transaction_id?: string;
   completed_at?: string;
 }
 
@@ -70,7 +72,8 @@ export function serializeSep24(record: Sep24Record, assets: Sep24Assets): Sep24T
   json.amount_out_asset = usdc;
   json.fee_details = { total: baseUnitsToUsdcString(platformFee + lpFee), asset: usdc };
 
-  if (status === 'completed') {
+  if (order.ref) json.external_transaction_id = order.ref;
+  if (status === 'completed' || status === 'refunded') {
     if (order.settlementTxHash) json.stellar_transaction_id = order.settlementTxHash;
     if (order.settledAt) json.completed_at = order.settledAt.toISOString();
   }

@@ -24,6 +24,7 @@ const order = (over: Record<string, unknown> = {}) => ({
   spreadBps: 0,
   settlementTxHash: null,
   settledAt: null,
+  ref: null,
   ...over,
 }) as any;
 
@@ -98,6 +99,25 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
     expect(done.status).toBe('completed');
     expect(done.stellar_transaction_id).toBe('abc123');
     expect(done.completed_at).toBe('2026-08-28T11:00:00.000Z');
+  });
+
+  it('publishes the external reference it also lets a wallet search by', () => {
+    const out = serializeSep24(tx({ order: order({ ref: 'LP-2026-0042' }) }), BASE);
+    expect(out.external_transaction_id).toBe('LP-2026-0042');
+  });
+
+  it('omits the external reference rather than sending null when there is none', () => {
+    const out = serializeSep24(tx({ order: order({ ref: null }) }), BASE);
+    expect(out).not.toHaveProperty('external_transaction_id');
+  });
+
+  it('dates a refund too, because the spec asks for the time it reached refunded as well', () => {
+    const out = serializeSep24(
+      tx({ order: order({ status: 'REFUNDED', settledAt: new Date('2026-08-28T12:00:00.000Z') }) }),
+      BASE,
+    );
+    expect(out.status).toBe('refunded');
+    expect(out.completed_at).toBe('2026-08-28T12:00:00.000Z');
   });
 
   it('never ships the counterparty, the wallets or the dispute note to a third-party wallet', () => {

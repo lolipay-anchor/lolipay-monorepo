@@ -21,6 +21,7 @@ const ORDER_FIELDS = {
   settlementTxHash: true,
   settledAt: true,
   personId: true,
+  ref: true,
 } as const;
 
 @Injectable()
