@@ -14,7 +14,11 @@ import { OrderService } from '../order/order.service';
 import { AppConfigService } from '../config/app-config.service';
 import { baseUnitsToUsdc } from '../money/money';
 import { serializeSep24, Sep24Record, Sep24TransactionJson } from './sep24-transaction';
-import { mintInteractiveToken, readInteractiveToken } from './interactive-token';
+import {
+  SEP24_INTERACTIVE_LINK_TTL_SECS,
+  mintInteractiveToken,
+  readInteractiveToken,
+} from './interactive-token';
 import { escapeHtml, formatFiat, interactiveScreen, page } from './interactive-page';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
 import { sep24Status } from './sep24-status';
@@ -183,6 +187,7 @@ export class Sep24Service {
         this.cfg,
         row.id,
         subject,
+        SEP24_INTERACTIVE_LINK_TTL_SECS,
       )}`,
       id: row.id,
     };
@@ -219,8 +224,9 @@ export class Sep24Service {
     return `/sep24/interactive/${encodeURIComponent(id)}${suffix}`;
   }
 
-  async assertReadable(id: string, token: string): Promise<void> {
-    await this.interactiveState(id, token);
+  async redeemLink(id: string, token: string): Promise<string> {
+    const { account } = await this.interactiveState(id, token);
+    return mintInteractiveToken(this.cfg, id, account);
   }
 
   async renderInteractive(id: string, token: string): Promise<string> {

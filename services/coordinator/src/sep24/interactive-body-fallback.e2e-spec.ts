@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
 import { bootAuthApp, anchorToken } from '../auth/auth-test-helpers';
+import { SEP24_INTERACTIVE_LINK_TTL_SECS, SEP24_INTERACTIVE_TTL_SECS } from './interactive-token';
 
 describe('the token from a leaked URL cannot be spent by a client that never held the cookie', () => {
   let app: INestApplication;
@@ -31,6 +32,26 @@ describe('the token from a leaked URL cannot be spent by a client that never hel
       .post(`/sep24/interactive/${id}/amount`)
       .send({ token, fiat_amount: '400000' })
       .expect(401);
+  });
+
+  const life = (t: string) => {
+    const p = JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString());
+    return p.exp - p.iat;
+  };
+
+  it('hands the wallet a link that dies long before the session it opens', async () => {
+    const { token } = await opened();
+    expect(life(token)).toBe(SEP24_INTERACTIVE_LINK_TTL_SECS);
+    expect(SEP24_INTERACTIVE_LINK_TTL_SECS).toBeLessThan(SEP24_INTERACTIVE_TTL_SECS);
+  });
+
+  it('does not reuse the link token as the session, so the session outlives the link', async () => {
+    const { id, token } = await opened();
+    const hop = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(302);
+    const set = ([] as string[]).concat(hop.headers['set-cookie'] ?? [])[0];
+    const seated = set.split(';')[0].split('=').slice(1).join('=');
+    expect(seated).not.toBe(token);
+    expect(life(decodeURIComponent(seated))).toBe(SEP24_INTERACTIVE_TTL_SECS);
   });
 
   it('serves a depositor who reopens the same link, rather than refusing them over a spent token', async () => {

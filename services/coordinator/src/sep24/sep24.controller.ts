@@ -102,8 +102,8 @@ export class Sep24Controller {
 
     const fromUrl = String(token ?? '');
     if (fromUrl) {
-      await this.sep24.assertReadable(id, fromUrl);
-      res.cookie(sessionCookieName(id), fromUrl, sessionCookieOptions(id));
+      const session = await this.sep24.redeemLink(id, fromUrl);
+      res.cookie(sessionCookieName(id), session, sessionCookieOptions(id));
       res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
       return undefined;
     }

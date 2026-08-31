@@ -4,18 +4,20 @@ import { AppConfigService } from '../config/app-config.service';
 
 export const SEP24_INTERACTIVE_AUDIENCE = 'lolipay-sep24-interactive';
 export const SEP24_INTERACTIVE_TTL_SECS = 1800;
+export const SEP24_INTERACTIVE_LINK_TTL_SECS = 300;
 
 export function mintInteractiveToken(
   cfg: AppConfigService,
   transactionId: string,
   account: string,
+  ttlSecs: number = SEP24_INTERACTIVE_TTL_SECS,
 ): string {
   return jwt.sign({ acct: account }, cfg.jwtSecret, {
     algorithm: 'HS256',
     subject: transactionId,
     issuer: cfg.jwtIssuer,
     audience: SEP24_INTERACTIVE_AUDIENCE,
-    expiresIn: SEP24_INTERACTIVE_TTL_SECS,
+    expiresIn: ttlSecs,
   });
 }
 
