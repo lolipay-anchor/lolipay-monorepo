@@ -4,10 +4,13 @@ import {
   Keypair,
   Networks,
   Operation,
+  Transaction,
   TransactionBuilder,
+  scValToNative,
   xdr,
 } from '@stellar/stellar-sdk';
-import { ServiceUnavailableException } from '@nestjs/common';
+import { Api } from '@stellar/stellar-sdk/rpc';
+import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import { AttestorService } from './attestor.service';
 
 const CONTRACT = 'CDKJ5OX2WY424DXPMYRGI2TCMTI5LFGLSLHSBKA5AODIGTS4R2TIDK3Z';
@@ -92,7 +95,7 @@ describe('the attestor refuses before it signs, not after', () => {
     expect(read.readEscrowFiatAttestor).toHaveBeenCalledTimes(1);
   });
 
-  function preparedFor(opts: { contractId?: string; tradeIdHex?: string; caller: string }) {
+  function envelopeFor(opts: { contractId?: string; tradeIdHex?: string; caller: string }) {
     const src = new Account(Keypair.random().publicKey(), '1');
     const tx = new TransactionBuilder(src, { fee: '100', networkPassphrase: Networks.TESTNET })
       .addOperation(
@@ -114,7 +117,7 @@ describe('the attestor refuses before it signs, not after', () => {
     const kp = Keypair.random();
     const { svc, read } = makeSvc(kp.secret(), kp.publicKey());
     read.buildMarkFiatPaidTx.mockResolvedValue(
-      preparedFor({ tradeIdHex: 'cd'.repeat(32), caller: kp.publicKey() }),
+      envelopeFor({ tradeIdHex: 'cd'.repeat(32), caller: kp.publicKey() }),
     );
 
     await expect(svc.attest(CONTRACT, TRADE)).rejects.toThrow(/refused to sign/i);
@@ -124,13 +127,76 @@ describe('the attestor refuses before it signs, not after', () => {
     const kp = Keypair.random();
     const { svc, read } = makeSvc(kp.secret(), kp.publicKey());
     read.buildMarkFiatPaidTx.mockResolvedValue(
-      preparedFor({
+      envelopeFor({
         contractId: 'CAVJAMGCNBJQIDE6U7DHGYIWUREBOYH6PI2GWERLCF2DV6AGRAZOUBG2',
         caller: kp.publicKey(),
       }),
     );
 
     await expect(svc.attest(CONTRACT, TRADE)).rejects.toThrow(/refused to sign/i);
+  });
+
+  it('signs with its own key and submits, and reports what the chain said', async () => {
+    const kp = Keypair.random();
+    const { svc, read } = makeSvc(kp.secret(), kp.publicKey());
+    read.buildMarkFiatPaidTx.mockResolvedValue(envelopeFor({ caller: kp.publicKey() }));
+
+    let submitted: Transaction | undefined;
+    const sendTransaction = jest.fn(async (tx: Transaction) => {
+      submitted = tx;
+      return { status: 'PENDING', hash: 'facade' };
+    });
+    const getTransaction = jest.fn(async () => ({ status: Api.GetTransactionStatus.SUCCESS }));
+    (svc as any).pollIntervalMs = 1;
+    (svc as any).pollTimeoutMs = 200;
+    (svc as any).createRpcServer = () => ({ sendTransaction, getTransaction });
+
+    await expect(svc.attest(CONTRACT, TRADE)).resolves.toEqual({
+      status: 'SUCCESS',
+      hash: 'facade',
+    });
+
+    expect(submitted).toBeDefined();
+    expect(submitted!.signatures).toHaveLength(1);
+    expect(kp.verify(submitted!.hash(), submitted!.signatures[0].signature)).toBe(true);
+
+    const op: any = submitted!.operations[0];
+    const args = op.func.invokeContract.args;
+    expect(Buffer.from(scValToNative(args[0]) as Uint8Array).toString('hex')).toBe(TRADE);
+    expect(Address.fromScVal(args[1]).toString()).toBe(kp.publicKey());
+  });
+
+  it('never logs its secret or the signed envelope, only the hash and the status', async () => {
+    const kp = Keypair.random();
+    const { svc, read } = makeSvc(kp.secret(), kp.publicKey());
+    read.buildMarkFiatPaidTx.mockResolvedValue(envelopeFor({ caller: kp.publicKey() }));
+
+    let submitted: Transaction | undefined;
+    const sendTransaction = jest.fn(async (tx: Transaction) => {
+      submitted = tx;
+      return { status: 'PENDING', hash: 'facade' };
+    });
+    (svc as any).pollIntervalMs = 1;
+    (svc as any).pollTimeoutMs = 200;
+    (svc as any).createRpcServer = () => ({
+      sendTransaction,
+      getTransaction: jest.fn(async () => ({ status: Api.GetTransactionStatus.SUCCESS })),
+    });
+
+    const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+    await svc.attest(CONTRACT, TRADE);
+
+    const signedXdr = submitted!.toXdr();
+    for (const call of [...logSpy.mock.calls, ...warnSpy.mock.calls]) {
+      for (const arg of call) {
+        expect(String(arg)).not.toContain(kp.secret());
+        expect(String(arg)).not.toContain(signedXdr);
+      }
+    }
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
   });
 
   it('builds against the contract and trade it was given, signing as itself', async () => {
