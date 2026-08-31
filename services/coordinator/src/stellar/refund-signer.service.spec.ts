@@ -11,16 +11,18 @@ import {
   nativeToScVal,
 } from '@stellar/stellar-sdk';
 import { Api } from '@stellar/stellar-sdk/rpc';
-import { RefundSignerService } from './refund-signer.service';
+import { MAX_REFUND_FEE_STROOPS, RefundSignerService } from './refund-signer.service';
 
 function randomSecret(): { secret: string; publicKey: string } {
   const kp = Keypair.random();
   return { secret: kp.secret(), publicKey: kp.publicKey() };
 }
 
+const REFUND_CONTRACT_ID = StrKey.encodeContract(Buffer.alloc(32, 7));
+
 function buildRealRefundTx(sourcePublicKey: string, tradeIdHex = 'ab'.repeat(32)): Transaction {
   const account = new Account(sourcePublicKey, '1');
-  const contractId = StrKey.encodeContract(Buffer.alloc(32, 7));
+  const contractId = REFUND_CONTRACT_ID;
   return new TransactionBuilder(account, {
     fee: BASE_FEE,
     networkPassphrase: Networks.TESTNET,
@@ -104,7 +106,7 @@ describe('RefundSignerService.submitRefund', () => {
     const buildRefundTx = jest.fn();
     const svc = makeSvc(undefined, { buildRefundTx });
 
-    await expect(svc.submitRefund('CCONTRACT', 'ab'.repeat(32))).rejects.toThrow(/not configured/i);
+    await expect(svc.submitRefund(REFUND_CONTRACT_ID, 'ab'.repeat(32))).rejects.toThrow(/not configured/i);
     expect(buildRefundTx).not.toHaveBeenCalled();
   });
 
@@ -125,9 +127,9 @@ describe('RefundSignerService.submitRefund', () => {
       .mockResolvedValueOnce({ status: Api.GetTransactionStatus.SUCCESS });
     svc.createRpcServer = () => ({ sendTransaction, getTransaction });
 
-    const result = await svc.submitRefund('CCONTRACT', tradeIdHex);
+    const result = await svc.submitRefund(REFUND_CONTRACT_ID, tradeIdHex);
 
-    expect(buildRefundTx).toHaveBeenCalledWith('CCONTRACT', tradeIdHex, publicKey);
+    expect(buildRefundTx).toHaveBeenCalledWith(REFUND_CONTRACT_ID, tradeIdHex, publicKey);
     expect(sendTransaction).toHaveBeenCalledTimes(1);
     expect(getTransaction).toHaveBeenCalledTimes(2);
     expect(result).toEqual({ status: 'SUCCESS', hash: 'deadbeef' });
@@ -144,7 +146,7 @@ describe('RefundSignerService.submitRefund', () => {
     const getTransaction = jest.fn().mockResolvedValue({ status: Api.GetTransactionStatus.FAILED });
     svc.createRpcServer = () => ({ sendTransaction, getTransaction });
 
-    const result = await svc.submitRefund('CCONTRACT', 'ab'.repeat(32));
+    const result = await svc.submitRefund(REFUND_CONTRACT_ID, 'ab'.repeat(32));
     expect(result).toEqual({ status: 'FAILED', hash: 'aa' });
   });
 
@@ -157,7 +159,7 @@ describe('RefundSignerService.submitRefund', () => {
     const getTransaction = jest.fn();
     svc.createRpcServer = () => ({ sendTransaction, getTransaction });
 
-    await expect(svc.submitRefund('CCONTRACT', 'ab'.repeat(32))).rejects.toThrow(/rejected/i);
+    await expect(svc.submitRefund(REFUND_CONTRACT_ID, 'ab'.repeat(32))).rejects.toThrow(/rejected/i);
     expect(getTransaction).not.toHaveBeenCalled();
   });
 
@@ -175,7 +177,7 @@ describe('RefundSignerService.submitRefund', () => {
       .mockResolvedValueOnce({ status: Api.GetTransactionStatus.SUCCESS });
     svc.createRpcServer = () => ({ sendTransaction, getTransaction });
 
-    const result = await svc.submitRefund('CCONTRACT', 'ab'.repeat(32));
+    const result = await svc.submitRefund(REFUND_CONTRACT_ID, 'ab'.repeat(32));
     expect(result.status).toBe('SUCCESS');
     expect(getTransaction).toHaveBeenCalledTimes(2);
   });
@@ -191,7 +193,7 @@ describe('RefundSignerService.submitRefund', () => {
     const getTransaction = jest.fn().mockRejectedValue(new Error('rpc down'));
     svc.createRpcServer = () => ({ sendTransaction, getTransaction });
 
-    await expect(svc.submitRefund('CCONTRACT', 'ab'.repeat(32))).rejects.toThrow(/rpc down/);
+    await expect(svc.submitRefund(REFUND_CONTRACT_ID, 'ab'.repeat(32))).rejects.toThrow(/rpc down/);
     expect(getTransaction).toHaveBeenCalledTimes(2);
   });
 
@@ -206,7 +208,7 @@ describe('RefundSignerService.submitRefund', () => {
     const getTransaction = jest.fn().mockResolvedValue({ status: Api.GetTransactionStatus.NOT_FOUND });
     svc.createRpcServer = () => ({ sendTransaction, getTransaction });
 
-    await expect(svc.submitRefund('CCONTRACT', 'ab'.repeat(32))).rejects.toThrow(/timed out/i);
+    await expect(svc.submitRefund(REFUND_CONTRACT_ID, 'ab'.repeat(32))).rejects.toThrow(/timed out/i);
   });
 
   it('never logs the secret or the fully-signed XDR — only hash/status', async () => {
@@ -225,7 +227,7 @@ describe('RefundSignerService.submitRefund', () => {
     const getTransaction = jest.fn().mockResolvedValue({ status: Api.GetTransactionStatus.SUCCESS });
     svc.createRpcServer = () => ({ sendTransaction, getTransaction });
 
-    await svc.submitRefund('CCONTRACT', 'ab'.repeat(32));
+    await svc.submitRefund(REFUND_CONTRACT_ID, 'ab'.repeat(32));
 
     const signedXdr = builtTx!.toXdr();
     for (const call of logSpy.mock.calls) {
@@ -238,6 +240,73 @@ describe('RefundSignerService.submitRefund', () => {
   });
 
   describe('the structural refund-only assertion', () => {
+    it('refuses a refund pointed at a contract other than the one asked for', async () => {
+      const { secret, publicKey } = randomSecret();
+      const elsewhere = StrKey.encodeContract(Buffer.alloc(32, 9));
+      const account = new Account(publicKey, '1');
+      const doctoredTx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: Networks.TESTNET,
+      })
+        .addOperation(
+          Operation.invokeContractFunction({
+            contract: elsewhere,
+            function: 'refund',
+            args: [nativeToScVal(Buffer.from('ab'.repeat(32), 'hex'))],
+          }),
+        )
+        .setTimeout(300)
+        .build();
+      const svc: any = makeSvc(secret, { buildRefundTx: jest.fn(async () => doctoredTx) });
+      const sendTransaction = jest.fn();
+      svc.createRpcServer = () => ({ sendTransaction, getTransaction: jest.fn() });
+
+      await expect(svc.submitRefund(REFUND_CONTRACT_ID, 'ab'.repeat(32))).rejects.toThrow(
+        /refused to sign — expected contract/,
+      );
+      expect(sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it('refuses a refund that names a different trade than the one asked for', async () => {
+      const { secret, publicKey } = randomSecret();
+      const svc: any = makeSvc(secret, {
+        buildRefundTx: jest.fn(async () => buildRealRefundTx(publicKey, 'cd'.repeat(32))),
+      });
+      const sendTransaction = jest.fn();
+      svc.createRpcServer = () => ({ sendTransaction, getTransaction: jest.fn() });
+
+      await expect(svc.submitRefund(REFUND_CONTRACT_ID, 'ab'.repeat(32))).rejects.toThrow(
+        /refused to sign — expected trade/,
+      );
+      expect(sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it('refuses a fee the account would not knowingly pay, however well-shaped the call', async () => {
+      const { secret, publicKey } = randomSecret();
+      const account = new Account(publicKey, '1');
+      const doctoredTx = new TransactionBuilder(account, {
+        fee: String(MAX_REFUND_FEE_STROOPS + 1),
+        networkPassphrase: Networks.TESTNET,
+      })
+        .addOperation(
+          Operation.invokeContractFunction({
+            contract: REFUND_CONTRACT_ID,
+            function: 'refund',
+            args: [nativeToScVal(Buffer.from('ab'.repeat(32), 'hex'))],
+          }),
+        )
+        .setTimeout(300)
+        .build();
+      const svc: any = makeSvc(secret, { buildRefundTx: jest.fn(async () => doctoredTx) });
+      const sendTransaction = jest.fn();
+      svc.createRpcServer = () => ({ sendTransaction, getTransaction: jest.fn() });
+
+      await expect(svc.submitRefund(REFUND_CONTRACT_ID, 'ab'.repeat(32))).rejects.toThrow(
+        /refused to sign — expected a fee at or under/,
+      );
+      expect(sendTransaction).not.toHaveBeenCalled();
+    });
+
     it('refuses to sign a tx with more than one operation', async () => {
       const { secret, publicKey } = randomSecret();
       const account = new Account(publicKey, '1');
@@ -268,7 +337,7 @@ describe('RefundSignerService.submitRefund', () => {
       const sendTransaction = jest.fn();
       svc.createRpcServer = () => ({ sendTransaction, getTransaction: jest.fn() });
 
-      await expect(svc.submitRefund('CCONTRACT', 'ab'.repeat(32))).rejects.toThrow(
+      await expect(svc.submitRefund(REFUND_CONTRACT_ID, 'ab'.repeat(32))).rejects.toThrow(
         /expected exactly 1 operation/i,
       );
       expect(sendTransaction).not.toHaveBeenCalled();
@@ -297,7 +366,7 @@ describe('RefundSignerService.submitRefund', () => {
       const sendTransaction = jest.fn();
       svc.createRpcServer = () => ({ sendTransaction, getTransaction: jest.fn() });
 
-      await expect(svc.submitRefund('CCONTRACT', 'ab'.repeat(32))).rejects.toThrow(
+      await expect(svc.submitRefund(REFUND_CONTRACT_ID, 'ab'.repeat(32))).rejects.toThrow(
         /expected function "refund"/i,
       );
       expect(sendTransaction).not.toHaveBeenCalled();
@@ -314,7 +383,7 @@ describe('RefundSignerService.submitRefund', () => {
       const getTransaction = jest.fn().mockResolvedValue({ status: Api.GetTransactionStatus.SUCCESS });
       svc.createRpcServer = () => ({ sendTransaction, getTransaction });
 
-      const result = await svc.submitRefund('CCONTRACT', 'ab'.repeat(32));
+      const result = await svc.submitRefund(REFUND_CONTRACT_ID, 'ab'.repeat(32));
       expect(result.status).toBe('SUCCESS');
       expect(sendTransaction).toHaveBeenCalledTimes(1);
     });

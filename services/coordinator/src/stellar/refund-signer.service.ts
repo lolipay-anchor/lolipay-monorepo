@@ -1,11 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Keypair, Transaction } from '@stellar/stellar-sdk';
+import { Address, Keypair, Transaction, scValToNative } from '@stellar/stellar-sdk';
 import { Server } from '@stellar/stellar-sdk/rpc';
 import { AppConfigService } from '../config/app-config.service';
 import { StellarReadService } from './stellar-read.service';
 import { signSendAndPoll } from './sign-send-poll';
 
 const STELLAR_SECRET_RE = /^S[A-Z2-7]{55}$/;
+
+export const MAX_REFUND_FEE_STROOPS = 10_000_000;
 
 @Injectable()
 export class RefundSignerService {
@@ -66,14 +68,15 @@ export class RefundSignerService {
       throw new Error('RefundSignerService: signer not configured (REFUND_SIGNER_SECRET absent/invalid)');
     }
     const tx = await this.stellarRead.buildRefundTx(contractId, tradeIdHex, kp.publicKey());
-    return this.signAndSubmit(tx, kp);
+    return this.signAndSubmit(tx, kp, { contractId, tradeIdHex });
   }
 
   private async signAndSubmit(
     tx: Transaction,
     kp: Keypair,
+    expected: { contractId: string; tradeIdHex: string },
   ): Promise<{ status: string; hash: string }> {
-    this.assertIsSingleRefundOperation(tx);
+    this.assertIsSingleRefundOperation(tx, expected);
     return signSendAndPoll(tx, kp, {
       label: 'RefundSignerService',
       noun: 'refund',
@@ -88,10 +91,19 @@ export class RefundSignerService {
     return new Server(this.cfg.rpcUrl);
   }
 
-  private assertIsSingleRefundOperation(tx: Transaction): void {
+  private assertIsSingleRefundOperation(
+    tx: Transaction,
+    expected: { contractId: string; tradeIdHex: string },
+  ): void {
     if (tx.operations.length !== 1) {
       throw new Error(
         `RefundSignerService: refused to sign — expected exactly 1 operation, got ${tx.operations.length}`,
+      );
+    }
+    const fee = Number(tx.fee);
+    if (!Number.isFinite(fee) || fee > MAX_REFUND_FEE_STROOPS) {
+      throw new Error(
+        `RefundSignerService: refused to sign — expected a fee at or under ${MAX_REFUND_FEE_STROOPS} stroops, got ${tx.fee}`,
       );
     }
     const op = tx.operations[0];
@@ -106,10 +118,32 @@ export class RefundSignerService {
         'RefundSignerService: refused to sign — expected the host function to invoke a contract',
       );
     }
-    const fnName = hostFn.invokeContract.functionName.toString();
+    const call = hostFn.invokeContract;
+    const fnName = call.functionName.toString();
     if (fnName !== 'refund') {
       throw new Error(
         `RefundSignerService: refused to sign — expected function "refund", got "${fnName}"`,
+      );
+    }
+
+    const contractId = Address.fromScAddress(call.contractAddress).toString();
+    if (contractId !== expected.contractId) {
+      throw new Error(
+        `RefundSignerService: refused to sign — expected contract ${expected.contractId}, got ${contractId}`,
+      );
+    }
+
+    const args = call.args;
+    if (args.length !== 1) {
+      throw new Error(
+        `RefundSignerService: refused to sign — expected 1 argument to refund, got ${args.length}`,
+      );
+    }
+
+    const tradeIdHex = Buffer.from(scValToNative(args[0]) as Uint8Array).toString('hex');
+    if (tradeIdHex !== expected.tradeIdHex) {
+      throw new Error(
+        `RefundSignerService: refused to sign — expected trade ${expected.tradeIdHex}, got ${tradeIdHex}`,
       );
     }
   }
