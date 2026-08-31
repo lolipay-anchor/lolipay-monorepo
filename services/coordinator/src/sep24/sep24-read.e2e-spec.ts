@@ -19,6 +19,25 @@ describe('the SEP-24 surface a wallet reads before it ever deposits', () => {
 
   const http = () => request(app.getHttpServer());
 
+  describe('GET /sep24/signing-probe', () => {
+    it('answers without a token, because the founder opens it in a plain browser', async () => {
+      const res = await http().get('/sep24/signing-probe').expect(200);
+      expect(res.headers['content-type']).toMatch(/text\/html/);
+    });
+
+    it('carries no secret and no credential, only the two public identifiers it reports', async () => {
+      const { text } = await http().get('/sep24/signing-probe');
+      expect(text).toContain(process.env.ESCROW_CONTRACT_ID);
+      expect(text).not.toMatch(/\bS[A-Z2-7]{55}\b/);
+      expect(text).not.toMatch(/eyJ[A-Za-z0-9_-]{10,}/);
+    });
+
+    it('reads the escrow and the network from config rather than hardcoding a deployment', async () => {
+      const { text } = await http().get('/sep24/signing-probe');
+      expect(text).toContain(process.env.STELLAR_NETWORK_PASSPHRASE);
+    });
+  });
+
   describe('GET /sep24/info', () => {
     it('needs no token, because a wallet reads it before authenticating', async () => {
       const res = await http().get('/sep24/info').expect(200);
