@@ -21,6 +21,8 @@ import { RegisterLpDto } from './dto/register-lp.dto';
 import { UserReputationService, UserTierName } from '../reputation/user-reputation.service';
 import { applyBps, baseUnitsToUsdc } from '../money/money';
 import { MetricsRange } from './dto/metrics-overview-query.dto';
+import { AttestorService } from '../stellar/attestor.service';
+import { contractIdFor } from '../order/order.params';
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -69,6 +71,7 @@ export class AdminService {
     private cfg: AppConfigService,
     private markets: MarketsService,
     private userReputation: UserReputationService,
+    private attestor: AttestorService,
   ) {}
 
   list(status?: LpStatus) {
@@ -430,5 +433,39 @@ export class AdminService {
         trades: g._count._all,
       })),
     };
+  }
+
+  async attestFiatPaid(orderId: string, actorAddress: string, evidence: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, flow: true, status: true, tradeId: true, contractId: true },
+    });
+    if (!order) {
+      throw new NotFoundException('no such order');
+    }
+    if (order.flow !== 'TOP_UP') {
+      throw new BadRequestException(
+        'only a top-up is attested by this anchor — on any other flow the fiat is sent by the provider, who marks it themselves',
+      );
+    }
+    if (order.status !== 'FUNDED') {
+      throw new ConflictException(
+        `this order is ${order.status}; only a FUNDED top-up can be attested`,
+      );
+    }
+
+    const contractId = contractIdFor(order, this.cfg);
+    const result = await this.attestor.attest(contractId, order.tradeId);
+
+    await recordAudit(this.prisma as any, {
+      actorAddress,
+      action: 'order.attestFiatPaid',
+      targetType: 'Order',
+      targetId: order.id,
+      before: auditPayload({ status: order.status, contractId, tradeId: order.tradeId }),
+      after: auditPayload({ evidence, submission: result.status, txHash: result.hash }),
+    });
+
+    return { orderId: order.id, submission: result.status, txHash: result.hash };
   }
 }

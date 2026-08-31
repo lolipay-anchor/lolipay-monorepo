@@ -67,7 +67,7 @@ describe('AdminService.register', () => {
   it('creates an APPROVED LP by default (admin vouches)', async () => {
     const prisma = makePrisma();
     prisma.lp.findUnique.mockResolvedValue(null);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     const lp = await svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any, 'GADMINTEST');
 
@@ -82,7 +82,7 @@ describe('AdminService.register', () => {
   it('creates a PENDING LP with no approvedAt when approve=false', async () => {
     const prisma = makePrisma();
     prisma.lp.findUnique.mockResolvedValue(null);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     const lp = await svc.register({
       stellarAddress: ADDR,
@@ -99,7 +99,7 @@ describe('AdminService.register', () => {
   it('rejects a duplicate wallet address with 409', async () => {
     const prisma = makePrisma();
     prisma.lp.findUnique.mockResolvedValue({ id: 'existing', stellarAddress: ADDR });
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     await expect(
       svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any, 'GADMINTEST'),
@@ -109,7 +109,7 @@ describe('AdminService.register', () => {
 
   it('rejects an address with an invalid checksum (regex passes but StrKey fails)', async () => {
     const prisma = makePrisma();
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     await expect(
       svc.register({ stellarAddress: 'G' + 'A'.repeat(55), contact: 'tg:@lp' } as any, 'GADMINTEST'),
@@ -121,7 +121,7 @@ describe('AdminService.register', () => {
   it('rejects a wallet with no USDC trustline (would trap payouts)', async () => {
     const prisma = makePrisma();
     prisma.lp.findUnique.mockResolvedValue(null);
-    const svc = new AdminService(prisma, makeStellar(false), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(false), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     await expect(
       svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any, 'GADMINTEST'),
@@ -143,7 +143,7 @@ describe('a window change cannot outgrow the collateral it depends on', () => {
       confirmWindowSecs: 1800,
       disputeWindowSecs: 7200,
     }));
-    const svc = new AdminService(prisma, makeStellar(true, 349_201), makeCfg(), {} as any, {} as any);
+    const svc = new AdminService(prisma, makeStellar(true, 349_201), makeCfg(), {} as any, {} as any, {} as any);
 
     await expect(
       svc.updateConfigTransactional({ payWindowSecs: 86_400 } as any, ADDR),
@@ -166,6 +166,7 @@ describe('a window change cannot outgrow the collateral it depends on', () => {
       prisma,
       makeStellar(true, new Error('rpc down')),
       makeCfg(),
+      {} as any,
       {} as any,
       {} as any,
     );
@@ -193,6 +194,7 @@ describe('a change that cannot move the floor is not held hostage to the chain',
       prisma,
       makeStellar(true, new Error('rpc down')),
       makeCfg(),
+      {} as any,
       {} as any,
       {} as any,
     );
@@ -235,7 +237,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
   it('invalidates the cached platform config once the patch has committed', async () => {
     const { prisma } = makeConfigPrisma(CURRENT);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
     const cachePrisma = makeCachePrisma();
     const cache = new ConfigCache();
 
@@ -248,7 +250,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
   it('leaves the cached platform config alone when the patch is rejected', async () => {
     const { prisma } = makeConfigPrisma(CURRENT);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
     const cachePrisma = makeCachePrisma();
     const cache = new ConfigCache();
 
@@ -263,7 +265,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
   it('rejects a spreadBps patch that no longer covers the price-deviation allowance', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     await expect(
       svc.updateConfigTransactional({ spreadBps: 100 } as any, 'GADMINTEST'),
@@ -273,7 +275,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
   it('accepts a spreadBps patch that keeps a cushion above the deviation allowance', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     await svc.updateConfigTransactional({ spreadBps: 101 } as any, 'GADMINTEST');
     expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { spreadBps: 101 } });
@@ -281,7 +283,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
   it('does not block an unrelated config change when the stored spread already violates INV-30.1', async () => {
     const { prisma, configApi } = makeConfigPrisma({ ...CURRENT, spreadBps: 50 });
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     await svc.updateConfigTransactional({ paused: true } as any, 'GADMINTEST');
     expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { paused: true } });
@@ -289,7 +291,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
   it('rejects when platformFeeBps + lpFeeBps >= 10000, using the CURRENT row for the omitted side', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     await expect(
       svc.updateConfigTransactional({ platformFeeBps: 9970 } as any, 'GADMINTEST'),
@@ -299,7 +301,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
   it('accepts a bps patch that stays under the 10000 sum', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     await svc.updateConfigTransactional({ platformFeeBps: 40 } as any, 'GADMINTEST');
     expect(configApi.update).toHaveBeenCalledWith({
@@ -310,7 +312,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
   it('rejects minOrder >= maxOrder when only minOrder is patched (compares against CURRENT maxOrder)', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     await expect(
       svc.updateConfigTransactional({ minOrder: '20000000000' } as any, 'GADMINTEST'),
@@ -320,7 +322,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
   it('rejects minOrder >= maxOrder when only maxOrder is patched (compares against CURRENT minOrder)', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     await expect(
       svc.updateConfigTransactional({ maxOrder: '1000000' } as any, 'GADMINTEST'),
@@ -330,7 +332,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
   it('rejects minOrder === maxOrder (strict less-than, not less-or-equal)', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     await expect(
       svc.updateConfigTransactional({ minOrder: '10000000000', maxOrder: '10000000000' } as any, 'GADMINTEST'),
@@ -340,7 +342,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
   it('accepts minOrder < maxOrder and writes both as BigInt', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     await svc.updateConfigTransactional({
       minOrder: '10000000',
@@ -355,7 +357,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
   it('leaves non-order fields untouched in the write payload (no stray minOrder/maxOrder when unpatched)', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
 
     await svc.updateConfigTransactional({ paused: true } as any, 'GADMINTEST');
 
@@ -367,7 +369,7 @@ describe('AdminService.listMarkets', () => {
   it('delegates straight to MarketsService.list()', async () => {
     const rows = [{ code: 'IDR' }];
     const markets = makeMarkets({ list: jest.fn().mockResolvedValue(rows) });
-    const svc = new AdminService(makePrisma(), makeStellar(), makeCfg(), markets, makeUserReputation());
+    const svc = new AdminService(makePrisma(), makeStellar(), makeCfg(), markets, makeUserReputation(), {} as any);
 
     await expect(svc.listMarkets()).resolves.toBe(rows);
     expect(markets.list).toHaveBeenCalledTimes(1);
@@ -378,7 +380,7 @@ describe('AdminService.updateMarket', () => {
   it('delegates straight to MarketsService.update with the same code and patch', async () => {
     const updated = { code: 'IDR', enabled: false };
     const markets = makeMarkets({ update: jest.fn().mockResolvedValue(updated) });
-    const svc = new AdminService(makePrisma(), makeStellar(), makeCfg(), markets, makeUserReputation());
+    const svc = new AdminService(makePrisma(), makeStellar(), makeCfg(), markets, makeUserReputation(), {} as any);
 
     const result = await svc.updateMarket('IDR', { enabled: false } as any, 'GADMINTEST');
 
@@ -390,7 +392,7 @@ describe('AdminService.updateMarket', () => {
     const markets = makeMarkets({
       update: jest.fn().mockRejectedValue(new BadRequestException('unknown market: ZZZ')),
     });
-    const svc = new AdminService(makePrisma(), makeStellar(), makeCfg(), markets, makeUserReputation());
+    const svc = new AdminService(makePrisma(), makeStellar(), makeCfg(), markets, makeUserReputation(), {} as any);
 
     await expect(svc.updateMarket('ZZZ', { enabled: true } as any, 'GADMINTEST')).rejects.toBeInstanceOf(
       BadRequestException,
@@ -440,6 +442,7 @@ describe('AdminService.getOrderRisk', () => {
       makeCfg(),
       makeMarkets(),
       makeUserReputation(),
+      {} as any,
     );
 
     await expect(svc.getOrderRisk('missing')).rejects.toBeInstanceOf(NotFoundException);
@@ -453,6 +456,7 @@ describe('AdminService.getOrderRisk', () => {
       makeCfg(),
       makeMarkets(),
       makeUserReputation(),
+      {} as any,
     );
 
     const risk = await svc.getOrderRisk('order-1');
@@ -469,6 +473,7 @@ describe('AdminService.getOrderRisk', () => {
       makeCfg(),
       makeMarkets(),
       makeUserReputation(),
+      {} as any,
     );
 
     const risk = await svc.getOrderRisk('order-1');
@@ -485,6 +490,7 @@ describe('AdminService.getOrderRisk', () => {
       makeCfg(),
       makeMarkets(),
       makeUserReputation(),
+      {} as any,
     );
 
     const risk = await svc.getOrderRisk('order-1');
@@ -503,6 +509,7 @@ describe('AdminService.getOrderRisk', () => {
       makeCfg(),
       makeMarkets(),
       makeUserReputation(),
+      {} as any,
     );
 
     const risk = await svc.getOrderRisk('order-1');
@@ -519,6 +526,7 @@ describe('AdminService.getOrderRisk', () => {
       makeCfg(),
       makeMarkets(),
       makeUserReputation(),
+      {} as any,
     );
 
     const risk = await svc.getOrderRisk('order-1');
@@ -540,6 +548,7 @@ describe('AdminService.getOrderRisk', () => {
       makeCfg(),
       makeMarkets(),
       makeUserReputation(),
+      {} as any,
     );
 
     const risk = await svc.getOrderRisk('order-1');
@@ -564,7 +573,7 @@ describe('AdminService.getOrderRisk', () => {
       }),
       dailyLimitBaseUnits: jest.fn().mockReturnValue(300_0000000n),
     });
-    const svc = new AdminService(prisma, makeStellarWithAge(null), makeCfg(), makeMarkets(), userReputation);
+    const svc = new AdminService(prisma, makeStellarWithAge(null), makeCfg(), makeMarkets(), userReputation, {} as any);
 
     const risk = await svc.getOrderRisk('order-1');
 
@@ -609,7 +618,7 @@ describe('AdminService.getMetricsOverview', () => {
   }
 
   function makeSvc(prisma: any) {
-    return new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation());
+    return new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any);
   }
 
   afterEach(() => jest.useRealTimers());

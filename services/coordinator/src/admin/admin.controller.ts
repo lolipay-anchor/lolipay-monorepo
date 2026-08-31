@@ -19,6 +19,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { AdminService, MetricsOverview, OrderRisk } from './admin.service';
 import { SetLpStatusDto } from './dto/set-lp-status.dto';
+import { AttestFiatPaidDto } from './dto/attest-fiat-paid.dto';
 import { RegisterLpDto } from './dto/register-lp.dto';
 import { UpdateConfigDto } from './dto/update-config.dto';
 import { UpdateMarketDto } from './dto/update-market.dto';
@@ -152,6 +153,16 @@ export class AdminController {
       maxOrder: cfg.maxOrder?.toString(),
     };
   }
+
+  @Post('orders/:id/attest')
+  @HttpCode(200)
+  attestFiatPaid(
+    @Req() req: any,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AttestFiatPaidDto,
+  ) {
+    return this.admin.attestFiatPaid(id, req.user.address, dto.evidence);
+  }
 }
 
 function serializeMarket(m: any): Record<string, any> {
@@ -205,4 +216,3 @@ function serializeMetricsOverview(m: MetricsOverview): Record<string, any> {
     })),
   };
 }
-

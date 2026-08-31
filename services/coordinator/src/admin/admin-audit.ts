@@ -2,12 +2,13 @@ export type AuditAction =
   | 'lp.register'
   | 'lp.setStatus'
   | 'config.update'
-  | 'market.update';
+  | 'market.update'
+  | 'order.attestFiatPaid';
 
 export interface AuditEntry {
   actorAddress: string;
   action: AuditAction;
-  targetType: 'Lp' | 'Config' | 'Market';
+  targetType: 'Lp' | 'Config' | 'Market' | 'Order';
   targetId?: string | null;
   before?: unknown;
   after?: unknown;

@@ -92,6 +92,10 @@ export class AppConfigService {
     return this.c.get<string>('REFUND_SIGNER_SECRET') || undefined;
   }
 
+  get attestorSecret(): string | undefined {
+    return this.c.get<string>('ATTESTOR_SECRET') || undefined;
+  }
+
   get minioEndpoint(): string { return this.req('MINIO_ENDPOINT'); }
   get minioPort(): number { return Number(this.c.get<string>('MINIO_PORT') ?? 9000); }
   get minioUseSSL(): boolean { return (this.c.get<string>('MINIO_USE_SSL') ?? 'false').toLowerCase() === 'true'; }
