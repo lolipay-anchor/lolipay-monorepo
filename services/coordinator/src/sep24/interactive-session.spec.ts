@@ -4,6 +4,7 @@ import {
   sessionCookieName,
   sessionCookieOptions,
 } from './interactive-session';
+import { SEP24_INTERACTIVE_TTL_SECS } from './interactive-token';
 
 const BASE = 'https://api.lolipay.app';
 
@@ -22,8 +23,8 @@ describe('the cookie that keeps the write credential out of every log', () => {
     expect(o.sameSite).toBe('lax');
   });
 
-  it('never outlives the token it carries', () => {
-    expect(sessionCookieOptions('abc').maxAge).toBe(1800 * 1000);
+  it('lives exactly as long as the token life the anchor advertises', () => {
+    expect(sessionCookieOptions('abc').maxAge).toBe(SEP24_INTERACTIVE_TTL_SECS * 1000);
   });
 
   it('refuses a name that could smuggle characters into the header', () => {

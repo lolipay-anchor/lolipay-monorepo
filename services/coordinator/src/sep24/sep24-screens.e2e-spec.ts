@@ -40,12 +40,13 @@ describe('the popup a wallet opens, and what it will not do for a stranger', () 
     return { kp, id: res.body.id, token: url.searchParams.get('token')!, jwt };
   }
 
-  it('serves the identity form as html, with no bearer token in sight', async () => {
+  it('serves the identity form as html the browser is told not to keep', async () => {
     const { id, token } = await opened();
     const res = await (await follow(app, id, token)).page().expect(200);
     expect(res.headers['content-type']).toMatch(/text\/html/);
     expect(res.text).toContain('<form');
     expect(res.text).toMatch(/first_name/);
+    expect(res.headers['cache-control']).toBe('no-store');
   });
 
   it('carries no script, because a page with none cannot be told to run one', async () => {

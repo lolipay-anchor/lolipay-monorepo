@@ -78,6 +78,7 @@ export class Sep24Controller {
   @Get('interactive/:id')
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Header('content-type', 'text/html; charset=utf-8')
+  @Header('cache-control', 'no-store')
   async interactive(
     @Req() req: any,
     @Param('id') id: string,
@@ -98,6 +99,7 @@ export class Sep24Controller {
   @Post('interactive/:id/identity')
   @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
   @Header('content-type', 'text/html; charset=utf-8')
+  @Header('cache-control', 'no-store')
   async identity(
     @Req() req: any,
     @Param('id') id: string,
@@ -122,6 +124,7 @@ export class Sep24Controller {
   @UseFilters(InteractiveErrorFilter)
   @Post('interactive/:id/amount')
   @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
+  @Header('cache-control', 'no-store')
   async amount(
     @Req() req: any,
     @Param('id') id: string,
@@ -136,6 +139,7 @@ export class Sep24Controller {
 
   @Get('more-info/:id')
   @Header('content-type', 'text/html; charset=utf-8')
+  @Header('cache-control', 'no-store')
   async moreInfo(@Param('id') id: string, @Res({ passthrough: true }) _res: Response) {
     return this.sep24.moreInfo(id);
   }
