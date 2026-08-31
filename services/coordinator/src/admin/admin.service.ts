@@ -471,6 +471,7 @@ export class AdminService {
       outcome = { submission: 'NOT_SUBMITTED', error: err instanceof Error ? err.message : String(err) };
     }
 
+    let recorded = true;
     try {
       await recordAudit(this.prisma as any, {
         actorAddress,
@@ -481,8 +482,9 @@ export class AdminService {
         after: auditPayload({ evidence, ...outcome }),
       });
     } catch (err) {
+      recorded = false;
       this.log.error(
-        `order.attestFiatPaid could not be recorded for order ${order.id} — submission=${outcome.submission} tx=${outcome.txHash ?? 'none'} trade=${order.tradeId} contract=${contractId} actor=${actorAddress}: ${err instanceof Error ? err.message : String(err)}`,
+        `order.attestFiatPaid could not be recorded for order ${order.id} — submission=${outcome.submission} tx=${outcome.txHash ?? 'none'} trade=${order.tradeId} contract=${contractId} actor=${actorAddress} evidence=${evidence}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
 
@@ -491,7 +493,9 @@ export class AdminService {
         throw refusal;
       }
       throw new InternalServerErrorException(
-        `this attestation was not submitted, and the attempt is recorded: ${outcome.error}`,
+        recorded
+          ? `this attestation was not submitted, and the attempt is recorded: ${outcome.error}`
+          : `this attestation was not submitted, and the attempt could not be recorded either: ${outcome.error}`,
       );
     }
     if (outcome.submission !== 'SUCCESS') {

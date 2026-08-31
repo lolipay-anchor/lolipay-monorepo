@@ -1,4 +1,4 @@
-import { INestApplication, ServiceUnavailableException } from '@nestjs/common';
+import { INestApplication, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
@@ -255,6 +255,7 @@ describe('the one door through which a deposit is declared paid', () => {
     const create = jest
       .spyOn(prisma.adminAudit, 'create')
       .mockRejectedValueOnce(new Error('the audit write failed'));
+    const logged = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 
     const res = await http()
       .post(`/admin/orders/${order.id}/attest`)
@@ -263,6 +264,27 @@ describe('the one door through which a deposit is declared paid', () => {
       .expect(200);
 
     expect(res.body.txHash).toBe('a11ceb0b');
+    expect(String(logged.mock.calls[0][0])).toContain('a11ceb0b');
+    expect(String(logged.mock.calls[0][0])).toContain('BCA mutation 12:04');
+    create.mockRestore();
+    logged.mockRestore();
+  });
+
+  it('says the attempt could not be recorded either, rather than claiming a trail that does not exist', async () => {
+    const order = await seedOrder();
+    const jwt = await sessionToken(app, adminKp);
+    attest.mockRejectedValueOnce(new Error('AttestorService: getTransaction poll timed out'));
+    const create = jest
+      .spyOn(prisma.adminAudit, 'create')
+      .mockRejectedValueOnce(new Error('the audit write failed'));
+
+    const res = await http()
+      .post(`/admin/orders/${order.id}/attest`)
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ evidence: 'BCA mutation 12:04' })
+      .expect(500);
+
+    expect(res.body.message).toMatch(/could not be recorded either/);
     create.mockRestore();
   });
 
