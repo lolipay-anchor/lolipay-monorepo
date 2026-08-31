@@ -95,17 +95,43 @@ describe('the attestor refuses before it signs, not after', () => {
     expect(read.readEscrowFiatAttestor).toHaveBeenCalledTimes(1);
   });
 
-  function envelopeFor(opts: { contractId?: string; tradeIdHex?: string; caller: string }) {
+  function envelopeFor(opts: {
+    contractId?: string;
+    tradeIdHex?: string;
+    caller: string;
+    withAuth?: boolean;
+  }) {
+    const contract = opts.contractId ?? CONTRACT;
+    const args = [
+      xdr.ScVal.scvBytes(Buffer.from(opts.tradeIdHex ?? TRADE, 'hex')),
+      new Address(opts.caller).toScVal(),
+    ];
+    const invocation = new xdr.InvokeContractArgs({
+      contractAddress: new Address(contract).toScAddress(),
+      functionName: 'mark_fiat_paid',
+      args,
+    });
     const src = new Account(Keypair.random().publicKey(), '1');
     const tx = new TransactionBuilder(src, { fee: '100', networkPassphrase: Networks.TESTNET })
       .addOperation(
         Operation.invokeContractFunction({
-          contract: opts.contractId ?? CONTRACT,
+          contract,
           function: 'mark_fiat_paid',
-          args: [
-            xdr.ScVal.scvBytes(Buffer.from(opts.tradeIdHex ?? TRADE, 'hex')),
-            new Address(opts.caller).toScVal(),
-          ],
+          args,
+          auth: opts.withAuth
+            ? [
+                new xdr.SorobanAuthorizationEntry({
+                  credentials: xdr.SorobanCredentials.sorobanCredentialsSourceAccount(),
+                  rootInvocation: new xdr.SorobanAuthorizedInvocation({
+                    function:
+                      xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+                        invocation,
+                      ),
+                    subInvocations: [],
+                  }),
+                }),
+              ]
+            : undefined,
         }),
       )
       .setTimeout(30)
@@ -139,7 +165,9 @@ describe('the attestor refuses before it signs, not after', () => {
   it('signs with its own key and submits, and reports what the chain said', async () => {
     const kp = Keypair.random();
     const { svc, read } = makeSvc(kp.secret(), kp.publicKey());
-    read.buildMarkFiatPaidTx.mockResolvedValue(envelopeFor({ caller: kp.publicKey() }));
+    read.buildMarkFiatPaidTx.mockResolvedValue(
+      envelopeFor({ caller: kp.publicKey(), withAuth: true }),
+    );
 
     let submitted: Transaction | undefined;
     const sendTransaction = jest.fn(async (tx: Transaction) => {
@@ -161,6 +189,7 @@ describe('the attestor refuses before it signs, not after', () => {
     expect(kp.verify(submitted!.hash(), submitted!.signatures[0].signature)).toBe(true);
 
     const op: any = submitted!.operations[0];
+    expect(op.auth).toHaveLength(1);
     const args = op.func.invokeContract.args;
     expect(Buffer.from(scValToNative(args[0]) as Uint8Array).toString('hex')).toBe(TRADE);
     expect(Address.fromScVal(args[1]).toString()).toBe(kp.publicKey());
@@ -186,17 +215,20 @@ describe('the attestor refuses before it signs, not after', () => {
     const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
     const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
 
-    await svc.attest(CONTRACT, TRADE);
+    try {
+      await svc.attest(CONTRACT, TRADE);
 
-    const signedXdr = submitted!.toXdr();
-    for (const call of [...logSpy.mock.calls, ...warnSpy.mock.calls]) {
-      for (const arg of call) {
-        expect(String(arg)).not.toContain(kp.secret());
-        expect(String(arg)).not.toContain(signedXdr);
+      const signedXdr = submitted!.toXdr();
+      for (const call of [...logSpy.mock.calls, ...warnSpy.mock.calls]) {
+        for (const arg of call) {
+          expect(String(arg)).not.toContain(kp.secret());
+          expect(String(arg)).not.toContain(signedXdr);
+        }
       }
+    } finally {
+      logSpy.mockRestore();
+      warnSpy.mockRestore();
     }
-    logSpy.mockRestore();
-    warnSpy.mockRestore();
   });
 
   it('builds against the contract and trade it was given, signing as itself', async () => {
