@@ -33,6 +33,28 @@ describe('the token from a leaked URL cannot be spent by a client that never hel
       .expect(401);
   });
 
+  it('serves a depositor who reopens the same link, rather than refusing them over a spent token', async () => {
+    const { id, token } = await opened();
+    const hop = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(302);
+    const cookie = ([] as string[])
+      .concat(hop.headers['set-cookie'] ?? [])
+      .map((c) => c.split(';')[0])
+      .join('; ');
+    const again = await http()
+      .get(`/sep24/interactive/${id}?token=notatokenanymore`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(again.text).toContain('<form');
+  });
+
+  it('still redeems a valid link for a browser whose cookie is garbage', async () => {
+    const { id, token } = await opened();
+    await http()
+      .get(`/sep24/interactive/${id}?token=${token}`)
+      .set('Cookie', `${'sep24_' + id}=rubbish`)
+      .expect(302);
+  });
+
   it('does not offer a browser with no cookie a link that lands on the same refusal', async () => {
     const { id } = await opened();
     const res = await http().get(`/sep24/interactive/${id}`).expect(401);

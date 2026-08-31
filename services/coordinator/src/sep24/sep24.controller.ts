@@ -13,6 +13,7 @@ import {
 } from './interactive-session';
 import { AppConfigService } from '../config/app-config.service';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
+import { readInteractiveToken } from './interactive-token';
 import { UseInterceptors } from '@nestjs/common';
 import type { Response } from 'express';
 import { Sep24AuthGuard } from './sep24-auth.guard';
@@ -31,6 +32,17 @@ export class Sep24Controller {
 
   private sessionToken(req: any, id: string): string {
     return readCookie(req?.headers?.cookie, sessionCookieName(id)) ?? '';
+  }
+
+  private usableSession(req: any, id: string): string {
+    const held = this.sessionToken(req, id);
+    if (!held) return '';
+    try {
+      readInteractiveToken(this.cfg, held, id);
+      return held;
+    } catch {
+      return '';
+    }
   }
 
   private refuseForeignOrigin(req: any): void {
@@ -85,6 +97,9 @@ export class Sep24Controller {
     @Query('token') token: string,
     @Res({ passthrough: true }) res: Response,
   ) {
+    const held = this.usableSession(req, id);
+    if (held) return this.sep24.renderInteractive(id, held);
+
     const fromUrl = String(token ?? '');
     if (fromUrl) {
       await this.sep24.assertReadable(id, fromUrl);
@@ -92,7 +107,7 @@ export class Sep24Controller {
       res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
       return undefined;
     }
-    return this.sep24.renderInteractive(id, this.sessionToken(req, id));
+    return this.sep24.renderInteractive(id, '');
   }
 
   @UseFilters(InteractiveErrorFilter)
