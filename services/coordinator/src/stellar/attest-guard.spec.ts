@@ -73,27 +73,78 @@ describe('what the attestor is allowed to put its signature on', () => {
 });
 
 describe('what the attestor will not put its signature near', () => {
-  it('refuses an envelope carrying authorisation entries it did not ask for', () => {
+  const REAL_TESTNET_AUTH =
+    'AAAAAAAAAAAAAAAB1J66+rY5rg7vZiJkamJk0dWUy5LPIKgdA4aDTlyOpoEAAAAObWFya19maWF0X3BhaWQAAAAAAAIAAAANAAAAID5Xti0/fMHLzSViRGiYT83tsfTxaCcMADPAhIZPUhduAAAAEgAAAAAAAAAA9XD6G5QwaYqPB22+/PxrVQ0XlzTQsbPESfRd/xBy3PkAAAAA';
+  const REAL_TESTNET_TRADE = '3e57b62d3f7cc1cbcd25624468984fcdedb1f4f168270c0033c084864f52176e';
+  const REAL_TESTNET_ATTESTOR = 'GD2XB6Q3SQYGTCUPA5W357H4NNKQ2F4XGTILDM6EJH2F37YQOLOPTPP2';
+
+  it('accepts the authorisation entry a real testnet preparation actually returns', () => {
+    const { tx } = built({ tradeIdHex: REAL_TESTNET_TRADE, caller: REAL_TESTNET_ATTESTOR });
+    (tx.operations[0] as any).auth = [
+      xdr.SorobanAuthorizationEntry.fromXdr(Buffer.from(REAL_TESTNET_AUTH, 'base64')),
+    ];
+
+    expect(() =>
+      assertIsThisTradesAttestation(tx, {
+        contractId: CONTRACT,
+        tradeIdHex: REAL_TESTNET_TRADE,
+        attestor: REAL_TESTNET_ATTESTOR,
+      }),
+    ).not.toThrow();
+  });
+
+  it('refuses an authorisation entry that is not the one this call implies', () => {
     const { tx, attestor } = built();
+    (tx.operations[0] as any).auth = [
+      xdr.SorobanAuthorizationEntry.fromXdr(Buffer.from(REAL_TESTNET_AUTH, 'base64')),
+    ];
+
+    expect(() =>
+      assertIsThisTradesAttestation(tx, { contractId: CONTRACT, tradeIdHex: TRADE, attestor }),
+    ).toThrow(/authorisation entry/i);
+  });
+
+  it('refuses the sub-invocation attack: a correct call whose authorisation smuggles a transfer', () => {
+    const { tx, attestor } = built();
+    const call = new xdr.InvokeContractArgs({
+      contractAddress: new Address(CONTRACT).toScAddress(),
+      functionName: 'mark_fiat_paid',
+      args: [xdr.ScVal.scvBytes(Buffer.from(TRADE, 'hex')), new Address(attestor).toScVal()],
+    });
     (tx.operations[0] as any).auth = [
       new xdr.SorobanAuthorizationEntry({
         credentials: xdr.SorobanCredentials.sorobanCredentialsSourceAccount(),
         rootInvocation: new xdr.SorobanAuthorizedInvocation({
-          function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
-            new xdr.InvokeContractArgs({
-              contractAddress: new Address(CONTRACT).toScAddress(),
-              functionName: 'mark_fiat_paid',
-              args: [],
+          function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(call),
+          subInvocations: [
+            new xdr.SorobanAuthorizedInvocation({
+              function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+                new xdr.InvokeContractArgs({
+                  contractAddress: new Address(OTHER_CONTRACT).toScAddress(),
+                  functionName: 'transfer',
+                  args: [],
+                }),
+              ),
+              subInvocations: [],
             }),
-          ),
-          subInvocations: [],
+          ],
         }),
       }),
     ];
 
     expect(() =>
       assertIsThisTradesAttestation(tx, { contractId: CONTRACT, tradeIdHex: TRADE, attestor }),
-    ).toThrow(/authorisation/i);
+    ).toThrow(/authorisation entry/i);
+  });
+
+  it('refuses more than one authorisation entry', () => {
+    const { tx, attestor } = built();
+    const entry = xdr.SorobanAuthorizationEntry.fromXdr(Buffer.from(REAL_TESTNET_AUTH, 'base64'));
+    (tx.operations[0] as any).auth = [entry, entry];
+
+    expect(() =>
+      assertIsThisTradesAttestation(tx, { contractId: CONTRACT, tradeIdHex: TRADE, attestor }),
+    ).toThrow(/at most 1 authorisation/i);
   });
 
   it('refuses a fee a hostile rpc inflated, because the attestor pays it', () => {

@@ -1,4 +1,4 @@
-import { Address, Transaction, scValToNative } from '@stellar/stellar-sdk';
+import { Address, Transaction, scValToNative, xdr } from '@stellar/stellar-sdk';
 
 export const MAX_ATTEST_FEE_STROOPS = 10_000_000;
 
@@ -26,12 +26,6 @@ export function assertIsThisTradesAttestation(
   const op = tx.operations[0];
   if (op.type !== 'invokeHostFunction') {
     refuse(`expected an invokeHostFunction operation, got "${op.type}"`);
-  }
-  const auth = (op as any).auth ?? [];
-  if (auth.length !== 0) {
-    refuse(
-      `expected no authorisation entries — this call needs only the envelope signature, got ${auth.length}`,
-    );
   }
   const hostFn = (op as any).func;
   if (hostFn.type !== 'hostFunctionTypeInvokeContract') {
@@ -63,4 +57,32 @@ export function assertIsThisTradesAttestation(
   if (caller !== expected.attestor) {
     refuse(`expected caller ${expected.attestor}, got ${caller}`);
   }
+
+  const auth = ((op as any).auth ?? []) as { toXdr(): Uint8Array }[];
+  if (auth.length > 1) {
+    refuse(`expected at most 1 authorisation entry, got ${auth.length}`);
+  }
+  if (auth.length === 1) {
+    const seen = Buffer.from(auth[0].toXdr()).toString('base64');
+    const permitted = Buffer.from(sourceAccountEntryFor(call).toXdr()).toString('base64');
+    if (seen !== permitted) {
+      refuse('the authorisation entry is not the one this call implies');
+    }
+  }
+}
+
+function sourceAccountEntryFor(call: any): xdr.SorobanAuthorizationEntry {
+  return new xdr.SorobanAuthorizationEntry({
+    credentials: xdr.SorobanCredentials.sorobanCredentialsSourceAccount(),
+    rootInvocation: new xdr.SorobanAuthorizedInvocation({
+      function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+        new xdr.InvokeContractArgs({
+          contractAddress: call.contractAddress,
+          functionName: call.functionName,
+          args: call.args,
+        }),
+      ),
+      subInvocations: [],
+    }),
+  });
 }
