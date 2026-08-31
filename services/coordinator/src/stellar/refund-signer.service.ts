@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Keypair, Transaction } from '@stellar/stellar-sdk';
-import { Api, Server } from '@stellar/stellar-sdk/rpc';
+import { Server } from '@stellar/stellar-sdk/rpc';
 import { AppConfigService } from '../config/app-config.service';
-import { StellarReadService, withRpcTimeout } from './stellar-read.service';
+import { StellarReadService } from './stellar-read.service';
+import { signSendAndPoll } from './sign-send-poll';
 
 const STELLAR_SECRET_RE = /^S[A-Z2-7]{55}$/;
 
@@ -73,54 +74,14 @@ export class RefundSignerService {
     kp: Keypair,
   ): Promise<{ status: string; hash: string }> {
     this.assertIsSingleRefundOperation(tx);
-
-    tx.sign(kp);
-    const server = this.createRpcServer();
-
-    let sendRes: Api.SendTransactionResponse;
-    try {
-      sendRes = await withRpcTimeout(server.sendTransaction(tx), 'sendTransaction');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`RefundSignerService: sendTransaction failed: ${msg}`);
-    }
-
-    const hash = sendRes.hash;
-    this.log.log(`refund tx submitted (hash=${hash}, status=${sendRes.status})`);
-
-    if (sendRes.status === 'ERROR') {
-      throw new Error(`RefundSignerService: sendTransaction rejected (hash=${hash})`);
-    }
-
-    const finalStatus = await this.pollTransaction(server, hash);
-    this.log.log(`refund tx finished (hash=${hash}, status=${finalStatus})`);
-    return { status: finalStatus, hash };
-  }
-
-  private async pollTransaction(server: Server, hash: string): Promise<string> {
-    const deadline = Date.now() + this.pollTimeoutMs;
-    let usedTransientRetry = false;
-
-    while (Date.now() < deadline) {
-      let res: Api.GetTransactionResponse;
-      try {
-        res = await withRpcTimeout(server.getTransaction(hash), 'getTransaction');
-      } catch (err) {
-        if (!usedTransientRetry) {
-          usedTransientRetry = true;
-          await sleep(this.pollIntervalMs);
-          continue;
-        }
-        const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(`RefundSignerService: getTransaction failed for hash=${hash}: ${msg}`);
-      }
-
-      if (res.status === Api.GetTransactionStatus.SUCCESS) return 'SUCCESS';
-      if (res.status === Api.GetTransactionStatus.FAILED) return 'FAILED';
-
-      await sleep(this.pollIntervalMs);
-    }
-    throw new Error(`RefundSignerService: getTransaction poll timed out for hash=${hash}`);
+    return signSendAndPoll(tx, kp, {
+      label: 'RefundSignerService',
+      noun: 'refund',
+      log: this.log,
+      server: this.createRpcServer(),
+      pollIntervalMs: this.pollIntervalMs,
+      pollTimeoutMs: this.pollTimeoutMs,
+    });
   }
 
   protected createRpcServer(): Server {
@@ -154,6 +115,3 @@ export class RefundSignerService {
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}

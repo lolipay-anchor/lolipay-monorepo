@@ -451,15 +451,22 @@ describe('isRetryableRpcError', () => {
 });
 
 describe('submit path is NOT wrapped in retry', () => {
-  it('refund-signer.service.ts: server.sendTransaction(tx) call site has no withRpcRetry wrapper', () => {
-    const src = fs.readFileSync(
-      path.join(__dirname, 'refund-signer.service.ts'),
-      'utf8',
-    );
-    const sendLine = src.split('\n').find((l) => l.includes('server.sendTransaction(tx)'));
+  it('sign-send-poll.ts: the one submit call site every signer shares has no withRpcRetry wrapper', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'sign-send-poll.ts'), 'utf8');
+    const sendLine = src.split('\n').find((l) => l.includes('.sendTransaction(tx)'));
     expect(sendLine).toBeDefined();
     expect(sendLine).not.toContain('withRpcRetry');
     expect(sendLine).toContain('withRpcTimeout');
+  });
+
+  it('no signer submits outside that shared path, so the no-retry rule cannot be sidestepped by a second copy', () => {
+    const others = fs
+      .readdirSync(__dirname)
+      .filter((f) => f.endsWith('.ts') && !f.endsWith('.spec.ts') && f !== 'sign-send-poll.ts');
+    const offenders = others.filter((f) =>
+      fs.readFileSync(path.join(__dirname, f), 'utf8').includes('.sendTransaction('),
+    );
+    expect(offenders).toEqual([]);
   });
 
   it('stellar-read.service.ts itself never CALLS server.sendTransaction (no submit path in this file)', () => {
