@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Keypair, Transaction } from '@stellar/stellar-sdk';
 import { Server } from '@stellar/stellar-sdk/rpc';
 import { AppConfigService } from '../config/app-config.service';
@@ -60,7 +60,9 @@ export class AttestorService {
   async attest(contractId: string, tradeIdHex: string): Promise<{ status: string; hash: string }> {
     const kp = this.resolveKeypair();
     if (!kp) {
-      throw new Error('AttestorService: attestor not configured (ATTESTOR_SECRET absent/invalid)');
+      throw new ServiceUnavailableException(
+        'this anchor cannot attest deposits right now: no attestor key is configured',
+      );
     }
     await this.assertIsTheChainsAttestor(contractId, kp.publicKey());
 

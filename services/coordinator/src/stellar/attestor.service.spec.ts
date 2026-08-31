@@ -7,6 +7,7 @@ import {
   TransactionBuilder,
   xdr,
 } from '@stellar/stellar-sdk';
+import { ServiceUnavailableException } from '@nestjs/common';
 import { AttestorService } from './attestor.service';
 
 const CONTRACT = 'CDKJ5OX2WY424DXPMYRGI2TCMTI5LFGLSLHSBKA5AODIGTS4R2TIDK3Z';
@@ -31,9 +32,10 @@ describe('the attestor refuses before it signs, not after', () => {
     expect(makeSvc('not-a-stellar-secret').svc.isConfigured).toBe(false);
   });
 
-  it('refuses to attest at all when unconfigured', async () => {
+  it('refuses to attest at all when unconfigured, as unavailable rather than broken', async () => {
     const { svc, built } = makeSvc(undefined);
-    await expect(svc.attest(CONTRACT, TRADE)).rejects.toThrow(/not configured/i);
+    await expect(svc.attest(CONTRACT, TRADE)).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(svc.attest(CONTRACT, TRADE)).rejects.toThrow(/attestor key is configured/i);
     expect(built).not.toHaveBeenCalled();
   });
 
