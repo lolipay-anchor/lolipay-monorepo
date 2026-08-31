@@ -182,6 +182,56 @@ describe('the one door through which a deposit is declared paid', () => {
     expect(attest).not.toHaveBeenCalled();
   });
 
+  it('does not report success when the chain refused the transaction', async () => {
+    const order = await seedOrder();
+    const jwt = await sessionToken(app, adminKp);
+    attest.mockResolvedValueOnce({ status: 'FAILED', hash: 'cafe1234' });
+
+    const res = await http()
+      .post(`/admin/orders/${order.id}/attest`)
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ evidence: 'BCA mutation 12:04' })
+      .expect(502);
+
+    expect(JSON.stringify(res.body)).toContain('cafe1234');
+  });
+
+  it('records the attempt even when the chain refused, because the evidence lives nowhere else', async () => {
+    const order = await seedOrder();
+    const jwt = await sessionToken(app, adminKp);
+    attest.mockResolvedValueOnce({ status: 'FAILED', hash: 'cafe5678' });
+
+    await http()
+      .post(`/admin/orders/${order.id}/attest`)
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ evidence: 'BCA mutation 12:04' })
+      .expect(502);
+
+    const row = await prisma.adminAudit.findFirst({
+      where: { targetId: order.id, action: 'order.attestFiatPaid' },
+    });
+    expect(row).toBeTruthy();
+    expect(JSON.stringify(row!.after)).toContain('FAILED');
+  });
+
+  it('records the attempt even when submitting threw, so a poll timeout leaves a trail', async () => {
+    const order = await seedOrder();
+    const jwt = await sessionToken(app, adminKp);
+    attest.mockRejectedValueOnce(new Error('AttestorService: getTransaction poll timed out'));
+
+    await http()
+      .post(`/admin/orders/${order.id}/attest`)
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ evidence: 'BCA mutation 12:04' })
+      .expect(500);
+
+    const row = await prisma.adminAudit.findFirst({
+      where: { targetId: order.id, action: 'order.attestFiatPaid' },
+    });
+    expect(row).toBeTruthy();
+    expect(JSON.stringify(row!.after)).toMatch(/poll timed out/);
+  });
+
   it('refuses an attestation with no evidence recorded', async () => {
     const order = await seedOrder();
     const jwt = await sessionToken(app, adminKp);

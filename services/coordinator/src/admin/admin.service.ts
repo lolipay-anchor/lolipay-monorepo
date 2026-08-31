@@ -1,6 +1,8 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
+  InternalServerErrorException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -455,7 +457,13 @@ export class AdminService {
     }
 
     const contractId = contractIdFor(order, this.cfg);
-    const result = await this.attestor.attest(contractId, order.tradeId);
+    let outcome: { submission: string; txHash?: string; error?: string };
+    try {
+      const result = await this.attestor.attest(contractId, order.tradeId);
+      outcome = { submission: result.status, txHash: result.hash };
+    } catch (err) {
+      outcome = { submission: 'NOT_SUBMITTED', error: err instanceof Error ? err.message : String(err) };
+    }
 
     await recordAudit(this.prisma as any, {
       actorAddress,
@@ -463,9 +471,20 @@ export class AdminService {
       targetType: 'Order',
       targetId: order.id,
       before: auditPayload({ status: order.status, contractId, tradeId: order.tradeId }),
-      after: auditPayload({ evidence, submission: result.status, txHash: result.hash }),
+      after: auditPayload({ evidence, ...outcome }),
     });
 
-    return { orderId: order.id, submission: result.status, txHash: result.hash };
+    if (outcome.submission === 'NOT_SUBMITTED') {
+      throw new InternalServerErrorException(
+        `this attestation was not submitted, and the attempt is recorded: ${outcome.error}`,
+      );
+    }
+    if (outcome.submission !== 'SUCCESS') {
+      throw new BadGatewayException(
+        `the chain refused this attestation (${outcome.submission}, tx ${outcome.txHash}) — the deposit is still FUNDED`,
+      );
+    }
+
+    return { orderId: order.id, submission: outcome.submission, txHash: outcome.txHash };
   }
 }

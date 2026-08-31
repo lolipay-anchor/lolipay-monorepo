@@ -14,7 +14,12 @@ const CONTRACT = 'CDKJ5OX2WY424DXPMYRGI2TCMTI5LFGLSLHSBKA5AODIGTS4R2TIDK3Z';
 const TRADE = 'ab'.repeat(32);
 
 function makeSvc(secret: string | undefined, onChainAttestor?: string) {
-  const cfg = { attestorSecret: secret, rpcUrl: 'https://example.invalid' } as any;
+  const cfg = {
+    attestorSecret: secret,
+    rpcUrl: 'https://example.invalid',
+    escrowContractId: CONTRACT,
+    escrowContractIdsExtra: [] as string[],
+  } as any;
   const built = jest.fn();
   const read = {
     readEscrowFiatAttestor: jest.fn(async () => onChainAttestor ?? 'GUNSET'),
@@ -52,6 +57,28 @@ describe('the attestor refuses before it signs, not after', () => {
     const kp = Keypair.random();
     const { svc } = makeSvc(kp.secret(), Keypair.random().publicKey());
     await expect(svc.attest(CONTRACT, TRADE)).rejects.toThrow(/immutable/i);
+  });
+
+  it('refuses a contract this anchor does not recognise, before it asks that contract anything', async () => {
+    const kp = Keypair.random();
+    const { svc, read } = makeSvc(kp.secret(), kp.publicKey());
+
+    await expect(
+      svc.attest('CAVJAMGCNBJQIDE6U7DHGYIWUREBOYH6PI2GWERLCF2DV6AGRAZOUBG2', TRADE),
+    ).rejects.toThrow(/not an escrow this anchor/i);
+
+    expect(read.readEscrowFiatAttestor).not.toHaveBeenCalled();
+    expect(read.buildMarkFiatPaidTx).not.toHaveBeenCalled();
+  });
+
+  it('accepts a pre-cutover escrow that is still on the allowlist', async () => {
+    const kp = Keypair.random();
+    const older = 'CAVJAMGCNBJQIDE6U7DHGYIWUREBOYH6PI2GWERLCF2DV6AGRAZOUBG2';
+    const { svc, read } = makeSvc(kp.secret(), kp.publicKey());
+    (svc as any).cfg.escrowContractIdsExtra = [older];
+    read.buildMarkFiatPaidTx.mockRejectedValue(new Error('stop here'));
+
+    await expect(svc.attest(older, TRADE)).rejects.toThrow('stop here');
   });
 
   it('asks the chain once per contract, not once per attestation', async () => {

@@ -1,4 +1,5 @@
 import { Keypair, TransactionBuilder, Networks, Account, Operation, Address, xdr } from '@stellar/stellar-sdk';
+import { MAX_ATTEST_FEE_STROOPS } from './attest-guard';
 import { assertIsThisTradesAttestation } from './attest-guard';
 
 const CONTRACT = 'CDKJ5OX2WY424DXPMYRGI2TCMTI5LFGLSLHSBKA5AODIGTS4R2TIDK3Z';
@@ -6,7 +7,7 @@ const OTHER_CONTRACT = 'CAVJAMGCNBJQIDE6U7DHGYIWUREBOYH6PI2GWERLCF2DV6AGRAZOUBG2
 const TRADE = 'ab'.repeat(32);
 const OTHER_TRADE = 'cd'.repeat(32);
 
-function built(opts: { contractId?: string; fn?: string; tradeIdHex?: string; caller?: string; extraOp?: boolean } = {}) {
+function built(opts: { contractId?: string; fn?: string; tradeIdHex?: string; caller?: string; extraOp?: boolean; fee?: number } = {}) {
   const attestor = opts.caller ?? Keypair.random().publicKey();
   const src = new Account(Keypair.random().publicKey(), '1');
   const invoke = Operation.invokeContractFunction({
@@ -17,7 +18,7 @@ function built(opts: { contractId?: string; fn?: string; tradeIdHex?: string; ca
       new Address(attestor).toScVal(),
     ],
   });
-  const b = new TransactionBuilder(src, { fee: '100', networkPassphrase: Networks.TESTNET })
+  const b = new TransactionBuilder(src, { fee: String(opts.fee ?? 100), networkPassphrase: Networks.TESTNET })
     .addOperation(invoke);
   if (opts.extraOp) b.addOperation(invoke);
   return { tx: b.setTimeout(30).build(), attestor };
@@ -68,5 +69,46 @@ describe('what the attestor is allowed to put its signature on', () => {
     expect(() =>
       assertIsThisTradesAttestation(tx, { contractId: CONTRACT, tradeIdHex: TRADE, attestor }),
     ).toThrow(/1 operation/);
+  });
+});
+
+describe('what the attestor will not put its signature near', () => {
+  it('refuses an envelope carrying authorisation entries it did not ask for', () => {
+    const { tx, attestor } = built();
+    (tx.operations[0] as any).auth = [
+      new xdr.SorobanAuthorizationEntry({
+        credentials: xdr.SorobanCredentials.sorobanCredentialsSourceAccount(),
+        rootInvocation: new xdr.SorobanAuthorizedInvocation({
+          function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+            new xdr.InvokeContractArgs({
+              contractAddress: new Address(CONTRACT).toScAddress(),
+              functionName: 'mark_fiat_paid',
+              args: [],
+            }),
+          ),
+          subInvocations: [],
+        }),
+      }),
+    ];
+
+    expect(() =>
+      assertIsThisTradesAttestation(tx, { contractId: CONTRACT, tradeIdHex: TRADE, attestor }),
+    ).toThrow(/authorisation/i);
+  });
+
+  it('refuses a fee a hostile rpc inflated, because the attestor pays it', () => {
+    const { tx, attestor } = built({ fee: MAX_ATTEST_FEE_STROOPS + 1 });
+
+    expect(() =>
+      assertIsThisTradesAttestation(tx, { contractId: CONTRACT, tradeIdHex: TRADE, attestor }),
+    ).toThrow(/fee/i);
+  });
+
+  it('still accepts the fee a normal preparation produces', () => {
+    const { tx, attestor } = built({ fee: MAX_ATTEST_FEE_STROOPS });
+
+    expect(() =>
+      assertIsThisTradesAttestation(tx, { contractId: CONTRACT, tradeIdHex: TRADE, attestor }),
+    ).not.toThrow();
   });
 });

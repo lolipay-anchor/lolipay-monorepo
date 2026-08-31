@@ -1,5 +1,7 @@
 import { Address, Transaction, scValToNative } from '@stellar/stellar-sdk';
 
+export const MAX_ATTEST_FEE_STROOPS = 10_000_000;
+
 export interface AttestationBinding {
   contractId: string;
   tradeIdHex: string;
@@ -17,9 +19,19 @@ export function assertIsThisTradesAttestation(
   if (tx.operations.length !== 1) {
     refuse(`expected exactly 1 operation, got ${tx.operations.length}`);
   }
+  const fee = Number(tx.fee);
+  if (!Number.isFinite(fee) || fee > MAX_ATTEST_FEE_STROOPS) {
+    refuse(`expected a fee at or under ${MAX_ATTEST_FEE_STROOPS} stroops, got ${tx.fee}`);
+  }
   const op = tx.operations[0];
   if (op.type !== 'invokeHostFunction') {
     refuse(`expected an invokeHostFunction operation, got "${op.type}"`);
+  }
+  const auth = (op as any).auth ?? [];
+  if (auth.length !== 0) {
+    refuse(
+      `expected no authorisation entries — this call needs only the envelope signature, got ${auth.length}`,
+    );
   }
   const hostFn = (op as any).func;
   if (hostFn.type !== 'hostFunctionTypeInvokeContract') {

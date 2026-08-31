@@ -64,6 +64,11 @@ export class AttestorService {
         'this anchor cannot attest deposits right now: no attestor key is configured',
       );
     }
+    if (![this.cfg.escrowContractId, ...this.cfg.escrowContractIdsExtra].includes(contractId)) {
+      throw new Error(
+        `AttestorService: ${contractId} is not an escrow this anchor recognises, so nothing it says about itself can be trusted`,
+      );
+    }
     await this.assertIsTheChainsAttestor(contractId, kp.publicKey());
 
     const { xdr, networkPassphrase } = await this.stellarRead.buildMarkFiatPaidTx(
