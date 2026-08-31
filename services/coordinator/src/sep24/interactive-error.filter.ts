@@ -26,11 +26,9 @@ export class InteractiveErrorFilter implements ExceptionFilter {
             : 'This deposit could not be continued.';
 
     const id = String((req.params as Record<string, string>)?.id ?? '');
-    const token = String((req.query as Record<string, string>)?.token ?? '');
-    const back =
-      id && token
-        ? `<p><a href="/sep24/interactive/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}">Back to your deposit</a></p>`
-        : '';
+    const back = id
+      ? `<p><a href="/sep24/interactive/${encodeURIComponent(id)}">Back to your deposit</a></p>`
+      : '';
 
     res
       .status(status)

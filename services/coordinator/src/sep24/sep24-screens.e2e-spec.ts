@@ -4,6 +4,16 @@ import { Keypair } from '@stellar/stellar-sdk';
 import { bootAuthApp, anchorToken } from '../auth/auth-test-helpers';
 import { PrismaService } from '../prisma/prisma.service';
 
+
+async function follow(app: INestApplication, id: string, token: string) {
+  const hop = await request(app.getHttpServer())
+    .get(`/sep24/interactive/${id}?token=${token}`)
+    .expect(302);
+  const setCookie = ([] as string[]).concat(hop.headers['set-cookie'] ?? []);
+  const cookie = setCookie.map((c) => c.split(';')[0]).join('; ');
+  return { cookie, page: () => request(app.getHttpServer()).get(`/sep24/interactive/${id}`).set('Cookie', cookie) };
+}
+
 describe('the popup a wallet opens, and what it will not do for a stranger', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -32,7 +42,7 @@ describe('the popup a wallet opens, and what it will not do for a stranger', () 
 
   it('serves the identity form as html, with no bearer token in sight', async () => {
     const { id, token } = await opened();
-    const res = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(200);
+    const res = await (await follow(app, id, token)).page().expect(200);
     expect(res.headers['content-type']).toMatch(/text\/html/);
     expect(res.text).toContain('<form');
     expect(res.text).toMatch(/first_name/);
@@ -40,7 +50,7 @@ describe('the popup a wallet opens, and what it will not do for a stranger', () 
 
   it('carries no script, because a page with none cannot be told to run one', async () => {
     const { id, token } = await opened();
-    const res = await http().get(`/sep24/interactive/${id}?token=${token}`);
+    const res = await (await follow(app, id, token)).page();
     expect(res.text).not.toMatch(/<script/i);
     expect(res.text).not.toMatch(/onclick=/i);
   });
@@ -65,8 +75,10 @@ describe('the popup a wallet opens, and what it will not do for a stranger', () 
 
   it('will not take an amount from a caller whose identity was never screened', async () => {
     const { id, token } = await opened();
+    const { cookie } = await follow(app, id, token);
     await http()
-      .post(`/sep24/interactive/${id}/amount?token=${token}`)
+      .post(`/sep24/interactive/${id}/amount`)
+      .set('Cookie', cookie)
       .send({ fiat_amount: '400000' })
       .expect(403);
   });
@@ -82,7 +94,7 @@ describe('the popup a wallet opens, and what it will not do for a stranger', () 
         rejectionReason: 'sanctions or watchlist match',
       },
     });
-    const res = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(200);
+    const res = await (await follow(app, id, token)).page().expect(200);
     expect(res.text).toMatch(/refused/i);
     expect(res.text).not.toContain('<form');
   });
@@ -98,7 +110,7 @@ describe('the popup a wallet opens, and what it will not do for a stranger', () 
         screenedAt: new Date(),
       },
     });
-    const res = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(200);
+    const res = await (await follow(app, id, token)).page().expect(200);
     expect(res.text).toMatch(/fiat_amount/);
   });
 
@@ -108,7 +120,7 @@ describe('the popup a wallet opens, and what it will not do for a stranger', () 
     await prisma.kycVerification.create({
       data: { customerRef: kp.publicKey(), personId: link!.personId, status: 'ACCEPTED' },
     });
-    const res = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(200);
+    const res = await (await follow(app, id, token)).page().expect(200);
     expect(res.text).toContain('http-equiv="refresh"');
     expect(res.text).not.toMatch(/fiat_amount/);
   });
@@ -161,7 +173,7 @@ describe('the popup and the money gate must agree, or one of them is lying', () 
       .get('/sep24/transactions?asset_code=USDC')
       .set('Authorization', `Bearer ${jwtB}`)
       .expect(200);
-    const screen = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(200);
+    const screen = await (await follow(app, id, token)).page().expect(200);
 
     const jsonSaysVerified = json.body.transactions[0].kyc_verified;
     const screenAsksForIdentity = /first_name/.test(screen.text);
@@ -182,7 +194,7 @@ describe('the popup and the money gate must agree, or one of them is lying', () 
       },
     });
     const { id, token } = await openFrom(jwtB);
-    const res = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(200);
+    const res = await (await follow(app, id, token)).page().expect(200);
     expect(res.text).not.toMatch(/fiat_amount/);
     expect(res.text).toMatch(/refused/i);
   });
@@ -196,8 +208,10 @@ describe('the popup and the money gate must agree, or one of them is lying', () 
       data: { customerRef: a.publicKey(), personId, status: 'REJECTED', rejectionReason: 'no' },
     });
     const { id, token } = await openFrom(jwtB);
+    const { cookie } = await follow(app, id, token);
     await http()
-      .post(`/sep24/interactive/${id}/amount?token=${token}`)
+      .post(`/sep24/interactive/${id}/amount`)
+      .set('Cookie', cookie)
       .send({ fiat_amount: '400000' })
       .expect(403);
   });
@@ -243,8 +257,10 @@ describe('a refusal inside the popup is a page, not a json blob', () => {
 
   it('renders an unreadable amount as html a depositor can act on', async () => {
     const { id, token } = await opened(true);
+    const { cookie } = await follow(app, id, token);
     const res = await http()
-      .post(`/sep24/interactive/${id}/amount?token=${token}`)
+      .post(`/sep24/interactive/${id}/amount`)
+      .set('Cookie', cookie)
       .send({ fiat_amount: 'abc' });
     expect(res.status).toBe(400);
     expect(res.headers['content-type']).toMatch(/text\/html/);
@@ -254,16 +270,20 @@ describe('a refusal inside the popup is a page, not a json blob', () => {
 
   it('offers a way back into the flow rather than ending it', async () => {
     const { id, token } = await opened(true);
+    const { cookie } = await follow(app, id, token);
     const res = await http()
-      .post(`/sep24/interactive/${id}/amount?token=${token}`)
+      .post(`/sep24/interactive/${id}/amount`)
+      .set('Cookie', cookie)
       .send({ fiat_amount: 'abc' });
     expect(res.text).toContain(`/sep24/interactive/${id}`);
   });
 
   it('renders a wrong-step refusal as a page too', async () => {
     const { id, token } = await opened();
+    const { cookie } = await follow(app, id, token);
     const res = await http()
-      .post(`/sep24/interactive/${id}/amount?token=${token}`)
+      .post(`/sep24/interactive/${id}/amount`)
+      .set('Cookie', cookie)
       .send({ fiat_amount: '400000' });
     expect(res.status).toBe(403);
     expect(res.headers['content-type']).toMatch(/text\/html/);
@@ -272,8 +292,10 @@ describe('a refusal inside the popup is a page, not a json blob', () => {
 
   it('escapes whatever the refusal says, because some of it comes from a vendor', async () => {
     const { id, token } = await opened(true);
+    const { cookie } = await follow(app, id, token);
     const res = await http()
-      .post(`/sep24/interactive/${id}/amount?token=${token}`)
+      .post(`/sep24/interactive/${id}/amount`)
+      .set('Cookie', cookie)
       .send({ fiat_amount: 'abc' });
     expect(res.text).not.toMatch(/<script/i);
   });
@@ -311,8 +333,10 @@ describe('handing the depositor to the vendor, and finding the way back', () => 
     const id = opened.body.id;
     const token = new URL(opened.body.url).searchParams.get('token')!;
 
+    const { cookie } = await follow(app, id, token);
     const res = await http()
-      .post(`/sep24/interactive/${id}/identity?token=${token}`)
+      .post(`/sep24/interactive/${id}/identity`)
+      .set('Cookie', cookie)
       .type('form')
       .send({
         first_name: 'Budi',
@@ -351,7 +375,7 @@ describe('handing the depositor to the vendor, and finding the way back', () => 
     const id = opened.body.id;
     const token = new URL(opened.body.url).searchParams.get('token')!;
 
-    const res = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(200);
+    const res = await (await follow(app, id, token)).page().expect(200);
     expect(res.text).toContain('https://verify.didit.me/session/abc123');
     expect(res.text).toContain('http-equiv="refresh"');
   });
@@ -422,7 +446,7 @@ describe('the screen that actually asks for money', () => {
 
   it('shows the amount, the provider details, the reference and the deadline', async () => {
     const { id, token } = await fundedDeposit('BCA 1234567890 a/n Budi');
-    const res = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(200);
+    const res = await (await follow(app, id, token)).page().expect(200);
     expect(res.text).toContain('BCA 1234567890 a/n Budi');
     expect(res.text).toContain(`LP-REF-${id.slice(0, 8)}`);
     expect(res.text).toContain('4.000.000');
@@ -431,14 +455,97 @@ describe('the screen that actually asks for money', () => {
 
   it('escapes provider details, which are free text somebody else controls', async () => {
     const { id, token } = await fundedDeposit('<script>alert(1)</script>');
-    const res = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(200);
+    const res = await (await follow(app, id, token)).page().expect(200);
     expect(res.text).not.toMatch(/<script>alert/);
     expect(res.text).toContain('&lt;script&gt;');
   });
 
   it('keeps refreshing, because the escrow settles while the page is open', async () => {
     const { id, token } = await fundedDeposit('BCA 1');
-    const res = await http().get(`/sep24/interactive/${id}?token=${token}`);
+    const res = await (await follow(app, id, token)).page();
     expect(res.text).toContain('http-equiv="refresh"');
+  });
+});
+
+describe('the write credential stays out of every log a URL lands in', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    app = await bootAuthApp();
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  const http = () => request(app.getHttpServer());
+
+  async function opened() {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const res = await http()
+      .post('/sep24/transactions/deposit/interactive')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+    return { id: res.body.id, token: new URL(res.body.url).searchParams.get('token')! };
+  }
+
+  it('takes the token out of the address bar on arrival', async () => {
+    const { id, token } = await opened();
+    const hop = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(302);
+    expect(hop.headers.location).toBe(`/sep24/interactive/${id}`);
+    expect(hop.headers.location).not.toContain('token');
+  });
+
+  it('hands it over in a cookie no script can read and no cross-site post can carry', async () => {
+    const { id, token } = await opened();
+    const hop = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(302);
+    const set = ([] as string[]).concat(hop.headers['set-cookie'] ?? []).join('|');
+    expect(set).toContain('HttpOnly');
+    expect(set).toContain('Secure');
+    expect(set).toMatch(/SameSite=Lax/i);
+    expect(set).toContain(`Path=/sep24/interactive/${id}`);
+  });
+
+  it('refuses a write that arrives from somebody else s page', async () => {
+    const { id, token } = await opened();
+    const { cookie } = await follow(app, id, token);
+    await http()
+      .post(`/sep24/interactive/${id}/amount`)
+      .set('Cookie', cookie)
+      .set('Origin', 'https://evil.example')
+      .send({ fiat_amount: '400000' })
+      .expect(403);
+  });
+
+  it('refuses an identity submission that arrives from somebody else s page', async () => {
+    const { id, token } = await opened();
+    const { cookie } = await follow(app, id, token);
+    await http()
+      .post(`/sep24/interactive/${id}/identity`)
+      .set('Cookie', cookie)
+      .set('Origin', 'https://evil.example')
+      .send({ first_name: 'Budi', last_name: 'Santoso', email_address: 'budi@example.com' })
+      .expect(403);
+  });
+
+  it('refuses a write carrying only a token in the query string, which is what a log leak gives an attacker', async () => {
+    const { id, token } = await opened();
+    await http()
+      .post(`/sep24/interactive/${id}/amount?token=${token}`)
+      .send({ fiat_amount: '400000' })
+      .expect(401);
+  });
+
+  it('serves the page from the cookie alone, with no token anywhere in the request', async () => {
+    const { id, token } = await opened();
+    const { page } = await follow(app, id, token);
+    const res = await page().expect(200);
+    expect(res.text).toContain('<form');
+  });
+
+  it('refuses the bare page to a browser holding no cookie', async () => {
+    const { id } = await opened();
+    await http().get(`/sep24/interactive/${id}`).expect(401);
   });
 });

@@ -5,6 +5,13 @@ import { Throttle } from '@nestjs/throttler';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { UseFilters } from '@nestjs/common';
 import { InteractiveErrorFilter } from './interactive-error.filter';
+import {
+  originIsForeign,
+  readCookie,
+  sessionCookieName,
+  sessionCookieOptions,
+} from './interactive-session';
+import { AppConfigService } from '../config/app-config.service';
 import { UseInterceptors } from '@nestjs/common';
 import type { Response } from 'express';
 import { Sep24AuthGuard } from './sep24-auth.guard';
@@ -18,7 +25,21 @@ export class Sep24Controller {
   constructor(
     private sep24: Sep24Service,
     private people: PersonService,
+    private cfg: AppConfigService,
   ) {}
+
+  private sessionToken(req: any, id: string, fromBody?: unknown): string {
+    const cookie = readCookie(req?.headers?.cookie, sessionCookieName(id));
+    if (cookie) return cookie;
+    if (typeof fromBody === 'string' && fromBody.length > 0) return fromBody;
+    return '';
+  }
+
+  private refuseForeignOrigin(req: any): void {
+    if (originIsForeign(req?.headers?.origin, this.cfg.anchorBaseUrl)) {
+      throw new ForbiddenException('this request did not come from the page this anchor served');
+    }
+  }
 
   @Post('transactions/deposit/interactive')
   @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
@@ -59,8 +80,20 @@ export class Sep24Controller {
   @Get('interactive/:id')
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Header('content-type', 'text/html; charset=utf-8')
-  async interactive(@Param('id') id: string, @Query('token') token: string) {
-    return this.sep24.renderInteractive(id, String(token ?? ''));
+  async interactive(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Query('token') token: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const fromUrl = String(token ?? '');
+    if (fromUrl) {
+      await this.sep24.assertReadable(id, fromUrl);
+      res.cookie(sessionCookieName(id), fromUrl, sessionCookieOptions(id));
+      res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
+      return undefined;
+    }
+    return this.sep24.renderInteractive(id, this.sessionToken(req, id));
   }
 
   @UseFilters(InteractiveErrorFilter)
@@ -68,18 +101,20 @@ export class Sep24Controller {
   @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
   @Header('content-type', 'text/html; charset=utf-8')
   async identity(
+    @Req() req: any,
     @Param('id') id: string,
-    @Query('token') token: string,
     @Body() body: Record<string, unknown>,
     @Res({ passthrough: true }) res: Response,
   ) {
+    this.refuseForeignOrigin(req);
+    const token = this.sessionToken(req, id, body?.token);
     const fields: Record<string, string> = {};
     for (const [k, v] of Object.entries(body ?? {})) {
       if (typeof v === 'string') fields[k] = v;
     }
-    const url = await this.sep24.submitIdentity(id, String(token ?? ''), fields);
+    const url = await this.sep24.submitIdentity(id, token, fields);
     if (!url) {
-      res.redirect(302, this.sep24.interactiveUrl(id, String(token ?? '')));
+      res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
       return undefined;
     }
     return this.sep24.verificationHandoff(url);
@@ -89,13 +124,15 @@ export class Sep24Controller {
   @Post('interactive/:id/amount')
   @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
   async amount(
+    @Req() req: any,
     @Param('id') id: string,
-    @Query('token') token: string,
     @Body() body: Record<string, unknown>,
     @Res({ passthrough: true }) res: Response,
   ) {
-    await this.sep24.submitAmount(id, String(token ?? ''), body.fiat_amount);
-    res.redirect(302, this.sep24.interactiveUrl(id, String(token ?? '')));
+    this.refuseForeignOrigin(req);
+    const token = this.sessionToken(req, id, body?.token);
+    await this.sep24.submitAmount(id, token, body.fiat_amount);
+    res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
   }
 
   @Get('more-info/:id')
