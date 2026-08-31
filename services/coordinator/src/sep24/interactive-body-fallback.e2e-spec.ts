@@ -1,0 +1,49 @@
+import { INestApplication } from '@nestjs/common';
+import request from 'supertest';
+import { Keypair } from '@stellar/stellar-sdk';
+import { bootAuthApp, anchorToken } from '../auth/auth-test-helpers';
+
+describe('the token from a leaked URL cannot be spent by a client that never held the cookie', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    app = await bootAuthApp();
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  const http = () => request(app.getHttpServer());
+
+  async function opened() {
+    const jwt = await anchorToken(app, Keypair.random());
+    const res = await http()
+      .post('/sep24/transactions/deposit/interactive')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+    return { id: res.body.id, token: new URL(res.body.url).searchParams.get('token')! };
+  }
+
+  it('refuses an amount carried in the body with no cookie, which is all a log line gives an attacker', async () => {
+    const { id, token } = await opened();
+    await http()
+      .post(`/sep24/interactive/${id}/amount`)
+      .send({ token, fiat_amount: '400000' })
+      .expect(401);
+  });
+
+  it('does not offer a browser with no cookie a link that lands on the same refusal', async () => {
+    const { id } = await opened();
+    const res = await http().get(`/sep24/interactive/${id}`).expect(401);
+    expect(res.text).not.toContain(`href="/sep24/interactive/${id}"`);
+  });
+
+  it('refuses an identity carried in the body with no cookie', async () => {
+    const { id, token } = await opened();
+    await http()
+      .post(`/sep24/interactive/${id}/identity`)
+      .send({ token, first_name: 'Budi', last_name: 'Santoso', email_address: 'budi@example.com' })
+      .expect(401);
+  });
+});

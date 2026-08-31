@@ -215,10 +215,6 @@ export class Sep24Service {
     return { row, kyc, account, screenedElsewhere, refusedAnywhere };
   }
 
-  interactiveUrl(id: string, token: string): string {
-    return `${this.cfg.anchorBaseUrl}/sep24/interactive/${id}?token=${encodeURIComponent(token)}`;
-  }
-
   private formAction(id: string, suffix: string): string {
     return `/sep24/interactive/${encodeURIComponent(id)}${suffix}`;
   }
@@ -232,7 +228,6 @@ export class Sep24Service {
     const { row, kyc } = state;
     const screen = this.screenFor(row, kyc, state);
     const post = (suffix: string) => this.formAction(id, suffix);
-    const carry = `<input type="hidden" name="token" value="${escapeHtml(token)}">`;
 
     if (screen === 'refused') {
       return page('Verification refused', `<p>${escapeHtml((state.refusedAnywhere as any)?.rejectionReason ?? kyc?.rejectionReason ?? 'This identity was refused.')}</p>`);
@@ -243,7 +238,7 @@ export class Sep24Service {
       ).join('');
       return page(
         'Verify your identity',
-        `<form method="post" action="${escapeHtml(post('/identity'))}">${fields}${carry}<button type="submit">Continue</button></form>`,
+        `<form method="post" action="${escapeHtml(post('/identity'))}">${fields}<button type="submit">Continue</button></form>`,
       );
     }
     if (screen === 'waiting_on_identity') {
@@ -259,7 +254,7 @@ export class Sep24Service {
     if (screen === 'amount') {
       return page(
         'How much would you like to deposit?',
-        `<form method="post" action="${escapeHtml(post('/amount'))}"><p><label>Amount in IDR<br><input name="fiat_amount" inputmode="numeric" required></label></p>${carry}<button type="submit">Continue</button></form>`,
+        `<form method="post" action="${escapeHtml(post('/amount'))}"><p><label>Amount in IDR<br><input name="fiat_amount" inputmode="numeric" required></label></p><button type="submit">Continue</button></form>`,
       );
     }
     if (screen === 'waiting_on_escrow') {

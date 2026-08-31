@@ -12,6 +12,7 @@ import {
   sessionCookieOptions,
 } from './interactive-session';
 import { AppConfigService } from '../config/app-config.service';
+import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
 import { UseInterceptors } from '@nestjs/common';
 import type { Response } from 'express';
 import { Sep24AuthGuard } from './sep24-auth.guard';
@@ -28,11 +29,8 @@ export class Sep24Controller {
     private cfg: AppConfigService,
   ) {}
 
-  private sessionToken(req: any, id: string, fromBody?: unknown): string {
-    const cookie = readCookie(req?.headers?.cookie, sessionCookieName(id));
-    if (cookie) return cookie;
-    if (typeof fromBody === 'string' && fromBody.length > 0) return fromBody;
-    return '';
+  private sessionToken(req: any, id: string): string {
+    return readCookie(req?.headers?.cookie, sessionCookieName(id)) ?? '';
   }
 
   private refuseForeignOrigin(req: any): void {
@@ -107,10 +105,11 @@ export class Sep24Controller {
     @Res({ passthrough: true }) res: Response,
   ) {
     this.refuseForeignOrigin(req);
-    const token = this.sessionToken(req, id, body?.token);
+    const token = this.sessionToken(req, id);
     const fields: Record<string, string> = {};
-    for (const [k, v] of Object.entries(body ?? {})) {
-      if (typeof v === 'string') fields[k] = v;
+    for (const f of REQUIRED_KYC_FIELDS) {
+      const v = (body ?? {})[f];
+      if (typeof v === 'string') fields[f] = v;
     }
     const url = await this.sep24.submitIdentity(id, token, fields);
     if (!url) {
@@ -130,7 +129,7 @@ export class Sep24Controller {
     @Res({ passthrough: true }) res: Response,
   ) {
     this.refuseForeignOrigin(req);
-    const token = this.sessionToken(req, id, body?.token);
+    const token = this.sessionToken(req, id);
     await this.sep24.submitAmount(id, token, body.fiat_amount);
     res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
   }

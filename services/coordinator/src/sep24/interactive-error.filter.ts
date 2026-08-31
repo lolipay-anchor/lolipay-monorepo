@@ -26,9 +26,10 @@ export class InteractiveErrorFilter implements ExceptionFilter {
             : 'This deposit could not be continued.';
 
     const id = String((req.params as Record<string, string>)?.id ?? '');
-    const back = id
-      ? `<p><a href="/sep24/interactive/${encodeURIComponent(id)}">Back to your deposit</a></p>`
-      : '';
+    const back =
+      id && status !== HttpStatus.UNAUTHORIZED
+        ? `<p><a href="/sep24/interactive/${encodeURIComponent(id)}">Back to your deposit</a></p>`
+        : '';
 
     res
       .status(status)

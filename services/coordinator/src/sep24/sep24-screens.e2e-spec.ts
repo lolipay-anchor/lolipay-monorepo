@@ -529,6 +529,25 @@ describe('the write credential stays out of every log a URL lands in', () => {
       .expect(403);
   });
 
+  it('admits a write from this anchor s own page, so a wrong base url cannot lock every browser out', async () => {
+    const { id, token } = await opened();
+    const { cookie } = await follow(app, id, token);
+    const res = await http()
+      .post(`/sep24/interactive/${id}/identity`)
+      .set('Cookie', cookie)
+      .set('Origin', 'https://api.lolipay.app')
+      .send({ first_name: 'Budi', last_name: 'Santoso', email_address: 'budi@example.com' });
+    expect(res.status).not.toBe(403);
+  });
+
+  it('never puts the credential back into the page it serves', async () => {
+    const { id, token } = await opened();
+    const { page } = await follow(app, id, token);
+    const res = await page().expect(200);
+    expect(res.text).not.toContain(token);
+    expect(res.text).not.toContain('name="token"');
+  });
+
   it('refuses a write carrying only a token in the query string, which is what a log leak gives an attacker', async () => {
     const { id, token } = await opened();
     await http()

@@ -20,7 +20,11 @@ export function readCookie(header: string | undefined, name: string): string | u
     const at = part.indexOf('=');
     if (at < 0) continue;
     if (part.slice(0, at).trim() !== name) continue;
-    return decodeURIComponent(part.slice(at + 1).trim());
+    try {
+      return decodeURIComponent(part.slice(at + 1).trim());
+    } catch {
+      return undefined;
+    }
   }
   return undefined;
 }
