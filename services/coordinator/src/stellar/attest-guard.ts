@@ -8,70 +8,69 @@ export interface AttestationBinding {
   attestor: string;
 }
 
+const refusal = (why: string): Error =>
+  new Error(`AttestorService: refused to sign — ${why}`);
+
 export function assertIsThisTradesAttestation(
   tx: Transaction,
   expected: AttestationBinding,
 ): void {
-  const refuse = (why: string): never => {
-    throw new Error(`AttestorService: refused to sign — ${why}`);
-  };
-
   if (tx.operations.length !== 1) {
-    refuse(`expected exactly 1 operation, got ${tx.operations.length}`);
+    throw refusal(`expected exactly 1 operation, got ${tx.operations.length}`);
   }
   const fee = Number(tx.fee);
   if (!Number.isFinite(fee) || fee > MAX_ATTEST_FEE_STROOPS) {
-    refuse(`expected a fee at or under ${MAX_ATTEST_FEE_STROOPS} stroops, got ${tx.fee}`);
+    throw refusal(`expected a fee at or under ${MAX_ATTEST_FEE_STROOPS} stroops, got ${tx.fee}`);
   }
   const op = tx.operations[0];
   if (op.type !== 'invokeHostFunction') {
-    refuse(`expected an invokeHostFunction operation, got "${op.type}"`);
+    throw refusal(`expected an invokeHostFunction operation, got "${op.type}"`);
   }
-  const hostFn = (op as any).func;
+  const hostFn = op.func;
   if (hostFn.type !== 'hostFunctionTypeInvokeContract') {
-    refuse('expected the host function to invoke a contract');
+    throw refusal('expected the host function to invoke a contract');
   }
 
   const call = hostFn.invokeContract;
   const fnName = call.functionName.toString();
   if (fnName !== 'mark_fiat_paid') {
-    refuse(`expected function "mark_fiat_paid", got "${fnName}"`);
+    throw refusal(`expected function "mark_fiat_paid", got "${fnName}"`);
   }
 
   const contractId = Address.fromScAddress(call.contractAddress).toString();
   if (contractId !== expected.contractId) {
-    refuse(`expected contract ${expected.contractId}, got ${contractId}`);
+    throw refusal(`expected contract ${expected.contractId}, got ${contractId}`);
   }
 
   const args = call.args;
   if (args.length !== 2) {
-    refuse(`expected 2 arguments to mark_fiat_paid, got ${args.length}`);
+    throw refusal(`expected 2 arguments to mark_fiat_paid, got ${args.length}`);
   }
 
   const tradeIdHex = Buffer.from(scValToNative(args[0]) as Uint8Array).toString('hex');
   if (tradeIdHex !== expected.tradeIdHex) {
-    refuse(`expected trade ${expected.tradeIdHex}, got ${tradeIdHex}`);
+    throw refusal(`expected trade ${expected.tradeIdHex}, got ${tradeIdHex}`);
   }
 
   const caller = Address.fromScVal(args[1]).toString();
   if (caller !== expected.attestor) {
-    refuse(`expected caller ${expected.attestor}, got ${caller}`);
+    throw refusal(`expected caller ${expected.attestor}, got ${caller}`);
   }
 
-  const auth = ((op as any).auth ?? []) as { toXdr(): Uint8Array }[];
+  const auth = op.auth ?? [];
   if (auth.length > 1) {
-    refuse(`expected at most 1 authorisation entry, got ${auth.length}`);
+    throw refusal(`expected at most 1 authorisation entry, got ${auth.length}`);
   }
   if (auth.length === 1) {
     const seen = Buffer.from(auth[0].toXdr()).toString('base64');
     const permitted = Buffer.from(sourceAccountEntryFor(call).toXdr()).toString('base64');
     if (seen !== permitted) {
-      refuse('the authorisation entry is not the one this call implies');
+      throw refusal('the authorisation entry is not the one this call implies');
     }
   }
 }
 
-function sourceAccountEntryFor(call: any): xdr.SorobanAuthorizationEntry {
+function sourceAccountEntryFor(call: xdr.InvokeContractArgs): xdr.SorobanAuthorizationEntry {
   return new xdr.SorobanAuthorizationEntry({
     credentials: xdr.SorobanCredentials.sorobanCredentialsSourceAccount(),
     rootInvocation: new xdr.SorobanAuthorizedInvocation({

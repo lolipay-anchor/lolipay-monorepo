@@ -28,10 +28,6 @@ export class AttestorService {
     return this.resolveKeypair() !== null;
   }
 
-  get publicKey(): string | null {
-    return this.resolveKeypair()?.publicKey() ?? null;
-  }
-
   private resolveKeypair(): Keypair | null {
     if (this.keypairResolved) return this.cachedKeypair;
     this.keypairResolved = true;
