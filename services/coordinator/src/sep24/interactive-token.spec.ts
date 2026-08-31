@@ -1,4 +1,9 @@
-import { mintInteractiveToken, readInteractiveToken, SEP24_INTERACTIVE_AUDIENCE } from './interactive-token';
+import {
+  mintInteractiveToken,
+  readInteractiveToken,
+  SEP24_INTERACTIVE_AUDIENCE,
+  SEP24_INTERACTIVE_TTL_SECS,
+} from './interactive-token';
 import jwt from 'jsonwebtoken';
 
 const SIGNING_KEY = ['unit', 'test', 'signing', 'key', '0123456789'].join('-');
@@ -86,5 +91,18 @@ describe('the token that makes an interactive URL authority, not just an identif
     for (const junk of ['', 'not.a.token', 'a.b.c']) {
       expect(() => readInteractiveToken(cfg, junk, TX)).toThrow();
     }
+  });
+});
+
+describe('the thirty minutes ADR 0030 promises is enforced by something', () => {
+  it('mints a token that expires, and expires when the ADR says', () => {
+    const decoded = jwt.decode(mintInteractiveToken(cfg, TX, ACCT)) as any;
+    expect(decoded.exp).toBeDefined();
+    expect(decoded.iat).toBeDefined();
+    expect(decoded.exp - decoded.iat).toBe(SEP24_INTERACTIVE_TTL_SECS);
+  });
+
+  it('keeps that window at thirty minutes, because a URL in a browser history is the bearer', () => {
+    expect(SEP24_INTERACTIVE_TTL_SECS).toBe(1800);
   });
 });

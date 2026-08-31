@@ -45,3 +45,9 @@ export function page(title: string, body: string, refreshSecs?: number): string 
     '</body></html>',
   ].join('');
 }
+
+export function formatFiat(amount: unknown): string {
+  const digits = String(amount ?? '').replace(/[^0-9]/g, '');
+  if (digits.length === 0) return '';
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}

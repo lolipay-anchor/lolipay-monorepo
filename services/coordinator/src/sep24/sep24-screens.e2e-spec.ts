@@ -356,3 +356,89 @@ describe('handing the depositor to the vendor, and finding the way back', () => 
     expect(res.text).toContain('http-equiv="refresh"');
   });
 });
+
+describe('the screen that actually asks for money', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+
+  beforeAll(async () => {
+    app = await bootAuthApp();
+    prisma = app.get(PrismaService);
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  const http = () => request(app.getHttpServer());
+
+  async function fundedDeposit(paymentDetails: string) {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const link = await prisma.walletLink.findUnique({
+      where: { stellarAddress: kp.publicKey() },
+    });
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: kp.publicKey(),
+        personId: link!.personId,
+        status: 'ACCEPTED',
+        screenedAt: new Date(),
+      },
+    });
+    const opened = await http()
+      .post('/sep24/transactions/deposit/interactive')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+    const id = opened.body.id;
+    const token = new URL(opened.body.url).searchParams.get('token')!;
+
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
+    const order = await prisma.order.create({
+      data: {
+        tradeId: `t-${id}`.slice(0, 64),
+        userAddress: kp.publicKey(),
+        personId: link!.personId,
+        flow: 'TOP_UP',
+        rail: 'BANK',
+        usdcAmount: 25_0000000n,
+        fiatAmount: 4_000_000n,
+        rateSnapshot: '16000',
+        platformFeeBps: 30,
+        lpFeeBps: 120,
+        platformWallet: 'GPLATFORM',
+        status: 'FUNDED',
+        payDeadline: deadline,
+        confirmDeadline: deadline,
+        disputeDeadline: deadline,
+        expiresAt: new Date(Date.now() + 1_800_000),
+        lpPaymentDetails: paymentDetails,
+        ref: `LP-REF-${id.slice(0, 8)}`,
+      },
+    });
+    await prisma.sep24Transaction.update({ where: { id }, data: { orderId: order.id } });
+    return { id, token };
+  }
+
+  it('shows the amount, the provider details, the reference and the deadline', async () => {
+    const { id, token } = await fundedDeposit('BCA 1234567890 a/n Budi');
+    const res = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(200);
+    expect(res.text).toContain('BCA 1234567890 a/n Budi');
+    expect(res.text).toContain(`LP-REF-${id.slice(0, 8)}`);
+    expect(res.text).toContain('4.000.000');
+    expect(res.text).toMatch(/before 20\d\d-/);
+  });
+
+  it('escapes provider details, which are free text somebody else controls', async () => {
+    const { id, token } = await fundedDeposit('<script>alert(1)</script>');
+    const res = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(200);
+    expect(res.text).not.toMatch(/<script>alert/);
+    expect(res.text).toContain('&lt;script&gt;');
+  });
+
+  it('keeps refreshing, because the escrow settles while the page is open', async () => {
+    const { id, token } = await fundedDeposit('BCA 1');
+    const res = await http().get(`/sep24/interactive/${id}?token=${token}`);
+    expect(res.text).toContain('http-equiv="refresh"');
+  });
+});

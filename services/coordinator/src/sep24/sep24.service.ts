@@ -15,7 +15,7 @@ import { AppConfigService } from '../config/app-config.service';
 import { baseUnitsToUsdc } from '../money/money';
 import { serializeSep24, Sep24Record, Sep24TransactionJson } from './sep24-transaction';
 import { mintInteractiveToken, readInteractiveToken } from './interactive-token';
-import { escapeHtml, interactiveScreen, page } from './interactive-page';
+import { escapeHtml, formatFiat, interactiveScreen, page } from './interactive-page';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
 import { sep24Status } from './sep24-status';
 import {
@@ -192,7 +192,11 @@ export class Sep24Service {
     const { account } = readInteractiveToken(this.cfg, token, id);
     const row = await this.prisma.sep24Transaction.findUnique({
       where: { id },
-      include: { order: { select: { ...ORDER_FIELDS, id: true, lpPaymentDetails: true, expiresAt: true } } },
+      include: {
+        order: {
+          select: { ...ORDER_FIELDS, id: true, lpPaymentDetails: true, expiresAt: true, payDeadline: true },
+        },
+      },
     });
     if (!row || row.stellarAccount !== account) {
       throw new NotFoundException('this anchor holds no such transaction');
@@ -258,12 +262,16 @@ export class Sep24Service {
     }
     if (screen === 'instructions') {
       const o = row.order as any;
+      const due = o.payDeadline ? new Date(Number(o.payDeadline) * 1000).toISOString() : null;
       return page(
         'Send your rupiah',
         [
-          `<p>Send <strong>${escapeHtml(o.fiatAmount)}</strong> ${escapeHtml(o.fiatCurrency)} to:</p>`,
+          `<p>Send <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to:</p>`,
           `<pre>${escapeHtml(o.lpPaymentDetails ?? 'your provider will be shown here')}</pre>`,
           `<p>Reference: <strong>${escapeHtml(o.ref ?? '')}</strong></p>`,
+          due
+            ? `<p><strong>Send it before ${escapeHtml(due)}.</strong> After that the escrow returns the USDC to the provider and your transfer cannot be matched.</p>`
+            : '',
           '<p>You may close this window. Your wallet will show the deposit once it settles.</p>',
         ].join(''),
         30,
@@ -331,8 +339,12 @@ export class Sep24Service {
       data: { orderId },
     });
     if (linked.count !== 1) {
+      const undone = await this.prisma.order.updateMany({
+        where: { id: orderId, status: { in: ['CREATED', 'MATCHED'] } },
+        data: { status: 'CANCELLED' },
+      });
       this.log.warn(
-        `a deposit order was created and could not be bound to its SEP-24 transaction ${id}; it will expire on its own`,
+        `a second deposit order was opened for SEP-24 transaction ${id} and has been cancelled (${undone.count} row) rather than left holding provider capacity`,
       );
       throw new ConflictException('this deposit was already opened');
     }
