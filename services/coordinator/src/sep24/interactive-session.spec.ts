@@ -1,6 +1,6 @@
 import {
   originIsForeign,
-  readCookie,
+  readCookies,
   sessionCookieName,
   sessionCookieOptions,
 } from './interactive-session';
@@ -34,17 +34,17 @@ describe('the cookie that keeps the write credential out of every log', () => {
 
 describe('reading one cookie out of a header nobody sanitised', () => {
   it('finds the value it was asked for', () => {
-    expect(readCookie('other=1; sep24_abc=xyz; more=2', 'sep24_abc')).toBe('xyz');
+    expect(readCookies('other=1; sep24_abc=xyz; more=2', 'sep24_abc')).toEqual(['xyz']);
   });
 
   it('does not match a name that merely ends the same way', () => {
-    expect(readCookie('nope_sep24_abc=xyz', 'sep24_abc')).toBeUndefined();
+    expect(readCookies('nope_sep24_abc=xyz', 'sep24_abc')).toEqual([]);
   });
 
   it('answers nothing rather than guessing when there is no header', () => {
-    expect(readCookie(undefined, 'sep24_abc')).toBeUndefined();
-    expect(readCookie('', 'sep24_abc')).toBeUndefined();
-    expect(readCookie('malformed', 'sep24_abc')).toBeUndefined();
+    expect(readCookies(undefined, 'sep24_abc')).toEqual([]);
+    expect(readCookies('', 'sep24_abc')).toEqual([]);
+    expect(readCookies('malformed', 'sep24_abc')).toEqual([]);
   });
 });
 
@@ -65,5 +65,18 @@ describe('an origin the anchor did not serve cannot post into the flow', () => {
     'not a url',
   ])('refuses %s', (origin) => {
     expect(originIsForeign(origin, BASE)).toBe(true);
+  });
+});
+
+describe('a cookie another host planted cannot hide the real one', () => {
+  it('returns every value under the name, in the order the browser sent them', () => {
+    expect(readCookies('sep24_abc=planted; sep24_abc=real', 'sep24_abc')).toEqual([
+      'planted',
+      'real',
+    ]);
+  });
+
+  it('keeps scanning past a value that cannot be decoded', () => {
+    expect(readCookies('sep24_abc=%; sep24_abc=real', 'sep24_abc')).toEqual(['real']);
   });
 });

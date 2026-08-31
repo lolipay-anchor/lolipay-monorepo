@@ -16,6 +16,18 @@ describe('the token from a leaked URL cannot be spent by a client that never hel
 
   const http = () => request(app.getHttpServer());
 
+  async function follow(_app: INestApplication, id: string, token: string) {
+    const hop = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(302);
+    const cookie = ([] as string[])
+      .concat(hop.headers['set-cookie'] ?? [])
+      .map((c) => c.split(';')[0])
+      .join('; ');
+    return {
+      cookie,
+      page: () => http().get(`/sep24/interactive/${id}`).set('Cookie', cookie),
+    };
+  }
+
   async function opened() {
     const jwt = await anchorToken(app, Keypair.random());
     const res = await http()
@@ -74,6 +86,40 @@ describe('the token from a leaked URL cannot be spent by a client that never hel
       .get(`/sep24/interactive/${id}?token=${token}`)
       .set('Cookie', `${'sep24_' + id}=rubbish`)
       .expect(302);
+  });
+
+  it('refuses the link token presented as a session cookie, which is what a log line actually gives an attacker', async () => {
+    const { id, token } = await opened();
+    await http()
+      .post(`/sep24/interactive/${id}/amount`)
+      .set('Cookie', `sep24_${id}=${token}`)
+      .send({ fiat_amount: '400000' })
+      .expect(401);
+    await http()
+      .post(`/sep24/interactive/${id}/identity`)
+      .set('Cookie', `sep24_${id}=${token}`)
+      .send({ first_name: 'Budi', last_name: 'Santoso', email_address: 'budi@example.com' })
+      .expect(401);
+  });
+
+  it('reseats the session on every render, so the page outlives the link that opened it', async () => {
+    const { id, token } = await opened();
+    const { cookie, page } = await follow(app, id, token);
+    const again = await page().expect(200);
+    const set = ([] as string[]).concat(again.headers['set-cookie'] ?? []);
+    expect(set.length).toBe(1);
+    expect(set[0]).toContain(`sep24_${id}=`);
+    expect(cookie).toBeTruthy();
+  });
+
+  it('is not wedged by a cookie of the same name planted by another host', async () => {
+    const { id, token } = await opened();
+    const { cookie } = await follow(app, id, token);
+    const res = await http()
+      .get(`/sep24/interactive/${id}`)
+      .set('Cookie', `sep24_${id}=planted; ${cookie}`)
+      .expect(200);
+    expect(res.text).toContain('<form');
   });
 
   it('does not offer a browser with no cookie a link that lands on the same refusal', async () => {

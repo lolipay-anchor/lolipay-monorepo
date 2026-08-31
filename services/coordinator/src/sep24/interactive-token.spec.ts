@@ -2,6 +2,7 @@ import {
   mintInteractiveToken,
   readInteractiveToken,
   SEP24_INTERACTIVE_AUDIENCE,
+  SEP24_INTERACTIVE_LINK_TTL_SECS,
   SEP24_INTERACTIVE_TTL_SECS,
 } from './interactive-token';
 import jwt from 'jsonwebtoken';
@@ -104,5 +105,6 @@ describe('the thirty minutes ADR 0030 promises is enforced by something', () => 
 
   it('keeps that window at thirty minutes, because a URL in a browser history is the bearer', () => {
     expect(SEP24_INTERACTIVE_TTL_SECS).toBe(1800);
+    expect(SEP24_INTERACTIVE_LINK_TTL_SECS).toBe(300);
   });
 });

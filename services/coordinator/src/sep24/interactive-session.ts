@@ -14,19 +14,20 @@ export function sessionCookieOptions(transactionId: string) {
   };
 }
 
-export function readCookie(header: string | undefined, name: string): string | undefined {
-  if (!header) return undefined;
+export function readCookies(header: string | undefined, name: string): string[] {
+  if (!header) return [];
+  const found: string[] = [];
   for (const part of header.split(';')) {
     const at = part.indexOf('=');
     if (at < 0) continue;
     if (part.slice(0, at).trim() !== name) continue;
     try {
-      return decodeURIComponent(part.slice(at + 1).trim());
+      found.push(decodeURIComponent(part.slice(at + 1).trim()));
     } catch {
-      return undefined;
+      continue;
     }
   }
-  return undefined;
+  return found;
 }
 
 export function originIsForeign(origin: string | undefined, baseUrl: string): boolean {

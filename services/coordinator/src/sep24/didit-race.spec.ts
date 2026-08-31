@@ -33,7 +33,8 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
     } as any;
     const rate = { createQuote: jest.fn(async () => ({ id: 'quote-1' })) } as any;
     const orders = { createFromQuote: jest.fn(async () => ({ order: { id: 'order-2' } })) } as any;
-    const svc = new Sep24Service(prisma, cfg, {} as any, rate, orders);
+    const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
+    const svc = new Sep24Service(prisma, cfg, {} as any, rate, orders, people);
 
     const { mintInteractiveToken } = await import('./interactive-token');
     const token = mintInteractiveToken(cfg, 'tx-1', 'GABC');

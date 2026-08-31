@@ -21,6 +21,7 @@ import {
 } from './interactive-token';
 import { escapeHtml, formatFiat, interactiveScreen, page } from './interactive-page';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
+import { PersonService } from '../person/person.service';
 import { sep24Status } from './sep24-status';
 import {
   SEP24_PAGE_DEFAULT,
@@ -52,6 +53,7 @@ export class Sep24Service {
     private sep12: Sep12Service,
     private rate: RateService,
     private orders: OrderService,
+    private people: PersonService,
   ) {}
 
   private assets() {
@@ -188,6 +190,7 @@ export class Sep24Service {
         row.id,
         subject,
         SEP24_INTERACTIVE_LINK_TTL_SECS,
+        'link',
       )}`,
       id: row.id,
     };
@@ -204,6 +207,9 @@ export class Sep24Service {
       },
     });
     if (!row || row.stellarAccount !== account) {
+      throw new NotFoundException('this anchor holds no such transaction');
+    }
+    if (!(await this.people.lookupPerson(row.stellarAccount))) {
       throw new NotFoundException('this anchor holds no such transaction');
     }
     const [kyc, screenedElsewhere, refusedAnywhere] = await Promise.all([
@@ -224,9 +230,19 @@ export class Sep24Service {
     return `/sep24/interactive/${encodeURIComponent(id)}${suffix}`;
   }
 
-  async redeemLink(id: string, token: string): Promise<string> {
-    const { account } = await this.interactiveState(id, token);
-    return mintInteractiveToken(this.cfg, id, account);
+  async sessionFromLink(id: string, token: string): Promise<string> {
+    const { account } = readInteractiveToken(this.cfg, token, id, 'link');
+    const row = await this.prisma.sep24Transaction.findUnique({
+      where: { id },
+      select: { stellarAccount: true },
+    });
+    if (!row || row.stellarAccount !== account) {
+      throw new NotFoundException('this anchor holds no such transaction');
+    }
+    if (!(await this.people.lookupPerson(row.stellarAccount))) {
+      throw new NotFoundException('this anchor holds no such transaction');
+    }
+    return mintInteractiveToken(this.cfg, id, row.stellarAccount);
   }
 
   async renderInteractive(id: string, token: string): Promise<string> {
@@ -234,6 +250,7 @@ export class Sep24Service {
     const { row, kyc } = state;
     const screen = this.screenFor(row, kyc, state);
     const post = (suffix: string) => this.formAction(id, suffix);
+    const credits = `<p>This deposit credits <code>${escapeHtml(row.stellarAccount)}</code>. If that is not your wallet, close this page.</p>`;
 
     if (screen === 'refused') {
       return page('Verification refused', `<p>${escapeHtml((state.refusedAnywhere as any)?.rejectionReason ?? kyc?.rejectionReason ?? 'This identity was refused.')}</p>`);
@@ -244,7 +261,7 @@ export class Sep24Service {
       ).join('');
       return page(
         'Verify your identity',
-        `<form method="post" action="${escapeHtml(post('/identity'))}">${fields}<button type="submit">Continue</button></form>`,
+        `${credits}<form method="post" action="${escapeHtml(post('/identity'))}">${fields}<button type="submit">Continue</button></form>`,
       );
     }
     if (screen === 'waiting_on_identity') {
@@ -260,7 +277,7 @@ export class Sep24Service {
     if (screen === 'amount') {
       return page(
         'How much would you like to deposit?',
-        `<form method="post" action="${escapeHtml(post('/amount'))}"><p><label>Amount in IDR<br><input name="fiat_amount" inputmode="numeric" required></label></p><button type="submit">Continue</button></form>`,
+        `${credits}<form method="post" action="${escapeHtml(post('/amount'))}"><p><label>Amount in IDR<br><input name="fiat_amount" inputmode="numeric" required></label></p><button type="submit">Continue</button></form>`,
       );
     }
     if (screen === 'waiting_on_escrow') {

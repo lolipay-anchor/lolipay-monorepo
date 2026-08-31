@@ -488,7 +488,11 @@ describe('the write credential stays out of every log a URL lands in', () => {
       .set('Authorization', `Bearer ${jwt}`)
       .send({ asset_code: 'USDC' })
       .expect(200);
-    return { id: res.body.id, token: new URL(res.body.url).searchParams.get('token')! };
+    return {
+      id: res.body.id,
+      token: new URL(res.body.url).searchParams.get('token')!,
+      account: kp.publicKey(),
+    };
   }
 
   it('takes the token out of the address bar on arrival', async () => {
@@ -539,6 +543,12 @@ describe('the write credential stays out of every log a URL lands in', () => {
       .set('Origin', 'https://api.lolipay.app')
       .send({ first_name: 'Budi', last_name: 'Santoso', email_address: 'budi@example.com' });
     expect(res.status).not.toBe(403);
+  });
+
+  it('names the wallet the deposit will credit, so a lured depositor sees an address that is not theirs', async () => {
+    const { id, token, account } = await opened();
+    const res = await (await follow(app, id, token)).page().expect(200);
+    expect(res.text).toContain(account);
   });
 
   it('never puts the credential back into the page it serves', async () => {

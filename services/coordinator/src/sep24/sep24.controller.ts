@@ -7,13 +7,13 @@ import { UseFilters } from '@nestjs/common';
 import { InteractiveErrorFilter } from './interactive-error.filter';
 import {
   originIsForeign,
-  readCookie,
+  readCookies,
   sessionCookieName,
   sessionCookieOptions,
 } from './interactive-session';
 import { AppConfigService } from '../config/app-config.service';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
-import { readInteractiveToken } from './interactive-token';
+import { mintInteractiveToken, readInteractiveToken } from './interactive-token';
 import { UseInterceptors } from '@nestjs/common';
 import type { Response } from 'express';
 import { Sep24AuthGuard } from './sep24-auth.guard';
@@ -30,19 +30,16 @@ export class Sep24Controller {
     private cfg: AppConfigService,
   ) {}
 
-  private sessionToken(req: any, id: string): string {
-    return readCookie(req?.headers?.cookie, sessionCookieName(id)) ?? '';
-  }
-
   private usableSession(req: any, id: string): string {
-    const held = this.sessionToken(req, id);
-    if (!held) return '';
-    try {
-      readInteractiveToken(this.cfg, held, id);
-      return held;
-    } catch {
-      return '';
+    for (const held of readCookies(req?.headers?.cookie, sessionCookieName(id))) {
+      try {
+        const { account } = readInteractiveToken(this.cfg, held, id);
+        return mintInteractiveToken(this.cfg, id, account);
+      } catch {
+        continue;
+      }
     }
+    return '';
   }
 
   private refuseForeignOrigin(req: any): void {
@@ -98,11 +95,14 @@ export class Sep24Controller {
     @Res({ passthrough: true }) res: Response,
   ) {
     const held = this.usableSession(req, id);
-    if (held) return this.sep24.renderInteractive(id, held);
+    if (held) {
+      res.cookie(sessionCookieName(id), held, sessionCookieOptions(id));
+      return this.sep24.renderInteractive(id, held);
+    }
 
     const fromUrl = String(token ?? '');
     if (fromUrl) {
-      const session = await this.sep24.redeemLink(id, fromUrl);
+      const session = await this.sep24.sessionFromLink(id, fromUrl);
       res.cookie(sessionCookieName(id), session, sessionCookieOptions(id));
       res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
       return undefined;
@@ -122,7 +122,7 @@ export class Sep24Controller {
     @Res({ passthrough: true }) res: Response,
   ) {
     this.refuseForeignOrigin(req);
-    const token = this.sessionToken(req, id);
+    const token = this.usableSession(req, id);
     const fields: Record<string, string> = {};
     for (const f of REQUIRED_KYC_FIELDS) {
       const v = (body ?? {})[f];
@@ -147,7 +147,7 @@ export class Sep24Controller {
     @Res({ passthrough: true }) res: Response,
   ) {
     this.refuseForeignOrigin(req);
-    const token = this.sessionToken(req, id);
+    const token = this.usableSession(req, id);
     await this.sep24.submitAmount(id, token, body.fiat_amount);
     res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
   }
