@@ -197,10 +197,18 @@ export class Sep24Service {
     if (!row || row.stellarAccount !== account) {
       throw new NotFoundException('this anchor holds no such transaction');
     }
-    const kyc = await this.prisma.kycVerification.findUnique({
-      where: { customerRef: row.stellarAccount },
-    });
-    return { row, kyc, account };
+    const [kyc, screenedElsewhere, refusedAnywhere] = await Promise.all([
+      this.prisma.kycVerification.findUnique({ where: { customerRef: row.stellarAccount } }),
+      this.prisma.kycVerification.findFirst({
+        where: { personId: row.personId, status: 'ACCEPTED', screenedAt: { not: null } },
+        select: { customerRef: true },
+      }),
+      this.prisma.kycVerification.findFirst({
+        where: { personId: row.personId, status: 'REJECTED' },
+        select: { rejectionReason: true },
+      }),
+    ]);
+    return { row, kyc, account, screenedElsewhere, refusedAnywhere };
   }
 
   interactiveUrl(id: string, token: string): string {
@@ -208,8 +216,9 @@ export class Sep24Service {
   }
 
   async renderInteractive(id: string, token: string): Promise<string> {
-    const { row, kyc } = await this.interactiveState(id, token);
-    const screen = this.screenFor(row, kyc);
+    const state = await this.interactiveState(id, token);
+    const { row, kyc } = state;
+    const screen = this.screenFor(row, kyc, state);
     const post = (suffix: string) =>
       `${this.interactiveUrl(id, token).replace('/sep24/interactive/', '/sep24/interactive/')}`.replace(
         `/sep24/interactive/${id}?`,
@@ -217,7 +226,7 @@ export class Sep24Service {
       );
 
     if (screen === 'refused') {
-      return page('Verification refused', `<p>${escapeHtml(kyc?.rejectionReason ?? 'This identity was refused.')}</p>`);
+      return page('Verification refused', `<p>${escapeHtml((state.refusedAnywhere as any)?.rejectionReason ?? kyc?.rejectionReason ?? 'This identity was refused.')}</p>`);
     }
     if (screen === 'identity') {
       const fields = REQUIRED_KYC_FIELDS.map(
@@ -229,7 +238,14 @@ export class Sep24Service {
       );
     }
     if (screen === 'waiting_on_identity') {
-      return page('Checking your identity', '<p>This usually takes a moment. This page refreshes itself.</p>', 10);
+      const again = kyc?.verificationUrl
+        ? `<p><a href="${escapeHtml(kyc.verificationUrl)}">Continue verification</a></p>`
+        : '';
+      return page(
+        'Checking your identity',
+        `<p>This usually takes a moment. This page refreshes itself.</p>${again}`,
+        10,
+      );
     }
     if (screen === 'amount') {
       return page(
@@ -257,8 +273,9 @@ export class Sep24Service {
   }
 
   async submitIdentity(id: string, token: string, fields: Record<string, string>) {
-    const { row, kyc } = await this.interactiveState(id, token);
-    if (this.screenFor(row, kyc) !== 'identity') {
+    const state = await this.interactiveState(id, token);
+    const { row, kyc } = state;
+    if (this.screenFor(row, kyc, state) !== 'identity') {
       throw new ForbiddenException('this deposit is not waiting for identity details');
     }
     await this.sep12.put(row.stellarAccount, fields);
@@ -268,18 +285,33 @@ export class Sep24Service {
     return after?.verificationUrl ?? null;
   }
 
-  private screenFor(row: any, kyc: any) {
+  private screenFor(row: any, kyc: any, state?: { screenedElsewhere?: unknown; refusedAnywhere?: unknown }) {
+    if (state?.refusedAnywhere) {
+      return interactiveScreen({ kycStatus: 'REJECTED', screened: false, orderStatus: null });
+    }
+    const screened = Boolean(state?.screenedElsewhere);
     return interactiveScreen({
-      kycStatus: kyc?.status ?? null,
-      screened: kyc?.status === 'ACCEPTED' && kyc.screenedAt !== null,
+      kycStatus: screened ? 'ACCEPTED' : (kyc?.status ?? null),
+      screened,
       orderStatus: (row.order?.status as any) ?? null,
     });
   }
 
+  verificationHandoff(url: string): string {
+    return page(
+      'Verify your identity',
+      [
+        `<p><a href="${escapeHtml(url)}">Continue to verification</a></p>`,
+        '<p>Open the link above to finish verifying. You can return to this window afterwards.</p>',
+      ].join(''),
+    );
+  }
+
   async submitAmount(id: string, token: string, rawAmount: unknown) {
-    const { row, kyc } = await this.interactiveState(id, token);
+    const state = await this.interactiveState(id, token);
+    const { row, kyc } = state;
     if (row.orderId) return;
-    if (this.screenFor(row, kyc) !== 'amount') {
+    if (this.screenFor(row, kyc, state) !== 'amount') {
       throw new ForbiddenException(
         'this deposit is not at the point of naming an amount; reopen the page to see where it is',
       );

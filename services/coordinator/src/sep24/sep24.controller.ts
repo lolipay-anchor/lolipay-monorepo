@@ -3,6 +3,8 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
+import { UseFilters } from '@nestjs/common';
+import { InteractiveErrorFilter } from './interactive-error.filter';
 import { UseInterceptors } from '@nestjs/common';
 import type { Response } from 'express';
 import { Sep24AuthGuard } from './sep24-auth.guard';
@@ -53,6 +55,7 @@ export class Sep24Controller {
     return this.sep24.one(req.user.address, query);
   }
 
+  @UseFilters(InteractiveErrorFilter)
   @Get('interactive/:id')
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Header('content-type', 'text/html; charset=utf-8')
@@ -60,6 +63,7 @@ export class Sep24Controller {
     return this.sep24.renderInteractive(id, String(token ?? ''));
   }
 
+  @UseFilters(InteractiveErrorFilter)
   @Post('interactive/:id/identity')
   @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
   @Header('content-type', 'text/html; charset=utf-8')
@@ -74,9 +78,14 @@ export class Sep24Controller {
       if (typeof v === 'string') fields[k] = v;
     }
     const url = await this.sep24.submitIdentity(id, String(token ?? ''), fields);
-    res.redirect(302, url ?? `${this.sep24.interactiveUrl(id, String(token ?? ''))}`);
+    if (!url) {
+      res.redirect(302, this.sep24.interactiveUrl(id, String(token ?? '')));
+      return undefined;
+    }
+    return this.sep24.verificationHandoff(url);
   }
 
+  @UseFilters(InteractiveErrorFilter)
   @Post('interactive/:id/amount')
   @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
   async amount(

@@ -113,3 +113,246 @@ describe('the popup a wallet opens, and what it will not do for a stranger', () 
     expect(res.text).not.toMatch(/fiat_amount/);
   });
 });
+
+describe('the popup and the money gate must agree, or one of them is lying', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+
+  beforeAll(async () => {
+    app = await bootAuthApp();
+    prisma = app.get(PrismaService);
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  const http = () => request(app.getHttpServer());
+
+  async function twoWalletsOnePerson() {
+    const a = Keypair.random();
+    const b = Keypair.random();
+    const jwtA = await anchorToken(app, a);
+    const jwtB = await anchorToken(app, b);
+    const link = await prisma.walletLink.findUnique({ where: { stellarAddress: a.publicKey() } });
+    await prisma.walletLink.update({
+      where: { stellarAddress: b.publicKey() },
+      data: { personId: link!.personId },
+    });
+    return { a, b, jwtA, jwtB, personId: link!.personId };
+  }
+
+  async function openFrom(jwt: string) {
+    const res = await http()
+      .post('/sep24/transactions/deposit/interactive')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+    return { id: res.body.id, token: new URL(res.body.url).searchParams.get('token')! };
+  }
+
+  it('shows the identity form to a wallet whose person is verified elsewhere, and says so in the json too', async () => {
+    const { a, b, jwtB, personId } = await twoWalletsOnePerson();
+    await prisma.kycVerification.create({
+      data: { customerRef: a.publicKey(), personId, status: 'ACCEPTED', screenedAt: new Date() },
+    });
+    const { id, token } = await openFrom(jwtB);
+
+    const json = await http()
+      .get('/sep24/transactions?asset_code=USDC')
+      .set('Authorization', `Bearer ${jwtB}`)
+      .expect(200);
+    const screen = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(200);
+
+    const jsonSaysVerified = json.body.transactions[0].kyc_verified;
+    const screenAsksForIdentity = /first_name/.test(screen.text);
+    expect(jsonSaysVerified).toBe(!screenAsksForIdentity);
+  });
+
+  it('never offers an amount to a person refused under any of their wallets', async () => {
+    const { a, b, jwtB, personId } = await twoWalletsOnePerson();
+    await prisma.kycVerification.create({
+      data: { customerRef: b.publicKey(), personId, status: 'ACCEPTED', screenedAt: new Date() },
+    });
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: a.publicKey(),
+        personId,
+        status: 'REJECTED',
+        rejectionReason: 'sanctions or watchlist match',
+      },
+    });
+    const { id, token } = await openFrom(jwtB);
+    const res = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(200);
+    expect(res.text).not.toMatch(/fiat_amount/);
+    expect(res.text).toMatch(/refused/i);
+  });
+
+  it('refuses to take an amount from a person refused elsewhere, before spending anything', async () => {
+    const { a, b, jwtB, personId } = await twoWalletsOnePerson();
+    await prisma.kycVerification.create({
+      data: { customerRef: b.publicKey(), personId, status: 'ACCEPTED', screenedAt: new Date() },
+    });
+    await prisma.kycVerification.create({
+      data: { customerRef: a.publicKey(), personId, status: 'REJECTED', rejectionReason: 'no' },
+    });
+    const { id, token } = await openFrom(jwtB);
+    await http()
+      .post(`/sep24/interactive/${id}/amount?token=${token}`)
+      .send({ fiat_amount: '400000' })
+      .expect(403);
+  });
+});
+
+describe('a refusal inside the popup is a page, not a json blob', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+
+  beforeAll(async () => {
+    app = await bootAuthApp();
+    prisma = app.get(PrismaService);
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  const http = () => request(app.getHttpServer());
+
+  async function opened(screened = false) {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    if (screened) {
+      const link = await prisma.walletLink.findUnique({
+        where: { stellarAddress: kp.publicKey() },
+      });
+      await prisma.kycVerification.create({
+        data: {
+          customerRef: kp.publicKey(),
+          personId: link!.personId,
+          status: 'ACCEPTED',
+          screenedAt: new Date(),
+        },
+      });
+    }
+    const res = await http()
+      .post('/sep24/transactions/deposit/interactive')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+    return { id: res.body.id, token: new URL(res.body.url).searchParams.get('token')! };
+  }
+
+  it('renders an unreadable amount as html a depositor can act on', async () => {
+    const { id, token } = await opened(true);
+    const res = await http()
+      .post(`/sep24/interactive/${id}/amount?token=${token}`)
+      .send({ fiat_amount: 'abc' });
+    expect(res.status).toBe(400);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.text).not.toMatch(/statusCode/);
+    expect(res.text).toMatch(/rupiah/i);
+  });
+
+  it('offers a way back into the flow rather than ending it', async () => {
+    const { id, token } = await opened(true);
+    const res = await http()
+      .post(`/sep24/interactive/${id}/amount?token=${token}`)
+      .send({ fiat_amount: 'abc' });
+    expect(res.text).toContain(`/sep24/interactive/${id}`);
+  });
+
+  it('renders a wrong-step refusal as a page too', async () => {
+    const { id, token } = await opened();
+    const res = await http()
+      .post(`/sep24/interactive/${id}/amount?token=${token}`)
+      .send({ fiat_amount: '400000' });
+    expect(res.status).toBe(403);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.text).not.toMatch(/statusCode/);
+  });
+
+  it('escapes whatever the refusal says, because some of it comes from a vendor', async () => {
+    const { id, token } = await opened(true);
+    const res = await http()
+      .post(`/sep24/interactive/${id}/amount?token=${token}`)
+      .send({ fiat_amount: 'abc' });
+    expect(res.text).not.toMatch(/<script/i);
+  });
+
+  it('still refuses a bad token as a page, not a json blob', async () => {
+    const { id } = await opened();
+    const res = await http().get(`/sep24/interactive/${id}?token=rubbish`);
+    expect(res.status).toBe(401);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+  });
+});
+
+describe('handing the depositor to the vendor, and finding the way back', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+
+  beforeAll(async () => {
+    app = await bootAuthApp();
+    prisma = app.get(PrismaService);
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  const http = () => request(app.getHttpServer());
+
+  it('offers a link rather than redirecting across origins, which the page policy forbids', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const opened = await http()
+      .post('/sep24/transactions/deposit/interactive')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+    const id = opened.body.id;
+    const token = new URL(opened.body.url).searchParams.get('token')!;
+
+    const res = await http()
+      .post(`/sep24/interactive/${id}/identity?token=${token}`)
+      .type('form')
+      .send({
+        first_name: 'Budi',
+        last_name: 'Santoso',
+        email_address: 'budi@example.com',
+        id_type: 'id_card',
+        id_country_code: 'IDN',
+      });
+    expect([200, 302]).toContain(res.status);
+    if (res.status === 200) {
+      expect(res.headers['content-type']).toMatch(/text\/html/);
+      expect(res.text).toMatch(/<a href=/);
+    }
+  });
+
+  it('shows a way back to verification while waiting, so a closed tab is not a dead end', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const link = await prisma.walletLink.findUnique({
+      where: { stellarAddress: kp.publicKey() },
+    });
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: kp.publicKey(),
+        personId: link!.personId,
+        status: 'PROCESSING',
+        providerRef: 'sess-waiting',
+        verificationUrl: 'https://verify.didit.me/session/abc123',
+      },
+    });
+    const opened = await http()
+      .post('/sep24/transactions/deposit/interactive')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+    const id = opened.body.id;
+    const token = new URL(opened.body.url).searchParams.get('token')!;
+
+    const res = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(200);
+    expect(res.text).toContain('https://verify.didit.me/session/abc123');
+    expect(res.text).toContain('http-equiv="refresh"');
+  });
+});
