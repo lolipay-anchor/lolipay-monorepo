@@ -1,4 +1,4 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ServiceUnavailableException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
@@ -230,6 +230,40 @@ describe('the one door through which a deposit is declared paid', () => {
     });
     expect(row).toBeTruthy();
     expect(JSON.stringify(row!.after)).toMatch(/poll timed out/);
+  });
+
+  it('reads an unconfigured attestor as unavailable, not as a broken anchor', async () => {
+    const order = await seedOrder();
+    const jwt = await sessionToken(app, adminKp);
+    attest.mockRejectedValueOnce(
+      new ServiceUnavailableException(
+        'this anchor cannot attest deposits right now: no attestor key is configured',
+      ),
+    );
+
+    await http()
+      .post(`/admin/orders/${order.id}/attest`)
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ evidence: 'BCA mutation 12:04' })
+      .expect(503);
+  });
+
+  it('does not discard an attestation that already landed because its audit row would not write', async () => {
+    const order = await seedOrder();
+    const jwt = await sessionToken(app, adminKp);
+    attest.mockResolvedValueOnce({ status: 'SUCCESS', hash: 'a11ceb0b' });
+    const create = jest
+      .spyOn(prisma.adminAudit, 'create')
+      .mockRejectedValueOnce(new Error('the audit write failed'));
+
+    const res = await http()
+      .post(`/admin/orders/${order.id}/attest`)
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ evidence: 'BCA mutation 12:04' })
+      .expect(200);
+
+    expect(res.body.txHash).toBe('a11ceb0b');
+    create.mockRestore();
   });
 
   it('refuses an attestation with no evidence recorded', async () => {

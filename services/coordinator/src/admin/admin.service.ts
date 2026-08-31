@@ -2,8 +2,10 @@ import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
+  HttpException,
   InternalServerErrorException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { LpStatus, Market, OrderStatus, Prisma } from '../generated/prisma/client';
@@ -67,6 +69,8 @@ export interface OrderRisk {
 
 @Injectable()
 export class AdminService {
+  private readonly log = new Logger('Admin');
+
   constructor(
     private prisma: PrismaService,
     private stellar: StellarReadService,
@@ -458,23 +462,34 @@ export class AdminService {
 
     const contractId = contractIdFor(order, this.cfg);
     let outcome: { submission: string; txHash?: string; error?: string };
+    let refusal: unknown;
     try {
       const result = await this.attestor.attest(contractId, order.tradeId);
       outcome = { submission: result.status, txHash: result.hash };
     } catch (err) {
+      refusal = err;
       outcome = { submission: 'NOT_SUBMITTED', error: err instanceof Error ? err.message : String(err) };
     }
 
-    await recordAudit(this.prisma as any, {
-      actorAddress,
-      action: 'order.attestFiatPaid',
-      targetType: 'Order',
-      targetId: order.id,
-      before: auditPayload({ status: order.status, contractId, tradeId: order.tradeId }),
-      after: auditPayload({ evidence, ...outcome }),
-    });
+    try {
+      await recordAudit(this.prisma as any, {
+        actorAddress,
+        action: 'order.attestFiatPaid',
+        targetType: 'Order',
+        targetId: order.id,
+        before: auditPayload({ status: order.status, contractId, tradeId: order.tradeId }),
+        after: auditPayload({ evidence, ...outcome }),
+      });
+    } catch (err) {
+      this.log.error(
+        `order.attestFiatPaid could not be recorded for order ${order.id} — submission=${outcome.submission} tx=${outcome.txHash ?? 'none'} trade=${order.tradeId} contract=${contractId} actor=${actorAddress}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
 
     if (outcome.submission === 'NOT_SUBMITTED') {
+      if (refusal instanceof HttpException) {
+        throw refusal;
+      }
       throw new InternalServerErrorException(
         `this attestation was not submitted, and the attempt is recorded: ${outcome.error}`,
       );
