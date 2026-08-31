@@ -133,4 +133,17 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
     const out = serializeSep24(tx({ order: order() }), { ...BASE, usdcIssuer: 'GMAINNETISSUER' });
     expect(out.amount_out_asset).toBe('stellar:USDC:GMAINNETISSUER');
   });
+
+  it('carries the settlement keys at completed even when the chain hash never arrived, because the acceptance suite requires them present', () => {
+    const done = serializeSep24(
+      tx({ order: order({ status: 'RELEASED', settlementTxHash: null, settledAt: null }) }),
+      BASE,
+    );
+
+    expect(done.status).toBe('completed');
+    expect(Object.keys(done)).toContain('stellar_transaction_id');
+    expect(Object.keys(done)).toContain('completed_at');
+    expect(done.stellar_transaction_id).toBeNull();
+    expect(done.completed_at).toBeNull();
+  });
 });

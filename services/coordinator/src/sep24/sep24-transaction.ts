@@ -35,9 +35,9 @@ export interface Sep24TransactionJson {
   amount_out?: string;
   amount_out_asset?: string;
   fee_details?: { total: string; asset: string };
-  stellar_transaction_id?: string;
+  stellar_transaction_id?: string | null;
   external_transaction_id?: string;
-  completed_at?: string;
+  completed_at?: string | null;
 }
 
 export interface Sep24Assets {
@@ -74,8 +74,8 @@ export function serializeSep24(record: Sep24Record, assets: Sep24Assets): Sep24T
 
   if (order.ref) json.external_transaction_id = order.ref;
   if (status === 'completed' || status === 'refunded') {
-    if (order.settlementTxHash) json.stellar_transaction_id = order.settlementTxHash;
-    if (order.settledAt) json.completed_at = order.settledAt.toISOString();
+    json.stellar_transaction_id = order.settlementTxHash ?? null;
+    json.completed_at = order.settledAt?.toISOString() ?? null;
   }
   return json;
 }
