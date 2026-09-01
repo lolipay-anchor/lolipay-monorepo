@@ -101,10 +101,10 @@ export class OrderStatusService {
       if (!updated) return order;
       if (written.count === 0) {
         const latched = settlementFieldsFrom(onChain);
-        delete latched.settledAt;
+        if (updated.settledAt || !(onChain.settledAt > 0)) delete latched.settledAt;
         if (updated.status !== onChain.status || Object.keys(latched).length === 0) return updated;
         await this.prisma.order.updateMany({
-          where: { id, status: onChain.status as any },
+          where: { id, status: onChain.status as any, liabilityEstablished: false, slashDeadline: null },
           data: latched,
         });
         return (

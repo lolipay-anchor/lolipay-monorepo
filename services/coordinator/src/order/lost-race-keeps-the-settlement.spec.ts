@@ -21,7 +21,7 @@ function makeSvc(rowStatus: string, onChain: any, seed: any = {}) {
     contractId: CONTRACT,
     status: rowStatus,
     settledAt: new Date(1_700_000_000 * 1000),
-    liabilityEstablished: null,
+    liabilityEstablished: false,
     slashDeadline: null,
     lp: { id: 'lp-1' },
     ...seed,
@@ -32,7 +32,12 @@ function makeSvc(rowStatus: string, onChain: any, seed: any = {}) {
       findUnique: jest.fn().mockImplementation(async () => current),
       updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
         writes.push({ where, data });
+        if (where.id !== current.id) return { count: 0 };
         if (where.status !== undefined && where.status !== current.status) return { count: 0 };
+        if (where.liabilityEstablished !== undefined && where.liabilityEstablished !== current.liabilityEstablished) {
+          return { count: 0 };
+        }
+        if (where.slashDeadline === null && current.slashDeadline !== null) return { count: 0 };
         current = { ...current, ...data };
         return { count: 1 };
       }),
@@ -101,7 +106,47 @@ describe('when another writer reaches the row first', () => {
 
     const latch = writes[writes.length - 1];
     expect(latch.data).not.toHaveProperty('settledAt');
-    expect(latch.where).toEqual({ id: 'order-1', status: 'REFUNDED' });
+    expect(latch.where).toEqual({
+      id: 'order-1',
+      status: 'REFUNDED',
+      liabilityEstablished: false,
+      slashDeadline: null,
+    });
+  });
+
+  it('refuses to overwrite a verdict another writer already recorded, which the chain read cannot see', async () => {
+    const { svc, row } = makeSvc('REFUNDED', onChainRefunded({ liabilityEstablished: false, slashDeadline: 1n }), {
+      status: 'REFUNDED',
+      settledAt: new Date(1_800_000_000 * 1000),
+      liabilityEstablished: true,
+      slashDeadline: 2_000_000_000n,
+    });
+
+    await svc.refreshOrderStatus('order-1', {
+      id: 'order-1',
+      tradeId: TRADE_ID,
+      contractId: CONTRACT,
+      status: 'DISPUTED',
+    });
+
+    expect(row().liabilityEstablished).toBe(true);
+    expect(row().slashDeadline).toBe(2_000_000_000n);
+  });
+
+  it('latches settledAt only when the row has none and the chain carries a real one', async () => {
+    const { svc, row } = makeSvc('REFUNDED', onChainRefunded(), {
+      status: 'REFUNDED',
+      settledAt: null,
+    });
+
+    await svc.refreshOrderStatus('order-1', {
+      id: 'order-1',
+      tradeId: TRADE_ID,
+      contractId: CONTRACT,
+      status: 'DISPUTED',
+    });
+
+    expect(row().settledAt).toEqual(new Date(1_800_000_000 * 1000));
   });
 
   it('latches nothing at a status that carries no settlement, so an ordinary overtake writes once', async () => {

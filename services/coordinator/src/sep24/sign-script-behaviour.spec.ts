@@ -5,7 +5,7 @@ const RPC = 'https://rpc.example.test';
 
 type Reply = { status?: string; error?: any; reject?: boolean };
 
-function run(getTransactionReplies: Reply[]) {
+function run(getTransactionReplies: Reply[], kind: 'fund' | 'release' = 'release', walletAnswers = true) {
   const said: string[] = [];
   let reloads = 0;
   let clicked: any = null;
@@ -21,7 +21,7 @@ function run(getTransactionReplies: Reply[]) {
   const sandbox: any = {
     document: { getElementById: (id: string) => (id === 'out' ? out : go) },
     setTimeout: (fn: any, ms: number) => {
-      if (ms === 2000 || ms === 5000) {
+      if (ms === 2000 || ms === 5000 || (!walletAnswers && ms === 4000)) {
         clock += ms;
         Promise.resolve().then(fn);
       }
@@ -57,6 +57,7 @@ function run(getTransactionReplies: Reply[]) {
     addEventListener: (_: string, fn: any) => listeners.push(fn),
     removeEventListener: () => undefined,
     postMessage: (msg: any) => {
+      if (!walletAnswers) return;
       const answer =
         msg.type === 'REQUEST_ACCESS'
           ? { publicKey: 'GUSER' }
@@ -71,7 +72,7 @@ function run(getTransactionReplies: Reply[]) {
   };
 
   vm.createContext(sandbox);
-  vm.runInContext(renderSignScript('tx-1', 'release', RPC), sandbox);
+  vm.runInContext(renderSignScript('tx-1', kind, RPC), sandbox);
   return { said, click: () => clicked(), reloads: () => reloads, go, polls: () => polls };
 }
 
@@ -115,11 +116,33 @@ describe('running the signing script, rather than reading it', () => {
     expect(h.said.join(' | ')).toMatch(/has not said yet whether it applied/i);
   });
 
-  it('hands the page back to the server once, whatever the outcome', async () => {
+  it('hands the page back to the server once, on both a confirmed and an unconfirmed outcome', async () => {
     for (const replies of [[{ status: 'SUCCESS' }], [{ reject: true }]] as Reply[][]) {
       const h = run(replies);
       await settle(h);
       expect(h.reloads()).toBe(1);
     }
+  });
+
+  it('does not hand the page back when the network says the transaction failed', async () => {
+    const h = run([{ status: 'FAILED' }]);
+    await settle(h);
+    expect(h.reloads()).toBe(0);
+    expect(h.go.disabled).toBe(false);
+  });
+
+  it('says the USDC is in escrow on the funding half, and never the release wording', async () => {
+    const h = run([{ status: 'SUCCESS' }], 'fund');
+    await settle(h);
+    const all = h.said.join(' | ');
+    expect(all).toMatch(/your usdc is in escrow/i);
+    expect(all).not.toMatch(/the escrow has been released/i);
+  });
+
+  it('disables the button and says so when no wallet answers at all', async () => {
+    const h = run([{ status: 'SUCCESS' }], 'release', false);
+    for (let i = 0; i < 50; i += 1) await Promise.resolve();
+    expect(h.said.join(' | ')).toMatch(/no wallet answered this page/i);
+    expect(h.go.disabled).toBe(true);
   });
 });

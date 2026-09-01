@@ -135,6 +135,8 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     expect(res.text).toMatch(/http-equiv="refresh"/i);
     expect(res.text).toMatch(/their claim, not proof/i);
     expect(res.text).toMatch(/can be refunded out of the escrow after/i);
+    expect(res.text).toMatch(/open to anyone, including you/i);
+    expect(res.text).not.toMatch(/automatic/i);
     expect(res.text).toMatch(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/);
   });
 
