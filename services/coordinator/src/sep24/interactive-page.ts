@@ -6,6 +6,8 @@ export type InteractiveScreen =
   | 'refused'
   | 'amount'
   | 'waiting_on_escrow'
+  | 'sign_funding'
+  | 'sign_release'
   | 'instructions'
   | 'settled';
 
@@ -13,15 +15,18 @@ export function interactiveScreen(input: {
   kycStatus: KycStatus | null;
   screened: boolean;
   orderStatus: OrderStatus | null;
+  flow?: 'TOP_UP' | 'WITHDRAW';
 }): InteractiveScreen {
   if (input.kycStatus === 'REJECTED') return 'refused';
   if (input.kycStatus === null || input.kycStatus === 'NEEDS_INFO') return 'identity';
   if (!input.screened) return 'waiting_on_identity';
   if (input.orderStatus === null) return 'amount';
+  const withdrawing = input.flow === 'WITHDRAW';
   if (input.orderStatus === 'CREATED' || input.orderStatus === 'MATCHED' || input.orderStatus === 'AWAITING_ONCHAIN') {
+    if (withdrawing && input.orderStatus !== 'CREATED') return 'sign_funding';
     return 'waiting_on_escrow';
   }
-  if (input.orderStatus === 'FUNDED') return 'instructions';
+  if (input.orderStatus === 'FUNDED') return withdrawing ? 'sign_release' : 'instructions';
   return 'settled';
 }
 

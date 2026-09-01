@@ -313,19 +313,23 @@ export class Sep24Service {
         10,
       );
     }
+    if (screen === 'sign_funding' || screen === 'sign_release') {
+      const funding = screen === 'sign_funding';
+      return page(
+        funding ? 'Sign to lock your USDC' : 'Confirm your rupiah arrived',
+        [
+          funding
+            ? '<p>Your wallet will ask you to approve moving your USDC into escrow. Nothing leaves your wallet until you approve it.</p>'
+            : '<p>Once the rupiah is in your account, confirm here. That releases the escrow to the provider, and it is the last step.</p>',
+          `<div id="out"><p>Preparing…</p></div>`,
+          `<p><button id="go">${funding ? 'Sign in my wallet' : 'I received the rupiah — confirm'}</button></p>`,
+          `<script src="${escapeHtml(this.formAction(id, funding ? '/fund.js' : '/release.js'))}"></script>`,
+        ].join(''),
+      );
+    }
     if (screen === 'instructions') {
       const o = row.order as any;
       const due = o.payDeadline ? new Date(Number(o.payDeadline) * 1000).toISOString() : null;
-      if (withdrawing) {
-        return page(
-          'Waiting for your rupiah',
-          [
-            `<p>Your USDC is held in escrow. <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} is being sent to the bank account you gave.</p>`,
-            '<p>When it arrives you must confirm it here, which releases the escrow. Until you do, nothing moves.</p>',
-          ].join(''),
-          30,
-        );
-      }
       return page(
         'Send your rupiah',
         [
@@ -368,6 +372,7 @@ export class Sep24Service {
       kycStatus: screened ? 'ACCEPTED' : (kyc?.status ?? null),
       screened,
       orderStatus: (row.order?.status as any) ?? null,
+      flow: row.flow,
     });
   }
 
@@ -391,6 +396,18 @@ export class Sep24Service {
       throw new ConflictException('name an amount before this withdrawal can be funded');
     }
     return this.orderTx.buildCreateTradeTx(order.id, row.stellarAccount);
+  }
+
+  async releaseTx(id: string, token: string) {
+    const { row } = await this.interactiveState(id, token);
+    if (row.flow !== 'WITHDRAW') {
+      throw new BadRequestException('only a withdrawal is released by the person who opened it');
+    }
+    const order = row.order as any;
+    if (!order) {
+      throw new ConflictException('this withdrawal has no order to release');
+    }
+    return this.orderTx.buildConfirmReleaseTx(order.id, row.stellarAccount);
   }
 
   async submitAmount(

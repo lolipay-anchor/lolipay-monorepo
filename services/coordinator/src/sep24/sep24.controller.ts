@@ -22,6 +22,8 @@ import {
   renderSigningProbe,
   renderSigningProbeScript,
 } from './signing-probe';
+import { renderSignScript } from './sign-script';
+import { cspAllowingRpc } from './signing-csp';
 import { UseInterceptors } from '@nestjs/common';
 import type { Response } from 'express';
 import { Sep24AuthGuard } from './sep24-auth.guard';
@@ -112,6 +114,7 @@ export class Sep24Controller {
   @UseFilters(InteractiveErrorFilter)
   @Get('interactive/:id')
   @Header('cross-origin-opener-policy', 'unsafe-none')
+  @Header('content-security-policy', cspAllowingRpc(process.env.STELLAR_RPC_URL ?? ''))
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Header('content-type', 'text/html; charset=utf-8')
   @Header('cache-control', 'no-store')
@@ -220,6 +223,31 @@ export class Sep24Controller {
   async fundTx(@Req() req: any, @Param('id') id: string) {
     const token = this.usableSession(req, id);
     return this.sep24.fundTx(id, token);
+  }
+
+  @Get('interactive/:id/release-tx')
+  @Header('cross-origin-opener-policy', 'unsafe-none')
+  @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
+  @Header('cache-control', 'no-store')
+  async releaseTx(@Req() req: any, @Param('id') id: string) {
+    const token = this.usableSession(req, id);
+    return this.sep24.releaseTx(id, token);
+  }
+
+  @Get('interactive/:id/fund.js')
+  @Header('cross-origin-opener-policy', 'unsafe-none')
+  @Header('content-type', 'application/javascript; charset=utf-8')
+  @Header('cache-control', 'no-store')
+  fundScript(@Param('id') id: string): string {
+    return renderSignScript(id, 'fund', this.cfg.rpcUrl);
+  }
+
+  @Get('interactive/:id/release.js')
+  @Header('cross-origin-opener-policy', 'unsafe-none')
+  @Header('content-type', 'application/javascript; charset=utf-8')
+  @Header('cache-control', 'no-store')
+  releaseScript(@Param('id') id: string): string {
+    return renderSignScript(id, 'release', this.cfg.rpcUrl);
   }
 
   @Get('more-info/:id')

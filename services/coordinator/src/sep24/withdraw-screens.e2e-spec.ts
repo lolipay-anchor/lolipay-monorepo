@@ -116,10 +116,10 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     await linkFundedOrder(id, address, 'WITHDRAW');
 
     const res = await screen(id, token);
-    expect(res.text).toMatch(/waiting for your rupiah/i);
+    expect(res.text).toMatch(/confirm your rupiah arrived/i);
     expect(res.text).not.toMatch(/send your rupiah/i);
     expect(res.text).not.toContain('BCA 999888777');
-    expect(res.text).toMatch(/you must confirm it here/i);
+    expect(res.text).toMatch(/releases the escrow/i);
   });
 
   it('a FUNDED deposit still is told to send rupiah, with the provider bank account', async () => {
