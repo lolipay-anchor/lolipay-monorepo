@@ -78,7 +78,7 @@ export class Sep24Service {
           fee_percent: ((config?.platformFeeBps ?? 0) + (config?.lpFeeBps ?? 0)) / 100,
         },
       },
-      withdraw: { [code]: { enabled: false } },
+      withdraw: { [code]: { enabled: this.cfg.sep24WithdrawEnabled } },
       fee: { enabled: false },
       features: { account_creation: false, claimable_balances: false },
     };
@@ -158,7 +158,12 @@ export class Sep24Service {
     return { transaction };
   }
 
-  async openInteractive(subject: string, personId: string, body: Record<string, unknown>) {
+  async openInteractive(
+    subject: string,
+    personId: string,
+    body: Record<string, unknown>,
+    flow: 'TOP_UP' | 'WITHDRAW' = 'TOP_UP',
+  ) {
     const assetCode = body.asset_code;
     if (typeof assetCode !== 'string' || assetCode.length === 0) {
       throw new BadRequestException('asset_code is required');
@@ -180,13 +185,15 @@ export class Sep24Service {
       }
       if (body.account !== subject && named !== subject.split(':')[0]) {
         throw new BadRequestException(
-          'this anchor credits the account its token speaks for, and will not deposit to another',
+          flow === 'WITHDRAW'
+            ? 'this anchor withdraws from the account its token speaks for, and will not take another'
+            : 'this anchor credits the account its token speaks for, and will not deposit to another',
         );
       }
     }
 
     const row = await this.prisma.sep24Transaction.create({
-      data: { personId, stellarAccount: subject, assetCode },
+      data: { personId, stellarAccount: subject, assetCode, flow },
     });
     return {
       type: 'interactive_customer_info_needed',

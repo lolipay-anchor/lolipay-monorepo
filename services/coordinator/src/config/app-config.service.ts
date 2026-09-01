@@ -99,6 +99,8 @@ export class AppConfigService {
   get minioEndpoint(): string { return this.req('MINIO_ENDPOINT'); }
   get minioPort(): number { return Number(this.c.get<string>('MINIO_PORT') ?? 9000); }
   get minioUseSSL(): boolean { return (this.c.get<string>('MINIO_USE_SSL') ?? 'false').toLowerCase() === 'true'; }
+
+  get sep24WithdrawEnabled(): boolean { return (this.c.get<string>('SEP24_WITHDRAW_ENABLED') ?? 'false').toLowerCase() === 'true'; }
   get minioAccessKey(): string { return this.req('MINIO_ACCESS_KEY'); }
   get minioSecretKey(): string { return this.req('MINIO_SECRET_KEY'); }
   get minioBucket(): string { return this.c.get<string>('MINIO_BUCKET') ?? 'lolipay-uploads'; }

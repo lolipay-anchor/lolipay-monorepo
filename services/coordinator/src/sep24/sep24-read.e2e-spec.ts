@@ -44,6 +44,31 @@ describe('the SEP-24 surface a wallet reads before it ever deposits', () => {
     });
   });
 
+  describe('the withdrawal door and what /info promises are one switch', () => {
+    it('does not advertise withdrawal while the switch is off', async () => {
+      const { body } = await http().get('/sep24/info');
+      expect(body.withdraw.USDC.enabled).toBe(false);
+    });
+
+    it('refuses to open a withdrawal while the switch is off, rather than only hiding it from /info', async () => {
+      const kp = Keypair.random();
+      const jwt = await anchorToken(app, kp);
+      const res = await http()
+        .post('/sep24/transactions/withdraw/interactive')
+        .set('Authorization', `Bearer ${jwt}`)
+        .send({ asset_code: 'USDC' })
+        .expect(403);
+      expect(res.body.message).toMatch(/does not offer withdrawal/i);
+    });
+
+    it('needs a SEP-10 token, so the door is not open to an unauthenticated caller', async () => {
+      await http()
+        .post('/sep24/transactions/withdraw/interactive')
+        .send({ asset_code: 'USDC' })
+        .expect(403);
+    });
+  });
+
   describe('GET /sep24/signing-probe', () => {
     it('answers without a token, because the founder opens it in a plain browser', async () => {
       const res = await http().get('/sep24/signing-probe').expect(200);

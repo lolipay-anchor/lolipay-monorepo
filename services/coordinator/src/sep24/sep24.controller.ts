@@ -68,7 +68,25 @@ export class Sep24Controller {
     if (!person) {
       throw new ForbiddenException('this wallet is no longer permitted to open a deposit');
     }
-    return this.sep24.openInteractive(subject, person.id, body);
+    return this.sep24.openInteractive(subject, person.id, body, 'TOP_UP');
+  }
+
+  @Post('transactions/withdraw/interactive')
+  @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
+  @UseInterceptors(AnyFilesInterceptor({ limits: { files: 0, fieldSize: 4096, fields: 40 } }))
+  @HttpCode(200)
+  @UseGuards(Sep24AuthGuard)
+  @AllowTokenClasses('sep10')
+  async openWithdraw(@Req() req: any, @Body() body: Record<string, unknown>) {
+    if (!this.cfg.sep24WithdrawEnabled) {
+      throw new ForbiddenException('this anchor does not offer withdrawal yet');
+    }
+    const subject: string = req.user.address;
+    const person = await this.people.lookupPerson(subject);
+    if (!person) {
+      throw new ForbiddenException('this wallet is no longer permitted to open a withdrawal');
+    }
+    return this.sep24.openInteractive(subject, person.id, body, 'WITHDRAW');
   }
 
   @Get('info')
