@@ -2767,6 +2767,62 @@ fn a_funded_withdrawal_cannot_be_dragged_into_a_dispute() {
 }
 
 #[test]
+fn a_stranded_withdrawal_is_rescuable_by_the_resolver_alone() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::Withdraw, 1);
+
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::FiatPaid);
+
+    assert_eq!(
+        client.try_refund(&id32(&env, 1)),
+        Err(Ok(Error::InvalidState)),
+        "refund must be closed, or the rescue would not be needed"
+    );
+
+    client.raise_dispute(&id32(&env, 1), &resolver);
+
+    let before_provider = usdc.balance(&provider);
+    let before_recipient = usdc.balance(&recipient);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Release, &resolver);
+
+    let trade = client.get_trade(&id32(&env, 1));
+    assert_eq!(trade.status, crate::types::Status::Released);
+    assert!(usdc.balance(&recipient) > before_recipient, "the provider of the fiat is paid");
+    assert_eq!(usdc.balance(&provider), before_provider);
+}
+
+#[test]
+fn rescuing_a_stranded_withdrawal_can_also_return_the_user_their_own_coins() {
+    let (env, client, _admin, resolver, _attestor, provider, recipient, usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::Withdraw, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+
+    let amount = client.get_trade(&id32(&env, 1)).usdc_amount;
+    let before = usdc.balance(&provider);
+    client.raise_dispute(&id32(&env, 1), &resolver);
+    client.resolve(&id32(&env, 1), &crate::types::ResolveOutcome::Refund, &resolver);
+
+    assert_eq!(client.get_trade(&id32(&env, 1)).status, crate::types::Status::Refunded);
+    assert_eq!(
+        usdc.balance(&provider) - before,
+        amount,
+        "a refund returns the whole amount, with no fee taken from the user"
+    );
+}
+
+#[test]
+fn the_user_can_rescue_their_own_stranded_withdrawal_without_the_resolver() {
+    let (env, client, _admin, _resolver, _attestor, provider, recipient, _usdc) = gate_setup();
+    gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::Withdraw, 1);
+    client.mark_fiat_paid(&id32(&env, 1), &recipient);
+
+    client.raise_dispute(&id32(&env, 1), &provider);
+
+    assert!(client.dispute_view(&id32(&env, 1)).is_disputed);
+}
+
+#[test]
 fn a_funded_dispute_leaves_no_origin_latched_behind_it() {
     let (env, client, _admin, resolver, _attestor, provider, recipient, _usdc) = gate_setup();
     gate_trade(&env, &client, &provider, &recipient, crate::types::Flow::TopUp, 1);
