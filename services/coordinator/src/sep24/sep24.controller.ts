@@ -14,7 +14,12 @@ import {
 import { AppConfigService } from '../config/app-config.service';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
 import { mintInteractiveToken, readInteractiveToken } from './interactive-token';
-import { SIGNING_PROBE_PATH, renderSigningProbe } from './signing-probe';
+import {
+  SIGNING_PROBE_PATH,
+  SIGNING_PROBE_SCRIPT_PATH,
+  renderSigningProbe,
+  renderSigningProbeScript,
+} from './signing-probe';
 import { UseInterceptors } from '@nestjs/common';
 import type { Response } from 'express';
 import { Sep24AuthGuard } from './sep24-auth.guard';
@@ -151,6 +156,13 @@ export class Sep24Controller {
     const token = this.usableSession(req, id);
     await this.sep24.submitAmount(id, token, body.fiat_amount);
     res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
+  }
+
+  @Get(SIGNING_PROBE_SCRIPT_PATH)
+  @Header('content-type', 'application/javascript; charset=utf-8')
+  @Header('cache-control', 'no-store')
+  signingProbeScript(): string {
+    return renderSigningProbeScript();
   }
 
   @Get(SIGNING_PROBE_PATH)

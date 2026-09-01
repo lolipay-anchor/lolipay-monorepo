@@ -36,6 +36,18 @@ describe('the SEP-24 surface a wallet reads before it ever deposits', () => {
       const { text } = await http().get('/sep24/signing-probe');
       expect(text).toContain(process.env.STELLAR_NETWORK_PASSPHRASE);
     });
+
+    it('loads its script from a same-origin file, because our own CSP forbids an inline one', async () => {
+      const { text } = await http().get('/sep24/signing-probe');
+      expect(text).toContain('src="/sep24/signing-probe.js"');
+      expect(text).not.toMatch(/<script(?![^>]*\ssrc=)/);
+    });
+
+    it('serves that script as javascript, so script-src self admits it', async () => {
+      const res = await http().get('/sep24/signing-probe.js').expect(200);
+      expect(res.headers['content-type']).toMatch(/javascript/);
+      expect(res.text).toContain('freighterApi');
+    });
   });
 
   describe('GET /sep24/info', () => {
