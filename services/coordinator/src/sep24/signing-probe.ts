@@ -44,58 +44,63 @@ export function renderSigningProbeScript(): string {
   }
   function say(k, t) { rows.push({ k: k, t: t }); paint(); }
 
-  rows = [];
-  say('yes', 'The script ran, so this page is allowed to execute JavaScript.');
+  var GLOBALS = ['freighterApi', 'freighter', 'stellar', 'rabetApi', 'lobstrApi', 'xBullSDK', 'albedo', 'diam'];
 
-  var names = ['freighterApi', 'freighter', 'stellar', 'rabetApi', 'lobstrApi', 'xBullSDK', 'albedo', 'diam'];
-  var found = [];
-  for (var i = 0; i < names.length; i++) {
-    if (typeof window[names[i]] !== 'undefined') found.push(names[i]);
+  function globalsPresent() {
+    var found = [];
+    for (var i = 0; i < GLOBALS.length; i++) {
+      if (typeof window[GLOBALS[i]] !== 'undefined') found.push(GLOBALS[i] + '=' + typeof window[GLOBALS[i]]);
+    }
+    return found;
   }
-  if (found.length) {
-    say('yes', 'An injected wallet API IS present: <code>' + found.join(', ') + '</code>');
-  } else {
-    say('no', 'No injected wallet API is on <code>window</code> right now. Some wallets inject late — press the button to check again.');
-  }
-  say('wait', 'Origin <code>' + location.origin + '</code>, opened as ' + (window.opener ? 'a popup with an opener' : 'a normal tab') + '.');
 
-  go.addEventListener('click', function () {
-    go.disabled = true;
+  function askFreighter() {
+    return new Promise(function (resolve) {
+      var messageId = Date.now() + Math.random();
+      var done = false;
+      var timer = setTimeout(function () {
+        if (done) return;
+        done = true;
+        window.removeEventListener('message', onReply);
+        resolve(null);
+      }, 3000);
+      function onReply(ev) {
+        if (ev.source !== window) return;
+        var d = ev.data;
+        if (!d || d.source !== 'FREIGHTER_EXTERNAL_MSG_RESPONSE') return;
+        if (d.messagedId !== messageId && d.messageId !== messageId) return;
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        window.removeEventListener('message', onReply);
+        resolve(d);
+      }
+      window.addEventListener('message', onReply, false);
+      window.postMessage(
+        { source: 'FREIGHTER_EXTERNAL_MSG_REQUEST', messageId: messageId, type: 'REQUEST_CONNECTION_STATUS' },
+        window.location.origin
+      );
+    });
+  }
+
+  function run() {
     rows = [];
-    say('yes', 'The button works, so the script is running.');
-    var again = [];
-    for (var j = 0; j < names.length; j++) {
-      if (typeof window[names[j]] !== 'undefined') again.push(names[j]);
-    }
-    if (!again.length) {
-      say('no', 'Still no injected wallet API. No wallet extension is reachable from this page in this browser.');
-      go.disabled = false;
-      return;
-    }
-    say('yes', 'Injected: <code>' + again.join(', ') + '</code>');
-    var api = window.freighterApi || window.freighter;
-    if (!api) {
-      say('wait', 'A wallet is injected but it is not Freighter-shaped, so this probe cannot interrogate it further.');
-      go.disabled = false;
-      return;
-    }
-    Promise.resolve()
-      .then(function () { return api.isConnected ? api.isConnected() : true; })
-      .then(function (c) { say('yes', 'isConnected() &rarr; <code>' + JSON.stringify(c) + '</code>'); })
-      .then(function () {
-        if (api.requestAccess) return api.requestAccess();
-        if (api.getAddress) return api.getAddress();
-        if (api.getPublicKey) return api.getPublicKey();
-        return null;
-      })
-      .then(function (a) {
-        say(a ? 'yes' : 'no', 'address &rarr; <code>' + JSON.stringify(a) + '</code>');
-        say('yes', 'A wallet answered this page. A Soroban signature is therefore reachable from a SEP-24 popup in THIS browser.');
-      })
-      .catch(function (e) {
-        say('no', 'The wallet refused or errored: <code>' + (e && e.message ? e.message : String(e)) + '</code>');
-      })
-      .then(function () { go.disabled = false; });
-  });
+    say('yes', 'The script is running on <code>' + location.origin + '</code>, opened as ' + (window.opener ? 'a popup' : 'a normal tab') + '.');
+    var g = globalsPresent();
+    say(g.length ? 'yes' : 'wait', g.length ? 'Injected globals: <code>' + g.join(', ') + '</code>' : 'No injected wallet global. That alone proves nothing — Freighter 6 answers over postMessage, not a global.');
+    say('wait', 'Asking Freighter over its real channel (REQUEST_CONNECTION_STATUS), 3s timeout…');
+    askFreighter().then(function (reply) {
+      if (!reply) {
+        say('no', 'No answer. Either no Freighter extension is installed in this browser, or it does not reach this page.');
+        say('wait', '<b>The control that tells those apart:</b> open <code>https://app.lolipay.app</code> in <b>this same browser</b> and try to connect a wallet. If it connects there and not here, the extension is blocked on this origin. If it connects nowhere, no wallet is installed here.');
+        return;
+      }
+      say('yes', 'Freighter ANSWERED: <code>' + JSON.stringify(reply).slice(0, 300) + '</code>');
+      say('yes', 'A wallet is reachable from the anchor\\'s own page. A Soroban signature is therefore possible from a SEP-24 popup in this browser.');
+    });
+  }
+
+  go.addEventListener('click', run);
+  run();
 })();`;
 }

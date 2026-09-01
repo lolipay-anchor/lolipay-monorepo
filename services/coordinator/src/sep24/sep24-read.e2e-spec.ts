@@ -48,6 +48,19 @@ describe('the SEP-24 surface a wallet reads before it ever deposits', () => {
       expect(res.headers['content-type']).toMatch(/javascript/);
       expect(res.text).toContain('freighterApi');
     });
+
+    it('asks Freighter over the channel it really uses, not by looking for a window global', async () => {
+      const { text } = await http().get('/sep24/signing-probe.js');
+      expect(text).toContain('FREIGHTER_EXTERNAL_MSG_REQUEST');
+      expect(text).toContain('REQUEST_CONNECTION_STATUS');
+      expect(text).toContain('FREIGHTER_EXTERNAL_MSG_RESPONSE');
+      expect(text).toContain('messagedId');
+    });
+
+    it('names the control that separates "no wallet" from "wallet blocked here"', async () => {
+      const { text } = await http().get('/sep24/signing-probe.js');
+      expect(text).toContain('app.lolipay.app');
+    });
   });
 
   describe('GET /sep24/info', () => {
