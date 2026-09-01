@@ -6,6 +6,7 @@ export type InteractiveScreen =
   | 'refused'
   | 'amount'
   | 'waiting_on_escrow'
+  | 'waiting_on_fiat'
   | 'sign_funding'
   | 'sign_release'
   | 'instructions'
@@ -26,7 +27,8 @@ export function interactiveScreen(input: {
     if (withdrawing && input.orderStatus !== 'CREATED') return 'sign_funding';
     return 'waiting_on_escrow';
   }
-  if (input.orderStatus === 'FUNDED') return withdrawing ? 'sign_release' : 'instructions';
+  if (input.orderStatus === 'FUNDED') return withdrawing ? 'waiting_on_fiat' : 'instructions';
+  if (input.orderStatus === 'FIAT_PAID' && withdrawing) return 'sign_release';
   return 'settled';
 }
 

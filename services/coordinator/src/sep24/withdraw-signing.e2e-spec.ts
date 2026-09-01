@@ -25,7 +25,10 @@ describe('the screen that asks a wallet to sign', () => {
 
   const http = () => request(app.getHttpServer());
 
-  async function atStatus(status: 'CREATED' | 'MATCHED' | 'FUNDED', flow: 'TOP_UP' | 'WITHDRAW') {
+  async function atStatus(
+    status: 'CREATED' | 'MATCHED' | 'FUNDED' | 'FIAT_PAID',
+    flow: 'TOP_UP' | 'WITHDRAW',
+  ) {
     const kp = Keypair.random();
     const jwt = await anchorToken(app, kp);
     const path = flow === 'WITHDRAW' ? 'withdraw' : 'deposit';
@@ -90,9 +93,19 @@ describe('the screen that asks a wallet to sign', () => {
     expect(page.text).toMatch(/preparing your withdrawal/i);
   });
 
-  it('asks for the second signature once the escrow is funded, instead of telling the user to send rupiah', async () => {
+  it('waits, and keeps refreshing, while the escrow is funded and the rupiah is still coming', async () => {
     const { page } = await atStatus('FUNDED', 'WITHDRAW');
+    expect(page.text).toMatch(/your usdc is in escrow/i);
+    expect(page.text).not.toMatch(/send your rupiah/i);
+    expect(page.text).not.toContain('BCA 999888777');
+    expect(page.text).not.toMatch(/i received the rupiah/i);
+    expect(page.text).toMatch(/http-equiv="refresh"/i);
+  });
+
+  it('asks for the second signature once the rupiah is marked paid, which is when the escrow accepts it', async () => {
+    const { page } = await atStatus('FIAT_PAID', 'WITHDRAW');
     expect(page.text).toMatch(/confirm your rupiah arrived/i);
+    expect(page.text).toMatch(/i received the rupiah/i);
     expect(page.text).not.toMatch(/send your rupiah/i);
     expect(page.text).not.toContain('BCA 999888777');
     expect(page.text).not.toMatch(/http-equiv="refresh"/i);
@@ -120,7 +133,9 @@ describe('the screen that asks a wallet to sign', () => {
     const csp = res.headers['content-security-policy'] as string;
     const connect = csp.split(';').find((d) => d.trim().startsWith('connect-src')) as string;
     expect(connect).toBeDefined();
-    expect(connect).toContain("'self'");
+    expect(connect.trim()).toBe(
+      `connect-src 'self' ${new URL(process.env.STELLAR_RPC_URL as string).origin}`,
+    );
     const scriptSrc = csp.split(';').find((d) => d.trim().startsWith('script-src ')) as string;
     expect(scriptSrc.trim()).toBe("script-src 'self'");
   });

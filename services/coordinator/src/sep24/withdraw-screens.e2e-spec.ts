@@ -84,7 +84,12 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     expect(res.text).not.toMatch(/lolipay deposit/);
   });
 
-  async function linkFundedOrder(id: string, address: string, flow: 'TOP_UP' | 'WITHDRAW') {
+  async function linkFundedOrder(
+    id: string,
+    address: string,
+    flow: 'TOP_UP' | 'WITHDRAW',
+    status: 'FUNDED' | 'FIAT_PAID' = 'FUNDED',
+  ) {
     const link = await prisma.walletLink.findUnique({ where: { stellarAddress: address } });
     const order = await prisma.order.create({
       data: {
@@ -101,7 +106,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
         platformWallet: 'GPLATFORM',
         lpPaymentDetails: 'BCA 999888777 THE PROVIDER',
         userPaymentDetails: 'BNI 111222333 THE USER',
-        status: 'FUNDED',
+        status,
         payDeadline: 9_999_999_999n,
         confirmDeadline: 9_999_999_999n,
         disputeDeadline: 9_999_999_999n,
@@ -116,10 +121,39 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     await linkFundedOrder(id, address, 'WITHDRAW');
 
     const res = await screen(id, token);
-    expect(res.text).toMatch(/confirm your rupiah arrived/i);
     expect(res.text).not.toMatch(/send your rupiah/i);
     expect(res.text).not.toContain('BCA 999888777');
+    expect(res.text).toMatch(/your usdc is in escrow/i);
+  });
+
+  it('does not offer the confirm button at FUNDED, the one status the escrow refuses it at', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await linkFundedOrder(id, address, 'WITHDRAW');
+
+    const res = await screen(id, token);
+    expect(res.text).not.toMatch(/i received the rupiah/i);
+    expect(res.text).toMatch(/http-equiv="refresh"/i);
+  });
+
+  it('offers the confirm button at FIAT_PAID, which is the only status confirm_and_release accepts', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await linkFundedOrder(id, address, 'WITHDRAW', 'FIAT_PAID');
+
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/confirm your rupiah arrived/i);
+    expect(res.text).toMatch(/i received the rupiah/i);
     expect(res.text).toMatch(/releases the escrow/i);
+    expect(res.text).not.toContain('BCA 999888777');
+  });
+
+  it('leaves a FIAT_PAID deposit on the settled status page, with no button', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await prisma.sep24Transaction.update({ where: { id }, data: { flow: 'TOP_UP' } });
+    await linkFundedOrder(id, address, 'TOP_UP', 'FIAT_PAID');
+
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/deposit status/i);
+    expect(res.text).not.toMatch(/i received the rupiah/i);
   });
 
   it('a FUNDED deposit still is told to send rupiah, with the provider bank account', async () => {

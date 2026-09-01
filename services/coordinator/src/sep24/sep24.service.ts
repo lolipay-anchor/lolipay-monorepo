@@ -13,6 +13,7 @@ import { Sep12Service } from '../kyc/sep12.service';
 import { RateService } from '../rate/rate.service';
 import { OrderService } from '../order/order.service';
 import { OrderTxService } from '../order/order-tx.service';
+import { OrderStatusService, REFRESH_FROM_CHAIN_STATUSES } from '../order/order-status.service';
 import { AppConfigService } from '../config/app-config.service';
 import { baseUnitsToUsdc } from '../money/money';
 import { serializeSep24, Sep24Record, Sep24TransactionJson } from './sep24-transaction';
@@ -60,6 +61,7 @@ export class Sep24Service {
     private orders: OrderService,
     private people: PersonService,
     private orderTx: OrderTxService,
+    private orderStatus: OrderStatusService,
   ) {}
 
   private assets() {
@@ -230,6 +232,16 @@ export class Sep24Service {
     if (!(await this.people.lookupPerson(row.stellarAccount))) {
       throw new NotFoundException('this anchor holds no such transaction');
     }
+    if (row.orderId && REFRESH_FROM_CHAIN_STATUSES.includes((row.order as any)?.status)) {
+      const full = await this.prisma.order.findUnique({
+        where: { id: row.orderId },
+        include: { lp: true },
+      });
+      const fresh = full
+        ? await this.orderStatus.refreshOrderStatus(full.id, full).catch(() => null)
+        : null;
+      if (fresh) (row as any).order = { ...(row.order as any), status: fresh.status };
+    }
     const [kyc, screenedElsewhere, refusedAnywhere] = await Promise.all([
       this.prisma.kycVerification.findUnique({ where: { customerRef: row.stellarAccount } }),
       this.prisma.kycVerification.findFirst({
@@ -311,6 +323,13 @@ export class Sep24Service {
           ? '<p>Your USDC is being placed in escrow. This page refreshes itself.</p>'
           : '<p>A liquidity provider is locking the USDC in escrow. This page refreshes itself.</p>',
         10,
+      );
+    }
+    if (screen === 'waiting_on_fiat') {
+      return page(
+        'Your USDC is in escrow',
+        '<p>The provider is sending your rupiah. The button to confirm it arrived appears on this page as soon as they mark it sent — this page refreshes itself, so leave it open.</p>',
+        15,
       );
     }
     if (screen === 'sign_funding' || screen === 'sign_release') {

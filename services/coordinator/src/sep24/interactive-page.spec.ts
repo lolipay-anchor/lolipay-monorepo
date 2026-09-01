@@ -48,6 +48,40 @@ describe('which screen a depositor sees, decided from facts two tables already h
   );
 });
 
+describe('which screen a withdrawing user sees, which is never the depositor one', () => {
+  const w = (orderStatus: any) =>
+    interactiveScreen({ kycStatus: 'ACCEPTED', screened: true, orderStatus, flow: 'WITHDRAW' });
+
+  it('waits on the escrow, and shows no button, before a provider is matched', () => {
+    expect(w('CREATED')).toBe('waiting_on_escrow');
+  });
+
+  it.each(['MATCHED', 'AWAITING_ONCHAIN'])('asks for the funding signature at %s', (status) => {
+    expect(w(status)).toBe('sign_funding');
+  });
+
+  it('waits for the rupiah at FUNDED, because confirm_and_release refuses that status', () => {
+    expect(w('FUNDED')).toBe('waiting_on_fiat');
+  });
+
+  it('asks for the release signature at FIAT_PAID, the one status the escrow accepts it at', () => {
+    expect(w('FIAT_PAID')).toBe('sign_release');
+  });
+
+  it('never shows a withdrawing user the deposit instructions screen', () => {
+    for (const status of ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID']) {
+      expect(w(status)).not.toBe('instructions');
+    }
+  });
+
+  it.each(['RELEASED', 'REFUNDED', 'DISPUTED', 'EXPIRED', 'CANCELLED'])(
+    'reports %s as settled, with nothing left to sign',
+    (status) => {
+      expect(w(status)).toBe('settled');
+    },
+  );
+});
+
 describe('what the page puts on screen cannot be turned into markup', () => {
   it('escapes every character that could open a tag or an attribute', () => {
     expect(escapeHtml(`<script>alert("x")&'`)).toBe(
