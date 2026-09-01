@@ -180,7 +180,14 @@ export class OrderTxService {
 
     const isParty =
       callerAddress === order.userAddress || callerAddress === order.lp?.stellarAddress;
-    if (!isParty) throw new ForbiddenException('only a trade party may raise a dispute');
+    if (!isParty) {
+      const resolver = await this.stellar.readEscrowResolver(this.status.contractIdFor(order));
+      if (callerAddress !== resolver) {
+        throw new ForbiddenException(
+          'only a trade party or the escrow resolver may raise a dispute',
+        );
+      }
+    }
 
     const currentOrder = await this.status.refreshOrderStatus(orderId, order);
     const config = await this.config();

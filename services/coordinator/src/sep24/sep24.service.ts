@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
@@ -360,11 +361,17 @@ export class Sep24Service {
       );
     }
 
+    if (row.flow !== 'TOP_UP') {
+      throw new ServiceUnavailableException(
+        'this anchor cannot yet carry a withdrawal past this point, and will not turn one into a deposit',
+      );
+    }
+
     const digits = String(rawAmount ?? '').replace(/[^0-9]/g, '');
     if (digits.length === 0 || digits.length > 18) {
       throw new BadRequestException('name an amount in rupiah');
     }
-    const quote = await this.rate.createQuote(row.stellarAccount, 'TOP_UP', 'BANK', {
+    const quote = await this.rate.createQuote(row.stellarAccount, row.flow, 'BANK', {
       fiatAmount: BigInt(digits),
     });
     const created = await this.orders.createFromQuote(row.stellarAccount, quote.id);

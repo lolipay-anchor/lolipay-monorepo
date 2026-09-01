@@ -11,6 +11,7 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
           personId: 'person-1',
           orderId: null,
           startedAt: new Date(),
+          flow: 'TOP_UP',
           order: null,
         })),
         updateMany: jest.fn(async () => ({ count: 0 })),

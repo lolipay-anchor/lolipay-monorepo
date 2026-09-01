@@ -23,6 +23,7 @@ describe('the withdrawal door, with the switch on', () => {
   });
 
   const http = () => request(app.getHttpServer());
+  const base = process.env.ANCHOR_BASE_URL ?? 'http://localhost';
 
   async function open(body: Record<string, unknown>) {
     const kp = Keypair.random();
@@ -67,6 +68,86 @@ describe('the withdrawal door, with the switch on', () => {
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/withdraws from the account its token speaks for/i);
     expect(res.body.message).not.toMatch(/deposit/i);
+  });
+
+  it('refuses to carry a withdrawal past the amount step, rather than quietly making it a deposit', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const opened = await http()
+      .post('/sep24/transactions/withdraw/interactive')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+
+    const url = new URL(opened.body.url as string);
+    const id = url.pathname.split('/').pop() as string;
+    const token = url.searchParams.get('token') as string;
+
+    const link = await prisma.walletLink.findUnique({
+      where: { stellarAddress: kp.publicKey() },
+    });
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: kp.publicKey(),
+        personId: link!.personId,
+        status: 'ACCEPTED',
+        screenedAt: new Date(),
+        verifiedAt: new Date(),
+      },
+    });
+
+    const first = await http().get(`/sep24/interactive/${id}?token=${token}`);
+    const cookie = (first.headers['set-cookie'] as unknown as string[]) ?? [];
+    expect(first.status).toBeLessThan(400);
+
+    const control = await http()
+      .post(`/sep24/interactive/${id}/amount`)
+      .set('Cookie', cookie)
+      .set('Origin', base)
+      .send({ fiat_amount: '1000000' });
+
+    expect(control.status).toBe(503);
+    expect(String(control.text)).toMatch(/will not turn one into a deposit/i);
+    const orders = await prisma.order.count({ where: { userAddress: kp.publicKey() } });
+    expect(orders).toBe(0);
+  });
+
+  it('a deposit at the same step is never refused for the withdrawal reason, so the message discriminates', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const opened = await http()
+      .post('/sep24/transactions/deposit/interactive')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+
+    const url = new URL(opened.body.url as string);
+    const id = url.pathname.split('/').pop() as string;
+    const token = url.searchParams.get('token') as string;
+
+    const link = await prisma.walletLink.findUnique({
+      where: { stellarAddress: kp.publicKey() },
+    });
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: kp.publicKey(),
+        personId: link!.personId,
+        status: 'ACCEPTED',
+        screenedAt: new Date(),
+        verifiedAt: new Date(),
+      },
+    });
+
+    const first = await http().get(`/sep24/interactive/${id}?token=${token}`);
+    const cookie = (first.headers['set-cookie'] as unknown as string[]) ?? [];
+
+    const res = await http()
+      .post(`/sep24/interactive/${id}/amount`)
+      .set('Cookie', cookie)
+      .set('Origin', base)
+      .send({ fiat_amount: '1000000' });
+
+    expect(String(res.text)).not.toMatch(/will not turn one into a deposit/i);
   });
 
   it('surfaces the row through the read endpoints as a withdrawal', async () => {

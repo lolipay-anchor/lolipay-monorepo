@@ -716,6 +716,15 @@ export class StellarReadService {
     return new Server(this.cfg.rpcUrl);
   }
 
+  async readEscrowResolver(contractId: string): Promise<string> {
+    const cfg = await this.simulateCall(contractId, 'get_config', []);
+    const resolver = cfg?.resolver;
+    if (typeof resolver !== 'string' || resolver.length === 0) {
+      throw new Error(`readEscrowResolver: ${contractId} returned no resolver`);
+    }
+    return resolver;
+  }
+
   async readEscrowFiatAttestor(contractId: string): Promise<string> {
     const cfg = await this.simulateCall(contractId, 'get_config', []);
     const attestor = cfg?.fiat_attestor;
