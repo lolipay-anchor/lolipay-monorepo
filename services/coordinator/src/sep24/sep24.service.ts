@@ -341,7 +341,7 @@ export class Sep24Service {
           `<p>The provider says they are sending <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to your bank account. This page refreshes itself.</p>`,
           '<p>When they mark it sent, a button appears here. <strong>That is their claim, not proof.</strong> Check your own bank account before you press it — pressing it releases your USDC to them.</p>',
           until
-            ? `<p>If they never mark it sent, the escrow returns your USDC to you after <strong>${escapeHtml(until)}</strong>, automatically. Once they do mark it sent, that automatic return is gone and only you or a dispute can settle the trade.</p>`
+            ? `<p>If they never mark it sent, your USDC can be refunded out of the escrow after <strong>${escapeHtml(until)}</strong> — that route is open to anyone, including you. Once they do mark it sent, it closes, and only your confirmation or a dispute can settle the trade.</p>`
             : '',
         ].join(''),
         30,

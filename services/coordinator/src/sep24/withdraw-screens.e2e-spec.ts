@@ -133,6 +133,9 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     const res = await screen(id, token);
     expect(res.text).not.toMatch(/i received the rupiah/i);
     expect(res.text).toMatch(/http-equiv="refresh"/i);
+    expect(res.text).toMatch(/their claim, not proof/i);
+    expect(res.text).toMatch(/can be refunded out of the escrow after/i);
+    expect(res.text).toMatch(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/);
   });
 
   it('offers the confirm button at FIAT_PAID, which is the only status confirm_and_release accepts', async () => {

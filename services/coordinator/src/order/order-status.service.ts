@@ -99,7 +99,18 @@ export class OrderStatusService {
         include: { lp: true },
       });
       if (!updated) return order;
-      if (written.count === 0) return updated;
+      if (written.count === 0) {
+        const latched = settlementFieldsFrom(onChain);
+        delete latched.settledAt;
+        if (updated.status !== onChain.status || Object.keys(latched).length === 0) return updated;
+        await this.prisma.order.updateMany({
+          where: { id, status: onChain.status as any },
+          data: latched,
+        });
+        return (
+          (await this.prisma.order.findUnique({ where: { id }, include: { lp: true } })) ?? updated
+        );
+      }
 
       this.realtime?.emitOrderUpdate({
         id: updated.id,
