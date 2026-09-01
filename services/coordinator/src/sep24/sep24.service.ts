@@ -30,6 +30,9 @@ import {
   TransactionsQueryDto,
   TransactionQueryDto,
 } from './sep24-query.dto';
+import { NO_CONTROL_CHARS_RE } from '../order/dto/create-order.dto';
+
+const USER_PAYMENT_METHOD_MAX = 500;
 
 const ORDER_FIELDS = {
   status: true,
@@ -291,9 +294,12 @@ export class Sep24Service {
       );
     }
     if (screen === 'amount') {
+      const bank = withdrawing
+        ? '<p><label>The bank account to pay your rupiah into<br><input name="user_payment_method" maxlength="500" required></label></p>'
+        : '';
       return page(
         withdrawing ? 'How much would you like to withdraw?' : 'How much would you like to deposit?',
-        `${credits}<form method="post" action="${escapeHtml(post('/amount'))}"><p><label>Amount in IDR<br><input name="fiat_amount" inputmode="numeric" required></label></p><button type="submit">Continue</button></form>`,
+        `${credits}<form method="post" action="${escapeHtml(post('/amount'))}"><p><label>Amount in IDR<br><input name="fiat_amount" inputmode="numeric" required></label></p>${bank}<button type="submit">Continue</button></form>`,
       );
     }
     if (screen === 'waiting_on_escrow') {
@@ -373,7 +379,12 @@ export class Sep24Service {
     );
   }
 
-  async submitAmount(id: string, token: string, rawAmount: unknown) {
+  async submitAmount(
+    id: string,
+    token: string,
+    rawAmount: unknown,
+    rawPaymentMethod?: unknown,
+  ) {
     const state = await this.interactiveState(id, token);
     const { row, kyc } = state;
     if (row.orderId) return;
@@ -383,20 +394,33 @@ export class Sep24Service {
       );
     }
 
-    if (row.flow !== 'TOP_UP') {
-      throw new ServiceUnavailableException(
-        'this anchor cannot yet carry a withdrawal past this point, and will not turn one into a deposit',
-      );
-    }
-
     const digits = String(rawAmount ?? '').replace(/[^0-9]/g, '');
     if (digits.length === 0 || digits.length > 18) {
       throw new BadRequestException('name an amount in rupiah');
     }
+
+    let userPaymentMethod: string | undefined;
+    if (row.flow === 'WITHDRAW') {
+      userPaymentMethod = String(rawPaymentMethod ?? '').trim();
+      if (userPaymentMethod.length === 0) {
+        throw new BadRequestException('name the bank account this anchor should pay the rupiah into');
+      }
+      if (userPaymentMethod.length > USER_PAYMENT_METHOD_MAX) {
+        throw new BadRequestException('those bank details are too long');
+      }
+      if (!NO_CONTROL_CHARS_RE.test(userPaymentMethod)) {
+        throw new BadRequestException('those bank details contain characters this anchor will not send on');
+      }
+    }
+
     const quote = await this.rate.createQuote(row.stellarAccount, row.flow, 'BANK', {
       fiatAmount: BigInt(digits),
     });
-    const created = await this.orders.createFromQuote(row.stellarAccount, quote.id);
+    const created = await this.orders.createFromQuote(
+      row.stellarAccount,
+      quote.id,
+      userPaymentMethod,
+    );
     const orderId = String((created.order as Record<string, unknown>).id);
     const linked = await this.prisma.sep24Transaction.updateMany({
       where: { id, orderId: null, stellarAccount: row.stellarAccount },

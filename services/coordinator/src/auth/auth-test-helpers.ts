@@ -1,4 +1,4 @@
-import { Test } from '@nestjs/testing';
+import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { Keypair, Networks, Transaction } from '@stellar/stellar-sdk';
@@ -14,15 +14,18 @@ const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
 };
 
-export async function bootAuthApp(): Promise<INestApplication> {
-  const mod = await Test.createTestingModule({ imports: [AppModule] })
-    .overrideProvider(ThrottlerStorage)
-    .useValue(noopStorage)
-    .overrideProvider(AccountSignersService)
-    .useValue({ load: jest.fn().mockResolvedValue(null) })
-    .overrideProvider(KYC_PROVIDER)
-    .useValue(new StubKycProvider())
-    .compile();
+export async function bootAuthApp(
+  extend: (b: TestingModuleBuilder) => TestingModuleBuilder = (b) => b,
+): Promise<INestApplication> {
+  const mod = await extend(
+    Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(ThrottlerStorage)
+      .useValue(noopStorage)
+      .overrideProvider(AccountSignersService)
+      .useValue({ load: jest.fn().mockResolvedValue(null) })
+      .overrideProvider(KYC_PROVIDER)
+      .useValue(new StubKycProvider()),
+  ).compile();
   const app = mod.createNestApplication();
   configureHttp(app);
   await app.init();

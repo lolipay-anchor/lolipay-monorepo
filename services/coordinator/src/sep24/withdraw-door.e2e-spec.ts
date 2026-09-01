@@ -3,6 +3,8 @@ import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
 import { bootAuthApp, anchorToken, sessionToken } from '../auth/auth-test-helpers';
 import { PrismaService } from '../prisma/prisma.service';
+import { PRICE_ADAPTER } from '../rate/rate.module';
+import { StellarReadService } from '../stellar/stellar-read.service';
 
 describe('the withdrawal door, with the switch on', () => {
   let app: INestApplication;
@@ -12,8 +14,42 @@ describe('the withdrawal door, with the switch on', () => {
   beforeAll(async () => {
     saved = process.env.SEP24_WITHDRAW_ENABLED;
     process.env.SEP24_WITHDRAW_ENABLED = 'true';
-    app = await bootAuthApp();
+    app = await bootAuthApp((b) =>
+      b
+        .overrideProvider(PRICE_ADAPTER)
+        .useValue({ name: 'fake', fetchPrices: jest.fn().mockResolvedValue({ IDR: '16000' }) })
+        .overrideProvider(StellarReadService)
+        .useValue({
+          isEligible: jest.fn().mockResolvedValue(true),
+          getStakeInfo: jest.fn().mockResolvedValue({
+            staked: '1000000000000',
+            unbonding: '0',
+            unbond_available_at: 0,
+            min_stake: '1',
+            eligible: true,
+          }),
+          getTradeStatus: jest.fn().mockResolvedValue(null),
+          getTradeStatusStrict: jest.fn().mockResolvedValue(null),
+          hasUsdcTrustline: jest.fn().mockResolvedValue(true),
+        }),
+    );
     prisma = app.get(PrismaService);
+
+    const lpKp = Keypair.random();
+    const lp = await prisma.lp.create({
+      data: {
+        stellarAddress: lpKp.publicKey(),
+        status: 'APPROVED',
+        online: true,
+        lastHeartbeatAt: new Date(),
+        contact: 'lp@withdraw.test',
+        liquidityProof: 'proof',
+        approvedAt: new Date(),
+      },
+    });
+    await prisma.paymentMethod.create({
+      data: { lpId: lp.id, rail: 'BANK', label: 'BCA', details: 'BCA 1', active: true },
+    });
   });
 
   afterAll(async () => {
@@ -99,7 +135,7 @@ describe('the withdrawal door, with the switch on', () => {
     expect(res.body.message).not.toMatch(/deposit/i);
   });
 
-  it('refuses to carry a withdrawal past the amount step, rather than quietly making it a deposit', async () => {
+  async function atAmountStep() {
     const kp = Keypair.random();
     const jwt = await anchorToken(app, kp);
     const opened = await http()
@@ -107,11 +143,9 @@ describe('the withdrawal door, with the switch on', () => {
       .set('Authorization', `Bearer ${jwt}`)
       .send({ asset_code: 'USDC' })
       .expect(200);
-
     const url = new URL(opened.body.url as string);
     const id = url.pathname.split('/').pop() as string;
     const token = url.searchParams.get('token') as string;
-
     const link = await prisma.walletLink.findUnique({
       where: { stellarAddress: kp.publicKey() },
     });
@@ -124,21 +158,112 @@ describe('the withdrawal door, with the switch on', () => {
         verifiedAt: new Date(),
       },
     });
-
     const first = await http().get(`/sep24/interactive/${id}?token=${token}`);
     const cookie = (first.headers['set-cookie'] as unknown as string[]) ?? [];
-    expect(first.status).toBeLessThan(400);
+    return { id, cookie, address: kp.publicKey() };
+  }
 
-    const control = await http()
+  function postAmount(id: string, cookie: string[], body: Record<string, unknown>) {
+    return http()
       .post(`/sep24/interactive/${id}/amount`)
       .set('Cookie', cookie)
       .set('Origin', base)
-      .send({ fiat_amount: '1000000' });
+      .send(body);
+  }
 
-    expect(control.status).toBe(503);
-    expect(String(control.text)).toMatch(/will not turn one into a deposit/i);
-    const orders = await prisma.order.count({ where: { userAddress: kp.publicKey() } });
-    expect(orders).toBe(0);
+  it('asks a withdrawing user for the bank account, on the same form as the amount', async () => {
+    const { id, cookie } = await atAmountStep();
+    const shown = await http().get(`/sep24/interactive/${id}`).set('Cookie', cookie).expect(200);
+    expect(shown.text).toContain('name="user_payment_method"');
+    expect(shown.text).toMatch(/bank account to pay your rupiah into/i);
+  });
+
+  it('does not ask a depositing user for a bank account, because the provider names theirs', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const opened = await http()
+      .post('/sep24/transactions/deposit/interactive')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+    const url = new URL(opened.body.url as string);
+    const id = url.pathname.split('/').pop() as string;
+    const token = url.searchParams.get('token') as string;
+    const link = await prisma.walletLink.findUnique({
+      where: { stellarAddress: kp.publicKey() },
+    });
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: kp.publicKey(),
+        personId: link!.personId,
+        status: 'ACCEPTED',
+        screenedAt: new Date(),
+        verifiedAt: new Date(),
+      },
+    });
+    const first = await http().get(`/sep24/interactive/${id}?token=${token}`);
+    const cookie = (first.headers['set-cookie'] as unknown as string[]) ?? [];
+    const shown = await http().get(`/sep24/interactive/${id}`).set('Cookie', cookie).expect(200);
+    expect(shown.text).not.toContain('name="user_payment_method"');
+  });
+
+  it('refuses a withdrawal whose bank account is missing or only whitespace, and creates no order', async () => {
+    for (const value of [undefined, '', '   ', '\t\n']) {
+      const { id, cookie, address } = await atAmountStep();
+      const res = await postAmount(id, cookie, { fiat_amount: '1000000', user_payment_method: value });
+      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.text).toMatch(/bank account this anchor should pay/i);
+      expect(await prisma.order.count({ where: { userAddress: address } })).toBe(0);
+    }
+  });
+
+  it('refuses bank details carrying control characters, which would travel to the provider verbatim', async () => {
+    const { id, cookie, address } = await atAmountStep();
+    const res = await postAmount(id, cookie, {
+      fiat_amount: '1000000',
+      user_payment_method: 'BNI 111222333\u0000DROP',
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.text).toMatch(/will not send on/i);
+    expect(await prisma.order.count({ where: { userAddress: address } })).toBe(0);
+  });
+
+  it('refuses bank details longer than the column will honestly carry', async () => {
+    const { id, cookie, address } = await atAmountStep();
+    const res = await postAmount(id, cookie, {
+      fiat_amount: '1000000',
+      user_payment_method: 'B'.repeat(501),
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.text).toMatch(/too long/i);
+    expect(await prisma.order.count({ where: { userAddress: address } })).toBe(0);
+  });
+
+  it('never creates a TOP_UP order from a withdrawal, whatever the amount step goes on to do', async () => {
+    const { id, cookie, address } = await atAmountStep();
+    const posted = await postAmount(id, cookie, {
+      fiat_amount: '1000000',
+      user_payment_method: 'BNI 111222333 THE USER',
+    });
+    expect(posted.status).toBeLessThan(400);
+
+    const orders = await prisma.order.findMany({ where: { userAddress: address } });
+    expect(orders).toHaveLength(1);
+    expect(orders[0].flow).toBe('WITHDRAW');
+    expect(orders[0].userPaymentDetails).toBe('BNI 111222333 THE USER');
+  });
+
+  it('carries the bank account through to the order the provider will pay, not somewhere it is dropped', async () => {
+    const { id, cookie, address } = await atAmountStep();
+    const res = await postAmount(id, cookie, {
+      fiat_amount: '1000000',
+      user_payment_method: '  BNI 999 SPACED  ',
+    });
+
+    expect(res.status).toBeLessThan(400);
+    const orders = await prisma.order.findMany({ where: { userAddress: address } });
+    expect(orders).toHaveLength(1);
+    expect(orders[0].userPaymentDetails).toBe('BNI 999 SPACED');
   });
 
   it('a deposit at the same step is never refused for the withdrawal reason, so the message discriminates', async () => {
