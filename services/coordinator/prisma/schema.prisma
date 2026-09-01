@@ -320,6 +320,7 @@ model Sep24Transaction {
   personId       String
   stellarAccount String
   assetCode      String
+  flow           Flow     @default(TOP_UP)
   order          Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
   orderId        String?  @unique
   startedAt      DateTime @default(now())

@@ -10,6 +10,7 @@ const tx = (over: Partial<Sep24Record> = {}): Sep24Record => ({
   stellarAccount: 'GBKBPRR63VBOLS6MCWSC6ZRXVHBHYLEECZ627PH3LWJCRCI3LKWKJSWU',
   startedAt: new Date('2026-08-28T10:00:00.000Z'),
   kycVerified: false,
+  flow: 'TOP_UP',
   order: null,
   ...over,
 });

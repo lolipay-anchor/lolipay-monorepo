@@ -30,8 +30,12 @@ const BY_ORDER_STATUS: Record<OrderStatus, Sep24Status> = {
   CANCELLED: 'expired',
 };
 
-export function sep24Status(order: { status: OrderStatus } | null): Sep24Status {
+export function sep24Status(
+  order: { status: OrderStatus } | null,
+  flow: 'TOP_UP' | 'WITHDRAW' = 'TOP_UP',
+): Sep24Status {
   if (!order) return 'incomplete';
+  if (flow === 'WITHDRAW' && order.status === 'FUNDED') return 'pending_anchor';
   const mapped = BY_ORDER_STATUS[order.status];
   if (!mapped) {
     throw new Error(`sep24Status: no SEP-24 status is mapped for order status ${order.status}`);

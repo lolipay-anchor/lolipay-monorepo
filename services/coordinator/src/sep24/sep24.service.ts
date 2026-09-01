@@ -95,18 +95,17 @@ export class Sep24Service {
 
   private async dress(rows: any[]): Promise<Sep24TransactionJson[]> {
     const screened = await this.screenedPeople([...new Set(rows.map((r) => r.personId))]);
-    return rows.map((row) =>
-      serializeSep24(
-        {
-          id: row.id,
-          stellarAccount: row.stellarAccount,
-          startedAt: row.startedAt,
-          kycVerified: screened.has(row.personId),
-          order: row.order && row.order.personId === row.personId ? row.order : null,
-        } as Sep24Record,
-        this.assets(),
-      ),
-    );
+    return rows.map((row) => {
+      const record: Sep24Record = {
+        id: row.id,
+        stellarAccount: row.stellarAccount,
+        startedAt: row.startedAt,
+        kycVerified: screened.has(row.personId),
+        flow: row.flow,
+        order: row.order && row.order.personId === row.personId ? row.order : null,
+      };
+      return serializeSep24(record, this.assets());
+    });
   }
 
   async list(
@@ -114,7 +113,12 @@ export class Sep24Service {
     query: TransactionsQueryDto,
   ) {
     this.assertAssetServed(query.asset_code);
-    if (query.kind && query.kind !== 'deposit') return { transactions: [] };
+    const kindFilter =
+      query.kind === 'deposit'
+        ? { flow: 'TOP_UP' as const }
+        : query.kind === 'withdrawal'
+          ? { flow: 'WITHDRAW' as const }
+          : {};
 
     const since = query.no_older_than ? new Date(query.no_older_than) : undefined;
     if (since && Number.isNaN(since.getTime())) {
@@ -125,6 +129,7 @@ export class Sep24Service {
     const rows = await this.prisma.sep24Transaction.findMany({
       where: {
         stellarAccount: subject,
+        ...kindFilter,
         ...(since ? { startedAt: { gte: since } } : {}),
       },
       orderBy: { startedAt: 'desc' },
