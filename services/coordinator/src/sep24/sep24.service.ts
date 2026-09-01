@@ -263,7 +263,10 @@ export class Sep24Service {
     const { row, kyc } = state;
     const screen = this.screenFor(row, kyc, state);
     const post = (suffix: string) => this.formAction(id, suffix);
-    const credits = `<p>This deposit credits <code>${escapeHtml(row.stellarAccount)}</code>. If that is not your wallet, close this page.</p>`;
+    const withdrawing = row.flow === 'WITHDRAW';
+    const credits = withdrawing
+      ? `<p>This withdrawal spends USDC from <code>${escapeHtml(row.stellarAccount)}</code>. If that is not your wallet, close this page.</p>`
+      : `<p>This deposit credits <code>${escapeHtml(row.stellarAccount)}</code>. If that is not your wallet, close this page.</p>`;
 
     if (screen === 'refused') {
       return page('Verification refused', `<p>${escapeHtml((state.refusedAnywhere as any)?.rejectionReason ?? kyc?.rejectionReason ?? 'This identity was refused.')}</p>`);
@@ -289,16 +292,32 @@ export class Sep24Service {
     }
     if (screen === 'amount') {
       return page(
-        'How much would you like to deposit?',
+        withdrawing ? 'How much would you like to withdraw?' : 'How much would you like to deposit?',
         `${credits}<form method="post" action="${escapeHtml(post('/amount'))}"><p><label>Amount in IDR<br><input name="fiat_amount" inputmode="numeric" required></label></p><button type="submit">Continue</button></form>`,
       );
     }
     if (screen === 'waiting_on_escrow') {
-      return page('Preparing your deposit', '<p>A liquidity provider is locking the USDC in escrow. This page refreshes itself.</p>', 10);
+      return page(
+        withdrawing ? 'Preparing your withdrawal' : 'Preparing your deposit',
+        withdrawing
+          ? '<p>Your USDC is being placed in escrow. This page refreshes itself.</p>'
+          : '<p>A liquidity provider is locking the USDC in escrow. This page refreshes itself.</p>',
+        10,
+      );
     }
     if (screen === 'instructions') {
       const o = row.order as any;
       const due = o.payDeadline ? new Date(Number(o.payDeadline) * 1000).toISOString() : null;
+      if (withdrawing) {
+        return page(
+          'Waiting for your rupiah',
+          [
+            `<p>Your USDC is held in escrow. <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} is being sent to the bank account you gave.</p>`,
+            '<p>When it arrives you must confirm it here, which releases the escrow. Until you do, nothing moves.</p>',
+          ].join(''),
+          30,
+        );
+      }
       return page(
         'Send your rupiah',
         [
@@ -313,7 +332,10 @@ export class Sep24Service {
         30,
       );
     }
-    return page('Deposit status', `<p>Status: <strong>${escapeHtml(sep24Status(row.order as any))}</strong></p>`);
+    return page(
+      withdrawing ? 'Withdrawal status' : 'Deposit status',
+      `<p>Status: <strong>${escapeHtml(sep24Status(row.order as any, row.flow))}</strong></p>`,
+    );
   }
 
   async submitIdentity(id: string, token: string, fields: Record<string, string>) {
@@ -399,10 +421,11 @@ export class Sep24Service {
     });
     if (!row) throw new NotFoundException('this anchor holds no such transaction');
     const [tx] = await this.dress([row]);
+    const noun = tx.kind === 'withdrawal' ? 'withdrawal' : 'deposit';
     return [
       '<!doctype html><html lang="en"><head><meta charset="utf-8">',
-      '<title>lolipay deposit</title></head><body>',
-      '<h1>lolipay deposit</h1>',
+      `<title>lolipay ${noun}</title></head><body>`,
+      `<h1>lolipay ${noun}</h1>`,
       `<p>Status: <strong>${tx.status}</strong></p>`,
       `<p>Started: ${tx.started_at}</p>`,
       '</body></html>',
