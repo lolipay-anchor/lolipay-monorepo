@@ -27,7 +27,8 @@ button.</p>
 <div id="out"><div class="row no">The script did not run. If you see this after the page has
 loaded, JavaScript was blocked — which is itself the answer, and it is a header this anchor
 controls.</div></div>
-<p><button id="go">Ask the wallet to identify itself</button></p>
+<p><button id="go">Ask again</button>
+<button id="pop">Re-run inside a popup, the way SEP-24 opens it</button></p>
 <p>Network: <code>${networkPassphrase}</code><br>Escrow: <code>${escrowContractId}</code></p>
 <script src="/sep24/${SIGNING_PROBE_SCRIPT_PATH}"></script>
 </body>
@@ -85,7 +86,8 @@ export function renderSigningProbeScript(): string {
 
   function run() {
     rows = [];
-    say('yes', 'The script is running on <code>' + location.origin + '</code>, opened as ' + (window.opener ? 'a popup' : 'a normal tab') + '.');
+    var inPopup = !!window.opener;
+    say(inPopup ? 'yes' : 'wait', 'Running on <code>' + location.origin + '</code>, opened as <b>' + (inPopup ? 'a POPUP with an opener — the same context SEP-24 uses' : 'a normal tab. SEP-24 opens a popup, so press the popup button below to test the real context') + '</b>.');
     var g = globalsPresent();
     say(g.length ? 'yes' : 'wait', g.length ? 'Injected globals: <code>' + g.join(', ') + '</code>' : 'No injected wallet global. That alone proves nothing — Freighter 6 answers over postMessage, not a global.');
     say('wait', 'Asking Freighter over its real channel (REQUEST_CONNECTION_STATUS), 3s timeout…');
@@ -101,6 +103,14 @@ export function renderSigningProbeScript(): string {
   }
 
   go.addEventListener('click', run);
+
+  var pop = document.getElementById('pop');
+  if (pop) {
+    pop.addEventListener('click', function () {
+      window.open(location.href, 'lolipay-signing-probe', 'width=520,height=720');
+    });
+  }
+
   run();
 })();`;
 }

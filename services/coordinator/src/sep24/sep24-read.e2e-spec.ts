@@ -57,6 +57,14 @@ describe('the SEP-24 surface a wallet reads before it ever deposits', () => {
       expect(text).toContain('messagedId');
     });
 
+    it('can re-run itself inside a popup, because that is the context SEP-24 actually uses', async () => {
+      const { text: page } = await http().get('/sep24/signing-probe');
+      expect(page).toContain('id="pop"');
+      const { text: js } = await http().get('/sep24/signing-probe.js');
+      expect(js).toContain('window.open(location.href');
+      expect(js).toContain('window.opener');
+    });
+
     it('names the control that separates "no wallet" from "wallet blocked here"', async () => {
       const { text } = await http().get('/sep24/signing-probe.js');
       expect(text).toContain('app.lolipay.app');
