@@ -4,14 +4,14 @@ export const RELEASE_SCRIPT_PATH = 'release.js';
 export function renderSignScript(id: string, kind: 'fund' | 'release', rpcUrl: string): string {
   const txPath = kind === 'fund' ? 'fund-tx' : 'release-tx';
   const done = kind === 'fund'
-    ? 'Your USDC is in escrow. Leave this window open — the provider is sending your rupiah.'
+    ? 'Your USDC is in escrow. Taking you to the next step…'
     : 'Confirmed. The escrow has been released and this withdrawal is finished.';
   return `(function () {
   var out = document.getElementById('out');
   var go = document.getElementById('go');
   var base = ${JSON.stringify('/sep24/interactive/' + id)};
   var RPC = ${JSON.stringify(rpcUrl)};
-  function say(t) { out.innerHTML = '<p>' + t + '</p>'; }
+  function say(t) { out.textContent = t; }
 
   function ask(type, extra, timeoutMs) {
     return new Promise(function (resolve) {
@@ -51,6 +51,32 @@ export function renderSignScript(id: string, kind: 'fund' | 'release', rpcUrl: s
     say('A wallet is ready. Press the button when you are.');
   });
 
+  function rpc(method, params) {
+    return fetch(RPC, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: method, params: params }),
+    }).then(function (res) { return res.json(); });
+  }
+
+  function confirmed(hash) {
+    var deadline = Date.now() + 90000;
+    function look() {
+      return rpc('getTransaction', { hash: hash }).then(function (j) {
+        var status = j && j.result && j.result.status;
+        if (status === 'SUCCESS') return true;
+        if (status === 'FAILED') {
+          throw new Error('the network applied it and it failed — nothing moved');
+        }
+        if (Date.now() > deadline) {
+          throw new Error('the network has not confirmed it yet — reload this page in a moment to see where it stands');
+        }
+        return new Promise(function (r) { setTimeout(r, 2000); }).then(look);
+      });
+    }
+    return look();
+  }
+
   go.addEventListener('click', function () {
     go.disabled = true;
     say('Asking your wallet for its address…');
@@ -78,27 +104,23 @@ export function renderSignScript(id: string, kind: 'fund' | 'release', rpcUrl: s
       })
       .then(function (r) {
         say('Sending it to the network…');
-        return fetch(RPC, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'sendTransaction',
-            params: { transaction: r.signed },
-          }),
-        }).then(function (res) {
-          return res.json().then(function (j) {
-            var status = j && j.result && j.result.status;
-            if (j && j.error) throw new Error(j.error.message || 'the network refused it');
-            if (status !== 'PENDING' && status !== 'SUCCESS') {
-              throw new Error('the network answered ' + status);
-            }
-            return j;
-          });
+        return rpc('sendTransaction', { transaction: r.signed }).then(function (j) {
+          var status = j && j.result && j.result.status;
+          if (j && j.error) throw new Error(j.error.message || 'the network refused it');
+          if (status !== 'PENDING' && status !== 'SUCCESS') {
+            throw new Error('the network answered ' + status);
+          }
+          return j.result.hash;
         });
       })
-      .then(function () { say(${JSON.stringify(done)}); })
+      .then(function (hash) {
+        say('Waiting for the network to apply it…');
+        return confirmed(hash);
+      })
+      .then(function () {
+        say(${JSON.stringify(done)});
+        setTimeout(function () { window.location.reload(); }, 1500);
+      })
       .catch(function (e) {
         say('That did not go through: ' + (e && e.message ? e.message : String(e)) + ' — you can press the button again.');
         go.disabled = false;

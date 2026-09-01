@@ -1,5 +1,18 @@
 import {
-  BadRequestException, Body, Controller, ForbiddenException, Get, Header, HttpCode, Param, Post, Query, Req, Res, UseGuards,
+  BadRequestException,
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Header,
+  HttpCode,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
+  UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
@@ -50,6 +63,12 @@ export class Sep24Controller {
       }
     }
     return '';
+  }
+
+  private requireSession(req: any, id: string): void {
+    if (!this.usableSession(req, id)) {
+      throw new UnauthorizedException('this page needs the session this anchor set on it');
+    }
   }
 
   private refuseForeignOrigin(req: any): void {
@@ -114,7 +133,6 @@ export class Sep24Controller {
   @UseFilters(InteractiveErrorFilter)
   @Get('interactive/:id')
   @Header('cross-origin-opener-policy', 'unsafe-none')
-  @Header('content-security-policy', cspAllowingRpc(process.env.STELLAR_RPC_URL ?? ''))
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Header('content-type', 'text/html; charset=utf-8')
   @Header('cache-control', 'no-store')
@@ -124,6 +142,7 @@ export class Sep24Controller {
     @Query('token') token: string,
     @Res({ passthrough: true }) res: Response,
   ) {
+    res.setHeader('content-security-policy', cspAllowingRpc(this.cfg.rpcUrl));
     const held = this.usableSession(req, id);
     if (held) {
       res.cookie(sessionCookieName(id), held, sessionCookieOptions(id));
@@ -238,7 +257,8 @@ export class Sep24Controller {
   @Header('cross-origin-opener-policy', 'unsafe-none')
   @Header('content-type', 'application/javascript; charset=utf-8')
   @Header('cache-control', 'no-store')
-  fundScript(@Param('id') id: string): string {
+  fundScript(@Req() req: any, @Param('id') id: string): string {
+    this.requireSession(req, id);
     return renderSignScript(id, 'fund', this.cfg.rpcUrl);
   }
 
@@ -246,7 +266,8 @@ export class Sep24Controller {
   @Header('cross-origin-opener-policy', 'unsafe-none')
   @Header('content-type', 'application/javascript; charset=utf-8')
   @Header('cache-control', 'no-store')
-  releaseScript(@Param('id') id: string): string {
+  releaseScript(@Req() req: any, @Param('id') id: string): string {
+    this.requireSession(req, id);
     return renderSignScript(id, 'release', this.cfg.rpcUrl);
   }
 

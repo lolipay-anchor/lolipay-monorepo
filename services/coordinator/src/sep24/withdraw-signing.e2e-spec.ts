@@ -127,6 +127,26 @@ describe('the screen that asks a wallet to sign', () => {
     }
   });
 
+  it('points each script at its own builder, so neither can sign the other half of the trade', async () => {
+    const { id, cookie } = await atStatus('MATCHED', 'WITHDRAW');
+    const fund = await http().get(`/sep24/interactive/${id}/fund.js`).set('Cookie', cookie).expect(200);
+    expect(fund.text).toContain("'/fund-tx'");
+    expect(fund.text).not.toContain("'/release-tx'");
+
+    const release = await http().get(`/sep24/interactive/${id}/release.js`).set('Cookie', cookie).expect(200);
+    expect(release.text).toContain("'/release-tx'");
+    expect(release.text).not.toContain("'/fund-tx'");
+  });
+
+  it('refuses either signing script without the session cookie, so the RPC endpoint is not public', async () => {
+    const { id } = await atStatus('MATCHED', 'WITHDRAW');
+    for (const name of ['fund.js', 'release.js']) {
+      const res = await http().get(`/sep24/interactive/${id}/${name}`);
+      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.text).not.toContain(process.env.STELLAR_RPC_URL as string);
+    }
+  });
+
   it('widens connect-src to the RPC on the interactive page, and nothing else', async () => {
     const { id, cookie } = await atStatus('MATCHED', 'WITHDRAW');
     const res = await http().get(`/sep24/interactive/${id}`).set('Cookie', cookie);
