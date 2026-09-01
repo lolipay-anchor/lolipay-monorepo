@@ -141,7 +141,7 @@ export class OrderService {
   ): Promise<void> {
     if (!(await this.identityVerified(userAddress, personId, db))) {
       throw new ForbiddenException(
-        'identity verification is required before a deposit can be opened',
+        'identity verification is required before a trade can be opened',
       );
     }
   }
@@ -175,7 +175,7 @@ export class OrderService {
       throw new BadRequestException('daily limit exceeded');
     }
 
-    if (flow === 'TOP_UP') await this.assertIdentityVerified(userAddress, personId, this.prisma);
+    await this.assertIdentityVerified(userAddress, personId, this.prisma);
 
     await this.markets.getEnabled(quote.fiatCurrency);
 
@@ -264,7 +264,7 @@ export class OrderService {
             throw new BadRequestException('daily limit exceeded');
           }
 
-          if (flow === 'TOP_UP') await this.assertIdentityVerified(userAddress, personId, tx);
+          await this.assertIdentityVerified(userAddress, personId, tx);
 
           const consumed = await tx.quote.updateMany({
             where: { id: quoteId, usedAt: null },

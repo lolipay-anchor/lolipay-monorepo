@@ -39,6 +39,24 @@ async function mintJwt(app: INestApplication, kp: Keypair): Promise<string> {
   return res.body.jwt as string;
 }
 
+async function verifiedJwt(app: INestApplication, kp: Keypair): Promise<string> {
+  const jwt = await mintJwt(app, kp);
+  const prisma = app.get(PrismaService);
+  const link = await prisma.walletLink.findUnique({
+    where: { stellarAddress: kp.publicKey() },
+  });
+  await prisma.kycVerification.create({
+    data: {
+      customerRef: kp.publicKey(),
+      personId: link!.personId,
+      status: 'ACCEPTED',
+      screenedAt: new Date(),
+      verifiedAt: new Date(),
+    },
+  });
+  return jwt;
+}
+
 describe('one provider bond cannot back two trades at once', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -150,7 +168,7 @@ describe('one provider bond cannot back two trades at once', () => {
 
     const a = Keypair.random();
     const b = Keypair.random();
-    const [jwtA, jwtB] = [await mintJwt(app, a), await mintJwt(app, b)];
+    const [jwtA, jwtB] = [await verifiedJwt(app, a), await verifiedJwt(app, b)];
     const [qA, qB] = [await quoteFor(jwtA), await quoteFor(jwtB)];
 
     const holder = new PrismaService();
@@ -201,7 +219,7 @@ describe('one provider bond cannot back two trades at once', () => {
     });
 
     const kp = Keypair.random();
-    const jwt = await mintJwt(app, kp);
+    const jwt = await verifiedJwt(app, kp);
     const quoteId = await quoteFor(jwt);
 
     await placeOrder(jwt, quoteId).expect(503);
@@ -211,7 +229,7 @@ describe('one provider bond cannot back two trades at once', () => {
     const [saturated] = await seedProviders(2);
 
     const filler = Keypair.random();
-    const fillerJwt = await mintJwt(app, filler);
+    const fillerJwt = await verifiedJwt(app, filler);
     await prisma.order.create({
       data: {
         tradeId: `${Date.now()}saturate`,
@@ -248,7 +266,7 @@ describe('one provider bond cannot back two trades at once', () => {
   it('accepts a trade that exactly fills the bond, and refuses the next stroop', async () => {
     await seedProviders(1);
     const kp = Keypair.random();
-    const jwt = await mintJwt(app, kp);
+    const jwt = await verifiedJwt(app, kp);
 
     const exact = await request(app.getHttpServer())
       .post('/quotes')
@@ -258,7 +276,7 @@ describe('one provider bond cannot back two trades at once', () => {
     await placeOrder(jwt, exact.body.quote_id as string).expect(201);
 
     const second = Keypair.random();
-    const secondJwt = await mintJwt(app, second);
+    const secondJwt = await verifiedJwt(app, second);
     await placeOrder(secondJwt, await quoteFor(secondJwt)).expect(503);
   }, 30_000);
 });

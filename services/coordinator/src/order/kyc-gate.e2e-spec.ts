@@ -22,7 +22,7 @@ const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
 };
 
-const REFUSAL = 'identity verification is required before a deposit can be opened';
+const REFUSAL = 'identity verification is required before a trade can be opened';
 
 describe('a deposit cannot be opened by an identity the anchor has not verified', () => {
   let app: INestApplication;
@@ -196,17 +196,63 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
     expect(await prisma.order.count()).toBe(before);
   });
 
-  it('does not gate a withdrawal, which the statement of work excludes', async () => {
+  it('gates a withdrawal too, because an off-ramp is the direction AML cares about most', async () => {
+    const kp = Keypair.random();
+    const jwt = await sessionToken(app, kp);
+    const before = await prisma.order.count();
+    const q = await request(app.getHttpServer())
+      .post('/quotes').set('Authorization', `Bearer ${jwt}`)
+      .send({ flow: 'WITHDRAW', rail: 'BANK', usdcAmount: '1000000000' })
+      .expect(201);
+    const res = await request(app.getHttpServer())
+      .post('/orders').set('Authorization', `Bearer ${jwt}`)
+      .send({ quoteId: q.body.quote_id, userPaymentMethod: 'BNI 111222333' })
+      .expect(403);
+
+    expect(res.body.message).toBe(REFUSAL);
+    expect(await prisma.order.count()).toBe(before);
+  });
+
+  it('refuses a withdrawal whose verification is withdrawn after the first read, which only the check inside the transaction can catch', async () => {
+    const kp = Keypair.random();
+    const jwt = await sessionToken(app, kp);
+    const userAddress = kp.publicKey();
+    const q = await request(app.getHttpServer())
+      .post('/quotes').set('Authorization', `Bearer ${jwt}`)
+      .send({ flow: 'WITHDRAW', rail: 'BANK', usdcAmount: '1000000000' })
+      .expect(201);
+    await accept(userAddress);
+
+    const stellar = app.get(StellarReadService) as any;
+    const original = stellar.hasUsdcTrustline;
+    stellar.hasUsdcTrustline = jest.fn(async () => {
+      await prisma.kycVerification.deleteMany({ where: { customerRef: userAddress } });
+      return true;
+    });
+
+    const before = await prisma.order.count();
+    const res = await request(app.getHttpServer())
+      .post('/orders').set('Authorization', `Bearer ${jwt}`)
+      .send({ quoteId: q.body.quote_id, userPaymentMethod: 'BNI 111222333' });
+    stellar.hasUsdcTrustline = original;
+
+    expect(res.status).toBe(403);
+    expect(await prisma.order.count()).toBe(before);
+  });
+
+  it('says nothing about deposits when it refuses a withdrawal, because it once did', async () => {
     const kp = Keypair.random();
     const jwt = await sessionToken(app, kp);
     const q = await request(app.getHttpServer())
       .post('/quotes').set('Authorization', `Bearer ${jwt}`)
       .send({ flow: 'WITHDRAW', rail: 'BANK', usdcAmount: '1000000000' })
       .expect(201);
-    await request(app.getHttpServer())
+    const res = await request(app.getHttpServer())
       .post('/orders').set('Authorization', `Bearer ${jwt}`)
       .send({ quoteId: q.body.quote_id, userPaymentMethod: 'BNI 111222333' })
-      .expect(201);
+      .expect(403);
+
+    expect(res.body.message).not.toMatch(/deposit/i);
   });
 
   it('a customer verified by a delivery the anchor trusted can then open a deposit', async () => {
