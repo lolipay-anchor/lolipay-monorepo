@@ -342,7 +342,7 @@ export class Sep24Service {
     const state = await this.interactiveState(id, token);
     const { row, kyc } = state;
     if (this.screenFor(row, kyc, state) !== 'identity') {
-      throw new ForbiddenException('this deposit is not waiting for identity details');
+      throw new ForbiddenException('this transaction is not waiting for identity details');
     }
     await this.sep12.put(row.stellarAccount, fields);
     const after = await this.prisma.kycVerification.findUnique({
@@ -379,7 +379,7 @@ export class Sep24Service {
     if (row.orderId) return;
     if (this.screenFor(row, kyc, state) !== 'amount') {
       throw new ForbiddenException(
-        'this deposit is not at the point of naming an amount; reopen the page to see where it is',
+        'this transaction is not at the point of naming an amount; reopen the page to see where it is',
       );
     }
 

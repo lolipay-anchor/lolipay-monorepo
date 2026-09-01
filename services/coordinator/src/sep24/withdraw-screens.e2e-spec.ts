@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
+import { randomBytes } from 'node:crypto';
 import { bootAuthApp, anchorToken } from '../auth/auth-test-helpers';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -81,6 +82,119 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     expect(res.headers['content-type']).toMatch(/text\/html/);
     expect(res.text).toMatch(/lolipay withdrawal/);
     expect(res.text).not.toMatch(/lolipay deposit/);
+  });
+
+  async function linkFundedOrder(id: string, address: string, flow: 'TOP_UP' | 'WITHDRAW') {
+    const link = await prisma.walletLink.findUnique({ where: { stellarAddress: address } });
+    const order = await prisma.order.create({
+      data: {
+        tradeId: randomBytes(32).toString('hex'),
+        userAddress: address,
+        personId: link!.personId,
+        flow,
+        rail: 'BANK',
+        usdcAmount: 1_000_0000000n,
+        fiatAmount: 16_000_000n,
+        rateSnapshot: '16000',
+        platformFeeBps: 30,
+        lpFeeBps: 0,
+        platformWallet: 'GPLATFORM',
+        lpPaymentDetails: 'BCA 999888777 THE PROVIDER',
+        userPaymentDetails: 'BNI 111222333 THE USER',
+        status: 'FUNDED',
+        payDeadline: 9_999_999_999n,
+        confirmDeadline: 9_999_999_999n,
+        disputeDeadline: 9_999_999_999n,
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+    await prisma.sep24Transaction.update({ where: { id }, data: { orderId: order.id } });
+  }
+
+  it('a FUNDED withdrawal is never told to send rupiah, and is never shown the provider bank account', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await linkFundedOrder(id, address, 'WITHDRAW');
+
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/waiting for your rupiah/i);
+    expect(res.text).not.toMatch(/send your rupiah/i);
+    expect(res.text).not.toContain('BCA 999888777');
+    expect(res.text).toMatch(/you must confirm it here/i);
+  });
+
+  it('a FUNDED deposit still is told to send rupiah, with the provider bank account', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const opened = await http()
+      .post('/sep24/transactions/deposit/interactive')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+    const url = new URL(opened.body.url as string);
+    const id = url.pathname.split('/').pop() as string;
+    const token = url.searchParams.get('token') as string;
+    const link = await prisma.walletLink.findUnique({
+      where: { stellarAddress: kp.publicKey() },
+    });
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: kp.publicKey(),
+        personId: link!.personId,
+        status: 'ACCEPTED',
+        screenedAt: new Date(),
+        verifiedAt: new Date(),
+      },
+    });
+    await linkFundedOrder(id, kp.publicKey(), 'TOP_UP');
+
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/send your rupiah/i);
+    expect(res.text).toContain('BCA 999888777');
+  });
+
+  it('a settled withdrawal reports withdrawal status, not deposit status', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    const link = await prisma.walletLink.findUnique({ where: { stellarAddress: address } });
+    const order = await prisma.order.create({
+      data: {
+        tradeId: randomBytes(32).toString('hex'),
+        userAddress: address,
+        personId: link!.personId,
+        flow: 'WITHDRAW',
+        rail: 'BANK',
+        usdcAmount: 1_000_0000000n,
+        fiatAmount: 16_000_000n,
+        rateSnapshot: '16000',
+        platformFeeBps: 30,
+        lpFeeBps: 0,
+        platformWallet: 'GPLATFORM',
+        status: 'RELEASED',
+        payDeadline: 9_999_999_999n,
+        confirmDeadline: 9_999_999_999n,
+        disputeDeadline: 9_999_999_999n,
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+    await prisma.sep24Transaction.update({ where: { id }, data: { orderId: order.id } });
+
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/withdrawal status/i);
+    expect(res.text).not.toMatch(/deposit status/i);
+  });
+
+  it('the page a failed step lands on names neither direction, because it cannot know which', async () => {
+    const { id, token } = await openedWithdrawal(true);
+    const first = await http().get(`/sep24/interactive/${id}?token=${token}`);
+    const cookie = (first.headers['set-cookie'] as unknown as string[]) ?? [];
+
+    const res = await http()
+      .post(`/sep24/interactive/${id}/identity`)
+      .set('Cookie', cookie)
+      .set('Origin', process.env.ANCHOR_BASE_URL ?? 'http://localhost')
+      .send({});
+
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.text).not.toMatch(/deposit/i);
   });
 
   it('a deposit keeps saying deposit, so the branch did not simply rename everything', async () => {

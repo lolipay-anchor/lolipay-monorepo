@@ -23,18 +23,18 @@ export class InteractiveErrorFilter implements ExceptionFilter {
           ? said.message
           : Array.isArray(said?.message)
             ? said.message.join('. ')
-            : 'This deposit could not be continued.';
+            : 'This could not be continued.';
 
     const id = String((req.params as Record<string, string>)?.id ?? '');
     const back =
       id && status !== HttpStatus.UNAUTHORIZED
-        ? `<p><a href="/sep24/interactive/${encodeURIComponent(id)}">Back to your deposit</a></p>`
+        ? `<p><a href="/sep24/interactive/${encodeURIComponent(id)}">Back to where you were</a></p>`
         : '';
 
     res
       .status(status)
       .type('text/html; charset=utf-8')
       .setHeader('cross-origin-opener-policy', 'unsafe-none')
-      .send(page('This deposit could not continue', `<p>${escapeHtml(message)}</p>${back}`));
+      .send(page('This could not continue', `<p>${escapeHtml(message)}</p>${back}`));
   }
 }

@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
-import { bootAuthApp, anchorToken } from '../auth/auth-test-helpers';
+import { bootAuthApp, anchorToken, sessionToken } from '../auth/auth-test-helpers';
 import { PrismaService } from '../prisma/prisma.service';
 
 describe('the withdrawal door, with the switch on', () => {
@@ -34,6 +34,35 @@ describe('the withdrawal door, with the switch on', () => {
       .send(body);
     return { res, address: kp.publicKey() };
   }
+
+  it('needs a SEP-10 token even with the switch on, and says which token it wants', async () => {
+    const res = await http()
+      .post('/sep24/transactions/withdraw/interactive')
+      .send({ asset_code: 'USDC' })
+      .expect(403);
+    expect(res.body.message).toMatch(/requires a SEP-10 token/i);
+  });
+
+  it('admits a SEP-10 token, which only the opt-in on this route allows, and an app session as every route does', async () => {
+    const anchor = Keypair.random();
+    await http()
+      .post('/sep24/transactions/withdraw/interactive')
+      .set('Authorization', `Bearer ${await anchorToken(app, anchor)}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+
+    const app_ = Keypair.random();
+    await http()
+      .post('/sep24/transactions/withdraw/interactive')
+      .set('Authorization', `Bearer ${await sessionToken(app, app_)}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+  });
+
+  it('advertises withdrawal in /info once the switch is on, so the door and the promise agree', async () => {
+    const { body } = await http().get('/sep24/info');
+    expect(body.withdraw.USDC.enabled).toBe(true);
+  });
 
   it('records the row as a withdrawal, which is the whole point of the separate door', async () => {
     const { res, address } = await open({ asset_code: 'USDC' });

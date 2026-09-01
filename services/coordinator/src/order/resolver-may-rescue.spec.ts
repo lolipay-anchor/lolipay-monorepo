@@ -72,6 +72,13 @@ describe('a stranded withdrawal has an advocate, and it is the escrow own resolv
     expect(status.refreshOrderStatus).not.toHaveBeenCalled();
   });
 
+  it('refuses, rather than answering 500 with an internal message, when the chain cannot be read', async () => {
+    const { s, stellar } = svc();
+    stellar.readEscrowResolver.mockRejectedValue(new Error('readEscrowResolver: CDKJ… returned no resolver'));
+    await expect(s.buildRaiseDisputeTx('o1', RESOLVER)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(s.buildRaiseDisputeTx('o1', RESOLVER)).rejects.not.toThrow(/returned no resolver/);
+  });
+
   it('takes the resolver from the chain rather than a config value an operator could mistype', async () => {
     const { s, stellar } = svc({ resolver: STRANGER });
     await s.buildRaiseDisputeTx('o1', STRANGER).catch(() => undefined);
