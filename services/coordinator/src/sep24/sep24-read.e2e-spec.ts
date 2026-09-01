@@ -32,6 +32,12 @@ describe('the SEP-24 surface a wallet reads before it ever deposits', () => {
       }
     });
 
+    it('keeps the header on the error path, where a guard answers before the decorator runs', async () => {
+      const res = await http().get('/sep24/interactive/nope');
+      expect(res.status).toBe(401);
+      expect(res.headers['cross-origin-opener-policy']).toBe('unsafe-none');
+    });
+
     it('leaves the default same-origin policy in place everywhere else', async () => {
       const res = await http().get('/sep24/info');
       expect(res.headers['cross-origin-opener-policy']).toBe('same-origin');

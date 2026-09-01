@@ -266,7 +266,7 @@ export class Sep24Service {
     }
     if (screen === 'waiting_on_identity') {
       const again = kyc?.verificationUrl
-        ? `<p><a href="${escapeHtml(kyc.verificationUrl)}">Continue verification</a></p>`
+        ? `<p><a href="${escapeHtml(kyc.verificationUrl)}" target="_blank" rel="noopener">Continue verification</a></p>`
         : '';
       return page(
         'Checking your identity',
@@ -332,8 +332,8 @@ export class Sep24Service {
     return page(
       'Verify your identity',
       [
-        `<p><a href="${escapeHtml(url)}">Continue to verification</a></p>`,
-        '<p>Open the link above to finish verifying. You can return to this window afterwards.</p>',
+        `<p><a href="${escapeHtml(url)}" target="_blank" rel="noopener">Continue to verification</a></p>`,
+        '<p>The link above opens in a new window. Finish verifying there, then come back to this one — it keeps checking on its own.</p>',
       ].join(''),
     );
   }

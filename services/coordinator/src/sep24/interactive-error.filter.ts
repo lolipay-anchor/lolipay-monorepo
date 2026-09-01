@@ -34,6 +34,7 @@ export class InteractiveErrorFilter implements ExceptionFilter {
     res
       .status(status)
       .type('text/html; charset=utf-8')
+      .setHeader('cross-origin-opener-policy', 'unsafe-none')
       .send(page('This deposit could not continue', `<p>${escapeHtml(message)}</p>${back}`));
   }
 }
