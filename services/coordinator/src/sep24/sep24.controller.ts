@@ -213,6 +213,15 @@ export class Sep24Controller {
     return renderSigningProbe(this.cfg.networkPassphrase, this.cfg.escrowContractId);
   }
 
+  @Get('interactive/:id/fund-tx')
+  @Header('cross-origin-opener-policy', 'unsafe-none')
+  @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
+  @Header('cache-control', 'no-store')
+  async fundTx(@Req() req: any, @Param('id') id: string) {
+    const token = this.usableSession(req, id);
+    return this.sep24.fundTx(id, token);
+  }
+
   @Get('more-info/:id')
   @Header('content-type', 'text/html; charset=utf-8')
   @Header('cache-control', 'no-store')

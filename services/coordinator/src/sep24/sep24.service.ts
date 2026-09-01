@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Sep12Service } from '../kyc/sep12.service';
 import { RateService } from '../rate/rate.service';
 import { OrderService } from '../order/order.service';
+import { OrderTxService } from '../order/order-tx.service';
 import { AppConfigService } from '../config/app-config.service';
 import { baseUnitsToUsdc } from '../money/money';
 import { serializeSep24, Sep24Record, Sep24TransactionJson } from './sep24-transaction';
@@ -58,6 +59,7 @@ export class Sep24Service {
     private rate: RateService,
     private orders: OrderService,
     private people: PersonService,
+    private orderTx: OrderTxService,
   ) {}
 
   private assets() {
@@ -377,6 +379,18 @@ export class Sep24Service {
         '<p>The link above opens in a new window. Finish verifying there, then come back to this one — it keeps checking on its own.</p>',
       ].join(''),
     );
+  }
+
+  async fundTx(id: string, token: string) {
+    const { row } = await this.interactiveState(id, token);
+    if (row.flow !== 'WITHDRAW') {
+      throw new BadRequestException('only a withdrawal is funded by the person who opened it');
+    }
+    const order = row.order as any;
+    if (!order) {
+      throw new ConflictException('name an amount before this withdrawal can be funded');
+    }
+    return this.orderTx.buildCreateTradeTx(order.id, row.stellarAccount);
   }
 
   async submitAmount(
