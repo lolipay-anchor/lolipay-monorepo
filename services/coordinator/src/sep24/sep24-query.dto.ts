@@ -1,12 +1,15 @@
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 export const SEP24_PAGE_DEFAULT = 100;
 export const SEP24_PAGE_MAX = 500;
 
 export class TransactionsQueryDto {
   @IsOptional() @IsString() @MaxLength(64) asset_code?: string;
-  @IsOptional() @IsString() @MaxLength(64) kind?: string;
+  @Transform(({ value }) => (value === '' ? undefined : value))
+  @IsOptional()
+  @IsIn(['deposit', 'withdrawal'])
+  kind?: 'deposit' | 'withdrawal';
   @IsOptional() @IsString() @MaxLength(64) no_older_than?: string;
   @IsOptional() @IsString() @MaxLength(96) account?: string;
   @IsOptional() @IsString() @MaxLength(64) lang?: string;

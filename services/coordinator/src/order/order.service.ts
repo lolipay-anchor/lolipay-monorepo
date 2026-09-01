@@ -317,12 +317,11 @@ export class OrderService {
     const mayReveal = isFundedOrLater && fiatPayer !== undefined && callerAddress === fiatPayer;
     const shouldReveal =
       mayReveal &&
-      (currentOrder.flow !== 'TOP_UP' ||
-        (await this.identityVerified(
-          currentOrder.userAddress,
-          currentOrder.personId,
-          this.prisma,
-        )));
+      (await this.identityVerified(
+        currentOrder.userAddress,
+        currentOrder.personId,
+        this.prisma,
+      ));
 
     const config = await this.getConfig();
     const serialized = serializeOrderBase(currentOrder, config);
@@ -511,7 +510,15 @@ export class OrderService {
 
       const serialized = serializeOrderBase(currentOrder);
       const fiatPayer = getFiatPayer(flow, currentOrder.userAddress, lpAddress);
-      if (fiatPayer === lpAddress && FUNDED_OR_LATER.includes(currentOrder.status)) {
+      if (
+        fiatPayer === lpAddress &&
+        FUNDED_OR_LATER.includes(currentOrder.status) &&
+        (await this.identityVerified(
+          currentOrder.userAddress,
+          currentOrder.personId,
+          this.prisma,
+        ))
+      ) {
         serialized.payment_instructions = getPaymentInstructions(currentOrder);
       }
 

@@ -239,6 +239,7 @@ describe('listing transactions the way the acceptance suite reads them', () => {
   let jwt: string;
   let account: string;
   let rows: { id: string; startedAt: Date }[];
+  let withdrawalId: string;
 
   beforeAll(async () => {
     app = await bootAuthApp();
@@ -259,6 +260,16 @@ describe('listing transactions the way the acceptance suite reads them', () => {
       });
       rows.push({ id: row.id, startedAt: row.startedAt });
     }
+    const wd = await prisma.sep24Transaction.create({
+      data: {
+        personId: link!.personId,
+        stellarAccount: account,
+        assetCode: 'USDC',
+        flow: 'WITHDRAW',
+        startedAt: new Date(Date.UTC(2025, 0, 1, 12, 0, 0)),
+      },
+    });
+    withdrawalId = wd.id;
   });
 
   afterAll(async () => {
@@ -292,14 +303,25 @@ describe('listing transactions the way the acceptance suite reads them', () => {
     expect(body.transactions).toHaveLength(1);
   });
 
-  it('returns nothing for kind=withdrawal, because this anchor holds no withdrawals', async () => {
+  it('returns exactly the withdrawals for kind=withdrawal, and reports the kind it filtered on', async () => {
     const { body } = await list('&kind=withdrawal');
-    expect(body.transactions).toEqual([]);
+    expect(body.transactions.map((t: any) => t.id)).toEqual([withdrawalId]);
+    expect(body.transactions[0].kind).toBe('withdrawal');
+    expect(typeof body.transactions[0].from).toBe('string');
   });
 
-  it('returns the deposits for kind=deposit', async () => {
+  it('excludes the withdrawal from kind=deposit, which a filter that ignores kind would not', async () => {
     const { body } = await list('&kind=deposit');
     expect(body.transactions.length).toBeGreaterThanOrEqual(3);
+    expect(body.transactions.map((t: any) => t.id)).not.toContain(withdrawalId);
+    for (const t of body.transactions) expect(t.kind).toBe('deposit');
+  });
+
+  it('refuses a kind SEP-24 does not define, rather than quietly returning everything', async () => {
+    await request(app.getHttpServer())
+      .get('/sep24/transactions?asset_code=USDC&kind=garbage')
+      .set('Authorization', `Bearer ${jwt}`)
+      .expect(400);
   });
 
   it('reads an absent kind as absent, not as a filter that matches nothing', async () => {

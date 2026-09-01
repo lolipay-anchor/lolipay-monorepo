@@ -6,6 +6,7 @@ import { readFileSync } from 'fs';
 import { execSync } from 'child_process';
 import path from 'path';
 import { AppModule } from '../app.module';
+import { AccountSignersService } from '../sep10/account-signers.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { PRICE_ADAPTER } from '../rate/rate.module';
@@ -25,6 +26,7 @@ const noopStorage = {
 const REFUSAL = 'identity verification is required before a trade can be opened';
 
 describe('a deposit cannot be opened by an identity the anchor has not verified', () => {
+  let lpKp: Keypair;
   let app: INestApplication;
   let prisma: PrismaService;
 
@@ -38,6 +40,8 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
     process.env.DIDIT_ENVIRONMENT = 'sandbox';
 
     const mod = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(AccountSignersService)
+      .useValue({ load: jest.fn().mockResolvedValue(null) })
       .overrideProvider(PRICE_ADAPTER)
       .useValue({ name: 'fake', fetchPrices: jest.fn().mockResolvedValue({ IDR: '16000' }) })
       .overrideProvider(StellarReadService)
@@ -74,7 +78,7 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
     await prisma.order.deleteMany({});
     await prisma.paymentMethod.deleteMany({});
     await prisma.lp.deleteMany({});
-    const lpKp = Keypair.random();
+    lpKp = Keypair.random();
     const lp = await prisma.lp.create({
       data: {
         stellarAddress: lpKp.publicKey(), status: 'APPROVED', online: true,
@@ -387,6 +391,38 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
     expect(withheld.body.payment_instructions_withheld).toBe('kyc_required');
   }, 30_000);
 
+  it('stops revealing the user bank details to the LP once the verdict behind a WITHDRAWAL is gone', async () => {
+    const kp = Keypair.random();
+    const jwt = await sessionToken(app, kp);
+    const userAddress = kp.publicKey();
+    await accept(userAddress);
+    const q = await request(app.getHttpServer())
+      .post('/quotes').set('Authorization', `Bearer ${jwt}`)
+      .send({ flow: 'WITHDRAW', rail: 'BANK', usdcAmount: '1000000000' })
+      .expect(201);
+    const created = await request(app.getHttpServer())
+      .post('/orders').set('Authorization', `Bearer ${jwt}`)
+      .send({ quoteId: q.body.quote_id, userPaymentMethod: 'BNI 111222333' })
+      .expect(201);
+
+    const orderId = created.body.order.id as string;
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    const stellar = app.get(StellarReadService) as any;
+    stellar.getTradeStatus = jest.fn(async () => onChainTradeFor(order, 'FUNDED'));
+
+    const lpJwt = await sessionToken(app, lpKp);
+    const shown = await request(app.getHttpServer())
+      .get(`/orders/${orderId}`).set('Authorization', `Bearer ${lpJwt}`).expect(200);
+    expect(shown.body.payment_instructions).toBeDefined();
+
+    await prisma.kycVerification.deleteMany({ where: { customerRef: userAddress } });
+
+    const withheld = await request(app.getHttpServer())
+      .get(`/orders/${orderId}`).set('Authorization', `Bearer ${lpJwt}`).expect(200);
+    expect(withheld.body.payment_instructions).toBeUndefined();
+    expect(withheld.body.payment_instructions_withheld).toBe('kyc_required');
+  }, 30_000);
+
   it('says nothing about withholding on an order that simply is not funded yet', async () => {
     const { jwt, quoteId, userAddress } = await aDepositQuote();
     await accept(userAddress);
@@ -399,15 +435,27 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
     expect(res.body.payment_instructions_withheld).toBeUndefined();
   }, 30_000);
 
-  it('no second creator of an Order row has appeared', () => {
+  it('no second creator of an Order row has appeared, by any of the ways prisma can create one', () => {
     const src = readFileSync(path.resolve(__dirname, 'order.service.ts'), 'utf8');
     expect(src.match(/\.order\.create\(/g) ?? []).toHaveLength(2);
     const all = execSync(
-      "grep -rl '\\.order\\.create(' src --include=*.ts --exclude-dir=generated",
+      "grep -rlE '\\.order\\.(create|createMany|createManyAndReturn|upsert)\\(|INSERT INTO \"Order\"' src --include=*.ts --exclude-dir=generated",
     )
       .toString()
       .split('\n')
       .filter((l) => l && !/\.(e2e-)?spec\.ts$/.test(l));
     expect(all).toEqual(['src/order/order.service.ts']);
+  });
+
+  it('refuses the identity before it writes the row, which counting the writers cannot show', () => {
+    const src = readFileSync(path.resolve(__dirname, 'order.service.ts'), 'utf8');
+    const body = src.split('async createFromQuote(')[1].split('\n  async ')[0];
+    expect(body).not.toContain('async createFromQuote(');
+
+    const gate = body.indexOf('await this.assertIdentityVerified(userAddress, personId, tx)');
+    const write = body.indexOf('createOrderRow(');
+    expect(gate).toBeGreaterThan(-1);
+    expect(write).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(write);
   });
 });
