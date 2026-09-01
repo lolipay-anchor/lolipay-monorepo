@@ -410,7 +410,7 @@ export class Sep24Service {
       this.log.warn(
         `a second deposit order was opened for SEP-24 transaction ${id} and has been cancelled (${undone.count} row) rather than left holding provider capacity`,
       );
-      throw new ConflictException('this deposit was already opened');
+      throw new ConflictException('this transaction was already opened');
     }
   }
 

@@ -303,7 +303,7 @@ export class MonitoringService {
         urgency: 'urgent',
         text:
           `${refusals.count} identity verification deliveries were refused since the last check ` +
-          `— the most recent because ${refusals.lastReason}. While this continues no deposit can be opened.`,
+          `— the most recent because ${refusals.lastReason}. While this continues no trade can be opened, in either direction.`,
       });
     }
 

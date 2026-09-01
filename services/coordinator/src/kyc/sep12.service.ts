@@ -160,7 +160,7 @@ export class Sep12Service {
         provided_fields: PROVIDED,
         message:
           'identity checks passed, but the screening this anchor requires has not been completed, ' +
-          'so no deposit can be opened yet',
+          'so no trade can be opened yet',
       };
     }
     return { id: row.customerRef, status: row.status, provided_fields: PROVIDED };
