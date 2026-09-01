@@ -19,6 +19,25 @@ describe('the SEP-24 surface a wallet reads before it ever deposits', () => {
 
   const http = () => request(app.getHttpServer());
 
+  describe('the popup a wallet opens keeps its opener', () => {
+    it('serves cross-origin-opener-policy unsafe-none on every route the popup navigates', async () => {
+      const routes: Array<[string, () => request.Test]> = [
+        ['GET interactive', () => http().get('/sep24/interactive/nope')],
+        ['POST identity', () => http().post('/sep24/interactive/nope/identity').send({})],
+        ['POST amount', () => http().post('/sep24/interactive/nope/amount').send({})],
+      ];
+      for (const [name, call] of routes) {
+        const res = await call();
+        expect([name, res.headers['cross-origin-opener-policy']]).toEqual([name, 'unsafe-none']);
+      }
+    });
+
+    it('leaves the default same-origin policy in place everywhere else', async () => {
+      const res = await http().get('/sep24/info');
+      expect(res.headers['cross-origin-opener-policy']).toBe('same-origin');
+    });
+  });
+
   describe('GET /sep24/signing-probe', () => {
     it('answers without a token, because the founder opens it in a plain browser', async () => {
       const res = await http().get('/sep24/signing-probe').expect(200);
