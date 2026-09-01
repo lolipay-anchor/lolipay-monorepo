@@ -26,6 +26,18 @@ const FAKE_TRADE_ID = 'a'.repeat(64);
 const SENTINEL_XDR = 'AAAAA-sentinel-xdr-AAAAA';
 const FAKE_PASSPHRASE = Networks.TESTNET;
 
+function advancingFrom(from: string, to: string, seed: (o: any) => any) {
+  let current: any = seed({ status: from });
+  return {
+    findUnique: jest.fn().mockImplementation(async () => current),
+    updateMany: jest.fn().mockImplementation(async ({ where }: any) => {
+      if (where.status !== undefined && where.status !== current.status) return { count: 0 };
+      current = seed({ status: to });
+      return { count: 1 };
+    }),
+  };
+}
+
 describe('StellarReadService.buildMarkFiatPaidTx (unit, mocked RPC server)', () => {
   function makeSvc() {
     return new StellarReadService({
@@ -288,8 +300,7 @@ describe('OrderTxService.buildMarkFiatPaidTx (unit)', () => {
   it('M2: chain refresh advances FUNDED→FIAT_PAID before status guard → ConflictException', async () => {
     const svc = makeSvc(
       {
-        findUnique: jest.fn().mockResolvedValue(makeOrder({ status: 'FUNDED' })),
-        update: jest.fn().mockResolvedValue(makeOrder({ status: 'FIAT_PAID' })),
+        ...advancingFrom('FUNDED', 'FIAT_PAID', makeOrder),
       },
       {
         getTradeStatus: jest.fn().mockResolvedValue({ status: 'FIAT_PAID' }),
@@ -427,8 +438,7 @@ describe('OrderTxService.buildCreateTradeTx (unit)', () => {
     const matched = makeOrder({ status: 'MATCHED' });
     const svc = makeSvc(
       {
-        findUnique: jest.fn().mockResolvedValue(matched),
-        update: jest.fn().mockResolvedValue(makeOrder({ status: 'FUNDED' })),
+        ...advancingFrom('MATCHED', 'FUNDED', makeOrder),
       },
       {
         getTradeStatus: jest.fn().mockResolvedValue(onChainTradeFor(matched, 'FUNDED')),
@@ -804,8 +814,7 @@ describe('OrderTxService.buildConfirmReleaseTx (unit)', () => {
   it('M2: chain refresh advances FIAT_PAID→RELEASED before status guard → ConflictException', async () => {
     const svc = makeSvc(
       {
-        findUnique: jest.fn().mockResolvedValue(makeOrder({ status: 'FIAT_PAID' })),
-        update: jest.fn().mockResolvedValue(makeOrder({ status: 'RELEASED' })),
+        ...advancingFrom('FIAT_PAID', 'RELEASED', makeOrder),
       },
       {
         getTradeStatus: jest.fn().mockResolvedValue({ status: 'RELEASED' }),

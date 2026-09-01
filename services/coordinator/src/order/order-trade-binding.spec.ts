@@ -40,12 +40,21 @@ describe('OrderService — an on-chain trade must bind to the order before it co
 
   function makeSvc(orderOverrides: Partial<any> = {}, stellarOverrides: any = {}) {
     const order = makeOrder(orderOverrides);
+    let current: any = order;
     const prisma = {
       kycVerification: verifiedCustomerStub(),
       order: {
-        findUnique: jest.fn().mockResolvedValue(order),
+        findUnique: jest.fn().mockImplementation(async () => current),
         update: jest.fn().mockImplementation(async ({ data }: any) => ({ ...order, ...data })),
-        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
+          const want = where.status;
+          const matches =
+            want === undefined ||
+            (Array.isArray(want?.in) ? want.in.includes(current.status) : want === current.status);
+          if (!matches) return { count: 0 };
+          current = { ...current, ...data };
+          return { count: 1 };
+        }),
         count: jest.fn().mockResolvedValue(0),
         findMany: jest.fn().mockResolvedValue([order]),
       },

@@ -84,8 +84,8 @@ export class OrderStatusService {
     if (onChain && !this.tradeBindsToOrder(onChain, order)) return order;
 
     if (onChain && isAhead(onChain.status, order.status)) {
-      const updated = await this.prisma.order.update({
-        where: { id },
+      const written = await this.prisma.order.updateMany({
+        where: { id, status: order.status },
         data: {
           status: onChain.status as any,
           ...(onChain.status === 'DISPUTED' && !order.disputeAt
@@ -93,8 +93,13 @@ export class OrderStatusService {
             : {}),
           ...settlementFieldsFrom(onChain),
         },
+      });
+      const updated = await this.prisma.order.findUnique({
+        where: { id },
         include: { lp: true },
       });
+      if (!updated) return order;
+      if (written.count === 0) return updated;
 
       this.realtime?.emitOrderUpdate({
         id: updated.id,

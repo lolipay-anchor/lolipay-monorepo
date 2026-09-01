@@ -36,10 +36,20 @@ function makeOrder(overrides: Partial<any> = {}): any {
 function makeSvc(orderOverrides: Partial<any> = {}, onChainStatus: string | null = null) {
   const order = makeOrder(orderOverrides);
   const onChain = onChainStatus ? onChainTradeFor(order, onChainStatus) : null;
+  let current: any = order;
   const prisma = {
     kycVerification: verifiedCustomerStub(),
     order: {
-      findUnique: jest.fn().mockResolvedValue(order),
+      findUnique: jest.fn().mockImplementation(async () => current),
+      updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
+        const want = where.status;
+        const matches =
+          want === undefined ||
+          (Array.isArray(want?.in) ? want.in.includes(current.status) : want === current.status);
+        if (!matches) return { count: 0 };
+        current = { ...current, ...data };
+        return { count: 1 };
+      }),
       update: jest.fn().mockImplementation(async ({ data }: any) => ({ ...order, ...data })),
       count: jest.fn().mockResolvedValue(0),
       findMany: jest.fn().mockResolvedValue([]),
@@ -77,8 +87,11 @@ describe('refreshing an order status from the chain', () => {
 
     await svc.getOrder('order-1', USER_ADDR);
 
-    expect(prisma.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'order-1' }, data: { status: 'FUNDED' } }),
+    expect(prisma.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'order-1', status: 'MATCHED' },
+        data: { status: 'FUNDED' },
+      }),
     );
   });
 
@@ -95,8 +108,9 @@ describe('refreshing an order status from the chain', () => {
 
     await svc.getOrder('order-1', USER_ADDR);
 
-    expect(prisma.order.update).toHaveBeenCalledWith(
+    expect(prisma.order.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
+        where: { id: 'order-1', status: 'FIAT_PAID' },
         data: expect.objectContaining({
           status: 'RELEASED',
           settledAt: new Date(1_800_000_000 * 1000),
@@ -112,7 +126,7 @@ describe('refreshing an order status from the chain', () => {
 
     await svc.getOrder('order-1', USER_ADDR);
 
-    expect(prisma.order.update).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
   });
 
   it('leaves the row alone when the chain cannot be read, rather than downgrading it', async () => {
@@ -121,7 +135,7 @@ describe('refreshing an order status from the chain', () => {
     const serialized = await svc.getOrder('order-1', USER_ADDR);
 
     expect(stellar.getTradeStatus).toHaveBeenCalled();
-    expect(prisma.order.update).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
     expect(serialized.status).toBe('FUNDED');
   });
 
@@ -131,7 +145,7 @@ describe('refreshing an order status from the chain', () => {
     await svc.getOrder('order-1', USER_ADDR);
 
     expect(stellar.getTradeStatus).not.toHaveBeenCalled();
-    expect(prisma.order.update).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
   });
 
   it('resolves the contract to read from the order row, not the configured default', async () => {

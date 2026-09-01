@@ -44,12 +44,21 @@ describe('OrderStatusService.refreshOrderStatus — realtime emit on chain-confi
 
   function makeSvc(onChainStatus: string | null, orderOverrides: Partial<any> = {}) {
     const order = makeOrder(orderOverrides);
-    const updated = { ...order, status: onChainStatus ?? order.status };
+    let current: any = { ...order };
     const prisma = {
       kycVerification: verifiedCustomerStub(),
       order: {
-        findUnique: jest.fn().mockResolvedValue({ ...order }),
-        update: jest.fn().mockResolvedValue(updated),
+        findUnique: jest.fn().mockImplementation(async () => current),
+        updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
+          const want = where.status;
+          const matches =
+            want === undefined ||
+            (Array.isArray(want?.in) ? want.in.includes(current.status) : want === current.status);
+          if (!matches) return { count: 0 };
+          current = { ...current, ...data };
+          return { count: 1 };
+        }),
+        update: jest.fn(),
         count: jest.fn().mockResolvedValue(0),
       },
       config: { upsert: jest.fn(), findUnique: jest.fn().mockResolvedValue(null) },
@@ -99,7 +108,7 @@ describe('OrderStatusService.refreshOrderStatus — realtime emit on chain-confi
     await svc.getOrder('order-1', USER_ADDR);
 
     expect(realtime.emitOrderUpdate).not.toHaveBeenCalled();
-    expect(prisma.order.update).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
   });
 
   it('does NOT emit when get_trade is unreachable (null)', async () => {
@@ -111,11 +120,21 @@ describe('OrderStatusService.refreshOrderStatus — realtime emit on chain-confi
 
   it('never throws when realtime is omitted, since it is an optional dependency', async () => {
     const order = makeOrder();
+    let current: any = { ...order };
     const prisma = {
       kycVerification: verifiedCustomerStub(),
       order: {
-        findUnique: jest.fn().mockResolvedValue({ ...order }),
-        update: jest.fn().mockResolvedValue({ ...order, status: 'FUNDED' }),
+        findUnique: jest.fn().mockImplementation(async () => current),
+        updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
+          const want = where.status;
+          const matches =
+            want === undefined ||
+            (Array.isArray(want?.in) ? want.in.includes(current.status) : want === current.status);
+          if (!matches) return { count: 0 };
+          current = { ...current, ...data };
+          return { count: 1 };
+        }),
+        update: jest.fn(),
         count: jest.fn().mockResolvedValue(0),
       },
       config: { upsert: jest.fn(), findUnique: jest.fn().mockResolvedValue(null) },
