@@ -62,17 +62,21 @@ export function renderSignScript(id: string, kind: 'fund' | 'release', rpcUrl: s
   function confirmed(hash) {
     var deadline = Date.now() + 90000;
     function look() {
-      return rpc('getTransaction', { hash: hash }).then(function (j) {
-        var status = j && j.result && j.result.status;
-        if (status === 'SUCCESS') return true;
-        if (status === 'FAILED') {
-          throw new Error('the network applied it and it failed — nothing moved');
-        }
-        if (Date.now() > deadline) {
-          throw new Error('the network has not confirmed it yet — reload this page in a moment to see where it stands');
-        }
-        return new Promise(function (r) { setTimeout(r, 2000); }).then(look);
-      });
+      return rpc('getTransaction', { hash: hash }).then(
+        function (j) {
+          var status = j && j.result && j.result.status;
+          if (status === 'SUCCESS') return true;
+          if (status === 'FAILED') {
+            throw new Error('the network applied it and it failed — nothing moved');
+          }
+          return again();
+        },
+        function () { return again(); },
+      );
+    }
+    function again() {
+      if (Date.now() > deadline) return null;
+      return new Promise(function (r) { setTimeout(r, 2000); }).then(look);
     }
     return look();
   }
@@ -117,9 +121,11 @@ export function renderSignScript(id: string, kind: 'fund' | 'release', rpcUrl: s
         say('Waiting for the network to apply it…');
         return confirmed(hash);
       })
-      .then(function () {
-        say(${JSON.stringify(done)});
-        setTimeout(function () { window.location.reload(); }, 1500);
+      .then(function (applied) {
+        say(applied
+          ? ${JSON.stringify(done)}
+          : 'Sent. The network has not said yet whether it applied — this page will show you where it stands.');
+        setTimeout(function () { window.location.reload(); }, 5000);
       })
       .catch(function (e) {
         say('That did not go through: ' + (e && e.message ? e.message : String(e)) + ' — you can press the button again.');

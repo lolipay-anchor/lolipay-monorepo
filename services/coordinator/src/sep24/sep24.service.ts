@@ -222,7 +222,15 @@ export class Sep24Service {
       where: { id },
       include: {
         order: {
-          select: { ...ORDER_FIELDS, id: true, lpPaymentDetails: true, expiresAt: true, payDeadline: true },
+          select: {
+          ...ORDER_FIELDS,
+          id: true,
+          lpPaymentDetails: true,
+          userPaymentDetails: true,
+          expiresAt: true,
+          payDeadline: true,
+          confirmDeadline: true,
+        },
         },
       },
     });
@@ -233,10 +241,7 @@ export class Sep24Service {
       throw new NotFoundException('this anchor holds no such transaction');
     }
     if (row.orderId && REFRESH_FROM_CHAIN_STATUSES.includes((row.order as any)?.status)) {
-      const full = await this.prisma.order.findUnique({
-        where: { id: row.orderId },
-        include: { lp: true },
-      });
+      const full = await this.prisma.order.findUnique({ where: { id: row.orderId } });
       const fresh = full
         ? await this.orderStatus.refreshOrderStatus(full.id, full).catch(() => null)
         : null;
@@ -326,10 +331,20 @@ export class Sep24Service {
       );
     }
     if (screen === 'waiting_on_fiat') {
+      const o = row.order as any;
+      const until = o.confirmDeadline
+        ? new Date(Number(o.confirmDeadline) * 1000).toISOString()
+        : null;
       return page(
         'Your USDC is in escrow',
-        '<p>The provider is sending your rupiah. The button to confirm it arrived appears on this page as soon as they mark it sent — this page refreshes itself, so leave it open.</p>',
-        15,
+        [
+          `<p>The provider says they are sending <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to your bank account. This page refreshes itself.</p>`,
+          '<p>When they mark it sent, a button appears here. <strong>That is their claim, not proof.</strong> Check your own bank account before you press it — pressing it releases your USDC to them.</p>',
+          until
+            ? `<p>If they never mark it sent, the escrow returns your USDC to you after <strong>${escapeHtml(until)}</strong>, automatically. Once they do mark it sent, that automatic return is gone and only you or a dispute can settle the trade.</p>`
+            : '',
+        ].join(''),
+        30,
       );
     }
     if (screen === 'sign_funding' || screen === 'sign_release') {
@@ -339,7 +354,11 @@ export class Sep24Service {
         [
           funding
             ? '<p>Your wallet will ask you to approve moving your USDC into escrow. Nothing leaves your wallet until you approve it.</p>'
-            : '<p>Once the rupiah is in your account, confirm here. That releases the escrow to the provider, and it is the last step.</p>',
+            : [
+                `<p>The provider says they sent <strong>${escapeHtml(formatFiat((row.order as any).fiatAmount))}</strong> ${escapeHtml((row.order as any).fiatCurrency)} to:</p>`,
+                `<pre>${escapeHtml((row.order as any).userPaymentDetails ?? 'the account you gave this anchor')}</pre>`,
+                '<p><strong>Only press this if that money is actually in that account.</strong> Pressing it releases your USDC to the provider and cannot be undone. If it has not arrived, do not press it — the escrow still holds your USDC, and you can raise a dispute.</p>',
+              ].join(''),
           `<div id="out"><p>Preparing…</p></div>`,
           `<p><button id="go">${funding ? 'Sign in my wallet' : 'I received the rupiah — confirm'}</button></p>`,
           `<script src="${escapeHtml(this.formAction(id, funding ? '/fund.js' : '/release.js'))}"></script>`,

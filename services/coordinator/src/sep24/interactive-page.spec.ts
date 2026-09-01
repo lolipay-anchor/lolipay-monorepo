@@ -68,12 +68,6 @@ describe('which screen a withdrawing user sees, which is never the depositor one
     expect(w('FIAT_PAID')).toBe('sign_release');
   });
 
-  it('never shows a withdrawing user the deposit instructions screen', () => {
-    for (const status of ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID']) {
-      expect(w(status)).not.toBe('instructions');
-    }
-  });
-
   it.each(['RELEASED', 'REFUNDED', 'DISPUTED', 'EXPIRED', 'CANCELLED'])(
     'reports %s as settled, with nothing left to sign',
     (status) => {

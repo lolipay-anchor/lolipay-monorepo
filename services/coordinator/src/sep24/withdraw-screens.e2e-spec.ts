@@ -142,7 +142,9 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     const res = await screen(id, token);
     expect(res.text).toMatch(/confirm your rupiah arrived/i);
     expect(res.text).toMatch(/i received the rupiah/i);
-    expect(res.text).toMatch(/releases the escrow/i);
+    expect(res.text).toMatch(/releases your usdc to the provider/i);
+    expect(res.text).toMatch(/cannot be undone/i);
+    expect(res.text).toContain('BNI 111222333 THE USER');
     expect(res.text).not.toContain('BCA 999888777');
   });
 

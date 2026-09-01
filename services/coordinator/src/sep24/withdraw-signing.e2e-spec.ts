@@ -138,12 +138,16 @@ describe('the screen that asks a wallet to sign', () => {
     expect(release.text).not.toContain("'/fund-tx'");
   });
 
-  it('refuses either signing script without the session cookie, so the RPC endpoint is not public', async () => {
-    const { id } = await atStatus('MATCHED', 'WITHDRAW');
+  it('refuses either signing script without the session cookie, and serves it with one', async () => {
+    const { id, cookie } = await atStatus('MATCHED', 'WITHDRAW');
     for (const name of ['fund.js', 'release.js']) {
-      const res = await http().get(`/sep24/interactive/${id}/${name}`);
-      expect(res.status).toBeGreaterThanOrEqual(400);
-      expect(res.text).not.toContain(process.env.STELLAR_RPC_URL as string);
+      const refused = await http().get(`/sep24/interactive/${id}/${name}`);
+      expect(refused.status).toBe(401);
+      expect(refused.text).not.toContain(process.env.STELLAR_RPC_URL as string);
+
+      const served = await http().get(`/sep24/interactive/${id}/${name}`).set('Cookie', cookie);
+      expect(served.status).toBe(200);
+      expect(served.text).toContain(process.env.STELLAR_RPC_URL as string);
     }
   });
 

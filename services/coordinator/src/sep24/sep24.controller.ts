@@ -26,7 +26,11 @@ import {
 } from './interactive-session';
 import { AppConfigService } from '../config/app-config.service';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
-import { mintInteractiveToken, readInteractiveToken } from './interactive-token';
+import {
+  SEP24_INTERACTIVE_TTL_SECS,
+  mintInteractiveToken,
+  readInteractiveToken,
+} from './interactive-token';
 import {
   SIGNING_PROBE_PATH,
   SIGNING_PROBE_SCRIPT_PATH,
@@ -56,8 +60,15 @@ export class Sep24Controller {
   private usableSession(req: any, id: string): string {
     for (const held of readCookies(req?.headers?.cookie, sessionCookieName(id))) {
       try {
-        const { account } = readInteractiveToken(this.cfg, held, id);
-        return mintInteractiveToken(this.cfg, id, account);
+        const { account, abs } = readInteractiveToken(this.cfg, held, id);
+        return mintInteractiveToken(
+          this.cfg,
+          id,
+          account,
+          SEP24_INTERACTIVE_TTL_SECS,
+          'session',
+          abs > 0 ? abs : undefined,
+        );
       } catch {
         continue;
       }
@@ -204,6 +215,7 @@ export class Sep24Controller {
   }
 
   @Get(SIGNING_PROBE_XDR_PATH)
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Header('cache-control', 'no-store')
   async signingProbeXdr(@Query('address') address: string) {
     try {
@@ -222,6 +234,7 @@ export class Sep24Controller {
   }
 
   @Get(SIGNING_PROBE_SCRIPT_PATH)
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Header('content-type', 'application/javascript; charset=utf-8')
   @Header('cache-control', 'no-store')
   signingProbeScript(): string {
@@ -229,6 +242,7 @@ export class Sep24Controller {
   }
 
   @Get(SIGNING_PROBE_PATH)
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Header('content-type', 'text/html; charset=utf-8')
   @Header('cache-control', 'no-store')
   signingProbe(): string {
@@ -254,6 +268,7 @@ export class Sep24Controller {
   }
 
   @Get('interactive/:id/fund.js')
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Header('cross-origin-opener-policy', 'unsafe-none')
   @Header('content-type', 'application/javascript; charset=utf-8')
   @Header('cache-control', 'no-store')
@@ -263,6 +278,7 @@ export class Sep24Controller {
   }
 
   @Get('interactive/:id/release.js')
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Header('cross-origin-opener-policy', 'unsafe-none')
   @Header('content-type', 'application/javascript; charset=utf-8')
   @Header('cache-control', 'no-store')
