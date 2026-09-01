@@ -1,4 +1,37 @@
+import { Address, BASE_FEE, Operation, StrKey, TransactionBuilder } from '@stellar/stellar-sdk';
+import { Server } from '@stellar/stellar-sdk/rpc';
+
 export const SIGNING_PROBE_PATH = 'signing-probe';
+export const SIGNING_PROBE_XDR_PATH = 'signing-probe/xdr';
+
+export const PROBE_FUNCTION = 'get_config';
+
+export async function buildProbeInvocation(
+  rpcUrl: string,
+  networkPassphrase: string,
+  escrowContractId: string,
+  address: string,
+  makeServer: (url: string) => any = (url) => new Server(url),
+): Promise<string> {
+  if (!StrKey.isValidEd25519PublicKey(address)) {
+    throw new Error('that is not a Stellar account address');
+  }
+  const server = makeServer(rpcUrl);
+  const account = await server.getAccount(address);
+  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase })
+    .addOperation(
+      Operation.invokeContractFunction({
+        contract: escrowContractId,
+        function: PROBE_FUNCTION,
+        args: [],
+      }),
+    )
+    .setTimeout(300)
+    .build();
+  const prepared = await server.prepareTransaction(tx);
+  void Address;
+  return prepared.toXdr();
+}
 export const SIGNING_PROBE_SCRIPT_PATH = 'signing-probe.js';
 
 export function renderSigningProbe(networkPassphrase: string, escrowContractId: string): string {
@@ -27,6 +60,7 @@ button.</p>
 <div id="out"><div class="row no">The script did not run. If you see this after the page has
 loaded, JavaScript was blocked — which is itself the answer, and it is a header this anchor
 controls.</div></div>
+<p><button id="sign">Actually sign a Soroban call — this WILL open the wallet</button></p>
 <p><button id="go">Ask again</button>
 <button id="pop">Re-run inside a popup, the way SEP-24 opens it</button></p>
 <p>Network: <code>${networkPassphrase}</code><br>Escrow: <code>${escrowContractId}</code></p>
@@ -99,6 +133,78 @@ export function renderSigningProbeScript(): string {
       }
       say('yes', 'Freighter ANSWERED: <code>' + JSON.stringify(reply).slice(0, 300) + '</code>');
       say('yes', 'A wallet is reachable from the anchor\\'s own page. A Soroban signature is therefore possible from a SEP-24 popup in this browser.');
+    });
+  }
+
+  function ask(type, extra, timeoutMs) {
+    return new Promise(function (resolve) {
+      var messageId = Date.now() + Math.random();
+      var done = false;
+      var timer = setTimeout(function () {
+        if (done) return;
+        done = true;
+        window.removeEventListener('message', onReply);
+        resolve(null);
+      }, timeoutMs);
+      function onReply(ev) {
+        if (ev.source !== window) return;
+        var d = ev.data;
+        if (!d || d.source !== 'FREIGHTER_EXTERNAL_MSG_RESPONSE') return;
+        if (d.messagedId !== messageId && d.messageId !== messageId) return;
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        window.removeEventListener('message', onReply);
+        resolve(d);
+      }
+      window.addEventListener('message', onReply, false);
+      var msg = { source: 'FREIGHTER_EXTERNAL_MSG_REQUEST', messageId: messageId, type: type };
+      for (var k in extra) { if (Object.prototype.hasOwnProperty.call(extra, k)) msg[k] = extra[k]; }
+      window.postMessage(msg, window.location.origin);
+    });
+  }
+
+  var sign = document.getElementById('sign');
+  if (sign) {
+    sign.addEventListener('click', function () {
+      sign.disabled = true;
+      rows = [];
+      say('wait', 'Step 1 of 3 — asking the wallet for an address. <b>Freighter should open now.</b> Approve it.');
+      ask('REQUEST_ACCESS', {}, 120000).then(function (access) {
+        if (!access || !access.publicKey) {
+          say('no', 'No address. ' + (access ? 'The wallet answered <code>' + JSON.stringify(access).slice(0, 200) + '</code>' : 'The wallet never answered — it was probably not approved.'));
+          sign.disabled = false;
+          return;
+        }
+        say('yes', 'Step 1 done. Address: <code>' + access.publicKey + '</code>');
+        say('wait', 'Step 2 of 3 — asking this anchor to build a real Soroban call for that address…');
+        return fetch('/sep24/signing-probe/xdr?address=' + encodeURIComponent(access.publicKey))
+          .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+          .then(function (res) {
+            if (!res.ok || !res.j.xdr) {
+              say('no', 'The anchor could not build one: <code>' + JSON.stringify(res.j).slice(0, 300) + '</code>');
+              sign.disabled = false;
+              return;
+            }
+            say('yes', 'Step 2 done. A prepared <code>get_config</code> invocation on the escrow — a READ, harmless even if submitted. It is never submitted here.');
+            say('wait', 'Step 3 of 3 — asking the wallet to SIGN it. <b>Freighter should open again.</b>');
+            return ask('SUBMIT_TRANSACTION', { transactionXdr: res.j.xdr, networkPassphrase: res.j.networkPassphrase }, 180000).then(function (signed) {
+              if (!signed) {
+                say('no', 'The wallet never answered the signing request.');
+              } else if (signed.apiError || !signed.signedTransaction) {
+                say('no', 'The wallet REFUSED: <code>' + JSON.stringify(signed).slice(0, 300) + '</code>');
+              } else {
+                say('yes', 'SIGNED. signerAddress <code>' + signed.signerAddress + '</code>');
+                say('yes', 'Signed XDR (first 90 chars, never sent anywhere): <code>' + String(signed.signedTransaction).slice(0, 90) + '…</code>');
+                say('yes', '<b>PROVEN: a wallet will sign a Soroban invocation from the anchor\\'s own SEP-24 page.</b> Not inferred — measured.');
+              }
+              sign.disabled = false;
+            });
+          });
+      }).catch(function (e) {
+        say('no', 'Error: <code>' + (e && e.message ? e.message : String(e)) + '</code>');
+        sign.disabled = false;
+      });
     });
   }
 

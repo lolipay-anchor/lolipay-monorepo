@@ -1,5 +1,5 @@
 import {
-  Body, Controller, ForbiddenException, Get, Header, HttpCode, Param, Post, Query, Req, Res, UseGuards,
+  BadRequestException, Body, Controller, ForbiddenException, Get, Header, HttpCode, Param, Post, Query, Req, Res, UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
@@ -17,6 +17,8 @@ import { mintInteractiveToken, readInteractiveToken } from './interactive-token'
 import {
   SIGNING_PROBE_PATH,
   SIGNING_PROBE_SCRIPT_PATH,
+  SIGNING_PROBE_XDR_PATH,
+  buildProbeInvocation,
   renderSigningProbe,
   renderSigningProbeScript,
 } from './signing-probe';
@@ -156,6 +158,24 @@ export class Sep24Controller {
     const token = this.usableSession(req, id);
     await this.sep24.submitAmount(id, token, body.fiat_amount);
     res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
+  }
+
+  @Get(SIGNING_PROBE_XDR_PATH)
+  @Header('cache-control', 'no-store')
+  async signingProbeXdr(@Query('address') address: string) {
+    try {
+      const xdr = await buildProbeInvocation(
+        this.cfg.rpcUrl,
+        this.cfg.networkPassphrase,
+        this.cfg.escrowContractId,
+        String(address ?? ''),
+      );
+      return { xdr, networkPassphrase: this.cfg.networkPassphrase };
+    } catch (err) {
+      throw new BadRequestException(
+        `could not build a probe invocation: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   @Get(SIGNING_PROBE_SCRIPT_PATH)

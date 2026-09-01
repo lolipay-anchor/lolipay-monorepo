@@ -65,6 +65,29 @@ describe('the SEP-24 surface a wallet reads before it ever deposits', () => {
       expect(js).toContain('window.opener');
     });
 
+    it('refuses to build an invocation for anything that is not a Stellar account', async () => {
+      for (const bad of ['', 'not-an-address', 'GBAD', 'CDKJ5OX2WY424DXPMYRGI2TCMTI5LFGLSLHSBKA5AODIGTS4R2TIDK3Z']) {
+        const res = await http().get(`/sep24/signing-probe/xdr?address=${encodeURIComponent(bad)}`);
+        expect(res.status).toBe(400);
+      }
+    });
+
+    it('asks the wallet to sign over the real submit message, with the payload the library sends', async () => {
+      const { text } = await http().get('/sep24/signing-probe.js');
+      expect(text).toContain('SUBMIT_TRANSACTION');
+      expect(text).toContain('REQUEST_ACCESS');
+      expect(text).toContain('transactionXdr');
+      expect(text).toContain('signedTransaction');
+    });
+
+    it('signs a READ, so the probe cannot move money even if the signed envelope escaped', async () => {
+      const { text } = await http().get('/sep24/signing-probe.js');
+      expect(text).toContain('get_config');
+      expect(text).not.toContain('confirm_and_release');
+      expect(text).not.toContain('create_trade');
+      expect(text).not.toContain('transfer');
+    });
+
     it('names the control that separates "no wallet" from "wallet blocked here"', async () => {
       const { text } = await http().get('/sep24/signing-probe.js');
       expect(text).toContain('app.lolipay.app');
