@@ -128,10 +128,11 @@ describe('the screen that asks a wallet to sign', () => {
   });
 
   it.each(['fund.js', 'release.js'])(
-    'ships %s carrying no secret shape at all, since it is rendered from configuration',
+    'ships %s carrying no seed and no bearer token, since it is rendered from configuration',
     async (name) => {
       const { id, cookie } = await atStatus('MATCHED', 'WITHDRAW');
       const res = await http().get(`/sep24/interactive/${id}/${name}`).set('Cookie', cookie).expect(200);
+      expect(res.text).toContain('FREIGHTER_EXTERNAL_MSG_REQUEST');
       expect(res.text).not.toMatch(/\bS[A-Z2-7]{55}\b/);
       expect(res.text).not.toMatch(/eyJ[A-Za-z0-9_-]{10,}/);
     },

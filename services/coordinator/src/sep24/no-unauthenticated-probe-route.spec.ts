@@ -6,15 +6,16 @@ function declaredPaths(): string[] {
   return Object.getOwnPropertyNames(proto)
     .filter((name) => name !== 'constructor' && typeof proto[name] === 'function')
     .map((name) => Reflect.getMetadata(PATH_METADATA, proto[name]))
+    .flatMap((p) => (Array.isArray(p) ? p : [p]))
     .filter((p): p is string => typeof p === 'string');
 }
 
-describe('the anchor exposes no diagnostic route that drives the chain for an anonymous caller', () => {
+describe('the sep24 controller declares no probe-shaped route, and no new top-level one unnoticed', () => {
   it('declares at least one route, so an empty reflection cannot pass this suite by accident', () => {
     expect(declaredPaths().length).toBeGreaterThan(5);
   });
 
-  it('declares no route whose path mentions a probe', () => {
+  it('declares no route whose path mentions a probe, in either the string or the array form', () => {
     expect(declaredPaths().filter((p) => /probe/i.test(p))).toEqual([]);
   });
 

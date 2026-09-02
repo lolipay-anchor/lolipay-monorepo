@@ -40,3 +40,16 @@ describe('AppConfigService.escrowContractIdsExtra (process.env boot path)', () =
     expect(cfg.escrowContractIdsExtra).toEqual([]);
   });
 });
+
+describe('a required config value stops the process rather than defaulting', () => {
+  const withEnv = (env: Record<string, string | undefined>) =>
+    new AppConfigService({ get: (k: string) => env[k] } as any);
+
+  it.each([undefined, ''])('throws for STELLAR_RPC_URL when it is %p', (value) => {
+    expect(() => withEnv({ STELLAR_RPC_URL: value }).rpcUrl).toThrow(/Missing env STELLAR_RPC_URL/);
+  });
+
+  it('returns the value when it is set, so the throw is not unconditional', () => {
+    expect(withEnv({ STELLAR_RPC_URL: 'https://rpc.example.test' }).rpcUrl).toBe('https://rpc.example.test');
+  });
+});
