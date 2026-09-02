@@ -1,18 +1,26 @@
 import { PATH_METADATA } from '@nestjs/common/constants';
+import { MetadataScanner } from '@nestjs/core';
 import { Sep24Controller } from './sep24.controller';
 
+const proto = Sep24Controller.prototype as any;
+
+function routeMethods(): string[] {
+  return new MetadataScanner()
+    .getAllMethodNames(proto)
+    .filter((name) => Reflect.hasMetadata(PATH_METADATA, proto[name]));
+}
+
 function declaredPaths(): string[] {
-  const proto = Sep24Controller.prototype as any;
-  return Object.getOwnPropertyNames(proto)
-    .filter((name) => name !== 'constructor' && typeof proto[name] === 'function')
+  return routeMethods()
     .map((name) => Reflect.getMetadata(PATH_METADATA, proto[name]))
-    .flatMap((p) => (Array.isArray(p) ? p : [p]))
+    .flatMap((p) => (Array.isArray(p) ? p.flat(Infinity) : [p]))
     .filter((p): p is string => typeof p === 'string');
 }
 
 describe('the sep24 controller declares no probe-shaped route, and no new top-level one unnoticed', () => {
-  it('declares at least one route, so an empty reflection cannot pass this suite by accident', () => {
-    expect(declaredPaths().length).toBeGreaterThan(5);
+  it('reads a path for every route method, so no route can be dropped before the other tests look', () => {
+    expect(routeMethods().length).toBeGreaterThan(5);
+    expect(declaredPaths().length).toBeGreaterThanOrEqual(routeMethods().length);
   });
 
   it('declares no route whose path mentions a probe, in either the string or the array form', () => {

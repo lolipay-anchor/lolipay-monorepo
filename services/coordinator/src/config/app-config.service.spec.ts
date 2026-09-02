@@ -41,7 +41,7 @@ describe('AppConfigService.escrowContractIdsExtra (process.env boot path)', () =
   });
 });
 
-describe('a required config value stops the process rather than defaulting', () => {
+describe('a required config getter throws rather than defaulting', () => {
   const withEnv = (env: Record<string, string | undefined>) =>
     new AppConfigService({ get: (k: string) => env[k] } as any);
 
