@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   ForbiddenException,
@@ -31,14 +30,6 @@ import {
   mintInteractiveToken,
   readInteractiveToken,
 } from './interactive-token';
-import {
-  SIGNING_PROBE_PATH,
-  SIGNING_PROBE_SCRIPT_PATH,
-  SIGNING_PROBE_XDR_PATH,
-  buildProbeInvocation,
-  renderSigningProbe,
-  renderSigningProbeScript,
-} from './signing-probe';
 import { renderSignScript } from './sign-script';
 import { cspAllowingRpc } from './signing-csp';
 import { UseInterceptors } from '@nestjs/common';
@@ -214,46 +205,12 @@ export class Sep24Controller {
     res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
   }
 
-  @Get(SIGNING_PROBE_XDR_PATH)
-  @Throttle({ default: { ttl: 60_000, limit: 10 } })
-  @Header('cache-control', 'no-store')
-  async signingProbeXdr(@Query('address') address: string) {
-    try {
-      const xdr = await buildProbeInvocation(
-        this.cfg.rpcUrl,
-        this.cfg.networkPassphrase,
-        this.cfg.escrowContractId,
-        String(address ?? ''),
-      );
-      return { xdr, networkPassphrase: this.cfg.networkPassphrase };
-    } catch (err) {
-      throw new BadRequestException(
-        `could not build a probe invocation: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-
-  @Get(SIGNING_PROBE_SCRIPT_PATH)
-  @Throttle({ default: { ttl: 60_000, limit: 10 } })
-  @Header('content-type', 'application/javascript; charset=utf-8')
-  @Header('cache-control', 'no-store')
-  signingProbeScript(): string {
-    return renderSigningProbeScript();
-  }
-
-  @Get(SIGNING_PROBE_PATH)
-  @Throttle({ default: { ttl: 60_000, limit: 10 } })
-  @Header('content-type', 'text/html; charset=utf-8')
-  @Header('cache-control', 'no-store')
-  signingProbe(): string {
-    return renderSigningProbe(this.cfg.networkPassphrase, this.cfg.escrowContractId);
-  }
-
   @Get('interactive/:id/fund-tx')
   @Header('cross-origin-opener-policy', 'unsafe-none')
   @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
   @Header('cache-control', 'no-store')
   async fundTx(@Req() req: any, @Param('id') id: string) {
+    this.refuseForeignOrigin(req);
     const token = this.usableSession(req, id);
     return this.sep24.fundTx(id, token);
   }
@@ -263,6 +220,7 @@ export class Sep24Controller {
   @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
   @Header('cache-control', 'no-store')
   async releaseTx(@Req() req: any, @Param('id') id: string) {
+    this.refuseForeignOrigin(req);
     const token = this.usableSession(req, id);
     return this.sep24.releaseTx(id, token);
   }

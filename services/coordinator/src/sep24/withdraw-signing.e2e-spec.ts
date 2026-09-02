@@ -151,6 +151,62 @@ describe('the screen that asks a wallet to sign', () => {
     }
   });
 
+  it.each(['fund-tx', 'release-tx'])(
+    'refuses %s on a deposit, so the depositor is never handed the provider half of the trade',
+    async (path) => {
+      const { id, cookie } = await atStatus('MATCHED', 'TOP_UP');
+      const res = await http().get(`/sep24/interactive/${id}/${path}`).set('Cookie', cookie);
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/only a withdrawal/i);
+    },
+  );
+
+  it.each(['fund-tx', 'release-tx'])(
+    'refuses %s before an amount has been named, rather than dereferencing an order that is not there',
+    async (path) => {
+      const kp = Keypair.random();
+      const jwt = await anchorToken(app, kp);
+      const opened = await http()
+        .post('/sep24/transactions/withdraw/interactive')
+        .set('Authorization', `Bearer ${jwt}`)
+        .send({ asset_code: 'USDC' })
+        .expect(200);
+      const url = new URL(opened.body.url as string);
+      const id = url.pathname.split('/').pop() as string;
+      const token = url.searchParams.get('token') as string;
+
+      const link = await prisma.walletLink.findUnique({ where: { stellarAddress: kp.publicKey() } });
+      await prisma.kycVerification.create({
+        data: {
+          customerRef: kp.publicKey(),
+          personId: link!.personId,
+          status: 'ACCEPTED',
+          screenedAt: new Date(),
+          verifiedAt: new Date(),
+        },
+      });
+      const first = await http().get(`/sep24/interactive/${id}?token=${token}`);
+      const cookie = (first.headers['set-cookie'] as unknown as string[]) ?? [];
+
+      const res = await http().get(`/sep24/interactive/${id}/${path}`).set('Cookie', cookie);
+      expect(res.status).toBe(409);
+      expect(res.body.message).toMatch(/amount|no order/i);
+    },
+  );
+
+  it.each(['fund-tx', 'release-tx'])(
+    'refuses %s from a foreign origin even holding a good cookie',
+    async (path) => {
+      const { id, cookie } = await atStatus('MATCHED', 'WITHDRAW');
+      const res = await http()
+        .get(`/sep24/interactive/${id}/${path}`)
+        .set('Cookie', cookie)
+        .set('Origin', 'https://evil.example');
+      expect(res.status).toBe(403);
+      expect(res.body.message).toMatch(/did not come from the page this anchor served/i);
+    },
+  );
+
   it('widens connect-src to the RPC on the interactive page, and nothing else', async () => {
     const { id, cookie } = await atStatus('MATCHED', 'WITHDRAW');
     const res = await http().get(`/sep24/interactive/${id}`).set('Cookie', cookie);

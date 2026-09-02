@@ -16,6 +16,7 @@ function makeCfg(over: Record<string, unknown> = {}) {
     priceDeviationMaxBps: 100,
     platformWallet: WALLET,
     anchorBaseUrl: 'https://api.lolipay.app',
+    rpcUrl: 'https://soroban-testnet.stellar.org',
     usdcAssetCode: 'USDC',
     usdcAssetIssuer: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
     ...over,
@@ -156,6 +157,29 @@ describe('an anchor that cannot name itself cannot serve SEP-24', () => {
     await expect(
       new ConfigBootService(prisma, makeCfg({ anchorBaseUrl: value })).onModuleInit(),
     ).rejects.toThrow(/ANCHOR_BASE_URL/);
+  });
+
+  it.each([
+    ['an empty value', ''],
+    ['a value that is not a url at all', 'not a url'],
+    ['plain http, which the inherited upgrade-insecure-requests would break anyway', 'http://rpc.local:8000'],
+    ['a data url, whose origin parses as the string null', 'data:text/html,x'],
+    ['an endpoint whose api key rides in the userinfo', 'https://user:key@rpc.example.com'],
+  ])(
+    'refuses %s for STELLAR_RPC_URL, because the signing page hands it to the browser verbatim',
+    async (_n, value) => {
+      const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+      await expect(
+        new ConfigBootService(prisma, makeCfg({ rpcUrl: value })).onModuleInit(),
+      ).rejects.toThrow(/STELLAR_RPC_URL/);
+    },
+  );
+
+  it('admits an https rpc endpoint that carries a path, which providers routinely use', async () => {
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    await expect(
+      new ConfigBootService(prisma, makeCfg({ rpcUrl: 'https://rpc.example.com/soroban/rpc' })).onModuleInit(),
+    ).resolves.toBeUndefined();
   });
 
   it('refuses a base url that is not https, because more_info_url must be absolute and trusted', async () => {

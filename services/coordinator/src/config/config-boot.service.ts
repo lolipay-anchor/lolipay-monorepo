@@ -40,6 +40,19 @@ export class ConfigBootService implements OnModuleInit {
       );
     }
 
+    const rpc = this.cfg.rpcUrl ?? '';
+    let rpcUrl: URL | null = null;
+    try {
+      rpcUrl = new URL(rpc);
+    } catch {
+      rpcUrl = null;
+    }
+    if (!rpcUrl || rpcUrl.protocol !== 'https:' || !rpcUrl.host || rpcUrl.username || rpcUrl.password) {
+      throw new Error(
+        'refusing to start: STELLAR_RPC_URL must be an https url with no credentials — the signing page hands it to the browser verbatim and builds its own content-security-policy from it, so a malformed one blocks every submit with nothing to show for it',
+      );
+    }
+
     if (this.cfg.diditApiKey && this.cfg.diditWorkflowId && !this.cfg.diditWebhookSecret) {
       throw new Error(
         'refusing to start: an identity provider is configured but DIDIT_WEBHOOK_SECRET is not, so every verdict it sends would be refused and no deposit could ever open',

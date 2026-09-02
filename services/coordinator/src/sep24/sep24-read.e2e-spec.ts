@@ -69,78 +69,18 @@ describe('the SEP-24 surface a wallet reads before it ever deposits', () => {
     });
   });
 
-  describe('GET /sep24/signing-probe', () => {
-    it('answers without a token, because the founder opens it in a plain browser', async () => {
-      const res = await http().get('/sep24/signing-probe').expect(200);
-      expect(res.headers['content-type']).toMatch(/text\/html/);
-    });
+  describe('the wallet signing probe, which no longer exists', () => {
+    it.each(['/sep24/signing-probe', '/sep24/signing-probe.js'])(
+      'answers 404 at %s, so no unauthenticated page drives the RPC any more',
+      async (path) => {
+        await http().get(path).expect(404);
+      },
+    );
 
-    it('carries no secret and no credential, only the two public identifiers it reports', async () => {
-      const { text } = await http().get('/sep24/signing-probe');
-      expect(text).toContain(process.env.ESCROW_CONTRACT_ID);
-      expect(text).not.toMatch(/\bS[A-Z2-7]{55}\b/);
-      expect(text).not.toMatch(/eyJ[A-Za-z0-9_-]{10,}/);
-    });
-
-    it('reads the escrow and the network from config rather than hardcoding a deployment', async () => {
-      const { text } = await http().get('/sep24/signing-probe');
-      expect(text).toContain(process.env.STELLAR_NETWORK_PASSPHRASE);
-    });
-
-    it('loads its script from a same-origin file, because our own CSP forbids an inline one', async () => {
-      const { text } = await http().get('/sep24/signing-probe');
-      expect(text).toContain('src="/sep24/signing-probe.js"');
-      expect(text).not.toMatch(/<script(?![^>]*\ssrc=)/);
-    });
-
-    it('serves that script as javascript, so script-src self admits it', async () => {
-      const res = await http().get('/sep24/signing-probe.js').expect(200);
-      expect(res.headers['content-type']).toMatch(/javascript/);
-      expect(res.text).toContain('freighterApi');
-    });
-
-    it('asks Freighter over the channel it really uses, not by looking for a window global', async () => {
-      const { text } = await http().get('/sep24/signing-probe.js');
-      expect(text).toContain('FREIGHTER_EXTERNAL_MSG_REQUEST');
-      expect(text).toContain('REQUEST_CONNECTION_STATUS');
-      expect(text).toContain('FREIGHTER_EXTERNAL_MSG_RESPONSE');
-      expect(text).toContain('messagedId');
-    });
-
-    it('can re-run itself inside a popup, because that is the context SEP-24 actually uses', async () => {
-      const { text: page } = await http().get('/sep24/signing-probe');
-      expect(page).toContain('id="pop"');
-      const { text: js } = await http().get('/sep24/signing-probe.js');
-      expect(js).toContain('window.open(location.href');
-      expect(js).toContain('window.opener');
-    });
-
-    it('refuses to build an invocation for anything that is not a Stellar account', async () => {
-      for (const bad of ['', 'not-an-address', 'GBAD', 'CDKJ5OX2WY424DXPMYRGI2TCMTI5LFGLSLHSBKA5AODIGTS4R2TIDK3Z']) {
-        const res = await http().get(`/sep24/signing-probe/xdr?address=${encodeURIComponent(bad)}`);
-        expect(res.status).toBe(400);
-      }
-    });
-
-    it('asks the wallet to sign over the real submit message, with the payload the library sends', async () => {
-      const { text } = await http().get('/sep24/signing-probe.js');
-      expect(text).toContain('SUBMIT_TRANSACTION');
-      expect(text).toContain('REQUEST_ACCESS');
-      expect(text).toContain('transactionXdr');
-      expect(text).toContain('signedTransaction');
-    });
-
-    it('signs a READ, so the probe cannot move money even if the signed envelope escaped', async () => {
-      const { text } = await http().get('/sep24/signing-probe.js');
-      expect(text).toContain('get_config');
-      expect(text).not.toContain('confirm_and_release');
-      expect(text).not.toContain('create_trade');
-      expect(text).not.toContain('transfer');
-    });
-
-    it('names the control that separates "no wallet" from "wallet blocked here"', async () => {
-      const { text } = await http().get('/sep24/signing-probe.js');
-      expect(text).toContain('app.lolipay.app');
+    it('answers 404 at the xdr builder, which took a caller-supplied address', async () => {
+      await http()
+        .get('/sep24/signing-probe/xdr?address=GBS7GJRDNMLBYCHTPMHFHLLQMIQFCLYQTZ4WBHUYQPUHPQOWLLQZJIGN')
+        .expect(404);
     });
   });
 
