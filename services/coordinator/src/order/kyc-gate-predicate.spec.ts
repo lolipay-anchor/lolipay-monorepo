@@ -16,7 +16,7 @@ function verifiedRow(over: Partial<Row> = {}): Row {
 function matches(row: Row, where: any): boolean {
   if (where.personId !== undefined && row.personId !== where.personId) return false;
   if (where.status !== undefined && row.status !== where.status) return false;
-  if (where.screenedAt?.not === null && row.screenedAt === null) return false;
+  if (where.screenedAt?.not === null && row.screenedAt == null) return false;
   if (where.customerRef !== undefined && row.customerRef !== where.customerRef) return false;
   return true;
 }
@@ -42,6 +42,7 @@ describe('the predicate that governs both the deposit gate and the reveal gate',
     ['no row at all', []],
     ['a customer still needing information', [verifiedRow({ status: 'NEEDS_INFO' })]],
     ['an acceptance no screening ever touched', [verifiedRow({ screenedAt: null })]],
+    ['a screening field a mock forgot to set', [verifiedRow({ screenedAt: undefined })]],
   ])('refuses %s', async (_name, rows) => {
     await expect(check(dbOf(...(rows as Row[])), 'person-1')).resolves.toBe(false);
   });

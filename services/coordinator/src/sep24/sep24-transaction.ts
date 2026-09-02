@@ -1,4 +1,5 @@
 import type { Flow, OrderStatus } from '../generated/prisma/client';
+import { accountOf } from '../sep10/account-signers.service';
 import { baseUnitsToUsdcString, splitFees } from '../money/money';
 import { sep24Status, Sep24Status } from './sep24-status';
 
@@ -59,7 +60,7 @@ export function serializeSep24(record: Sep24Record, assets: Sep24Assets): Sep24T
     status,
     more_info_url: `${assets.baseUrl}/sep24/more-info/${record.id}`,
     started_at: record.startedAt.toISOString(),
-    to: withdrawing ? null : record.stellarAccount,
+    to: withdrawing ? null : accountOf(record.stellarAccount),
     kyc_verified: record.kycVerified,
   };
   if (withdrawing) {
