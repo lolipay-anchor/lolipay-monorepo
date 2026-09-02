@@ -30,6 +30,7 @@ jobs:
   coordinator:
     name: coordinator
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16
@@ -67,11 +68,12 @@ jobs:
             --exit-code
       - name: the object store the end-to-end suite writes payment proof to
         run: |
-          docker compose -f docker-compose.e2e.yml -p lolipay-e2e up -d minio
+          timeout 300 docker compose -f docker-compose.e2e.yml -p lolipay-e2e up -d minio
           timeout 60 bash -c 'until curl -sf http://localhost:19000/minio/health/live >/dev/null; do sleep 1; done'
       - name: end to end, against a real database and a real object store
         run: npm run test:e2e
       - name: production dependencies carry no known high severity advisory
+        if: always()
         run: npm audit --audit-level=high --omit=dev
 
   frontend:
