@@ -331,8 +331,24 @@ describe('the currencies section', () => {
 
   it('discloses that a memo does not buy a separate screened identity, which SEP-10 asks for and this anchor does not provide', async () => {
     const t = await body()
-    expect(t).toMatch(/conditions=".*Identity verification is bound to the Stellar account.*"/)
+    expect(t).toMatch(/conditions=".*Identity verification is bound to the underlying Stellar account.*"/)
     expect(t).toMatch(/a memo does not create a separately screened identity/)
+  });
+
+  it('names the muxed subaccount too, because it collapses to the base account exactly as a memo does', async () => {
+    const t = await body()
+    expect(t).toMatch(/memo or muxed subaccount/)
+  });
+
+  it('discloses that erasure crosses the memos as well, which is the consequence a reader would otherwise miss', async () => {
+    const t = await body()
+    expect(t).toMatch(/an erasure request under any of them erases it for all/)
+  });
+
+  it('claims nothing about what GET \/customer reports, which stays keyed on the exact subject', async () => {
+    const t = await body()
+    expect(t).not.toMatch(/every session/)
+    expect(t).toMatch(/authorises deposits for that account/)
   });
 
   it('does not claim to refuse shared accounts, because PUT \/customer answers a memo with its own customer id', async () => {
