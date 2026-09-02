@@ -73,14 +73,15 @@ describe('the SEP-24 surface a wallet reads before it ever deposits', () => {
     it.each(['/sep24/signing-probe', '/sep24/signing-probe.js'])(
       'answers 404 at %s, so no unauthenticated page drives the RPC any more',
       async (path) => {
-        await http().get(path).expect(404);
+        const res = await http().get(path).expect(404);
+        expect(res.body.message).toBe(`Cannot GET ${path}`);
       },
     );
 
     it('answers 404 at the xdr builder, which took a caller-supplied address', async () => {
-      await http()
-        .get('/sep24/signing-probe/xdr?address=GBS7GJRDNMLBYCHTPMHFHLLQMIQFCLYQTZ4WBHUYQPUHPQOWLLQZJIGN')
-        .expect(404);
+      const path = '/sep24/signing-probe/xdr?address=GBS7GJRDNMLBYCHTPMHFHLLQMIQFCLYQTZ4WBHUYQPUHPQOWLLQZJIGN';
+      const res = await http().get(path).expect(404);
+      expect(res.body.message).toBe(`Cannot GET ${path}`);
     });
   });
 

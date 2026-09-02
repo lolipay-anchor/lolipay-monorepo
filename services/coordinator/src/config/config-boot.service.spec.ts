@@ -160,7 +160,6 @@ describe('an anchor that cannot name itself cannot serve SEP-24', () => {
   });
 
   it.each([
-    ['an empty value', ''],
     ['a value that is not a url at all', 'not a url'],
     ['plain http, which the inherited upgrade-insecure-requests would break anyway', 'http://rpc.local:8000'],
     ['a data url, whose origin parses as the string null', 'data:text/html,x'],

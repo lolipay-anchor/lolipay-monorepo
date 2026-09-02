@@ -246,6 +246,7 @@ export class Sep24Controller {
   }
 
   @Get('more-info/:id')
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Header('content-type', 'text/html; charset=utf-8')
   @Header('cache-control', 'no-store')
   async moreInfo(@Param('id') id: string, @Res({ passthrough: true }) _res: Response) {

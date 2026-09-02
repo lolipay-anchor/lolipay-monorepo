@@ -40,7 +40,7 @@ export class ConfigBootService implements OnModuleInit {
       );
     }
 
-    const rpc = this.cfg.rpcUrl ?? '';
+    const rpc = this.cfg.rpcUrl;
     let rpcUrl: URL | null = null;
     try {
       rpcUrl = new URL(rpc);
@@ -49,7 +49,7 @@ export class ConfigBootService implements OnModuleInit {
     }
     if (!rpcUrl || rpcUrl.protocol !== 'https:' || !rpcUrl.host || rpcUrl.username || rpcUrl.password) {
       throw new Error(
-        'refusing to start: STELLAR_RPC_URL must be an https url with no credentials — the signing page hands it to the browser verbatim and builds its own content-security-policy from it, so a malformed one blocks every submit with nothing to show for it',
+        'refusing to start: STELLAR_RPC_URL must be an https url with a host and no userinfo — the signing page hands it to the browser verbatim and builds its own content-security-policy from its origin, so a malformed one blocks every submit with nothing to show for it. A path and a query are admitted because providers use them, which means this check cannot stop an api key riding in one: the endpoint the browser is given must be keyless',
       );
     }
 

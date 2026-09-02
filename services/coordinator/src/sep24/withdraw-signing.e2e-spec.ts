@@ -127,6 +127,16 @@ describe('the screen that asks a wallet to sign', () => {
     }
   });
 
+  it.each(['fund.js', 'release.js'])(
+    'ships %s carrying no secret shape at all, since it is rendered from configuration',
+    async (name) => {
+      const { id, cookie } = await atStatus('MATCHED', 'WITHDRAW');
+      const res = await http().get(`/sep24/interactive/${id}/${name}`).set('Cookie', cookie).expect(200);
+      expect(res.text).not.toMatch(/\bS[A-Z2-7]{55}\b/);
+      expect(res.text).not.toMatch(/eyJ[A-Za-z0-9_-]{10,}/);
+    },
+  );
+
   it('points each script at its own builder, so neither can sign the other half of the trade', async () => {
     const { id, cookie } = await atStatus('MATCHED', 'WITHDRAW');
     const fund = await http().get(`/sep24/interactive/${id}/fund.js`).set('Cookie', cookie).expect(200);
@@ -151,19 +161,25 @@ describe('the screen that asks a wallet to sign', () => {
     }
   });
 
-  it.each(['fund-tx', 'release-tx'])(
+  it.each([
+    ['fund-tx', /only a withdrawal is funded by the person who opened it/i],
+    ['release-tx', /only a withdrawal is released by the person who opened it/i],
+  ])(
     'refuses %s on a deposit, so the depositor is never handed the provider half of the trade',
-    async (path) => {
+    async (path, expected) => {
       const { id, cookie } = await atStatus('MATCHED', 'TOP_UP');
       const res = await http().get(`/sep24/interactive/${id}/${path}`).set('Cookie', cookie);
       expect(res.status).toBe(400);
-      expect(res.body.message).toMatch(/only a withdrawal/i);
+      expect(res.body.message).toMatch(expected);
     },
   );
 
-  it.each(['fund-tx', 'release-tx'])(
+  it.each([
+    ['fund-tx', /name an amount before this withdrawal can be funded/i],
+    ['release-tx', /this withdrawal has no order to release/i],
+  ])(
     'refuses %s before an amount has been named, rather than dereferencing an order that is not there',
-    async (path) => {
+    async (path, expected) => {
       const kp = Keypair.random();
       const jwt = await anchorToken(app, kp);
       const opened = await http()
@@ -190,7 +206,7 @@ describe('the screen that asks a wallet to sign', () => {
 
       const res = await http().get(`/sep24/interactive/${id}/${path}`).set('Cookie', cookie);
       expect(res.status).toBe(409);
-      expect(res.body.message).toMatch(/amount|no order/i);
+      expect(res.body.message).toMatch(expected);
     },
   );
 
