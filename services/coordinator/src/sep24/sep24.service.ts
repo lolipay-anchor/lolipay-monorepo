@@ -14,6 +14,7 @@ import { RateService } from '../rate/rate.service';
 import { OrderService } from '../order/order.service';
 import { OrderTxService } from '../order/order-tx.service';
 import { OrderStatusService, REFRESH_FROM_CHAIN_STATUSES } from '../order/order-status.service';
+import { accountOf } from '../sep10/account-signers.service';
 import { AppConfigService } from '../config/app-config.service';
 import { baseUnitsToUsdc } from '../money/money';
 import { serializeSep24, Sep24Record, Sep24TransactionJson } from './sep24-transaction';
@@ -433,7 +434,7 @@ export class Sep24Service {
     if (!order) {
       throw new ConflictException('name an amount before this withdrawal can be funded');
     }
-    return this.orderTx.buildCreateTradeTx(order.id, row.stellarAccount);
+    return this.orderTx.buildCreateTradeTx(order.id, accountOf(row.stellarAccount));
   }
 
   async releaseTx(id: string, token: string) {
@@ -445,7 +446,7 @@ export class Sep24Service {
     if (!order) {
       throw new ConflictException('this withdrawal has no order to release');
     }
-    return this.orderTx.buildConfirmReleaseTx(order.id, row.stellarAccount);
+    return this.orderTx.buildConfirmReleaseTx(order.id, accountOf(row.stellarAccount));
   }
 
   async submitAmount(
@@ -482,11 +483,11 @@ export class Sep24Service {
       }
     }
 
-    const quote = await this.rate.createQuote(row.stellarAccount, row.flow, 'BANK', {
+    const quote = await this.rate.createQuote(accountOf(row.stellarAccount), row.flow, 'BANK', {
       fiatAmount: BigInt(digits),
     });
     const created = await this.orders.createFromQuote(
-      row.stellarAccount,
+      accountOf(row.stellarAccount),
       quote.id,
       userPaymentMethod,
     );

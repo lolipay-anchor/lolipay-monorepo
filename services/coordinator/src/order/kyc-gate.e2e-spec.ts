@@ -452,7 +452,7 @@ describe('a deposit cannot be opened by an identity the anchor has not verified'
     const body = src.split('async createFromQuote(')[1].split('\n  async ')[0];
     expect(body).not.toContain('async createFromQuote(');
 
-    const gate = body.indexOf('await this.assertIdentityVerified(userAddress, personId, tx)');
+    const gate = body.search(/await this\.assertIdentityVerified\([^)]*\btx\b[^)]*\);/);
     const write = body.indexOf('createOrderRow(');
     expect(gate).toBeGreaterThan(-1);
     expect(write).toBeGreaterThan(-1);

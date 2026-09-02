@@ -20,6 +20,10 @@ export function baseStellarAccount(address: string): string {
   return MuxedAccount.fromAddress(address, '0').baseAccount().accountId();
 }
 
+export function accountOf(subject: string): string {
+  return baseStellarAccount(subject.split(':')[0]);
+}
+
 @Injectable()
 export class AccountSignersService {
   private networkChecked = false;

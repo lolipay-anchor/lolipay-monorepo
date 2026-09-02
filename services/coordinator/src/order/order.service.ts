@@ -108,21 +108,18 @@ export class OrderService {
   }
 
   private async identityVerified(
-    userAddress: string,
     personId: string,
     db: {
       kycVerification: {
-        findUnique: (a: any) => Promise<any>;
         findFirst: (a: any) => Promise<any>;
       };
     },
   ): Promise<boolean> {
     if (!personId) return false;
-    const verification = await db.kycVerification.findUnique({
-      where: { customerRef: userAddress },
+    const verification = await db.kycVerification.findFirst({
+      where: { personId, status: 'ACCEPTED', screenedAt: { not: null } },
     });
-    if (verification?.status !== 'ACCEPTED' || !verification.screenedAt) return false;
-    if (verification.personId !== personId) return false;
+    if (!verification) return false;
     const refused = await db.kycVerification.findFirst({
       where: { personId, status: 'REJECTED' },
     });
@@ -130,16 +127,14 @@ export class OrderService {
   }
 
   private async assertIdentityVerified(
-    userAddress: string,
     personId: string,
     db: {
       kycVerification: {
-        findUnique: (a: any) => Promise<any>;
         findFirst: (a: any) => Promise<any>;
       };
     },
   ): Promise<void> {
-    if (!(await this.identityVerified(userAddress, personId, db))) {
+    if (!(await this.identityVerified(personId, db))) {
       throw new ForbiddenException(
         'identity verification is required before a trade can be opened',
       );
@@ -175,7 +170,7 @@ export class OrderService {
       throw new BadRequestException('daily limit exceeded');
     }
 
-    await this.assertIdentityVerified(userAddress, personId, this.prisma);
+    await this.assertIdentityVerified(personId, this.prisma);
 
     await this.markets.getEnabled(quote.fiatCurrency);
 
@@ -264,7 +259,7 @@ export class OrderService {
             throw new BadRequestException('daily limit exceeded');
           }
 
-          await this.assertIdentityVerified(userAddress, personId, tx);
+          await this.assertIdentityVerified(personId, tx);
 
           const consumed = await tx.quote.updateMany({
             where: { id: quoteId, usedAt: null },
@@ -317,11 +312,7 @@ export class OrderService {
     const mayReveal = isFundedOrLater && fiatPayer !== undefined && callerAddress === fiatPayer;
     const shouldReveal =
       mayReveal &&
-      (await this.identityVerified(
-        currentOrder.userAddress,
-        currentOrder.personId,
-        this.prisma,
-      ));
+      (await this.identityVerified(currentOrder.personId, this.prisma));
 
     const config = await this.getConfig();
     const serialized = serializeOrderBase(currentOrder, config);
@@ -513,11 +504,7 @@ export class OrderService {
       if (
         fiatPayer === lpAddress &&
         FUNDED_OR_LATER.includes(currentOrder.status) &&
-        (await this.identityVerified(
-          currentOrder.userAddress,
-          currentOrder.personId,
-          this.prisma,
-        ))
+        (await this.identityVerified(currentOrder.personId, this.prisma))
       ) {
         serialized.payment_instructions = getPaymentInstructions(currentOrder);
       }
