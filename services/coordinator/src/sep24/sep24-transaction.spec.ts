@@ -88,7 +88,12 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
   ])('reports the account a withdrawal is really funded from, for %s', (_n, stellarAccount, expected) => {
     const json = serializeSep24(tx({ flow: 'WITHDRAW', stellarAccount }), BASE);
     expect(json.from).toBe(expected);
+  });
+
+  it('leaves a withdrawal to empty, which SEP-24 asks to carry the external account and this anchor does not fill', () => {
+    const json = serializeSep24(tx({ flow: 'WITHDRAW' }), BASE);
     expect(json.to).toBeNull();
+    expect(json.withdraw_anchor_account).toBeNull();
   });
 
   it.each([
