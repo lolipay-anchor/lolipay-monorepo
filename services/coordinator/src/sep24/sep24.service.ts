@@ -192,7 +192,7 @@ export class Sep24Service {
       if (!known) {
         throw new BadRequestException('account is not a Stellar address');
       }
-      if (body.account !== subject && named !== subject.split(':')[0]) {
+      if (body.account !== subject && accountOf(named) !== accountOf(subject)) {
         throw new BadRequestException(
           flow === 'WITHDRAW'
             ? 'this anchor withdraws from the account its token speaks for, and will not take another'
