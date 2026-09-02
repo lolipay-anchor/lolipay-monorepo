@@ -64,7 +64,7 @@ export function serializeSep24(record: Sep24Record, assets: Sep24Assets): Sep24T
     kyc_verified: record.kycVerified,
   };
   if (withdrawing) {
-    json.from = record.stellarAccount;
+    json.from = accountOf(record.stellarAccount);
     json.withdraw_anchor_account = null;
     json.withdraw_memo = null;
     json.withdraw_memo_type = null;

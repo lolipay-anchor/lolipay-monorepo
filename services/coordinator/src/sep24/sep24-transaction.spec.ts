@@ -1,4 +1,8 @@
+import { Account, MuxedAccount } from '@stellar/stellar-sdk';
 import { serializeSep24, Sep24Record } from './sep24-transaction';
+
+const G = 'GBKBPRR63VBOLS6MCWSC6ZRXVHBHYLEECZ627PH3LWJCRCI3LKWKJSWU';
+const MUXED = new MuxedAccount(new Account(G, '0'), '9').accountId();
 
 const BASE = {
   baseUrl: 'https://api.lolipay.app',
@@ -75,6 +79,36 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
     const out = serializeSep24(tx({ order: order() }), BASE);
     expect(out.amount_out).toBe('24.6250000');
     expect(out.amount_out).not.toBe('25.0000000');
+  });
+
+  it.each([
+    ['a bare subject', G, G],
+    ['a memo-bearing subject', `${G}:2`, G],
+    ['a muxed subject', MUXED, G],
+  ])('reports the account a withdrawal is really funded from, for %s', (_n, stellarAccount, expected) => {
+    const json = serializeSep24(tx({ flow: 'WITHDRAW', stellarAccount }), BASE);
+    expect(json.from).toBe(expected);
+    expect(json.to).toBeNull();
+  });
+
+  it.each([
+    ['a bare subject', G, G],
+    ['a memo-bearing subject', `${G}:2`, G],
+    ['a muxed subject', MUXED, G],
+  ])('reports the account a deposit is really credited to, for %s', (_n, stellarAccount, expected) => {
+    const json = serializeSep24(tx({ flow: 'TOP_UP', stellarAccount }), BASE);
+    expect(json.to).toBe(expected);
+  });
+
+  it('never publishes a value no wallet could parse as an address', () => {
+    for (const flow of ['TOP_UP', 'WITHDRAW'] as const) {
+      for (const stellarAccount of [G, `${G}:2`, MUXED]) {
+        const json = serializeSep24(tx({ flow, stellarAccount }), BASE);
+        for (const value of [json.to, json.from]) {
+          if (value !== null && value !== undefined) expect(value).toMatch(/^G[A-Z2-7]{55}$/);
+        }
+      }
+    }
   });
 
   it('quotes the fee in the asset it is taken from, which is USDC and never rupiah', () => {
