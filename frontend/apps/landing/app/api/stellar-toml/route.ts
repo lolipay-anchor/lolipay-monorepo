@@ -72,9 +72,7 @@ export function currenciesSection(): { toml: string } | { omitted: string } {
 
   let status = 'test'
   let isAnchored = 'false'
-  let desc =
-    'USDC on the Stellar test network, used for peer-to-peer IDR to USDC trades in the ' +
-    'Indonesia corridor. The test asset itself is not redeemable and is not backed by anything.'
+  let desc = TESTNET_DESC
   let anchorAssetType = 'crypto'
   let anchorAsset = ''
 
@@ -142,7 +140,23 @@ const CORRIDOR =
   'lolipay matches peer-to-peer IDR to USDC and USDC to IDR trades over Indonesian bank ' +
   'and e-wallet rails. Settlement is non-custodial: each trade locks USDC in its own ' +
   'Soroban escrow, and liquidity is secured through staked, slashable collateral rather ' +
-  'than a treasury account.'
+  'than a treasury account. Identity verification is bound to the Stellar account: a ' +
+  'screening obtained under one SEP-10 memo applies to every session of that account, and ' +
+  'a memo does not create a separately screened identity.'
+
+const ORG_DESCRIPTION =
+  'A non-custodial peer-to-peer on and off ramp between Indonesian rupiah and USDC on ' +
+  'Stellar, serving the Indonesia IDR corridor.'
+
+const TESTNET_DESC =
+  'USDC on the Stellar test network, used for peer-to-peer IDR to USDC trades in the ' +
+  'Indonesia corridor. The test asset itself is not redeemable and is not backed by anything.'
+
+export const PROSE: { name: string; value: string }[] = [
+  { name: 'CORRIDOR', value: CORRIDOR },
+  { name: 'ORG_DESCRIPTION', value: ORG_DESCRIPTION },
+  { name: 'TESTNET_DESC', value: TESTNET_DESC },
+]
 
 function documentationSection(): string {
   return [
@@ -150,11 +164,15 @@ function documentationSection(): string {
     '[DOCUMENTATION]',
     'ORG_NAME="lolipay"',
     'ORG_URL="https://lolipay.app"',
-    `ORG_DESCRIPTION="A non-custodial peer-to-peer on and off ramp between Indonesian rupiah and USDC on Stellar, serving the Indonesia IDR corridor."`,
+    `ORG_DESCRIPTION="${ORG_DESCRIPTION}"`,
   ].join('\n')
 }
 
 function render(): { toml: string } | { problem: string } {
+  for (const { name, value } of PROSE) {
+    const unusable = usableInAToml(value)
+    if (unusable) return { problem: `${name} ${unusable}` }
+  }
   const lines: string[] = []
   for (const field of FIELDS) {
     const value = process.env[field.env]

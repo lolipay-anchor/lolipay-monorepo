@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { StrKey } from '@stellar/stellar-sdk'
-import { GET } from '../app/api/stellar-toml/route'
+import { GET, PROSE } from '../app/api/stellar-toml/route'
 
 const SIGNING_PUBLIC = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 7))
 const A_SEED = StrKey.encodeEd25519SecretSeed(Buffer.alloc(32, 9))
@@ -328,6 +328,29 @@ describe('the currencies section', () => {
     expect(t).not.toMatch(/each trade is backed/)
     expect(t).toMatch(/staked, slashable collateral rather than a treasury account/)
   })
+
+  it('discloses that a memo does not buy a separate screened identity, which SEP-10 asks for and this anchor does not provide', async () => {
+    const t = await body()
+    expect(t).toMatch(/conditions=".*Identity verification is bound to the Stellar account.*"/)
+    expect(t).toMatch(/a memo does not create a separately screened identity/)
+  });
+
+  it('does not claim to refuse shared accounts, because PUT \/customer answers a memo with its own customer id', async () => {
+    const t = await body()
+    expect(t).not.toMatch(/does not serve/i)
+    expect(t).not.toMatch(/omnibus|pooled/i)
+    expect(t).not.toMatch(/no shared account/i)
+  });
+
+  it('refuses to serve the file at all if a hardcoded sentence would break the document', async () => {
+    const clean = PROSE.map((p) => p.value)
+    for (const value of clean) {
+      expect(value).not.toContain('"')
+      expect(value).not.toContain('\\')
+      expect(value).toBe(value.trim())
+    }
+    expect(PROSE.map((p) => p.name).sort()).toEqual(['CORRIDOR', 'ORG_DESCRIPTION', 'TESTNET_DESC'])
+  });
 
   it('describes the organisation without claiming anything it cannot show', async () => {
     const t = await body()
