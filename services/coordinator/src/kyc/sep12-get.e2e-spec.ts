@@ -17,6 +17,31 @@ describe('GET /customer tells a caller where their verification stands', () => {
     await app.close();
   });
 
+  it('answers a memo-bearing token that asks by its base account, because the memo names a session and not an account', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp, 4242);
+
+    await request(app.getHttpServer())
+      .get(`/customer?account=${kp.publicKey()}`)
+      .set('Authorization', `Bearer ${jwt}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/customer?account=${kp.publicKey()}&memo=4242`)
+      .set('Authorization', `Bearer ${jwt}`)
+      .expect(200);
+  });
+
+  it('still refuses a memo that is not the one the token speaks for', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp, 4242);
+
+    await request(app.getHttpServer())
+      .get(`/customer?account=${kp.publicKey()}&memo=9999`)
+      .set('Authorization', `Bearer ${jwt}`)
+      .expect(404);
+  });
+
   it('refuses a caller who presents no token', async () => {
     const res = await request(app.getHttpServer()).get('/customer');
     expect([401, 403]).toContain(res.status);

@@ -358,7 +358,7 @@ describe('the currencies section', () => {
     expect(t).not.toMatch(/no shared account/i)
   });
 
-  it('refuses to serve the file at all if a hardcoded sentence would break the document', async () => {
+  it('keeps every hardcoded sentence in a shape the document can carry, which the render guard then enforces', async () => {
     const clean = PROSE.map((p) => p.value)
     for (const value of clean) {
       expect(value).not.toContain('"')

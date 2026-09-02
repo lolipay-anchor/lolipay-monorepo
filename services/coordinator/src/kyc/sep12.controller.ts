@@ -16,15 +16,15 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AllowTokenClasses } from '../auth/token-class.interceptor';
-import { baseStellarAccount } from '../sep10/account-signers.service';
+import { accountOf } from '../sep10/account-signers.service';
 import { CustomerQueryDto } from './dto/customer-query.dto';
 import { CustomerPutDto } from './dto/customer-put.dto';
 import { Sep12Service } from './sep12.service';
 
 function speaksFor(subject: string): { account: string; memo?: string } {
-  const [head, memo] = subject.split(':');
+  const memo = subject.split(':')[1];
   try {
-    return { account: baseStellarAccount(head), memo };
+    return { account: accountOf(subject), memo };
   } catch {
     throw new NotFoundException('this token names an account that cannot be read');
   }
