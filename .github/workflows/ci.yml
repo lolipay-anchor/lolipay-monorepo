@@ -75,7 +75,7 @@ jobs:
         run: npm run test:e2e
       - name: production dependencies carry no known high severity advisory
         if: '!cancelled()'
-        run: npm audit --audit-level=high --omit=dev --omit=optional
+        run: npm audit --audit-level=high --omit=dev
 
   frontend:
     name: frontend
