@@ -140,10 +140,11 @@ const CORRIDOR =
   'lolipay matches peer-to-peer IDR to USDC and USDC to IDR trades over Indonesian bank ' +
   'and e-wallet rails. Settlement is non-custodial: each trade locks USDC in its own ' +
   'Soroban escrow, and liquidity is secured through staked, slashable collateral rather ' +
-  'than a treasury account. Identity verification is bound to the underlying Stellar ' +
-  'account: a screening obtained under one SEP-10 memo or muxed subaccount authorises ' +
-  'deposits for that account, an erasure request under any of them erases it for all, and ' +
-  'a memo does not create a separately screened identity.'
+  'than a treasury account. Identity verification is bound to the verified person rather ' +
+  'than to a SEP-10 subject string: a screening authorises deposits for any Stellar ' +
+  'account this anchor currently accepts for that person, an erasure request under any ' +
+  'of them erases it for all, and a memo or muxed subaccount does not create a ' +
+  'separately screened identity.'
 
 const ORG_DESCRIPTION =
   'A non-custodial peer-to-peer on and off ramp between Indonesian rupiah and USDC on ' +
