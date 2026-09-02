@@ -100,7 +100,7 @@ describe('DELETE /customer forgets a customer without forgetting the wallet', ()
     expect(survived).not.toBeNull();
   });
 
-  it('forgets only the memo that asked, not its sibling on the same account', async () => {
+  it('forgets the sibling memo too, because one wallet is one person and erasure is not per subject', async () => {
     const kp = Keypair.random();
     const one = await anchorToken(app, kp, 5001);
     const two = await anchorToken(app, kp, 5002);
@@ -116,7 +116,12 @@ describe('DELETE /customer forgets a customer without forgetting the wallet', ()
 
     const sibling = await request(app.getHttpServer())
       .get('/customer').set('Authorization', `Bearer ${two}`).expect(200);
-    expect(sibling.body.status).not.toBe('NEEDS_INFO');
+    expect(sibling.body.status).toBe('NEEDS_INFO');
+
+    const held = await prisma.kycVerification.findMany({
+      where: { customerRef: { startsWith: kp.publicKey() } },
+    });
+    expect(held).toHaveLength(0);
   });
 
   it('leaves the wallet link standing, because SEP-12 forgets identity data and not the proof of the wallet', async () => {

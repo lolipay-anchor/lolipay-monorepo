@@ -409,7 +409,7 @@ describe('forgetting a customer reaches every refusal that person carries, and n
     const prisma: any = {
       kycVerification: {
         findUnique: jest.fn(async () => own),
-        deleteMany: jest.fn(async () => ({ count: 1 })),
+        deleteMany: jest.fn(async () => ({ count: own && own.status !== 'REJECTED' ? 1 : 0 })),
       },
       $transaction: jest.fn(async (fn: any) => fn(tx)),
     };

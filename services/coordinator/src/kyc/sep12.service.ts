@@ -167,16 +167,17 @@ export class Sep12Service {
   }
 
   async forget(customerRef: string): Promise<number> {
-    const standing = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
-    if (standing && standing.status !== 'REJECTED') {
-      const { count } = await this.prisma.kycVerification.deleteMany({
-        where: { customerRef, status: { not: 'REJECTED' } },
-      });
-      return count;
-    }
-
     const person = await this.people.lookupPerson(customerRef);
-    if (!person) return standing ? 1 : 0;
+    const scope = person ? [{ customerRef }, { personId: person.id }] : [{ customerRef }];
+    const { count } = await this.prisma.kycVerification.deleteMany({
+      where: { OR: scope, status: { not: 'REJECTED' } },
+    });
+    if (count > 0) return count;
+
+    if (!person) {
+      const standing = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
+      return standing ? 1 : 0;
+    }
 
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${person.id}))`;
