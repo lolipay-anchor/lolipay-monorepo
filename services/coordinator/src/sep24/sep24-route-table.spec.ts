@@ -18,7 +18,8 @@ function declaredPaths(): string[] {
 }
 
 describe('the sep24 controller declares no probe-shaped route, and no new top-level one unnoticed', () => {
-  it('reads a path for every route method, so no route can be dropped before the other tests look', () => {
+  it('serves one prefix and reads a path for every route method, so nothing is dropped before the other tests look', () => {
+    expect(Reflect.getMetadata(PATH_METADATA, Sep24Controller)).toBe('sep24');
     expect(routeMethods().length).toBeGreaterThan(5);
     expect(declaredPaths().length).toBeGreaterThanOrEqual(routeMethods().length);
   });
