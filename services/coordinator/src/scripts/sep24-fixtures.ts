@@ -7,6 +7,7 @@ import { refundOpensAt } from '../order/dispute.util';
 import { Server } from '@stellar/stellar-sdk/rpc';
 
 export const MAX_DEMO_FEE_STROOPS = 10_000_000n;
+export const MAX_DEMO_USDC_STROOPS = 1_000_000_000n;
 export const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015';
 
 export function sep53Signature(kp: Keypair, nonce: string): string {
@@ -60,6 +61,21 @@ export interface EscrowCallExpectation {
   confirmDeadline?: bigint;
 }
 
+const CREATE_TRADE_PINS = ['tradeIdHex', 'provider', 'recipient', 'lpWallet', 'usdcStroops', 'maxUsdcStroops', 'payDeadline', 'confirmDeadline'] as const;
+
+export function createTradeExpectation(order: FundableOrder, lp: string, demo: string): Required<EscrowCallExpectation> {
+  return {
+    tradeIdHex: order.trade_id,
+    provider: lp,
+    recipient: demo,
+    lpWallet: lp,
+    usdcStroops: BigInt(order.usdc_amount),
+    maxUsdcStroops: MAX_DEMO_USDC_STROOPS,
+    payDeadline: BigInt(order.pay_deadline),
+    confirmDeadline: BigInt(order.confirm_deadline),
+  };
+}
+
 export function assertEscrowCall(
   tx: Transaction,
   signer: string,
@@ -80,6 +96,7 @@ export function assertEscrowCall(
   if (name !== fn) throw new Error(`expected function "${fn}", got "${name}"`);
   const args = call.args;
   if (args.length < 1) throw new Error(`${fn} carries no trade id`);
+  if (args[0].type !== 'scvBytes') throw new Error(`${fn} trade id is ${args[0].type}, not scvBytes`);
   const rawTradeId = scValToNative(args[0]);
   if (!(rawTradeId instanceof Uint8Array) || rawTradeId.length !== 32) throw new Error(`${fn} trade id is not 32 bytes`);
   const tradeIdHex = Buffer.from(rawTradeId).toString('hex');
@@ -88,6 +105,8 @@ export function assertEscrowCall(
   }
   if (fn === 'create_trade') {
     if (args.length !== 15) throw new Error(`create_trade carries ${args.length} arguments, expected 15`);
+    const unpinned = CREATE_TRADE_PINS.filter((k) => expect[k] === undefined);
+    if (unpinned.length > 0) throw new Error(`create_trade expectation carries no ${unpinned.join(', ')}; refusing to sign what the guard cannot pin`);
     const provider = Address.fromScVal(args[1]).toString();
     const recipient = Address.fromScVal(args[2]).toString();
     const amountArg = args[4];
@@ -172,7 +191,6 @@ export function assembleSepConfig(input: {
 const API = process.env.SEP24_API ?? 'https://api.lolipay.app';
 const HOME_DOMAIN = process.env.SEP24_HOME_DOMAIN ?? 'lolipay.app';
 const DEMO_IDR = process.env.SEP24_DEMO_IDR ?? '200000';
-export const MAX_DEMO_USDC_STROOPS = 1_000_000_000n;
 const RPC_URL = process.env.STELLAR_RPC_URL ?? 'https://soroban-testnet.stellar.org';
 const HEARTBEAT_MS = 30_000;
 const POLL_MS = 5_000;
@@ -448,16 +466,13 @@ async function depositToFunded(a: Actors) {
   await postForm(id, 'amount', cookie, { fiat_amount: DEMO_IDR });
   const order = await freshOrderFor(a.lpJwt, a.demo.publicKey(), t0);
   console.log(`deposit ${id}: order ${order.id} ${order.status}, created ${order.created_at}`);
-  const funded = await signAndSubmit(a.lp, await xdrFor(a.lpJwt, order.id, 'create-trade'), a.escrow, 'create_trade', {
-    tradeIdHex: order.trade_id,
-    provider: a.lp.publicKey(),
-    recipient: a.demo.publicKey(),
-    lpWallet: a.lp.publicKey(),
-    usdcStroops: BigInt(order.usdc_amount),
-    maxUsdcStroops: MAX_DEMO_USDC_STROOPS,
-    payDeadline: BigInt(order.pay_deadline),
-    confirmDeadline: BigInt(order.confirm_deadline),
-  });
+  const funded = await signAndSubmit(
+    a.lp,
+    await xdrFor(a.lpJwt, order.id, 'create-trade'),
+    a.escrow,
+    'create_trade',
+    createTradeExpectation(order, a.lp.publicKey(), a.demo.publicKey()),
+  );
   console.log(`  escrow funded by the provider: ${funded.hash} (trade ${funded.tradeIdHex})`);
   await waitForSep24(a.demoSep10, id, 'pending_user_transfer_start');
   const refundsAt = new Date(
@@ -521,7 +536,7 @@ async function main(): Promise<void> {
 
     console.log('');
     console.log(`completed deposit  ${first.id}  hash ${hash}`);
-    console.log(`pending deposit    ${second.id}  auto-refunds at ${rotsAt}`);
+    console.log(`pending deposit    ${second.id}  refund window opens ${rotsAt} if it is still funded by then`);
 
     if (!first.id || !second.id) throw new Error('a fixture id is empty; refusing to write the config');
     writeConfig(
