@@ -125,7 +125,7 @@ describe('the operator can attest that rupiah arrived, from the orders page', ()
     expect((button as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('replaces the form with the transaction once the chain accepted, so a second press has nothing to press', async () => {
+  it('replaces the form with the transaction the moment the chain accepted, before the list has caught up', async () => {
     vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
     mount()
     const button = await waitFor(() => screen.getByTestId('attest-fiat-paid'))
@@ -136,6 +136,29 @@ describe('the operator can attest that rupiah arrived, from the orders page', ()
     })
     expect(screen.queryByTestId('attest-fiat-paid')).toBeNull()
     expect(apiClient.getAdminOrders).toHaveBeenCalledTimes(2)
+  })
+
+  it('leaves nothing to press once the refetched row reads FIAT_PAID, which the coordinator now writes on success', async () => {
+    vi.mocked(apiClient.getAdminOrders)
+      .mockResolvedValueOnce([makeOrder()])
+      .mockResolvedValue([makeOrder({ status: 'FIAT_PAID' })])
+    mount()
+    const button = await waitFor(() => screen.getByTestId('attest-fiat-paid'))
+    fireEvent.change(screen.getByTestId('attest-evidence'), { target: { value: 'BCA 12345' } })
+    fireEvent.click(button)
+    await waitFor(() => {
+      expect(screen.queryByTestId('attest-panel')).toBeNull()
+      expect(screen.queryByTestId('attest-done')).toBeNull()
+    })
+    expect(apiClient.getAdminOrders).toHaveBeenCalledTimes(2)
+  })
+
+  it('counts the attestation window from the earlier of the confirm deadline and the paid deadline plus the grace hour', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder({ pay_deadline: now + 600, confirm_deadline: now + 7200 })])
+    mount()
+    await waitFor(() => screen.getByTestId('attest-panel'))
+    expect(screen.getByTestId('attest-panel').textContent).toContain('1h 10m')
   })
 
   it('offers nothing once the attestation window has closed, because the contract would refuse it and the escrow will refund', async () => {

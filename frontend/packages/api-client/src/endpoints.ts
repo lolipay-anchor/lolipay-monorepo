@@ -109,7 +109,7 @@ export interface AttestFiatPaidResult {
 }
 
 export const attestFiatPaid = (c: ApiClient, id: string, evidence: string) =>
-  c.request<AttestFiatPaidResult>('POST', `/admin/orders/${id}/attest`, { evidence })
+  c.request<AttestFiatPaidResult>('POST', `/admin/orders/${encodeURIComponent(id)}/attest`, { evidence })
 
 export const getMetricsOverview = (c: ApiClient, range: MetricsRange) =>
   c.request<MetricsOverview>('GET', `/admin/metrics/overview?range=${encodeURIComponent(range)}`)
