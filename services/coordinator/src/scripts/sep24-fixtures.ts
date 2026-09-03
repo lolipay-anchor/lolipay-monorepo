@@ -57,11 +57,28 @@ export interface EscrowCallExpectation {
   lpWallet?: string;
   maxUsdcStroops?: bigint;
   usdcStroops?: bigint;
+  fiatAmount?: bigint;
+  fiatCurrency?: string;
+  lpFeeBps?: number;
   payDeadline?: bigint;
   confirmDeadline?: bigint;
+  disputeDeadline?: bigint;
 }
 
-const CREATE_TRADE_PINS = ['tradeIdHex', 'provider', 'recipient', 'lpWallet', 'usdcStroops', 'maxUsdcStroops', 'payDeadline', 'confirmDeadline'] as const;
+const CREATE_TRADE_PINS = Object.keys({
+  tradeIdHex: 1,
+  provider: 1,
+  recipient: 1,
+  lpWallet: 1,
+  usdcStroops: 1,
+  maxUsdcStroops: 1,
+  fiatAmount: 1,
+  fiatCurrency: 1,
+  lpFeeBps: 1,
+  payDeadline: 1,
+  confirmDeadline: 1,
+  disputeDeadline: 1,
+} satisfies Record<keyof EscrowCallExpectation, 1>) as (keyof EscrowCallExpectation)[];
 
 export function createTradeExpectation(order: FundableOrder, lp: string, demo: string): Required<EscrowCallExpectation> {
   return {
@@ -71,8 +88,12 @@ export function createTradeExpectation(order: FundableOrder, lp: string, demo: s
     lpWallet: lp,
     usdcStroops: BigInt(order.usdc_amount),
     maxUsdcStroops: MAX_DEMO_USDC_STROOPS,
+    fiatAmount: BigInt(order.fiat_amount),
+    fiatCurrency: order.fiat_currency,
+    lpFeeBps: order.lp_fee_bps,
     payDeadline: BigInt(order.pay_deadline),
     confirmDeadline: BigInt(order.confirm_deadline),
+    disputeDeadline: BigInt(order.dispute_deadline),
   };
 }
 
@@ -98,15 +119,15 @@ export function assertEscrowCall(
   if (args.length < 1) throw new Error(`${fn} carries no trade id`);
   if (args[0].type !== 'scvBytes') throw new Error(`${fn} trade id is ${args[0].type}, not scvBytes`);
   const rawTradeId = scValToNative(args[0]);
-  if (!(rawTradeId instanceof Uint8Array) || rawTradeId.length !== 32) throw new Error(`${fn} trade id is not 32 bytes`);
+  if (rawTradeId.length !== 32) throw new Error(`${fn} trade id is not 32 bytes`);
   const tradeIdHex = Buffer.from(rawTradeId).toString('hex');
-  if (expect.tradeIdHex && tradeIdHex !== expect.tradeIdHex) {
-    throw new Error(`${fn} names trade ${tradeIdHex}, not ${expect.tradeIdHex}`);
-  }
+  if (expect.tradeIdHex === undefined) throw new Error(`${fn} expectation carries no tradeIdHex; refusing to sign a call the guard cannot pin to its trade`);
+  if (tradeIdHex !== expect.tradeIdHex) throw new Error(`${fn} names trade ${tradeIdHex}, not ${expect.tradeIdHex}`);
   if (fn === 'create_trade') {
     if (args.length !== 15) throw new Error(`create_trade carries ${args.length} arguments, expected 15`);
     const unpinned = CREATE_TRADE_PINS.filter((k) => expect[k] === undefined);
     if (unpinned.length > 0) throw new Error(`create_trade expectation carries no ${unpinned.join(', ')}; refusing to sign what the guard cannot pin`);
+    const pins = expect as Required<EscrowCallExpectation>;
     const provider = Address.fromScVal(args[1]).toString();
     const recipient = Address.fromScVal(args[2]).toString();
     const amountArg = args[4];
@@ -116,23 +137,44 @@ export function assertEscrowCall(
     const lpWallet = Address.fromScVal(args[11]).toString();
     const flowArg = args[7];
     if (flowArg.type !== 'scvU32' || scValToNative(flowArg) !== 0) throw new Error('create_trade flow is not the deposit discriminant (u32 0), the only flow this driver funds');
-    if (expect.provider && provider !== expect.provider) throw new Error(`create_trade names provider ${provider}, not ${expect.provider}`);
-    if (expect.recipient && recipient !== expect.recipient) throw new Error(`create_trade names recipient ${recipient}, not ${expect.recipient}`);
-    if (expect.lpWallet && lpWallet !== expect.lpWallet) throw new Error(`create_trade pays the LP fee to ${lpWallet}, not ${expect.lpWallet}`);
-    if (expect.maxUsdcStroops !== undefined && usdcStroops > expect.maxUsdcStroops) {
-      throw new Error(`create_trade escrows ${usdcStroops} stroops, above the demo ceiling of ${expect.maxUsdcStroops}`);
+    if (provider !== pins.provider) throw new Error(`create_trade names provider ${provider}, not ${pins.provider}`);
+    if (recipient !== pins.recipient) throw new Error(`create_trade names recipient ${recipient}, not ${pins.recipient}`);
+    if (lpWallet !== pins.lpWallet) throw new Error(`create_trade pays the LP fee to ${lpWallet}, not ${pins.lpWallet}`);
+    if (usdcStroops > pins.maxUsdcStroops) {
+      throw new Error(`create_trade escrows ${usdcStroops} stroops, above the demo ceiling of ${pins.maxUsdcStroops}`);
     }
-    if (expect.usdcStroops !== undefined && usdcStroops !== expect.usdcStroops) {
-      throw new Error(`create_trade escrows ${usdcStroops} stroops, not the ${expect.usdcStroops} the assignment quoted`);
+    if (usdcStroops !== pins.usdcStroops) {
+      throw new Error(`create_trade escrows ${usdcStroops} stroops, not the ${pins.usdcStroops} the assignment quoted`);
+    }
+    const fiatAmountArg = args[5];
+    if (fiatAmountArg.type !== 'scvI128') throw new Error(`create_trade fiat amount is ${fiatAmountArg.type}, not scvI128`);
+    if (scValToNative(fiatAmountArg) !== pins.fiatAmount) {
+      throw new Error(`create_trade fiat_amount ${scValToNative(fiatAmountArg)} is not the ${pins.fiatAmount} the assignment quoted`);
+    }
+    const currencyArg = args[6];
+    if (currencyArg.type !== 'scvSymbol') throw new Error(`create_trade fiat currency is ${currencyArg.type}, not scvSymbol`);
+    if (scValToNative(currencyArg) !== pins.fiatCurrency) {
+      throw new Error(`create_trade fiat_currency ${scValToNative(currencyArg)} is not the ${pins.fiatCurrency} the assignment quoted`);
+    }
+    const lpFeeArg = args[9];
+    if (lpFeeArg.type !== 'scvU32') throw new Error(`create_trade lp fee is ${lpFeeArg.type}, not scvU32`);
+    if (scValToNative(lpFeeArg) !== pins.lpFeeBps) {
+      throw new Error(`create_trade lp_fee_bps ${scValToNative(lpFeeArg)} is not the ${pins.lpFeeBps} the assignment quoted`);
     }
     const payDeadline = args[12];
     const confirmDeadline = args[13];
-    if (payDeadline.type !== 'scvU64' || confirmDeadline.type !== 'scvU64') throw new Error('create_trade deadlines are not u64');
-    if (expect.payDeadline !== undefined && scValToNative(payDeadline) !== expect.payDeadline) {
-      throw new Error(`create_trade pay_deadline ${scValToNative(payDeadline)} is not the ${expect.payDeadline} the assignment quoted`);
+    const disputeDeadline = args[14];
+    if (payDeadline.type !== 'scvU64' || confirmDeadline.type !== 'scvU64' || disputeDeadline.type !== 'scvU64') {
+      throw new Error('create_trade deadlines are not u64');
     }
-    if (expect.confirmDeadline !== undefined && scValToNative(confirmDeadline) !== expect.confirmDeadline) {
-      throw new Error(`create_trade confirm_deadline ${scValToNative(confirmDeadline)} is not the ${expect.confirmDeadline} the assignment quoted`);
+    if (scValToNative(payDeadline) !== pins.payDeadline) {
+      throw new Error(`create_trade pay_deadline ${scValToNative(payDeadline)} is not the ${pins.payDeadline} the assignment quoted`);
+    }
+    if (scValToNative(confirmDeadline) !== pins.confirmDeadline) {
+      throw new Error(`create_trade confirm_deadline ${scValToNative(confirmDeadline)} is not the ${pins.confirmDeadline} the assignment quoted`);
+    }
+    if (scValToNative(disputeDeadline) !== pins.disputeDeadline) {
+      throw new Error(`create_trade dispute_deadline ${scValToNative(disputeDeadline)} is not the ${pins.disputeDeadline} the assignment quoted`);
     }
   }
   if (fn === 'mark_fiat_paid') {
@@ -151,13 +193,26 @@ export interface AssignmentOrder {
   status: string;
   trade_id?: string | null;
   usdc_amount?: string | null;
+  fiat_amount?: string | null;
+  fiat_currency?: string | null;
+  lp_fee_bps?: number | null;
   pay_deadline?: number | null;
   confirm_deadline?: number | null;
+  dispute_deadline?: number | null;
   user_address?: string | null;
   created_at: string;
 }
 
-export type FundableOrder = AssignmentOrder & { trade_id: string; usdc_amount: string; pay_deadline: number; confirm_deadline: number };
+export type FundableOrder = AssignmentOrder & {
+  trade_id: string;
+  usdc_amount: string;
+  fiat_amount: string;
+  fiat_currency: string;
+  lp_fee_bps: number;
+  pay_deadline: number;
+  confirm_deadline: number;
+  dispute_deadline: number;
+};
 
 export function pickFreshOrder(orders: AssignmentOrder[], userPub: string, notBeforeMs: number): FundableOrder {
   const mine = orders.filter(
@@ -167,7 +222,9 @@ export function pickFreshOrder(orders: AssignmentOrder[], userPub: string, notBe
     throw new Error(`expected exactly one fresh MATCHED order for ${userPub}, found ${mine.length}`);
   }
   const fresh = mine[0];
-  const missing = (['trade_id', 'usdc_amount', 'pay_deadline', 'confirm_deadline'] as const).filter((k) => !fresh[k]);
+  const missing = (['trade_id', 'usdc_amount', 'fiat_amount', 'fiat_currency', 'lp_fee_bps', 'pay_deadline', 'confirm_deadline', 'dispute_deadline'] as const).filter(
+    (k) => fresh[k] == null || fresh[k] === '',
+  );
   if (missing.length > 0) {
     throw new Error(`assignment ${fresh.id} carries no ${missing.join(', ')}; refusing to sign a create_trade the driver cannot check`);
   }
@@ -416,7 +473,7 @@ async function signAndSubmit(
   built: { xdr: string; networkPassphrase: string },
   contractId: string,
   fn: string,
-  expect: EscrowCallExpectation = {},
+  expect: EscrowCallExpectation & { tradeIdHex: string },
 ): Promise<{ hash: string; tradeIdHex: string }> {
   assertTestnet(built.networkPassphrase);
   const tx = new Transaction(built.xdr, TESTNET_PASSPHRASE);
@@ -546,7 +603,7 @@ async function main(): Promise<void> {
         depositCompleted: { id: first.id, stellar_transaction_id: hash },
       }),
     );
-    console.log(`wrote ${CONFIG_PATH} (mode 0600); run npm run anchor:test:sep24 before ${rotsAt}`);
+    console.log(`wrote ${CONFIG_PATH} (mode 0600); run npm run anchor:test:sep24 before ${rotsAt}, while the pending deposit is still funded`);
   } finally {
     stop();
   }
