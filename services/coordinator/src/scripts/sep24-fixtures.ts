@@ -51,6 +51,8 @@ export interface EscrowCallExpectation {
   tradeIdHex?: string;
   provider?: string;
   recipient?: string;
+  lpWallet?: string;
+  maxUsdcStroops?: bigint;
 }
 
 export function assertEscrowCall(
@@ -72,16 +74,24 @@ export function assertEscrowCall(
   if (name !== fn) throw new Error(`expected function "${fn}", got "${name}"`);
   const args = call.args;
   if (args.length < 1) throw new Error(`${fn} carries no trade id`);
-  const tradeIdHex = Buffer.from(scValToNative(args[0]) as Uint8Array).toString('hex');
+  const rawTradeId = scValToNative(args[0]);
+  if (!(rawTradeId instanceof Uint8Array) || rawTradeId.length !== 32) throw new Error(`${fn} trade id is not 32 bytes`);
+  const tradeIdHex = Buffer.from(rawTradeId).toString('hex');
   if (expect.tradeIdHex && tradeIdHex !== expect.tradeIdHex) {
     throw new Error(`${fn} names trade ${tradeIdHex}, not ${expect.tradeIdHex}`);
   }
   if (fn === 'create_trade') {
-    if (args.length < 4) throw new Error(`create_trade carries ${args.length} arguments, expected at least 4`);
+    if (args.length !== 15) throw new Error(`create_trade carries ${args.length} arguments, expected 15`);
     const provider = Address.fromScVal(args[1]).toString();
     const recipient = Address.fromScVal(args[2]).toString();
+    const usdcStroops = BigInt(scValToNative(args[4]));
+    const lpWallet = Address.fromScVal(args[11]).toString();
     if (expect.provider && provider !== expect.provider) throw new Error(`create_trade names provider ${provider}, not ${expect.provider}`);
     if (expect.recipient && recipient !== expect.recipient) throw new Error(`create_trade names recipient ${recipient}, not ${expect.recipient}`);
+    if (expect.lpWallet && lpWallet !== expect.lpWallet) throw new Error(`create_trade pays the LP fee to ${lpWallet}, not ${expect.lpWallet}`);
+    if (expect.maxUsdcStroops !== undefined && usdcStroops > expect.maxUsdcStroops) {
+      throw new Error(`create_trade escrows ${usdcStroops} stroops, above the demo ceiling of ${expect.maxUsdcStroops}`);
+    }
   }
   if (fn === 'mark_fiat_paid') {
     if (args.length !== 2) throw new Error(`mark_fiat_paid carries ${args.length} arguments, expected 2`);
@@ -97,6 +107,7 @@ export function assertEscrowCall(
 export interface AssignmentOrder {
   id: string;
   status: string;
+  trade_id?: string | null;
   user_address?: string | null;
   created_at: string;
 }
@@ -128,6 +139,7 @@ export function assembleSepConfig(input: {
 const API = process.env.SEP24_API ?? 'https://api.lolipay.app';
 const HOME_DOMAIN = process.env.SEP24_HOME_DOMAIN ?? 'lolipay.app';
 const DEMO_IDR = process.env.SEP24_DEMO_IDR ?? '200000';
+const MAX_DEMO_USDC_STROOPS = 1_000_000_000n;
 const RPC_URL = process.env.STELLAR_RPC_URL ?? 'https://soroban-testnet.stellar.org';
 const HEARTBEAT_MS = 30_000;
 const POLL_MS = 5_000;
@@ -404,8 +416,11 @@ async function depositToFunded(a: Actors) {
   const order = await freshOrderFor(a.lpJwt, a.demo.publicKey(), t0);
   console.log(`deposit ${id}: order ${order.id} ${order.status}, created ${order.created_at}`);
   const funded = await signAndSubmit(a.lp, await xdrFor(a.lpJwt, order.id, 'create-trade'), a.escrow, 'create_trade', {
+    tradeIdHex: order.trade_id ?? undefined,
     provider: a.lp.publicKey(),
     recipient: a.demo.publicKey(),
+    lpWallet: a.lp.publicKey(),
+    maxUsdcStroops: MAX_DEMO_USDC_STROOPS,
   });
   console.log(`  escrow funded by the provider: ${funded.hash} (trade ${funded.tradeIdHex})`);
   await waitForSep24(a.demoSep10, id, 'pending_user_transfer_start');

@@ -77,7 +77,9 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'confirm_and_release'), kp.publicKey(), ESCROW, 'create_trade')).toThrow(/function/);
     const other = 'CAVJAMGCIBSMSA6Q3JQYHAF3CGWTM4XQNZ3TJHUWSU5NISHK6UHRHA3N';
     expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'confirm_and_release', other), kp.publicKey(), ESCROW, 'confirm_and_release')).toThrow(/contract/);
-    expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'create_trade'), kp.publicKey(), ESCROW, 'create_trade')).toThrow(/at least 4/);
+    expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'create_trade'), kp.publicKey(), ESCROW, 'create_trade')).toThrow(/expected 15/);
+    const stringId = escrowCall(kp.publicKey(), 'confirm_and_release', ESCROW, [nativeToScVal('ab'.repeat(32))]);
+    expect(() => assertEscrowCall(stringId, kp.publicKey(), ESCROW, 'confirm_and_release')).toThrow(/not 32 bytes/);
     const payment = new TransactionBuilder(new Account(kp.publicKey(), '1'), { fee: '100', networkPassphrase: Networks.TESTNET })
       .addOperation(Operation.payment({ destination: Keypair.random().publicKey(), asset: Asset.native(), amount: '1' }))
       .setTimeout(30)
@@ -85,15 +87,24 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(() => assertEscrowCall(payment, kp.publicKey(), ESCROW, 'confirm_and_release')).toThrow(/invokeHostFunction/);
   });
 
-  it('pins the arguments a wallet would show: the trade, the provider, the recipient, the caller', () => {
+  it('pins every argument that names a party or moves money: trade, provider, recipient, fee wallet, amount ceiling, caller', () => {
     const lp = kp.publicKey();
     const demo = Keypair.random().publicKey();
     const other = Keypair.random().publicKey();
-    const create = (provider: string, recipient: string) =>
-      escrowCall(lp, 'create_trade', ESCROW, [bytes(TRADE), addr(provider), addr(recipient), addr(lp), nativeToScVal(1n, { type: 'i128' })]);
-    expect(assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { provider: lp, recipient: demo })).toBe(TRADE);
-    expect(() => assertEscrowCall(create(lp, other), lp, ESCROW, 'create_trade', { provider: lp, recipient: demo })).toThrow(/recipient/);
-    expect(() => assertEscrowCall(create(other, demo), lp, ESCROW, 'create_trade', { provider: lp, recipient: demo })).toThrow(/provider/);
+    const i128 = (n: bigint) => nativeToScVal(n, { type: 'i128' });
+    const filler = nativeToScVal(0, { type: 'u32' });
+    const create = (provider: string, recipient: string, lpWallet = lp, amount = 125_000_000n, trade = TRADE) =>
+      escrowCall(lp, 'create_trade', ESCROW, [
+        bytes(trade), addr(provider), addr(recipient), addr(provider), i128(amount), i128(200_000n), filler, filler, filler, filler, addr(other), addr(lpWallet), filler, filler, filler,
+      ]);
+    const want = { tradeIdHex: TRADE, provider: lp, recipient: demo, lpWallet: lp, maxUsdcStroops: 1_000_000_000n };
+    expect(assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', want)).toBe(TRADE);
+    expect(() => assertEscrowCall(create(lp, other), lp, ESCROW, 'create_trade', want)).toThrow(/recipient/);
+    expect(() => assertEscrowCall(create(other, demo), lp, ESCROW, 'create_trade', want)).toThrow(/provider/);
+    expect(() => assertEscrowCall(create(lp, demo, other), lp, ESCROW, 'create_trade', want)).toThrow(/pays the LP fee to/);
+    expect(() => assertEscrowCall(create(lp, demo, lp, 1_000_000_001n), lp, ESCROW, 'create_trade', want)).toThrow(/above the demo ceiling/);
+    expect(assertEscrowCall(create(lp, demo, lp, 1_000_000_000n), lp, ESCROW, 'create_trade', want)).toBe(TRADE);
+    expect(() => assertEscrowCall(create(lp, demo, lp, 1n, 'cd'.repeat(32)), lp, ESCROW, 'create_trade', want)).toThrow(/names trade/);
 
     const mark = (caller: string, trade = TRADE) => escrowCall(demo, 'mark_fiat_paid', ESCROW, [bytes(trade), addr(caller)]);
     expect(assertEscrowCall(mark(demo), demo, ESCROW, 'mark_fiat_paid', { tradeIdHex: TRADE })).toBe(TRADE);
