@@ -108,7 +108,7 @@ describe('AdminService — every mutation leaves a trail naming the actor', () =
     const markets = { get: jest.fn(), update: jest.fn(), list: jest.fn() } as any;
     const userReputation = { getReputation: jest.fn() } as any;
     return {
-      service: new AdminService(prisma, stellar, cfg, markets, userReputation, {} as any),
+      service: new AdminService(prisma, stellar, cfg, markets, userReputation, {} as any, { notifyOrderStatus: jest.fn() } as any),
       prisma,
       tx,
       audits,

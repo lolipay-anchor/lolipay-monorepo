@@ -25,6 +25,7 @@ import { RegisterLpDto } from './dto/register-lp.dto';
 import { UserReputationService, UserTierName } from '../reputation/user-reputation.service';
 import { applyBps, baseUnitsToUsdc } from '../money/money';
 import { MetricsRange } from './dto/metrics-overview-query.dto';
+import { NotificationService } from '../notification/notification.service';
 import { AttestorService } from '../stellar/attestor.service';
 import { contractIdFor } from '../order/order.params';
 
@@ -78,6 +79,7 @@ export class AdminService {
     private markets: MarketsService,
     private userReputation: UserReputationService,
     private attestor: AttestorService,
+    private notifications: NotificationService,
   ) {}
 
   list(status?: LpStatus) {
@@ -458,7 +460,7 @@ export class AdminService {
   private async attestFiatPaidOnce(orderId: string, actorAddress: string, evidence: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      select: { id: true, flow: true, status: true, tradeId: true, contractId: true },
+      select: { id: true, flow: true, status: true, tradeId: true, contractId: true, userAddress: true, lpWallet: true },
     });
     if (!order) {
       throw new NotFoundException('no such order');
@@ -522,7 +524,9 @@ export class AdminService {
       where: { id: order.id, status: 'FUNDED' },
       data: { status: 'FIAT_PAID' },
     });
-    if (moved.count === 0) {
+    if (moved.count > 0) {
+      await this.notifications.notifyOrderStatus(order, 'FIAT_PAID');
+    } else {
       this.log.warn(`order ${order.id} was attested on chain (${outcome.txHash}) but its row had already left FUNDED`);
     }
 
