@@ -9,6 +9,7 @@ import { Button } from '@lolipay/ui'
 import { useAuth } from '@/app/providers'
 import { client } from '@/lib/client'
 import { NavShell } from '@/app/nav-shell'
+import { HeartbeatKeeper } from './HeartbeatKeeper'
 import { LoginScreen } from './LoginScreen'
 import { TrustlineNotice } from './TrustlineNotice'
 
@@ -239,6 +240,7 @@ export function AppGate({ children }: { children: React.ReactNode }) {
   return (
     <>
       {children}
+      <HeartbeatKeeper />
       <NavShell />
     </>
   )

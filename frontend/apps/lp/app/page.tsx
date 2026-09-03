@@ -6,7 +6,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getLpMe,
   setAvailability,
-  heartbeat,
   getAssignments,
   getLpEligibility,
   getLpEarnings,
@@ -17,7 +16,6 @@ import { AppHeader } from '@/components/AppHeader'
 import { client } from '@/lib/client'
 import { formatUSDC, formatUsdcNumber } from '@/lib/money'
 
-const HEARTBEAT_INTERVAL_MS = 30_000
 
 const EARNINGS_REFETCH_INTERVAL_MS = 30_000
 
@@ -94,14 +92,6 @@ export default function DashboardPage() {
   React.useEffect(() => {
     if (me != null) setOnline(me.online)
   }, [me?.online])
-
-  React.useEffect(() => {
-    if (!online) return
-    const id = setInterval(() => {
-      heartbeat(client).catch(() => {})
-    }, HEARTBEAT_INTERVAL_MS)
-    return () => clearInterval(id)
-  }, [online])
 
   const handleToggle = async () => {
     const next = !online

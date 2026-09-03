@@ -167,47 +167,6 @@ describe('DashboardPage — Availability', () => {
     })
   })
 
-  it('calls heartbeat at 30-second intervals while online', async () => {
-    vi.useFakeTimers()
-    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true))
-
-    render(
-      <TestProviders kit={fakeKit}>
-        <DashboardPage />
-      </TestProviders>,
-    )
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100)
-    })
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000)
-    })
-
-    expect(apiClient.heartbeat).toHaveBeenCalled()
-  })
-
-  it('does NOT call heartbeat when offline', async () => {
-    vi.useFakeTimers()
-    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(false))
-
-    render(
-      <TestProviders kit={fakeKit}>
-        <DashboardPage />
-      </TestProviders>,
-    )
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100)
-    })
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000)
-    })
-
-    expect(apiClient.heartbeat).not.toHaveBeenCalled()
-  })
-
   it('shows the eligibility link', async () => {
     render(
       <TestProviders kit={fakeKit}>
