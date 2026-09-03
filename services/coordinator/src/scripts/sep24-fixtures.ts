@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 import { chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { Address, Keypair, StellarToml, Transaction, WebAuth, scValToNative } from '@stellar/stellar-sdk';
-import { ATTEST_GRACE_SECS } from '../order/dispute.util';
+import { refundOpensAt } from '../order/dispute.util';
 import { Server } from '@stellar/stellar-sdk/rpc';
 
 export const MAX_DEMO_FEE_STROOPS = 10_000_000n;
@@ -56,6 +56,8 @@ export interface EscrowCallExpectation {
   lpWallet?: string;
   maxUsdcStroops?: bigint;
   usdcStroops?: bigint;
+  payDeadline?: bigint;
+  confirmDeadline?: bigint;
 }
 
 export function assertEscrowCall(
@@ -94,7 +96,7 @@ export function assertEscrowCall(
     if (usdcStroops <= 0n) throw new Error(`create_trade amount ${usdcStroops} is not positive`);
     const lpWallet = Address.fromScVal(args[11]).toString();
     const flowArg = args[7];
-    if (flowArg.type !== 'scvU32' || scValToNative(flowArg) !== 0) throw new Error('create_trade flow is not the deposit flow, which is the only one that can refund within the day');
+    if (flowArg.type !== 'scvU32' || scValToNative(flowArg) !== 0) throw new Error('create_trade flow is not the deposit discriminant (u32 0), the only flow this driver funds');
     if (expect.provider && provider !== expect.provider) throw new Error(`create_trade names provider ${provider}, not ${expect.provider}`);
     if (expect.recipient && recipient !== expect.recipient) throw new Error(`create_trade names recipient ${recipient}, not ${expect.recipient}`);
     if (expect.lpWallet && lpWallet !== expect.lpWallet) throw new Error(`create_trade pays the LP fee to ${lpWallet}, not ${expect.lpWallet}`);
@@ -103,6 +105,15 @@ export function assertEscrowCall(
     }
     if (expect.usdcStroops !== undefined && usdcStroops !== expect.usdcStroops) {
       throw new Error(`create_trade escrows ${usdcStroops} stroops, not the ${expect.usdcStroops} the assignment quoted`);
+    }
+    const payDeadline = args[12];
+    const confirmDeadline = args[13];
+    if (payDeadline.type !== 'scvU64' || confirmDeadline.type !== 'scvU64') throw new Error('create_trade deadlines are not u64');
+    if (expect.payDeadline !== undefined && scValToNative(payDeadline) !== expect.payDeadline) {
+      throw new Error(`create_trade pay_deadline ${scValToNative(payDeadline)} is not the ${expect.payDeadline} the assignment quoted`);
+    }
+    if (expect.confirmDeadline !== undefined && scValToNative(confirmDeadline) !== expect.confirmDeadline) {
+      throw new Error(`create_trade confirm_deadline ${scValToNative(confirmDeadline)} is not the ${expect.confirmDeadline} the assignment quoted`);
     }
   }
   if (fn === 'mark_fiat_paid') {
@@ -137,8 +148,9 @@ export function pickFreshOrder(orders: AssignmentOrder[], userPub: string, notBe
     throw new Error(`expected exactly one fresh MATCHED order for ${userPub}, found ${mine.length}`);
   }
   const fresh = mine[0];
-  if (!fresh.trade_id || !fresh.usdc_amount || !fresh.pay_deadline || !fresh.confirm_deadline) {
-    throw new Error(`assignment ${fresh.id} carries no trade id, amount or deadlines; refusing to sign a create_trade the driver cannot check`);
+  const missing = (['trade_id', 'usdc_amount', 'pay_deadline', 'confirm_deadline'] as const).filter((k) => !fresh[k]);
+  if (missing.length > 0) {
+    throw new Error(`assignment ${fresh.id} carries no ${missing.join(', ')}; refusing to sign a create_trade the driver cannot check`);
   }
   return fresh as FundableOrder;
 }
@@ -443,10 +455,14 @@ async function depositToFunded(a: Actors) {
     lpWallet: a.lp.publicKey(),
     usdcStroops: BigInt(order.usdc_amount),
     maxUsdcStroops: MAX_DEMO_USDC_STROOPS,
+    payDeadline: BigInt(order.pay_deadline),
+    confirmDeadline: BigInt(order.confirm_deadline),
   });
   console.log(`  escrow funded by the provider: ${funded.hash} (trade ${funded.tradeIdHex})`);
   await waitForSep24(a.demoSep10, id, 'pending_user_transfer_start');
-  const refundsAt = new Date(Math.min(order.confirm_deadline, order.pay_deadline + Number(ATTEST_GRACE_SECS)) * 1000).toISOString();
+  const refundsAt = new Date(
+    Number(refundOpensAt({ flow: 'TOP_UP', payDeadline: BigInt(order.pay_deadline), confirmDeadline: BigInt(order.confirm_deadline) })) * 1000,
+  ).toISOString();
   return { id, orderId: order.id, refundsAt, tradeIdHex: funded.tradeIdHex };
 }
 

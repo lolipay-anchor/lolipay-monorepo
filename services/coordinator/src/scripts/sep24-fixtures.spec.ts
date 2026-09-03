@@ -31,11 +31,15 @@ function challengeFrom(server: Keypair, client: string, passphrase = Networks.TE
 const TRADE = 'ab'.repeat(32);
 
 function escrowCall(source: string, fn: string, contract = ESCROW, args: any[] = [nativeToScVal(Buffer.from(TRADE, 'hex'))], fee = '100'): Transaction {
-  return new TransactionBuilder(new Account(source, '1'), { fee, networkPassphrase: Networks.TESTNET })
+  const built = new TransactionBuilder(new Account(source, '1'), { fee, networkPassphrase: Networks.TESTNET })
     .addOperation(new Contract(contract).call(fn, ...args))
     .setTimeout(30)
     .build();
+  return new Transaction(built.toXdr(), Networks.TESTNET);
 }
+
+const PAY = 1_700_000_600n;
+const CONFIRM = 1_700_003_600n;
 
 const addr = (g: string) => nativeToScVal(new Address(g), { type: 'address' });
 const bytes = (hex: string) => nativeToScVal(Buffer.from(hex, 'hex'));
@@ -105,11 +109,11 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     const platform = Keypair.random().publicKey();
     const u32 = (n: number) => nativeToScVal(n, { type: 'u32' });
     const u64 = (n: bigint) => nativeToScVal(n, { type: 'u64' });
-    const createArgs = (provider: string, recipient: string, lpWallet = lp, amount: any = i128(125_000_000n), trade = TRADE, flow: any = u32(0)) => [
-      bytes(trade), addr(provider), addr(recipient), addr(provider), amount, i128Max, nativeToScVal('XXX', { type: 'symbol' }), flow, u32Max, u32(4_294_967_294), addr(platform), addr(lpWallet), u64Max, u64(18_446_744_073_709_551_614n), u64(18_446_744_073_709_551_613n),
+    const createArgs = (provider: string, recipient: string, lpWallet = lp, amount: any = i128(125_000_000n), trade = TRADE, flow: any = u32(0), pay: any = u64(PAY), confirm: any = u64(CONFIRM)) => [
+      bytes(trade), addr(provider), addr(recipient), addr(provider), amount, i128Max, nativeToScVal('XXX', { type: 'symbol' }), flow, u32Max, u32(4_294_967_294), addr(platform), addr(lpWallet), pay, confirm, u64Max,
     ];
     const create = (...a: Parameters<typeof createArgs>) => escrowCall(lp, 'create_trade', ESCROW, createArgs(...a));
-    const want = { tradeIdHex: TRADE, provider: lp, recipient: demo, lpWallet: lp, usdcStroops: 125_000_000n, maxUsdcStroops: 1_000_000_000n };
+    const want = { tradeIdHex: TRADE, provider: lp, recipient: demo, lpWallet: lp, usdcStroops: 125_000_000n, maxUsdcStroops: 1_000_000_000n, payDeadline: PAY, confirmDeadline: CONFIRM };
     expect(assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', want)).toBe(TRADE);
     expect(() => assertEscrowCall(create(lp, other), lp, ESCROW, 'create_trade', want)).toThrow(/recipient/);
     expect(() => assertEscrowCall(create(other, demo), lp, ESCROW, 'create_trade', want)).toThrow(/provider/);
@@ -119,8 +123,11 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(() => assertEscrowCall(create(lp, demo, lp, i128(124_000_000n)), lp, ESCROW, 'create_trade', want)).toThrow(/the assignment quoted/);
     expect(() => assertEscrowCall(create(lp, demo, lp, i128(-5n)), lp, ESCROW, 'create_trade', want)).toThrow(/not positive/);
     expect(() => assertEscrowCall(create(lp, demo, lp, i128(0n)), lp, ESCROW, 'create_trade', want)).toThrow(/not positive/);
-    expect(() => assertEscrowCall(create(lp, demo, lp, i128(125_000_000n), TRADE, u32(1)), lp, ESCROW, 'create_trade', want)).toThrow(/not the deposit flow/);
-    expect(() => assertEscrowCall(create(lp, demo, lp, i128(125_000_000n), TRADE, nativeToScVal(0, { type: 'i32' })), lp, ESCROW, 'create_trade', want)).toThrow(/not the deposit flow/);
+    expect(() => assertEscrowCall(create(lp, demo, lp, i128(125_000_000n), TRADE, u32(1)), lp, ESCROW, 'create_trade', want)).toThrow(/not the deposit discriminant/);
+    expect(() => assertEscrowCall(create(lp, demo, lp, i128(125_000_000n), TRADE, nativeToScVal(0, { type: 'i32' })), lp, ESCROW, 'create_trade', want)).toThrow(/not the deposit discriminant/);
+    expect(() => assertEscrowCall(create(lp, demo, lp, i128(125_000_000n), TRADE, u32(0), u64(PAY + 1n)), lp, ESCROW, 'create_trade', want)).toThrow(/pay_deadline .* the assignment quoted/);
+    expect(() => assertEscrowCall(create(lp, demo, lp, i128(125_000_000n), TRADE, u32(0), u64(PAY), u64(CONFIRM - 1n)), lp, ESCROW, 'create_trade', want)).toThrow(/confirm_deadline .* the assignment quoted/);
+    expect(() => assertEscrowCall(create(lp, demo, lp, i128(125_000_000n), TRADE, u32(0), u32(1_700_000_600)), lp, ESCROW, 'create_trade', want)).toThrow(/deadlines are not u64/);
     expect(() => assertEscrowCall(create(lp, demo, lp, nativeToScVal('1')), lp, ESCROW, 'create_trade', want)).toThrow(/not scvI128/);
     expect(() => assertEscrowCall(create(lp, demo, lp, nativeToScVal(true)), lp, ESCROW, 'create_trade', want)).toThrow(/not scvI128/);
     expect(() => assertEscrowCall(create(lp, demo, lp, i128(125_000_000n), 'cd'.repeat(32)), lp, ESCROW, 'create_trade', want)).toThrow(/names trade/);
@@ -146,9 +153,11 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(pickFreshOrder([stale, fresh, funded, someone], me, t0).id).toBe('new');
     expect(() => pickFreshOrder([stale, funded, someone], me, t0)).toThrow(/found 0/);
     expect(() => pickFreshOrder([fresh, { ...fresh, id: 'new2' }], me, t0)).toThrow(/found 2/);
-    expect(() => pickFreshOrder([{ ...fresh, trade_id: null }], me, t0)).toThrow(/carries no trade id/);
-    expect(() => pickFreshOrder([{ ...fresh, usdc_amount: undefined }], me, t0)).toThrow(/carries no trade id/);
-    expect(() => pickFreshOrder([{ ...fresh, pay_deadline: null }], me, t0)).toThrow(/carries no trade id/);
+    expect(() => pickFreshOrder([{ ...fresh, trade_id: null }], me, t0)).toThrow(/carries no trade_id;/);
+    expect(() => pickFreshOrder([{ ...fresh, usdc_amount: undefined }], me, t0)).toThrow(/carries no usdc_amount;/);
+    expect(() => pickFreshOrder([{ ...fresh, pay_deadline: null }], me, t0)).toThrow(/carries no pay_deadline;/);
+    expect(() => pickFreshOrder([{ ...fresh, confirm_deadline: 0 }], me, t0)).toThrow(/carries no confirm_deadline;/);
+    expect(() => pickFreshOrder([{ ...fresh, trade_id: null, confirm_deadline: null }], me, t0)).toThrow(/carries no trade_id, confirm_deadline;/);
   });
 
   it('holds the two ceilings that bound a compromised coordinator at 100 USDC and 1 XLM, so changing either is a decision with a test to edit', () => {
