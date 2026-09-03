@@ -3,9 +3,10 @@ import { createHash } from 'crypto';
 import { chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { Address, Keypair, StellarToml, Transaction, WebAuth, scValToNative } from '@stellar/stellar-sdk';
-import { MAX_ATTEST_FEE_STROOPS } from '../stellar/attest-guard';
+import { ATTEST_GRACE_SECS } from '../order/dispute.util';
 import { Server } from '@stellar/stellar-sdk/rpc';
 
+export const MAX_DEMO_FEE_STROOPS = 10_000_000n;
 export const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015';
 
 export function sep53Signature(kp: Keypair, nonce: string): string {
@@ -65,7 +66,7 @@ export function assertEscrowCall(
   expect: EscrowCallExpectation = {},
 ): string {
   if (tx.source !== signer) throw new Error(`transaction source ${tx.source} is not the signer ${signer}`);
-  if (BigInt(tx.fee) > BigInt(MAX_ATTEST_FEE_STROOPS)) throw new Error(`transaction fee ${tx.fee} stroops is above the ${MAX_ATTEST_FEE_STROOPS} a wallet would flag`);
+  if (BigInt(tx.fee) > MAX_DEMO_FEE_STROOPS) throw new Error(`transaction fee ${tx.fee} stroops is above the demo ceiling of ${MAX_DEMO_FEE_STROOPS}`);
   if (tx.operations.length !== 1) throw new Error(`expected exactly 1 operation, got ${tx.operations.length}`);
   const op = tx.operations[0];
   if (op.type !== 'invokeHostFunction') throw new Error(`expected an invokeHostFunction operation, got "${op.type}"`);
@@ -92,6 +93,8 @@ export function assertEscrowCall(
     const usdcStroops = scValToNative(amountArg) as bigint;
     if (usdcStroops <= 0n) throw new Error(`create_trade amount ${usdcStroops} is not positive`);
     const lpWallet = Address.fromScVal(args[11]).toString();
+    const flowArg = args[7];
+    if (flowArg.type !== 'scvU32' || scValToNative(flowArg) !== 0) throw new Error('create_trade flow is not the deposit flow, which is the only one that can refund within the day');
     if (expect.provider && provider !== expect.provider) throw new Error(`create_trade names provider ${provider}, not ${expect.provider}`);
     if (expect.recipient && recipient !== expect.recipient) throw new Error(`create_trade names recipient ${recipient}, not ${expect.recipient}`);
     if (expect.lpWallet && lpWallet !== expect.lpWallet) throw new Error(`create_trade pays the LP fee to ${lpWallet}, not ${expect.lpWallet}`);
@@ -118,18 +121,26 @@ export interface AssignmentOrder {
   status: string;
   trade_id?: string | null;
   usdc_amount?: string | null;
+  pay_deadline?: number | null;
+  confirm_deadline?: number | null;
   user_address?: string | null;
   created_at: string;
 }
 
-export function pickFreshOrder(orders: AssignmentOrder[], userPub: string, notBeforeMs: number): AssignmentOrder {
+export type FundableOrder = AssignmentOrder & { trade_id: string; usdc_amount: string; pay_deadline: number; confirm_deadline: number };
+
+export function pickFreshOrder(orders: AssignmentOrder[], userPub: string, notBeforeMs: number): FundableOrder {
   const mine = orders.filter(
     (o) => o.user_address === userPub && o.status === 'MATCHED' && Date.parse(o.created_at) >= notBeforeMs,
   );
   if (mine.length !== 1) {
     throw new Error(`expected exactly one fresh MATCHED order for ${userPub}, found ${mine.length}`);
   }
-  return mine[0];
+  const fresh = mine[0];
+  if (!fresh.trade_id || !fresh.usdc_amount || !fresh.pay_deadline || !fresh.confirm_deadline) {
+    throw new Error(`assignment ${fresh.id} carries no trade id, amount or deadlines; refusing to sign a create_trade the driver cannot check`);
+  }
+  return fresh as FundableOrder;
 }
 
 export function assembleSepConfig(input: {
@@ -149,7 +160,7 @@ export function assembleSepConfig(input: {
 const API = process.env.SEP24_API ?? 'https://api.lolipay.app';
 const HOME_DOMAIN = process.env.SEP24_HOME_DOMAIN ?? 'lolipay.app';
 const DEMO_IDR = process.env.SEP24_DEMO_IDR ?? '200000';
-const MAX_DEMO_USDC_STROOPS = 1_000_000_000n;
+export const MAX_DEMO_USDC_STROOPS = 1_000_000_000n;
 const RPC_URL = process.env.STELLAR_RPC_URL ?? 'https://soroban-testnet.stellar.org';
 const HEARTBEAT_MS = 30_000;
 const POLL_MS = 5_000;
@@ -358,7 +369,7 @@ async function assertScreened(id: string, cookie: string): Promise<void> {
   }
 }
 
-async function freshOrderFor(lpJwt: () => Promise<string>, userPub: string, notBeforeMs: number): Promise<AssignmentOrder> {
+async function freshOrderFor(lpJwt: () => Promise<string>, userPub: string, notBeforeMs: number): Promise<FundableOrder> {
   const rows = await json<Array<{ order: AssignmentOrder }>>(
     await fetch(`${API}/lp/assignments`, { headers: bearer(await lpJwt()) }),
     'lp/assignments',
@@ -425,9 +436,6 @@ async function depositToFunded(a: Actors) {
   await postForm(id, 'amount', cookie, { fiat_amount: DEMO_IDR });
   const order = await freshOrderFor(a.lpJwt, a.demo.publicKey(), t0);
   console.log(`deposit ${id}: order ${order.id} ${order.status}, created ${order.created_at}`);
-  if (!order.trade_id || !order.usdc_amount) {
-    throw new Error(`assignment ${order.id} carries no trade id or amount; refusing to sign a create_trade the driver cannot check`);
-  }
   const funded = await signAndSubmit(a.lp, await xdrFor(a.lpJwt, order.id, 'create-trade'), a.escrow, 'create_trade', {
     tradeIdHex: order.trade_id,
     provider: a.lp.publicKey(),
@@ -438,7 +446,8 @@ async function depositToFunded(a: Actors) {
   });
   console.log(`  escrow funded by the provider: ${funded.hash} (trade ${funded.tradeIdHex})`);
   await waitForSep24(a.demoSep10, id, 'pending_user_transfer_start');
-  return { id, orderId: order.id, createdAt: order.created_at, tradeIdHex: funded.tradeIdHex };
+  const refundsAt = new Date(Math.min(order.confirm_deadline, order.pay_deadline + Number(ATTEST_GRACE_SECS)) * 1000).toISOString();
+  return { id, orderId: order.id, refundsAt, tradeIdHex: funded.tradeIdHex };
 }
 
 function writeConfig(cfg: unknown): void {
@@ -492,7 +501,7 @@ async function main(): Promise<void> {
     if (hash !== released) throw new Error(`recorded hash ${hash} is not the release transaction ${released}`);
 
     const second = await depositToFunded(a);
-    const rotsAt = new Date(Date.parse(second.createdAt) + 3_600_000).toISOString();
+    const rotsAt = second.refundsAt;
 
     console.log('');
     console.log(`completed deposit  ${first.id}  hash ${hash}`);
