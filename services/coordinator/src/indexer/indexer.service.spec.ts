@@ -372,13 +372,13 @@ describe('IndexerService.applyEvent', () => {
       id: 'ord-1',
       tradeId: TRADE_ID_A,
       status: 'RELEASED',
-      settlementTxHash: 'already-there',
+      settlementTxHash: 'c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801a1b2',
     });
     await svc.applyEvent({
       topic: [TOPIC_RELEASED, tradeIdTopic(TRADE_ID_A)],
       value: VALUE_EMPTY,
       contractId: 'CXXX',
-      txHash: 'newhash',
+      txHash: 'd4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801a1b2c3',
     });
     expect(prisma.order.updateMany).not.toHaveBeenCalled();
     expect(notifications.notifyOrderStatus).not.toHaveBeenCalled();
@@ -568,7 +568,15 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
   });
 
   it('leaves the original settlement hash alone on a post-settlement verdict, whose transaction is not the settlement', async () => {
-    const { svc, prisma } = make('RELEASED');
+    const { svc, prisma } = make('RELEASED', {
+      stellarOverrides: {
+        getTradeStatusStrict: jest.fn().mockResolvedValue({
+          status: 'RELEASED',
+          liabilityEstablished: true,
+          slashDeadline: 1_800_000_000n,
+        }),
+      },
+    });
     prisma.order.findUnique.mockResolvedValueOnce({
       id: 'ord-1',
       tradeId: TRADE_ID_A,
@@ -578,15 +586,64 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
       lpWallet: 'GLP',
       flow: 'TOP_UP',
     });
-    await svc.applyEvent({
+    const advanced = await svc.applyEvent({
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value: nativeToScVal({ released: true, post_settle: true }),
       contractId: 'CXXX',
       txHash: 'b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801a1',
     });
-    for (const call of prisma.order.updateMany.mock.calls) {
-      expect(call[0].data).not.toHaveProperty('settlementTxHash');
-    }
+    expect(advanced).toBe(1);
+    expect(prisma.order.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.order.updateMany.mock.calls[0][0].data).not.toHaveProperty('settlementTxHash');
+  });
+
+  it('records the verdict and the hash when a client poll advanced the row before the resolved event landed', async () => {
+    const { svc, prisma } = make('RELEASED');
+    prisma.order.findUnique.mockResolvedValueOnce({
+      id: 'ord-1',
+      tradeId: TRADE_ID_A,
+      status: 'RELEASED',
+      resolution: null,
+      settlementTxHash: null,
+      userAddress: 'GUSER',
+      lpWallet: 'GLP',
+      flow: 'TOP_UP',
+    });
+    const advanced = await svc.applyEvent({
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value: nativeToScVal({ released: true, post_settle: false }),
+      contractId: 'CXXX',
+      txHash: 'B2C3D4E5F60718293A4B5C6D7E8F901A2B3C4D5E6F708192A3B4C5D6E7F801A1',
+    });
+    expect(advanced).toBe(1);
+    const { where, data } = prisma.order.updateMany.mock.calls[0][0];
+    expect(where.OR).toEqual(expect.arrayContaining([{ status: 'RELEASED', resolution: null }]));
+    expect(data.resolution).toBe('released');
+    expect(data.settlementTxHash).toBe('b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801a1');
+  });
+
+  it('records the verdict on a resolver refund, whose Refunded event has already advanced the row', async () => {
+    const { svc, prisma } = make('REFUNDED');
+    prisma.order.findUnique.mockResolvedValueOnce({
+      id: 'ord-1',
+      tradeId: TRADE_ID_A,
+      status: 'REFUNDED',
+      resolution: null,
+      settlementTxHash: 'e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801a1b2c3d4',
+      userAddress: 'GUSER',
+      lpWallet: 'GLP',
+      flow: 'TOP_UP',
+    });
+    const advanced = await svc.applyEvent({
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value: nativeToScVal({ released: false, post_settle: false }),
+      contractId: 'CXXX',
+      txHash: 'e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801a1b2c3d4',
+    });
+    expect(advanced).toBe(1);
+    const { where, data } = prisma.order.updateMany.mock.calls[0][0];
+    expect(where.OR).toEqual(expect.arrayContaining([{ status: 'REFUNDED', resolution: null }]));
+    expect(data.resolution).toBe('refunded');
   });
 
   it('records what the resolver ruled, not how the trade had already settled', async () => {
@@ -665,7 +722,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
       contractId: 'CXXX',
     });
     const where = (prisma.order.updateMany as jest.Mock).mock.calls[0][0].where;
-    expect(where.status.in).toContain('CANCELLED');
+    expect(where.OR[0].status.in).toContain('CANCELLED');
   });
 
   it('post_settle=false (normal dispute resolve): advances DISPUTED → RELEASED via the ordinary monotonic path', async () => {
@@ -678,7 +735,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     });
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } },
+      where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } }]) },
       data: { status: 'RELEASED', settledAt: expect.any(Date), resolution: 'released' },
     });
     expect(prisma.order.update).not.toHaveBeenCalled();
@@ -697,7 +754,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     });
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } },
+      where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } }]) },
       data: { status: 'REFUNDED', settledAt: expect.any(Date), resolution: 'refunded' },
     });
     expect(stellar.getTradeStatus).toHaveBeenCalledWith('CXXX', TRADE_ID_A);
@@ -903,7 +960,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
 
     expect(stellar.getTradeStatus).toHaveBeenCalledTimes(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } },
+      where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } }]) },
       data: { status: 'RELEASED', settledAt: new Date(ON_CHAIN_SECS * 1000), resolution: 'released' },
     });
   });
@@ -920,7 +977,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
     });
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } },
+      where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } }]) },
       data: { status: 'RELEASED', settledAt: expect.any(Date), resolution: 'released' },
     });
     expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(expect.anything(), 'RELEASED');

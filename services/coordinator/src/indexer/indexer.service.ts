@@ -44,7 +44,7 @@ const LOOKBACK_LEDGERS = 17280;
 
 function settlementHashOf(ev: { txHash?: string }): string | undefined {
   const h = ev.txHash;
-  return typeof h === 'string' && /^[0-9a-f]{64}$/i.test(h) ? h : undefined;
+  return typeof h === 'string' && /^[0-9a-f]{64}$/i.test(h) ? h.toLowerCase() : undefined;
 }
 
 @Injectable()
@@ -212,6 +212,9 @@ export class IndexerService {
         if (fresh && fresh.status === target && !fresh.settlementTxHash) {
           return this.backfillSettlementHash(fresh, target, hash);
         }
+        if (fresh && fresh.status !== target) {
+          this.log.warn(`settlement hash for ${order.id} not recorded: row moved to ${fresh.status} before the ${target} event landed`);
+        }
         return 0;
       }
 
@@ -226,7 +229,11 @@ export class IndexerService {
       where: { id: order.id, status: target as any, settlementTxHash: null },
       data: { settlementTxHash: hash },
     });
-    if (filled.count > 0) await this.notifySafely(order, target);
+    if (filled.count > 0) {
+      await this.notifySafely(order, target);
+    } else {
+      this.log.warn(`settlement hash backfill for ${order.id} matched no row at ${target} with a null hash`);
+    }
     return 0;
   }
 
@@ -282,7 +289,7 @@ export class IndexerService {
       });
       if (res.count === 0) return 0;
       await this.reconcileDisputeMetadata(order.id, disputedBy);
-      await this.notifications.notifyOrderStatus(order as any, 'DISPUTED');
+      await this.notifySafely(order, 'DISPUTED');
       return 1;
     }
 
@@ -293,7 +300,7 @@ export class IndexerService {
     });
     if (res.count === 0) return 0;
     await this.reconcileDisputeMetadata(order.id, disputedBy);
-    await this.notifications.notifyOrderStatus(order as any, target);
+    await this.notifySafely(order, target);
     return 1;
   }
 
@@ -352,10 +359,19 @@ export class IndexerService {
         : {};
       const hash = settlementHashOf(ev);
       const res = await this.prisma.order.updateMany({
-        where: { id: order.id, status: { in: STATUS_BEFORE[target] as any[] } },
+        where: {
+          id: order.id,
+          OR: [
+            { status: { in: STATUS_BEFORE[target] as any[] } },
+            { status: target as any, resolution: null },
+          ],
+        },
         data: { status: target as any, settledAt, resolution, ...latched, ...(hash ? { settlementTxHash: hash } : {}) },
       });
-      if (res.count === 0) return 0;
+      if (res.count === 0) {
+        this.log.warn(`resolver verdict on ${order.id} matched no row: status ${order.status}, resolution already recorded`);
+        return 0;
+      }
       await this.accrueDisputeLossIfApplicable(order, resolution);
       await this.notifySafely(order, target);
       return 1;
@@ -383,7 +399,7 @@ export class IndexerService {
     });
     if (res.count === 0) return 0;
     await this.accrueDisputeLossIfApplicable(order, verdict);
-    await this.notifications.notifyOrderStatus(order as any, finalStatus);
+    await this.notifySafely(order, finalStatus);
     return 1;
   }
 
