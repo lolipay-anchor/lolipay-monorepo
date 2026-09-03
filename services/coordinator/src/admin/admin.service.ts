@@ -460,7 +460,7 @@ export class AdminService {
   private async attestFiatPaidOnce(orderId: string, actorAddress: string, evidence: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      select: { id: true, flow: true, status: true, tradeId: true, contractId: true, userAddress: true, lpWallet: true },
+      select: { id: true, flow: true, status: true, tradeId: true, contractId: true, userAddress: true, lpWallet: true, settledAt: true },
     });
     if (!order) {
       throw new NotFoundException('no such order');
@@ -525,7 +525,11 @@ export class AdminService {
       data: { status: 'FIAT_PAID' },
     });
     if (moved.count > 0) {
-      await this.notifications.notifyOrderStatus(order, 'FIAT_PAID');
+      try {
+        await this.notifications.notifyOrderStatus(order, 'FIAT_PAID');
+      } catch (err) {
+        this.log.error(`order ${order.id} attested and moved to FIAT_PAID, but the provider was not told: ${err instanceof Error ? err.message : String(err)}`);
+      }
     } else {
       this.log.warn(`order ${order.id} was attested on chain (${outcome.txHash}) but its row had already left FUNDED`);
     }

@@ -851,7 +851,7 @@ describe('AdminService.getMetricsOverview', () => {
 });
 
 describe('AdminService.attestFiatPaid — the row follows the chain, and one attestation at a time', () => {
-  const ORDER = { id: 'ord-1', flow: 'TOP_UP', status: 'FUNDED', tradeId: 'a'.repeat(64), contractId: 'CESCROW' };
+  const ORDER = { id: 'ord-1', flow: 'TOP_UP', status: 'FUNDED', tradeId: 'a'.repeat(64), contractId: 'CESCROW', userAddress: 'GUSER', lpWallet: 'GLP' };
 
   function build(attestResult: { status: string; hash: string } = { status: 'SUCCESS', hash: 'b'.repeat(64) }) {
     const prisma = {
@@ -882,10 +882,24 @@ describe('AdminService.attestFiatPaid — the row follows the chain, and one att
       where: { id: 'ord-1', status: 'FUNDED' },
       data: { status: 'FIAT_PAID' },
     });
-    expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(expect.objectContaining({ id: 'ord-1' }), 'FIAT_PAID');
+    expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ord-1', userAddress: 'GUSER', lpWallet: 'GLP' }),
+      'FIAT_PAID',
+    );
+    expect(prisma.order.findUnique.mock.calls[0][0].select).toEqual(
+      expect.objectContaining({ userAddress: true, lpWallet: true, settledAt: true }),
+    );
   });
 
-  it('tells the provider and the depositor exactly once, from whichever writer moved the row', async () => {
+  it('returns the success even when the notification fails, since the chain and the row already moved', async () => {
+    const { svc, release, notifications } = build();
+    notifications.notifyOrderStatus.mockRejectedValue(new Error('db blip'));
+    const pending = svc.attestFiatPaid('ord-1', 'GADMIN', 'BCA 12345');
+    release();
+    await expect(pending).resolves.toMatchObject({ submission: 'SUCCESS' });
+  });
+
+  it('stays silent when the other writer moved the row first, so the provider is told exactly once', async () => {
     const { svc, prisma, release, notifications } = build();
     prisma.order.updateMany.mockResolvedValueOnce({ count: 0 });
     const pending = svc.attestFiatPaid('ord-1', 'GADMIN', 'BCA 12345');
