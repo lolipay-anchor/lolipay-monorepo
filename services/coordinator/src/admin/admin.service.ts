@@ -441,7 +441,21 @@ export class AdminService {
     };
   }
 
+  private readonly attesting = new Set<string>();
+
   async attestFiatPaid(orderId: string, actorAddress: string, evidence: string) {
+    if (this.attesting.has(orderId)) {
+      throw new ConflictException('an attestation for this order is already in flight');
+    }
+    this.attesting.add(orderId);
+    try {
+      return await this.attestFiatPaidOnce(orderId, actorAddress, evidence);
+    } finally {
+      this.attesting.delete(orderId);
+    }
+  }
+
+  private async attestFiatPaidOnce(orderId: string, actorAddress: string, evidence: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       select: { id: true, flow: true, status: true, tradeId: true, contractId: true },
@@ -484,7 +498,7 @@ export class AdminService {
     } catch (err) {
       recorded = false;
       this.log.error(
-        `order.attestFiatPaid could not be recorded for order ${order.id} — submission=${outcome.submission} tx=${outcome.txHash ?? 'none'} trade=${order.tradeId} contract=${contractId} actor=${actorAddress} evidence=${evidence}: ${err instanceof Error ? err.message : String(err)}`,
+        `order.attestFiatPaid could not be recorded for order ${order.id} — submission=${outcome.submission} tx=${outcome.txHash ?? 'none'} trade=${order.tradeId} contract=${contractId} actor=${actorAddress} evidence=${JSON.stringify(evidence)}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
 
@@ -502,6 +516,14 @@ export class AdminService {
       throw new BadGatewayException(
         `the chain refused this attestation (${outcome.submission}, tx ${outcome.txHash}) — the deposit is still FUNDED`,
       );
+    }
+
+    const moved = await this.prisma.order.updateMany({
+      where: { id: order.id, status: 'FUNDED' },
+      data: { status: 'FIAT_PAID' },
+    });
+    if (moved.count === 0) {
+      this.log.warn(`order ${order.id} was attested on chain (${outcome.txHash}) but its row had already left FUNDED`);
     }
 
     return { orderId: order.id, submission: outcome.submission, txHash: outcome.txHash };

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { ConfigCache } from '../config/config-cache';
 
@@ -838,5 +838,56 @@ describe('AdminService.getMetricsOverview', () => {
     expect(m.topLps).toEqual([]);
     expect(m.avgSettleSecs).toBeNull();
     expect(m.range).toBe('24h');
+  });
+});
+
+describe('AdminService.attestFiatPaid — the row follows the chain, and one attestation at a time', () => {
+  const ORDER = { id: 'ord-1', flow: 'TOP_UP', status: 'FUNDED', tradeId: 'a'.repeat(64), contractId: 'CESCROW' };
+
+  function build(attestResult: { status: string; hash: string } = { status: 'SUCCESS', hash: 'b'.repeat(64) }) {
+    const prisma = {
+      order: {
+        findUnique: jest.fn().mockResolvedValue(ORDER),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      adminAudit: { create: jest.fn(async () => ({})) },
+    } as any;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const attest = jest.fn(async () => {
+      await gate;
+      return attestResult;
+    });
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), { attest } as any);
+    return { svc, prisma, attest, release };
+  }
+
+  it('moves the row to FIAT_PAID the moment the chain accepts, so the operator and the indexer agree without a ten-second gap', async () => {
+    const { svc, prisma, release } = build();
+    const pending = svc.attestFiatPaid('ord-1', 'GADMIN', 'BCA 12345');
+    release();
+    const out = await pending;
+    expect(out.submission).toBe('SUCCESS');
+    expect(prisma.order.updateMany).toHaveBeenCalledWith({
+      where: { id: 'ord-1', status: 'FUNDED' },
+      data: { status: 'FIAT_PAID' },
+    });
+  });
+
+  it('leaves the row alone when the chain refused, because nothing changed on chain', async () => {
+    const { svc, prisma, release } = build({ status: 'FAILED', hash: 'c'.repeat(64) });
+    const pending = svc.attestFiatPaid('ord-1', 'GADMIN', 'BCA 12345');
+    release();
+    await expect(pending).rejects.toBeInstanceOf(BadGatewayException);
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses a second attestation while the first is still in flight, signing once', async () => {
+    const { svc, attest, release } = build();
+    const first = svc.attestFiatPaid('ord-1', 'GADMIN', 'BCA 12345');
+    await expect(svc.attestFiatPaid('ord-1', 'GADMIN', 'BCA 12345')).rejects.toBeInstanceOf(ConflictException);
+    release();
+    await first;
+    expect(attest).toHaveBeenCalledTimes(1);
   });
 });
