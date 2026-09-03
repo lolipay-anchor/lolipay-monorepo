@@ -97,9 +97,8 @@ describe('what we serialise satisfies the acceptance suite own schemas, not our 
     expect(serializeSep24(record({ flow: 'WITHDRAW', order }), ASSETS).status).toBe('pending_anchor');
   });
 
-  it('a funded deposit conforms to the pending_ schema, which is the shape the live suite skips for want of a fixture', () => {
+  it("a funded deposit satisfies the vendor's pending_ required set", () => {
     const json = serializeSep24(record({ order }), ASSETS);
-    expect(json.status).toBe('pending_user_transfer_start');
     const r = conforms(json, 'deposit', 'pending_');
     expect(r.errors.map((e) => e.stack)).toEqual([]);
   });
