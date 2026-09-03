@@ -1,4 +1,4 @@
-import { BadGatewayException, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { ConfigCache } from '../config/config-cache';
 
@@ -873,11 +873,12 @@ describe('AdminService.attestFiatPaid — the row follows the chain, and one att
   }
 
   it('moves the row to FIAT_PAID the moment the chain accepts, so the operator and the indexer agree without a ten-second gap', async () => {
-    const { svc, prisma, release, notifications } = build();
+    const { svc, prisma, attest, release, notifications } = build();
     const pending = svc.attestFiatPaid('ord-1', 'GADMIN', 'BCA 12345');
     release();
     const out = await pending;
     expect(out.submission).toBe('SUCCESS');
+    expect(attest).toHaveBeenCalledWith('CESCROW', 'a'.repeat(64));
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', status: 'FUNDED' },
       data: { status: 'FIAT_PAID' },
@@ -893,10 +894,13 @@ describe('AdminService.attestFiatPaid — the row follows the chain, and one att
 
   it('returns the success even when the notification fails, since the chain and the row already moved', async () => {
     const { svc, release, notifications } = build();
+    const told = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     notifications.notifyOrderStatus.mockRejectedValue(new Error('db blip'));
     const pending = svc.attestFiatPaid('ord-1', 'GADMIN', 'BCA 12345');
     release();
     await expect(pending).resolves.toMatchObject({ submission: 'SUCCESS' });
+    expect(told).toHaveBeenCalledWith(expect.stringMatching(/ord-1.*not told/));
+    told.mockRestore();
   });
 
   it('stays silent when the other writer moved the row first, so the provider is told exactly once', async () => {
