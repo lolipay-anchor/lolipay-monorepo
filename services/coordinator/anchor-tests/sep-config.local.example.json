@@ -1,0 +1,7 @@
+{
+  "24": {
+    "account": { "secretKey": "S_THE_DEMO_ACCOUNT_SECRET_WRITTEN_BY_scripts/sep24-fixtures" },
+    "depositPendingTransaction": { "id": "", "status": "pending_user_transfer_start" },
+    "depositCompletedTransaction": { "id": "", "status": "completed", "stellar_transaction_id": "" }
+  }
+}

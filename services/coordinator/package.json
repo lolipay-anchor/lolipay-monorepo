@@ -18,6 +18,7 @@
     "anchor:test:sep1": "stellar-anchor-tests --home-domain \"${ANCHOR_TEST_DOMAIN:-lolipay.app}\" --seps 1",
     "anchor:test:sep10": "stellar-anchor-tests --home-domain \"${ANCHOR_TEST_DOMAIN:-lolipay.app}\" --seps 10",
     "anchor:test:sep12": "stellar-anchor-tests --home-domain \"${ANCHOR_TEST_DOMAIN:-lolipay.app}\" --seps 12 --sep-config anchor-tests/sep-config.json",
+    "anchor:test:sep24": "stellar-anchor-tests --home-domain \"${ANCHOR_TEST_DOMAIN:-lolipay.app}\" --seps 24 --sep-config anchor-tests/sep-config.local.json",
     "anchor:consistency": "ts-node -T src/scripts/anchor-consistency.ts \"${ANCHOR_TEST_DOMAIN:-lolipay.app}\""
   },
   "dependencies": {
