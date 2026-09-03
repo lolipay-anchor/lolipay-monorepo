@@ -10,7 +10,7 @@ import {
   getLpEligibility,
   getLpEarnings,
 } from '@lolipay/api-client'
-import type { LpEarningsDayBar } from '@lolipay/api-client'
+import type { LpEarningsDayBar, LpMe } from '@lolipay/api-client'
 import { DarkHeroCard, StatCard, StatusPill, Skeleton, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
 import { AppHeader } from '@/components/AppHeader'
 import { client } from '@/lib/client'
@@ -94,7 +94,7 @@ export default function DashboardPage() {
     setAvailError(null)
     try {
       await setAvailability(client, next)
-      qc.setQueryData(['lpMe'], (prev: typeof me) => (prev ? { ...prev, online: next } : prev))
+      qc.setQueryData<LpMe | null>(['lpMe'], (prev) => (prev ? { ...prev, online: next } : prev))
       qc.invalidateQueries({ queryKey: ['lpMe'] })
     } catch (err) {
       setAvailError(err instanceof Error ? err.message : 'Failed to update availability')

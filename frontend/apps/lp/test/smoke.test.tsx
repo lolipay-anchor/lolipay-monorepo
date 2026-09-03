@@ -67,6 +67,7 @@ describe('AppGate (LP)', () => {
   beforeEach(() => {
     sessionStorage.clear()
     vi.clearAllMocks()
+    vi.mocked(apiClient.getLpMe).mockReset()
 
     queryClient.clear()
   })
@@ -263,6 +264,7 @@ describe('AppGate (LP)', () => {
         await vi.advanceTimersByTimeAsync(100)
       })
       expect(apiClient.heartbeat).toHaveBeenCalledTimes(1)
+      expect(apiClient.getLpMe).toHaveBeenCalledTimes(1)
       await act(async () => {
         await vi.advanceTimersByTimeAsync(30_000)
       })

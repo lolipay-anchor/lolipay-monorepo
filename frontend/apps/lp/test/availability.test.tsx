@@ -171,6 +171,24 @@ describe('DashboardPage — Availability', () => {
     })
   })
 
+  it('keeps the pill online when the refetch after toggling fails, because the ack is what was written', async () => {
+    vi.mocked(apiClient.setAvailability).mockImplementation(async () => {
+      vi.mocked(apiClient.getLpMe).mockRejectedValue(new Error('transient blip'))
+      return { ok: true }
+    })
+    render(
+      <TestProviders kit={fakeKit}>
+        <DashboardPage />
+      </TestProviders>,
+    )
+    await waitFor(() => screen.getByTestId('availability-toggle'))
+    fireEvent.click(screen.getByTestId('availability-toggle'))
+    await waitFor(() => {
+      expect(screen.getByText(/Online — accepting orders/i)).toBeTruthy()
+    })
+    expect(screen.getByTestId('availability-toggle').getAttribute('aria-pressed')).toBe('true')
+  })
+
   it('shows the eligibility link', async () => {
     render(
       <TestProviders kit={fakeKit}>
