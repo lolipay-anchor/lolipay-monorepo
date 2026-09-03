@@ -151,6 +151,10 @@ describe('DashboardPage — Availability', () => {
   })
 
   it('shows "Online — accepting orders" text after toggling on', async () => {
+    vi.mocked(apiClient.setAvailability).mockImplementation(async (_client, next) => {
+      vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(next))
+      return { ok: true }
+    })
     render(
       <TestProviders kit={fakeKit}>
         <DashboardPage />

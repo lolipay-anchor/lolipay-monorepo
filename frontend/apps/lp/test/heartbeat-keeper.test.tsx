@@ -5,18 +5,12 @@ import { TestProviders, fakeKit } from './helpers'
 import { queryClient } from '@/app/providers'
 
 vi.mock('@/lib/wallet-kit', () => ({ getDefaultKit: vi.fn(() => ({})) }))
-vi.mock('next/navigation', () => ({
-  usePathname: vi.fn(() => '/assignments'),
-  useRouter: vi.fn(() => ({ back: vi.fn(), push: vi.fn() })),
-}))
 vi.mock('@lolipay/api-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@lolipay/api-client')>()
   return {
     ...actual,
-    authenticate: vi.fn(),
     getLpMe: vi.fn(),
     heartbeat: vi.fn(),
-    getNotifications: vi.fn().mockResolvedValue({ items: [], unread: 0 }),
   }
 })
 
@@ -39,31 +33,32 @@ function makeLpMe(online = false) {
   }
 }
 
+function mount() {
+  return render(
+    <TestProviders kit={fakeKit}>
+      <HeartbeatKeeper />
+    </TestProviders>,
+  )
+}
+
 describe('HeartbeatKeeper — the provider stays matchable on every page, not only the dashboard', () => {
   beforeEach(() => {
     queryClient.clear()
     vi.mocked(apiClient.heartbeat).mockReset().mockResolvedValue({ ok: true })
+    vi.mocked(apiClient.getLpMe).mockReset()
   })
 
   afterEach(() => {
     vi.useRealTimers()
   })
 
-  it('calls heartbeat at 30-second intervals while online', async () => {
+  it('beats the moment it learns the provider is online, then every 30 seconds', async () => {
     vi.useFakeTimers()
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true))
-
-    render(
-      <TestProviders kit={fakeKit}>
-        <HeartbeatKeeper />
-      </TestProviders>,
-    )
+    mount()
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(100)
-    })
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000)
     })
     expect(apiClient.heartbeat).toHaveBeenCalledTimes(1)
 
@@ -71,42 +66,39 @@ describe('HeartbeatKeeper — the provider stays matchable on every page, not on
       await vi.advanceTimersByTimeAsync(30_000)
     })
     expect(apiClient.heartbeat).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000)
+    })
+    expect(apiClient.heartbeat).toHaveBeenCalledTimes(3)
   })
 
-  it('does NOT call heartbeat when offline', async () => {
+  it('does NOT call heartbeat when offline, having read the profile', async () => {
     vi.useFakeTimers()
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(false))
-
-    render(
-      <TestProviders kit={fakeKit}>
-        <HeartbeatKeeper />
-      </TestProviders>,
-    )
+    mount()
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(90_000)
     })
+    expect(apiClient.getLpMe).toHaveBeenCalled()
     expect(apiClient.heartbeat).not.toHaveBeenCalled()
   })
 
   it('stops when unmounted, so a closed tab does not keep a provider falsely online', async () => {
     vi.useFakeTimers()
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true))
+    const view = mount()
 
-    const view = render(
-      <TestProviders kit={fakeKit}>
-        <HeartbeatKeeper />
-      </TestProviders>,
-    )
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30_100)
     })
-    expect(apiClient.heartbeat).toHaveBeenCalledTimes(1)
+    expect(apiClient.heartbeat).toHaveBeenCalledTimes(2)
 
     view.unmount()
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60_000)
     })
-    expect(apiClient.heartbeat).toHaveBeenCalledTimes(1)
+    expect(apiClient.heartbeat).toHaveBeenCalledTimes(2)
   })
 })

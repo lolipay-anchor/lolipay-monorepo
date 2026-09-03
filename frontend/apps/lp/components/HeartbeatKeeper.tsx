@@ -7,14 +7,20 @@ import { client } from '@/lib/client'
 const HEARTBEAT_INTERVAL_MS = 30_000
 
 export function HeartbeatKeeper() {
-  const { data: me } = useQuery({ queryKey: ['lpMe'], queryFn: () => getLpMe(client) })
+  const { data: me } = useQuery({
+    queryKey: ['lpMe'],
+    queryFn: () => getLpMe(client),
+    staleTime: Infinity,
+  })
   const online = me?.online === true
 
   React.useEffect(() => {
     if (!online) return
-    const id = setInterval(() => {
+    const beat = () => {
       heartbeat(client).catch(() => {})
-    }, HEARTBEAT_INTERVAL_MS)
+    }
+    beat()
+    const id = setInterval(beat, HEARTBEAT_INTERVAL_MS)
     return () => clearInterval(id)
   }, [online])
 

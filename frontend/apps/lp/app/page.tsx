@@ -16,7 +16,6 @@ import { AppHeader } from '@/components/AppHeader'
 import { client } from '@/lib/client'
 import { formatUSDC, formatUsdcNumber } from '@/lib/money'
 
-
 const EARNINGS_REFETCH_INTERVAL_MS = 30_000
 
 function EarningsSparkline({ bars }: { bars: LpEarningsDayBar[] }) {
@@ -85,13 +84,9 @@ export default function DashboardPage() {
     refetchOnWindowFocus: true,
   })
 
-  const [online, setOnline] = React.useState(false)
+  const online = me?.online === true
   const [toggling, setToggling] = React.useState(false)
   const [availError, setAvailError] = React.useState<string | null>(null)
-
-  React.useEffect(() => {
-    if (me != null) setOnline(me.online)
-  }, [me?.online])
 
   const handleToggle = async () => {
     const next = !online
@@ -99,7 +94,7 @@ export default function DashboardPage() {
     setAvailError(null)
     try {
       await setAvailability(client, next)
-      setOnline(next)
+      qc.setQueryData(['lpMe'], (prev: typeof me) => (prev ? { ...prev, online: next } : prev))
       qc.invalidateQueries({ queryKey: ['lpMe'] })
     } catch (err) {
       setAvailError(err instanceof Error ? err.message : 'Failed to update availability')

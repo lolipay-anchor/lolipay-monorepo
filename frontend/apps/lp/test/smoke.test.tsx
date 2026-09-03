@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TestProviders, fakeKit } from './helpers'
 
@@ -38,6 +38,7 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
 
     getLpMe: vi.fn(),
     applyLp: vi.fn(),
+    heartbeat: vi.fn().mockResolvedValue({ ok: true }),
   }
 })
 
@@ -244,5 +245,51 @@ describe('AppGate (LP)', () => {
 
     expect(screen.queryByText('Connect Wallet')).toBeNull()
     expect(screen.queryByText(/Application under review/i)).toBeNull()
+  })
+
+  it('keeps an approved online provider heartbeating from inside the gate, on whatever page', async () => {
+    sessionStorage.setItem('lp_jwt', 'approved-jwt')
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe('APPROVED', { online: true }))
+    vi.useFakeTimers()
+    try {
+      render(
+        <TestProviders kit={fakeKit}>
+          <AppGate>
+            <div data-testid="lp-shell">LP SHELL</div>
+          </AppGate>
+        </TestProviders>,
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100)
+      })
+      expect(apiClient.heartbeat).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000)
+      })
+      expect(apiClient.heartbeat).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('never heartbeats for a provider the gate does not admit', async () => {
+    sessionStorage.setItem('lp_jwt', 'suspended-jwt')
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe('SUSPENDED', { online: true }))
+    vi.useFakeTimers()
+    try {
+      render(
+        <TestProviders kit={fakeKit}>
+          <AppGate>
+            <div data-testid="lp-shell">LP SHELL</div>
+          </AppGate>
+        </TestProviders>,
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000)
+      })
+      expect(apiClient.heartbeat).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
