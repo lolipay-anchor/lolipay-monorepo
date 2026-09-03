@@ -164,7 +164,7 @@ export class Sep24Controller {
   @UseFilters(InteractiveErrorFilter)
   @Post('interactive/:id/identity')
   @Header('cross-origin-opener-policy', 'unsafe-none')
-  @Throttle({ default: { ttl: 3_600_000, limit: 60 } })
+  @Throttle({ default: { ttl: 3_600_000, limit: 40 } })
   @Header('content-type', 'text/html; charset=utf-8')
   @Header('cache-control', 'no-store')
   async identity(
@@ -188,7 +188,7 @@ export class Sep24Controller {
   @UseFilters(InteractiveErrorFilter)
   @Post('interactive/:id/amount')
   @Header('cross-origin-opener-policy', 'unsafe-none')
-  @Throttle({ default: { ttl: 3_600_000, limit: 60 } })
+  @Throttle({ default: { ttl: 3_600_000, limit: 40 } })
   @Header('cache-control', 'no-store')
   async amount(
     @Req() req: any,
