@@ -281,6 +281,53 @@ describe('IndexerService.applyEvent', () => {
     expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(expect.anything(), 'RELEASED');
   });
 
+  it('backfills settlementTxHash and notifies when another writer already set RELEASED, so a lost race loses neither', async () => {
+    const { svc, prisma, notifications } = make('RELEASED');
+    prisma.order.findUnique.mockResolvedValueOnce({
+      id: 'ord-1',
+      tradeId: TRADE_ID_A,
+      status: 'RELEASED',
+      settlementTxHash: null,
+      userAddress: 'GUSER',
+      lpWallet: 'GLP',
+      flow: 'TOP_UP',
+    });
+    prisma.order.updateMany.mockResolvedValueOnce({ count: 1 });
+    const advanced = await svc.applyEvent({
+      topic: [TOPIC_RELEASED, tradeIdTopic(TRADE_ID_A)],
+      value: VALUE_EMPTY,
+      contractId: 'CXXX',
+      txHash: 'a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801',
+    });
+    expect(advanced).toBe(0);
+    expect(prisma.order.updateMany).toHaveBeenCalledWith({
+      where: { id: 'ord-1', status: 'RELEASED', settlementTxHash: null },
+      data: { settlementTxHash: 'a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801' },
+    });
+    expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ord-1' }),
+      'RELEASED',
+    );
+  });
+
+  it('does not touch or re-notify a RELEASED row that already carries a hash', async () => {
+    const { svc, prisma, notifications } = make('RELEASED');
+    prisma.order.findUnique.mockResolvedValueOnce({
+      id: 'ord-1',
+      tradeId: TRADE_ID_A,
+      status: 'RELEASED',
+      settlementTxHash: 'already-there',
+    });
+    await svc.applyEvent({
+      topic: [TOPIC_RELEASED, tradeIdTopic(TRADE_ID_A)],
+      value: VALUE_EMPTY,
+      contractId: 'CXXX',
+      txHash: 'newhash',
+    });
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+    expect(notifications.notifyOrderStatus).not.toHaveBeenCalled();
+  });
+
   it('carries the chain-latched dispute deadline into the order on a direct settlement', async () => {
     const { svc, prisma, stellar } = make('FIAT_PAID');
     stellar.getTradeStatus.mockResolvedValue({

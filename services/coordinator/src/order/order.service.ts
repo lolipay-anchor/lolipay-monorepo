@@ -483,16 +483,7 @@ export class OrderService {
     });
 
     const mapOne = async (order: any) => {
-      let currentOrder = order;
-      if (REFRESH_FROM_CHAIN_STATUSES.includes(order.status)) {
-        const onChain = await this.stellar.getTradeStatus(this.status.contractIdFor(order), order.tradeId);
-        if (onChain && this.status.tradeBindsToOrder(onChain, order) && isAhead(onChain.status, order.status)) {
-          currentOrder = await this.prisma.order.update({
-            where: { id: order.id },
-            data: { status: onChain.status as any, ...settlementFieldsFrom(onChain) },
-          });
-        }
-      }
+      const currentOrder = await this.status.refreshOrderStatus(order.id, order);
 
       const flow = currentOrder.flow as Flow;
       const roles = mapRoles(flow, currentOrder.userAddress, lpAddress);

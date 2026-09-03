@@ -170,6 +170,20 @@ export class IndexerService {
 
     const target = EVENT_STATUS[name];
 
+    if (
+      (target === 'RELEASED' || target === 'REFUNDED') &&
+      ev.txHash &&
+      order.status === target &&
+      !order.settlementTxHash
+    ) {
+      const filled = await this.prisma.order.updateMany({
+        where: { id: order.id, status: target, settlementTxHash: null },
+        data: { settlementTxHash: String(ev.txHash) },
+      });
+      if (filled.count > 0) await this.notifications.notifyOrderStatus(order as any, target);
+      return 0;
+    }
+
     if ((STATUS_BEFORE[target] as string[]).includes(order.status)) {
 
       let extra: Record<string, any> = {};

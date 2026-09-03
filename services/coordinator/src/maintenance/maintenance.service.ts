@@ -269,7 +269,7 @@ export class MaintenanceService {
 
         const advanced = await this.prisma.order.updateMany({
           where: { id: o.id, status: 'FUNDED' },
-          data: { status: 'REFUNDED', settledAt: new Date(), ...settlement },
+          data: { status: 'REFUNDED', settledAt: new Date(), settlementTxHash: result.hash, ...settlement },
         });
         if (advanced.count > 0) {
           refunded += 1;
