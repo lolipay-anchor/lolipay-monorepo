@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { rpc, TransactionBuilder } from '@stellar/stellar-sdk'
-import { getAdminOrders, getResolveTx, getSlashTx, getSlashState, downloadOrderProof, downloadDisputeEvidence, getAdminOrderRisk } from '@lolipay/api-client'
+import { getAdminOrders, getResolveTx, getSlashTx, getSlashState, downloadOrderProof, downloadDisputeEvidence, getAdminOrderRisk, attestFiatPaid } from '@lolipay/api-client'
 import type { Order, OrderStatus } from '@lolipay/api-client'
 import { useWallet } from '@lolipay/wallet'
 import { Card, StatusPill, Button, SegmentProgress, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
@@ -556,8 +556,67 @@ function OrderCard({ order, onResolved }: { order: Order; onResolved: () => void
         <ResolveActions order={order} onResolved={onResolved} />
       )}
 
+      {order.flow === 'TOP_UP' && order.status === 'FUNDED' && (
+        <AttestAction order={order} onAttested={onResolved} />
+      )}
+
       {providerDefaulted(order) && <SlashAction order={order} onSlashed={onResolved} />}
     </Card>
+  )
+}
+
+function AttestAction({ order, onAttested }: { order: Order; onAttested: () => void }) {
+  const [evidence, setEvidence] = React.useState('')
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const ready = evidence.trim().length >= 3
+
+  async function attest() {
+    setBusy(true)
+    setError(null)
+    try {
+      await attestFiatPaid(client, order.id, evidence.trim())
+      onAttested()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Attestation failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 border-t border-lp-line pt-3 space-y-2">
+      <p className="text-xs font-semibold text-lp-amber">Rupiah received?</p>
+      <p className="text-[11px] leading-relaxed text-lp-muted">
+        Attesting signs the escrow&apos;s mark-fiat-paid with the anchor&apos;s attestor key and
+        permanently closes the automatic refund. Press it only once the transfer is in the
+        provider&apos;s account, and record the bank reference you checked.
+      </p>
+      {error && (
+        <p className="text-xs text-lp-danger" role="alert">
+          {error}
+        </p>
+      )}
+      <input
+        value={evidence}
+        onChange={(e) => setEvidence(e.target.value)}
+        maxLength={200}
+        placeholder="Bank reference you verified"
+        aria-label="Bank reference"
+        data-testid="attest-evidence"
+        className="w-full border border-lp-line rounded-xl p-2.5 bg-lp-surface text-lp-ink text-sm outline-none"
+      />
+      <Button
+        size="sm"
+        className="w-full"
+        loading={busy}
+        disabled={busy || !ready}
+        onClick={attest}
+        data-testid="attest-fiat-paid"
+      >
+        Attest rupiah received
+      </Button>
+    </div>
   )
 }
 
