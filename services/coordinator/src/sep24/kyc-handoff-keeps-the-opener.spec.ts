@@ -6,8 +6,8 @@ describe('the identity hand-off must not navigate the popup off this origin', ()
 
   const anchors = source.match(/<a href="\$\{escapeHtml\([^)]*\)\}"[^>]*>/g) ?? [];
 
-  it('renders at least the two links that reach the identity provider', () => {
-    expect(anchors.length).toBeGreaterThanOrEqual(2);
+  it('renders the link that reaches the identity provider, on the waiting screen that refreshes', () => {
+    expect(anchors.length).toBeGreaterThanOrEqual(1);
   });
 
   it('opens every one of them in a new window, because the provider sets its own COOP', () => {

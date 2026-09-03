@@ -180,12 +180,9 @@ export class Sep24Controller {
       const v = (body ?? {})[f];
       if (typeof v === 'string') fields[f] = v;
     }
-    const url = await this.sep24.submitIdentity(id, token, fields);
-    if (!url) {
-      res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
-      return undefined;
-    }
-    return this.sep24.verificationHandoff(url);
+    await this.sep24.submitIdentity(id, token, fields);
+    res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
+    return undefined;
   }
 
   @UseFilters(InteractiveErrorFilter)

@@ -415,16 +415,6 @@ export class Sep24Service {
     });
   }
 
-  verificationHandoff(url: string): string {
-    return page(
-      'Verify your identity',
-      [
-        `<p><a href="${escapeHtml(url)}" target="_blank" rel="noopener">Continue to verification</a></p>`,
-        '<p>The link above opens in a new window. Finish verifying there, then come back to this one — it keeps checking on its own.</p>',
-      ].join(''),
-    );
-  }
-
   async fundTx(id: string, token: string) {
     const { row } = await this.interactiveState(id, token);
     if (row.flow !== 'WITHDRAW') {

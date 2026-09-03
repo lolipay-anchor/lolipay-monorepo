@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
 import { bootAuthApp, anchorToken } from '../auth/auth-test-helpers';
+import { KYC_PROVIDER } from '../kyc/kyc-provider';
 import { PrismaService } from '../prisma/prisma.service';
 
 
@@ -577,5 +578,57 @@ describe('the write credential stays out of every log a URL lands in', () => {
   it('refuses the bare page to a browser holding no cookie', async () => {
     const { id } = await opened();
     await http().get(`/sep24/interactive/${id}`).expect(401);
+  });
+});
+
+describe('after the identity form, the popup lands on the screen that keeps checking', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    app = await bootAuthApp((b) =>
+      b.overrideProvider(KYC_PROVIDER).useValue({
+        start: async () => ({
+          status: 'PROCESSING',
+          providerRef: 'fake-session',
+          verificationUrl: 'https://verify.example/session/abc123',
+        }),
+      }),
+    );
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('hands the user to the waiting screen, which offers the vendor link and refreshes on its own', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const opened = await request(app.getHttpServer())
+      .post('/sep24/transactions/deposit/interactive')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+    const id = opened.body.id;
+    const token = new URL(opened.body.url).searchParams.get('token')!;
+    const { cookie, page } = await follow(app, id, token);
+
+    const posted = await request(app.getHttpServer())
+      .post(`/sep24/interactive/${id}/identity`)
+      .set('Cookie', cookie)
+      .type('form')
+      .send({
+        first_name: 'Budi',
+        last_name: 'Santoso',
+        email_address: 'budi@example.com',
+        id_type: 'id_card',
+        id_country_code: 'IDN',
+      })
+      .expect(302);
+    expect(posted.headers.location).toBe(`/sep24/interactive/${id}`);
+
+    const shown = await page().expect(200);
+    expect(shown.text).toContain('https://verify.example/session/abc123');
+    expect(shown.text).toContain('Continue verification');
+    expect(shown.text).toContain('http-equiv="refresh" content="10"');
   });
 });
