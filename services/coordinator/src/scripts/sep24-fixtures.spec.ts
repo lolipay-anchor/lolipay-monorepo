@@ -1,5 +1,6 @@
 import { Account, Address, Asset, Contract, Keypair, Networks, Operation, Transaction, TransactionBuilder, nativeToScVal } from '@stellar/stellar-sdk';
 import { createHash } from 'crypto';
+import { MAX_ATTEST_FEE_STROOPS } from '../stellar/attest-guard';
 import {
   TESTNET_PASSPHRASE,
   assembleSepConfig,
@@ -28,8 +29,8 @@ function challengeFrom(server: Keypair, client: string, passphrase = Networks.TE
 
 const TRADE = 'ab'.repeat(32);
 
-function escrowCall(source: string, fn: string, contract = ESCROW, args: any[] = [nativeToScVal(Buffer.from(TRADE, 'hex'))]): Transaction {
-  return new TransactionBuilder(new Account(source, '1'), { fee: '100', networkPassphrase: Networks.TESTNET })
+function escrowCall(source: string, fn: string, contract = ESCROW, args: any[] = [nativeToScVal(Buffer.from(TRADE, 'hex'))], fee = '100'): Transaction {
+  return new TransactionBuilder(new Account(source, '1'), { fee, networkPassphrase: Networks.TESTNET })
     .addOperation(new Contract(contract).call(fn, ...args))
     .setTimeout(30)
     .build();
@@ -78,8 +79,13 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     const other = 'CAVJAMGCIBSMSA6Q3JQYHAF3CGWTM4XQNZ3TJHUWSU5NISHK6UHRHA3N';
     expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'confirm_and_release', other), kp.publicKey(), ESCROW, 'confirm_and_release')).toThrow(/contract/);
     expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'create_trade'), kp.publicKey(), ESCROW, 'create_trade')).toThrow(/expected 15/);
-    const stringId = escrowCall(kp.publicKey(), 'confirm_and_release', ESCROW, [nativeToScVal('ab'.repeat(32))]);
+    const stringId = escrowCall(kp.publicKey(), 'confirm_and_release', ESCROW, [nativeToScVal('x'.repeat(32))]);
     expect(() => assertEscrowCall(stringId, kp.publicKey(), ESCROW, 'confirm_and_release')).toThrow(/not 32 bytes/);
+    const longId = escrowCall(kp.publicKey(), 'confirm_and_release', ESCROW, [bytes('ab'.repeat(33))]);
+    expect(() => assertEscrowCall(longId, kp.publicKey(), ESCROW, 'confirm_and_release')).toThrow(/not 32 bytes/);
+    const dear = escrowCall(kp.publicKey(), 'confirm_and_release', ESCROW, undefined, String(MAX_ATTEST_FEE_STROOPS + 1));
+    expect(() => assertEscrowCall(dear, kp.publicKey(), ESCROW, 'confirm_and_release')).toThrow(/fee/);
+    expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'confirm_and_release', ESCROW, undefined, String(MAX_ATTEST_FEE_STROOPS)), kp.publicKey(), ESCROW, 'confirm_and_release')).not.toThrow();
     const payment = new TransactionBuilder(new Account(kp.publicKey(), '1'), { fee: '100', networkPassphrase: Networks.TESTNET })
       .addOperation(Operation.payment({ destination: Keypair.random().publicKey(), asset: Asset.native(), amount: '1' }))
       .setTimeout(30)
@@ -92,19 +98,26 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     const demo = Keypair.random().publicKey();
     const other = Keypair.random().publicKey();
     const i128 = (n: bigint) => nativeToScVal(n, { type: 'i128' });
-    const filler = nativeToScVal(0, { type: 'u32' });
-    const create = (provider: string, recipient: string, lpWallet = lp, amount = 125_000_000n, trade = TRADE) =>
-      escrowCall(lp, 'create_trade', ESCROW, [
-        bytes(trade), addr(provider), addr(recipient), addr(provider), i128(amount), i128(200_000n), filler, filler, filler, filler, addr(other), addr(lpWallet), filler, filler, filler,
-      ]);
-    const want = { tradeIdHex: TRADE, provider: lp, recipient: demo, lpWallet: lp, maxUsdcStroops: 1_000_000_000n };
+    const u32Max = nativeToScVal(4_294_967_295, { type: 'u32' });
+    const u64Max = nativeToScVal(18_446_744_073_709_551_615n, { type: 'u64' });
+    const i128Max = i128(170_141_183_460_469_231_731_687_303_715_884_105_727n);
+    const createArgs = (provider: string, recipient: string, lpWallet = lp, amount: any = i128(125_000_000n), trade = TRADE) => [
+      bytes(trade), addr(provider), addr(recipient), addr(provider), amount, i128Max, nativeToScVal('XXX', { type: 'symbol' }), u32Max, u32Max, u32Max, addr(other), addr(lpWallet), u64Max, u64Max, u64Max,
+    ];
+    const create = (...a: Parameters<typeof createArgs>) => escrowCall(lp, 'create_trade', ESCROW, createArgs(...a));
+    const want = { tradeIdHex: TRADE, provider: lp, recipient: demo, lpWallet: lp, usdcStroops: 125_000_000n, maxUsdcStroops: 1_000_000_000n };
     expect(assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', want)).toBe(TRADE);
     expect(() => assertEscrowCall(create(lp, other), lp, ESCROW, 'create_trade', want)).toThrow(/recipient/);
     expect(() => assertEscrowCall(create(other, demo), lp, ESCROW, 'create_trade', want)).toThrow(/provider/);
     expect(() => assertEscrowCall(create(lp, demo, other), lp, ESCROW, 'create_trade', want)).toThrow(/pays the LP fee to/);
-    expect(() => assertEscrowCall(create(lp, demo, lp, 1_000_000_001n), lp, ESCROW, 'create_trade', want)).toThrow(/above the demo ceiling/);
-    expect(assertEscrowCall(create(lp, demo, lp, 1_000_000_000n), lp, ESCROW, 'create_trade', want)).toBe(TRADE);
-    expect(() => assertEscrowCall(create(lp, demo, lp, 1n, 'cd'.repeat(32)), lp, ESCROW, 'create_trade', want)).toThrow(/names trade/);
+    expect(() => assertEscrowCall(create(lp, demo, lp, i128(1_000_000_001n)), lp, ESCROW, 'create_trade', want)).toThrow(/above the demo ceiling/);
+    expect(assertEscrowCall(create(lp, demo, lp, i128(1_000_000_000n)), lp, ESCROW, 'create_trade', { ...want, usdcStroops: 1_000_000_000n })).toBe(TRADE);
+    expect(() => assertEscrowCall(create(lp, demo, lp, i128(124_000_000n)), lp, ESCROW, 'create_trade', want)).toThrow(/the assignment quoted/);
+    expect(() => assertEscrowCall(create(lp, demo, lp, i128(-5n)), lp, ESCROW, 'create_trade', want)).toThrow(/not positive/);
+    expect(() => assertEscrowCall(create(lp, demo, lp, nativeToScVal('1')), lp, ESCROW, 'create_trade', want)).toThrow(/not scvI128/);
+    expect(() => assertEscrowCall(create(lp, demo, lp, nativeToScVal(true)), lp, ESCROW, 'create_trade', want)).toThrow(/not scvI128/);
+    expect(() => assertEscrowCall(create(lp, demo, lp, i128(125_000_000n), 'cd'.repeat(32)), lp, ESCROW, 'create_trade', want)).toThrow(/names trade/);
+    expect(() => assertEscrowCall(escrowCall(lp, 'create_trade', ESCROW, [...createArgs(lp, demo), u32Max]), lp, ESCROW, 'create_trade', want)).toThrow(/expected 15/);
 
     const mark = (caller: string, trade = TRADE) => escrowCall(demo, 'mark_fiat_paid', ESCROW, [bytes(trade), addr(caller)]);
     expect(assertEscrowCall(mark(demo), demo, ESCROW, 'mark_fiat_paid', { tradeIdHex: TRADE })).toBe(TRADE);

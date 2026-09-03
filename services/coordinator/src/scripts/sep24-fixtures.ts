@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import { chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { Address, Keypair, StellarToml, Transaction, WebAuth, scValToNative } from '@stellar/stellar-sdk';
+import { MAX_ATTEST_FEE_STROOPS } from '../stellar/attest-guard';
 import { Server } from '@stellar/stellar-sdk/rpc';
 
 export const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015';
@@ -53,6 +54,7 @@ export interface EscrowCallExpectation {
   recipient?: string;
   lpWallet?: string;
   maxUsdcStroops?: bigint;
+  usdcStroops?: bigint;
 }
 
 export function assertEscrowCall(
@@ -63,6 +65,7 @@ export function assertEscrowCall(
   expect: EscrowCallExpectation = {},
 ): string {
   if (tx.source !== signer) throw new Error(`transaction source ${tx.source} is not the signer ${signer}`);
+  if (BigInt(tx.fee) > BigInt(MAX_ATTEST_FEE_STROOPS)) throw new Error(`transaction fee ${tx.fee} stroops is above the ${MAX_ATTEST_FEE_STROOPS} a wallet would flag`);
   if (tx.operations.length !== 1) throw new Error(`expected exactly 1 operation, got ${tx.operations.length}`);
   const op = tx.operations[0];
   if (op.type !== 'invokeHostFunction') throw new Error(`expected an invokeHostFunction operation, got "${op.type}"`);
@@ -84,13 +87,19 @@ export function assertEscrowCall(
     if (args.length !== 15) throw new Error(`create_trade carries ${args.length} arguments, expected 15`);
     const provider = Address.fromScVal(args[1]).toString();
     const recipient = Address.fromScVal(args[2]).toString();
-    const usdcStroops = BigInt(scValToNative(args[4]));
+    const amountArg = args[4];
+    if (amountArg.type !== 'scvI128') throw new Error(`create_trade amount is ${amountArg.type}, not scvI128`);
+    const usdcStroops = scValToNative(amountArg) as bigint;
+    if (usdcStroops <= 0n) throw new Error(`create_trade amount ${usdcStroops} is not positive`);
     const lpWallet = Address.fromScVal(args[11]).toString();
     if (expect.provider && provider !== expect.provider) throw new Error(`create_trade names provider ${provider}, not ${expect.provider}`);
     if (expect.recipient && recipient !== expect.recipient) throw new Error(`create_trade names recipient ${recipient}, not ${expect.recipient}`);
     if (expect.lpWallet && lpWallet !== expect.lpWallet) throw new Error(`create_trade pays the LP fee to ${lpWallet}, not ${expect.lpWallet}`);
     if (expect.maxUsdcStroops !== undefined && usdcStroops > expect.maxUsdcStroops) {
       throw new Error(`create_trade escrows ${usdcStroops} stroops, above the demo ceiling of ${expect.maxUsdcStroops}`);
+    }
+    if (expect.usdcStroops !== undefined && usdcStroops !== expect.usdcStroops) {
+      throw new Error(`create_trade escrows ${usdcStroops} stroops, not the ${expect.usdcStroops} the assignment quoted`);
     }
   }
   if (fn === 'mark_fiat_paid') {
@@ -108,6 +117,7 @@ export interface AssignmentOrder {
   id: string;
   status: string;
   trade_id?: string | null;
+  usdc_amount?: string | null;
   user_address?: string | null;
   created_at: string;
 }
@@ -415,11 +425,15 @@ async function depositToFunded(a: Actors) {
   await postForm(id, 'amount', cookie, { fiat_amount: DEMO_IDR });
   const order = await freshOrderFor(a.lpJwt, a.demo.publicKey(), t0);
   console.log(`deposit ${id}: order ${order.id} ${order.status}, created ${order.created_at}`);
+  if (!order.trade_id || !order.usdc_amount) {
+    throw new Error(`assignment ${order.id} carries no trade id or amount; refusing to sign a create_trade the driver cannot check`);
+  }
   const funded = await signAndSubmit(a.lp, await xdrFor(a.lpJwt, order.id, 'create-trade'), a.escrow, 'create_trade', {
-    tradeIdHex: order.trade_id ?? undefined,
+    tradeIdHex: order.trade_id,
     provider: a.lp.publicKey(),
     recipient: a.demo.publicKey(),
     lpWallet: a.lp.publicKey(),
+    usdcStroops: BigInt(order.usdc_amount),
     maxUsdcStroops: MAX_DEMO_USDC_STROOPS,
   });
   console.log(`  escrow funded by the provider: ${funded.hash} (trade ${funded.tradeIdHex})`);
