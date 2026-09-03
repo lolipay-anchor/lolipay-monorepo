@@ -35,6 +35,7 @@ function makeCfg(over: Record<string, unknown> = {}) {
     usdcAssetCode: 'TUSDC',
     usdcAssetIssuer: 'GCMUR7GX',
     priceDeviationMaxBps: 100,
+    escrowContractId: 'CDEFAULT',
     ...over,
   } as any;
 }
@@ -851,6 +852,7 @@ describe('AdminService.getMetricsOverview', () => {
 });
 
 describe('AdminService.attestFiatPaid — the row follows the chain, and one attestation at a time', () => {
+  afterEach(() => jest.restoreAllMocks());
   const ORDER = { id: 'ord-1', flow: 'TOP_UP', status: 'FUNDED', tradeId: 'a'.repeat(64), contractId: 'CESCROW', userAddress: 'GUSER', lpWallet: 'GLP' };
 
   function build(attestResult: { status: string; hash: string } = { status: 'SUCCESS', hash: 'b'.repeat(64) }) {
