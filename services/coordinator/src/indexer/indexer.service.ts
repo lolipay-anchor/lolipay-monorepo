@@ -42,6 +42,11 @@ const STATUS_BEFORE: Record<string, string[]> = {
 
 const LOOKBACK_LEDGERS = 17280;
 
+function settlementHashOf(ev: { txHash?: string }): string | undefined {
+  const h = ev.txHash;
+  return typeof h === 'string' && /^[0-9a-f]{64}$/i.test(h) ? h : undefined;
+}
+
 @Injectable()
 export class IndexerService {
   private readonly log = new Logger('Indexer');
@@ -169,19 +174,11 @@ export class IndexerService {
     if (name === 'disputed') return this.applyDisputedEvent(ev, order, toScVal);
 
     const target = EVENT_STATUS[name];
+    const hash = settlementHashOf(ev);
+    const settling = target === 'RELEASED' || target === 'REFUNDED';
 
-    if (
-      (target === 'RELEASED' || target === 'REFUNDED') &&
-      ev.txHash &&
-      order.status === target &&
-      !order.settlementTxHash
-    ) {
-      const filled = await this.prisma.order.updateMany({
-        where: { id: order.id, status: target, settlementTxHash: null },
-        data: { settlementTxHash: String(ev.txHash) },
-      });
-      if (filled.count > 0) await this.notifications.notifyOrderStatus(order as any, target);
-      return 0;
+    if (settling && hash && order.status === target && !order.settlementTxHash) {
+      return this.backfillSettlementHash(order, target, hash);
     }
 
     if ((STATUS_BEFORE[target] as string[]).includes(order.status)) {
@@ -202,19 +199,43 @@ export class IndexerService {
         extra = {
           settledAt: onChain && onChain.settledAt > 0 ? new Date(onChain.settledAt * 1000) : new Date(),
           ...(onChain?.postSettleDeadline ? { postSettleDeadline: onChain.postSettleDeadline } : {}),
-          ...(ev.txHash ? { settlementTxHash: String(ev.txHash) } : {}),
+          ...(hash ? { settlementTxHash: hash } : {}),
         };
       }
       const res = await this.prisma.order.updateMany({
         where: { id: order.id, status: { in: STATUS_BEFORE[target] as any[] } },
         data: { status: target as any, ...extra },
       });
-      if (res.count === 0) return 0;
+      if (res.count === 0) {
+        if (!settling || !hash) return 0;
+        const fresh = await this.prisma.order.findUnique({ where: { id: order.id } });
+        if (fresh && fresh.status === target && !fresh.settlementTxHash) {
+          return this.backfillSettlementHash(fresh, target, hash);
+        }
+        return 0;
+      }
 
-      await this.notifications.notifyOrderStatus(order as any, target);
+      await this.notifySafely(order, target);
       return 1;
     }
     return 0;
+  }
+
+  private async backfillSettlementHash(order: any, target: string, hash: string): Promise<number> {
+    const filled = await this.prisma.order.updateMany({
+      where: { id: order.id, status: target as any, settlementTxHash: null },
+      data: { settlementTxHash: hash },
+    });
+    if (filled.count > 0) await this.notifySafely(order, target);
+    return 0;
+  }
+
+  private async notifySafely(order: any, status: string): Promise<void> {
+    try {
+      await this.notifications.notifyOrderStatus(order, status);
+    } catch (err) {
+      this.log.warn(`notification for order ${order.id} at ${status} failed: ${describeErr(err)}`);
+    }
   }
 
   private async bindTradeToOrder(contractId: string, order: any): Promise<boolean> {
@@ -299,7 +320,7 @@ export class IndexerService {
   }
 
   private async applyResolvedEvent(
-    ev: { value: any; contractId?: any },
+    ev: { value: any; contractId?: any; txHash?: string },
     order: { id: string; tradeId: string; status: string; userAddress: string; flow: string },
     toScVal: (t: any) => any,
   ): Promise<number> {
@@ -329,13 +350,14 @@ export class IndexerService {
       const latched = onChain?.postSettleDeadline
         ? { postSettleDeadline: onChain.postSettleDeadline }
         : {};
+      const hash = settlementHashOf(ev);
       const res = await this.prisma.order.updateMany({
         where: { id: order.id, status: { in: STATUS_BEFORE[target] as any[] } },
-        data: { status: target as any, settledAt, resolution, ...latched },
+        data: { status: target as any, settledAt, resolution, ...latched, ...(hash ? { settlementTxHash: hash } : {}) },
       });
       if (res.count === 0) return 0;
       await this.accrueDisputeLossIfApplicable(order, resolution);
-      await this.notifications.notifyOrderStatus(order as any, target);
+      await this.notifySafely(order, target);
       return 1;
     }
 

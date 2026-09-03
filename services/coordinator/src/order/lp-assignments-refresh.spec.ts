@@ -1,5 +1,5 @@
 import { OrderService } from './order.service';
-import { makeUserReputationStub, orderStatusFor, orderTxFor, verifiedCustomerStub } from './test-helpers';
+import { makeUserReputationStub, onChainTradeFor, orderStatusFor, orderTxFor, verifiedCustomerStub } from './test-helpers';
 
 const fakeStorage = {} as any;
 const USER_ADDR = 'GUSER';
@@ -50,8 +50,8 @@ function build() {
   } as any;
   const stellar = {
     getStakeInfo: jest.fn(),
-    getTradeStatus: jest.fn().mockResolvedValue(null),
-    getTradeStatusStrict: jest.fn().mockResolvedValue(null),
+    getTradeStatus: jest.fn().mockResolvedValue(onChainTradeFor(order, 'RELEASED')),
+    getTradeStatusStrict: jest.fn().mockResolvedValue(onChainTradeFor(order, 'RELEASED')),
   } as any;
   const cfg = { platformWallet: PLATFORM, escrowContractId: CONTRACT } as any;
   const status = orderStatusFor(prisma, stellar, cfg);

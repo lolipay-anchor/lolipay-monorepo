@@ -310,6 +310,62 @@ describe('IndexerService.applyEvent', () => {
     );
   });
 
+  it('backfills when another writer wins the race WHILE the indexer awaits the chain, which is the common case', async () => {
+    const { svc, prisma, notifications } = make('FIAT_PAID', { updateManyCount: 0 });
+    prisma.order.findUnique
+      .mockResolvedValueOnce({
+        id: 'ord-1',
+        tradeId: TRADE_ID_A,
+        status: 'FIAT_PAID',
+        settlementTxHash: null,
+        userAddress: 'GUSER',
+        lpWallet: 'GLP',
+        flow: 'TOP_UP',
+      })
+      .mockResolvedValueOnce({
+        id: 'ord-1',
+        tradeId: TRADE_ID_A,
+        status: 'RELEASED',
+        settlementTxHash: null,
+        userAddress: 'GUSER',
+        lpWallet: 'GLP',
+        flow: 'TOP_UP',
+      });
+    prisma.order.updateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 });
+    const advanced = await svc.applyEvent({
+      topic: [TOPIC_RELEASED, tradeIdTopic(TRADE_ID_A)],
+      value: VALUE_EMPTY,
+      contractId: 'CXXX',
+      txHash: 'a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801',
+    });
+    expect(advanced).toBe(0);
+    expect(prisma.order.updateMany).toHaveBeenLastCalledWith({
+      where: { id: 'ord-1', status: 'RELEASED', settlementTxHash: null },
+      data: { settlementTxHash: 'a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801' },
+    });
+    expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ord-1' }),
+      'RELEASED',
+    );
+  });
+
+  it('refuses to store a settlement hash that is not a transaction hash, whatever the RPC said', async () => {
+    const { svc, prisma } = make('RELEASED');
+    prisma.order.findUnique.mockResolvedValueOnce({
+      id: 'ord-1',
+      tradeId: TRADE_ID_A,
+      status: 'RELEASED',
+      settlementTxHash: null,
+    });
+    await svc.applyEvent({
+      topic: [TOPIC_RELEASED, tradeIdTopic(TRADE_ID_A)],
+      value: VALUE_EMPTY,
+      contractId: 'CXXX',
+      txHash: 'not-a-hash',
+    });
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+  });
+
   it('does not touch or re-notify a RELEASED row that already carries a hash', async () => {
     const { svc, prisma, notifications } = make('RELEASED');
     prisma.order.findUnique.mockResolvedValueOnce({
@@ -495,6 +551,42 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
 
     expect(advanced).toBe(0);
     expect(prisma.order.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('carries the resolve transaction hash onto a resolver-released order, which never sees a released event', async () => {
+    const { svc, prisma } = make('DISPUTED');
+    const advanced = await svc.applyEvent({
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value: nativeToScVal({ released: true, post_settle: false }),
+      contractId: 'CXXX',
+      txHash: 'b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801a1',
+    });
+    expect(advanced).toBe(1);
+    const { data } = prisma.order.updateMany.mock.calls[0][0];
+    expect(data.status).toBe('RELEASED');
+    expect(data.settlementTxHash).toBe('b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801a1');
+  });
+
+  it('leaves the original settlement hash alone on a post-settlement verdict, whose transaction is not the settlement', async () => {
+    const { svc, prisma } = make('RELEASED');
+    prisma.order.findUnique.mockResolvedValueOnce({
+      id: 'ord-1',
+      tradeId: TRADE_ID_A,
+      status: 'RELEASED',
+      settlementTxHash: 'the-settlement',
+      userAddress: 'GUSER',
+      lpWallet: 'GLP',
+      flow: 'TOP_UP',
+    });
+    await svc.applyEvent({
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value: nativeToScVal({ released: true, post_settle: true }),
+      contractId: 'CXXX',
+      txHash: 'b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801a1',
+    });
+    for (const call of prisma.order.updateMany.mock.calls) {
+      expect(call[0].data).not.toHaveProperty('settlementTxHash');
+    }
   });
 
   it('records what the resolver ruled, not how the trade had already settled', async () => {
