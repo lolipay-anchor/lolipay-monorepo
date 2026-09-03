@@ -97,6 +97,13 @@ describe('what we serialise satisfies the acceptance suite own schemas, not our 
     expect(serializeSep24(record({ flow: 'WITHDRAW', order }), ASSETS).status).toBe('pending_anchor');
   });
 
+  it('a funded deposit conforms to the pending_ schema, which is the shape the live suite skips for want of a fixture', () => {
+    const json = serializeSep24(record({ order }), ASSETS);
+    expect(json.status).toBe('pending_user_transfer_start');
+    const r = conforms(json, 'deposit', 'pending_');
+    expect(r.errors.map((e) => e.stack)).toEqual([]);
+  });
+
   it('a completed withdrawal conforms, which is where the suite demands the withdraw_* keys back', () => {
     const json = serializeSep24(record({ flow: 'WITHDRAW', order: settled }), ASSETS);
     expect(json.status).toBe('completed');
