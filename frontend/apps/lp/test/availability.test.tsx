@@ -31,6 +31,7 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
     heartbeat: vi.fn(),
 
     getAssignments: vi.fn().mockResolvedValue([]),
+    getLpEarnings: vi.fn().mockResolvedValue({ today_trades: 0, today_earned_usdc: 0, today_volume_usdc: 0, week_bars: [], all_time_trades: 0, all_time_earned_usdc: 0 }),
     getLpEligibility: vi.fn().mockResolvedValue({
       staked: '0',
       unbonding: '0',
@@ -187,6 +188,7 @@ describe('DashboardPage — Availability', () => {
       expect(screen.getByText(/Online — accepting orders/i)).toBeTruthy()
     })
     expect(screen.getByTestId('availability-toggle').getAttribute('aria-pressed')).toBe('true')
+    expect(queryClient.getQueryData(['lpMe'])).toMatchObject({ online: true })
   })
 
   it('shows the eligibility link', async () => {
