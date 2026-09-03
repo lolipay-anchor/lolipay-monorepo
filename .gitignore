@@ -28,4 +28,4 @@ Thumbs.db
 .idea/
 .vscode/
 services/coordinator/src/generated/
-services/coordinator/anchor-tests/sep-config.local.json
+**/sep-config.local.json
