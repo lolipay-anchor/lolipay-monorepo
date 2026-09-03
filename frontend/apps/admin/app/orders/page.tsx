@@ -569,13 +569,18 @@ function AttestAction({ order, onAttested }: { order: Order; onAttested: () => v
   const [evidence, setEvidence] = React.useState('')
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [done, setDone] = React.useState<string | null>(null)
   const ready = evidence.trim().length >= 3
+  const attestBy = Math.min(order.confirm_deadline, order.pay_deadline + 3600)
+  const secondsLeft = Math.max(0, attestBy - Math.floor(Date.now() / 1000))
 
   async function attest() {
     setBusy(true)
     setError(null)
     try {
-      await attestFiatPaid(client, order.id, evidence.trim())
+      const result = await attestFiatPaid(client, order.id, evidence.trim())
+      setDone(result.txHash ?? result.submission)
+      setEvidence('')
       onAttested()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Attestation failed')
@@ -584,13 +589,31 @@ function AttestAction({ order, onAttested }: { order: Order; onAttested: () => v
     }
   }
 
+  if (secondsLeft === 0 && !done) return null
+
+  if (done) {
+    return (
+      <div className="mt-3 border-t border-lp-line pt-3 space-y-1" data-testid="attest-done">
+        <p className="text-xs font-semibold text-lp-green">Rupiah attested on chain</p>
+        <p className="font-geist-mono text-[11px] break-all text-lp-muted">{done}</p>
+      </div>
+    )
+  }
+
   return (
-    <div className="mt-3 border-t border-lp-line pt-3 space-y-2">
+    <div className="mt-3 border-t border-lp-line pt-3 space-y-2" data-testid="attest-panel">
       <p className="text-xs font-semibold text-lp-amber">Rupiah received?</p>
       <p className="text-[11px] leading-relaxed text-lp-muted">
         Attesting signs the escrow&apos;s mark-fiat-paid with the anchor&apos;s attestor key and
-        permanently closes the automatic refund. Press it only once the transfer is in the
-        provider&apos;s account, and record the bank reference you checked.
+        permanently closes the provider&apos;s automatic refund. Press it only once the transfer is in
+        the provider&apos;s account, and record the bank reference you checked.
+      </p>
+      <p className="text-xs text-lp-ink">
+        Expect <strong>{formatIDR(parseInt(order.fiat_amount, 10))}</strong> carrying reference{' '}
+        <strong className="font-geist-mono" data-testid="attest-ref">
+          {order.ref ?? '—'}
+        </strong>
+        {` · attest within ${formatWindow(secondsLeft)}`}
       </p>
       {error && (
         <p className="text-xs text-lp-danger" role="alert">

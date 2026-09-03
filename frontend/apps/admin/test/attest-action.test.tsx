@@ -63,9 +63,9 @@ function makeOrder(overrides: Partial<import('@lolipay/api-client').Order> = {})
     platform_fee_bps: 30,
     lp_fee_bps: 20,
     status: 'FUNDED' as const,
-    pay_deadline: 1700000000,
-    confirm_deadline: 1700003600,
-    dispute_deadline: 1700090000,
+    pay_deadline: Math.floor(Date.now() / 1000) + 1800,
+    confirm_deadline: Math.floor(Date.now() / 1000) + 3600,
+    dispute_deadline: Math.floor(Date.now() / 1000) + 90000,
     expires_at: '2024-01-16T10:00:00.000Z',
     created_at: '2024-01-15T10:00:00.000Z',
     ...overrides,
@@ -99,20 +99,54 @@ describe('the operator can attest that rupiah arrived, from the orders page', ()
     sessionStorage.clear()
     queryClient.clear()
     vi.mocked(apiClient.getAdminOrderRisk).mockResolvedValue(DEFAULT_RISK)
-    vi.mocked(apiClient.attestFiatPaid).mockResolvedValue(makeOrder({ status: 'FIAT_PAID' }))
+    vi.mocked(apiClient.attestFiatPaid).mockResolvedValue({ orderId: 'order-attest-1', submission: 'SUCCESS', txHash: 'b'.repeat(64) })
   })
 
-  it('offers the attestation only on a funded deposit, and nowhere else', async () => {
+  it('offers the attestation only on the funded deposit, and names that order inside the panel', async () => {
     vi.mocked(apiClient.getAdminOrders).mockResolvedValue([
-      makeOrder(),
-      makeOrder({ id: 'order-paid', status: 'FIAT_PAID' }),
-      makeOrder({ id: 'order-withdraw', flow: 'WITHDRAW' }),
+      makeOrder({ ref: 'LP-FUND' }),
+      makeOrder({ id: 'order-paid', status: 'FIAT_PAID', ref: 'LP-PAID' }),
+      makeOrder({ id: 'order-withdraw', flow: 'WITHDRAW', ref: 'LP-WDRW' }),
     ])
     mount()
     await waitFor(() => {
-      expect(screen.getAllByText(/82,500/).length).toBe(3)
+      expect(screen.getAllByTestId('order-ref')).toHaveLength(3)
     })
     expect(screen.getAllByTestId('attest-fiat-paid')).toHaveLength(1)
+    expect(screen.getByTestId('attest-ref').textContent).toBe('LP-FUND')
+    expect(screen.getByTestId('attest-panel').textContent).toContain('82,500')
+  })
+
+  it('will not submit a reference made of whitespace', async () => {
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
+    mount()
+    const button = await waitFor(() => screen.getByTestId('attest-fiat-paid'))
+    fireEvent.change(screen.getByTestId('attest-evidence'), { target: { value: '     ' } })
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('replaces the form with the transaction once the chain accepted, so a second press has nothing to press', async () => {
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
+    mount()
+    const button = await waitFor(() => screen.getByTestId('attest-fiat-paid'))
+    fireEvent.change(screen.getByTestId('attest-evidence'), { target: { value: 'BCA 12345' } })
+    fireEvent.click(button)
+    await waitFor(() => {
+      expect(screen.getByTestId('attest-done').textContent).toContain('b'.repeat(64))
+    })
+    expect(screen.queryByTestId('attest-fiat-paid')).toBeNull()
+    expect(apiClient.getAdminOrders).toHaveBeenCalledTimes(2)
+  })
+
+  it('offers nothing once the attestation window has closed, because the contract would refuse it and the escrow will refund', async () => {
+    const past = Math.floor(Date.now() / 1000) - 7200
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder({ ref: 'LP-LATE', pay_deadline: past, confirm_deadline: past })])
+    mount()
+    await waitFor(() => {
+      expect(screen.getByTestId('order-ref').textContent).toBe('LP-LATE')
+    })
+    expect(screen.queryByTestId('attest-panel')).toBeNull()
+    expect(screen.queryByTestId('attest-fiat-paid')).toBeNull()
   })
 
   it('refuses to submit without a bank reference, so an attestation always carries what was checked', async () => {

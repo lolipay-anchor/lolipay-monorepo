@@ -102,8 +102,14 @@ export const getAdminOrders = (c: ApiClient, status?: OrderStatus) =>
 export const getAdminOrderRisk = (c: ApiClient, id: string) =>
   c.request<OrderRisk>('GET', `/admin/orders/${id}/risk`)
 
+export interface AttestFiatPaidResult {
+  orderId: string
+  submission: string
+  txHash?: string
+}
+
 export const attestFiatPaid = (c: ApiClient, id: string, evidence: string) =>
-  c.request<Order>('POST', `/admin/orders/${encodeURIComponent(id)}/attest`, { evidence })
+  c.request<AttestFiatPaidResult>('POST', `/admin/orders/${id}/attest`, { evidence })
 
 export const getMetricsOverview = (c: ApiClient, range: MetricsRange) =>
   c.request<MetricsOverview>('GET', `/admin/metrics/overview?range=${encodeURIComponent(range)}`)
