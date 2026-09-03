@@ -1,4 +1,4 @@
-import { Account, Asset, Contract, Keypair, Networks, Operation, Transaction, TransactionBuilder } from '@stellar/stellar-sdk';
+import { Account, Address, Asset, Contract, Keypair, Networks, Operation, Transaction, TransactionBuilder, nativeToScVal } from '@stellar/stellar-sdk';
 import { createHash } from 'crypto';
 import {
   TESTNET_PASSPHRASE,
@@ -26,12 +26,17 @@ function challengeFrom(server: Keypair, client: string, passphrase = Networks.TE
   return tx.toXdr();
 }
 
-function escrowCall(source: string, fn: string, contract = ESCROW): Transaction {
+const TRADE = 'ab'.repeat(32);
+
+function escrowCall(source: string, fn: string, contract = ESCROW, args: any[] = [nativeToScVal(Buffer.from(TRADE, 'hex'))]): Transaction {
   return new TransactionBuilder(new Account(source, '1'), { fee: '100', networkPassphrase: Networks.TESTNET })
-    .addOperation(new Contract(contract).call(fn))
+    .addOperation(new Contract(contract).call(fn, ...args))
     .setTimeout(30)
     .build();
 }
+
+const addr = (g: string) => nativeToScVal(new Address(g), { type: 'address' });
+const bytes = (hex: string) => nativeToScVal(Buffer.from(hex, 'hex'));
 
 describe('the SEP-24 fixture driver, its pure parts', () => {
   it('signs a SEP-53 nonce exactly the way the coordinator verifies it', () => {
@@ -67,16 +72,37 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
   });
 
   it('signs an escrow call only when it is sourced on the signer, invokes the named contract, and calls the named function', () => {
-    expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'create_trade'), kp.publicKey(), ESCROW, 'create_trade')).not.toThrow();
-    expect(() => assertEscrowCall(escrowCall(Keypair.random().publicKey(), 'create_trade'), kp.publicKey(), ESCROW, 'create_trade')).toThrow(/source/);
+    expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'confirm_and_release'), kp.publicKey(), ESCROW, 'confirm_and_release')).not.toThrow();
+    expect(() => assertEscrowCall(escrowCall(Keypair.random().publicKey(), 'confirm_and_release'), kp.publicKey(), ESCROW, 'confirm_and_release')).toThrow(/source/);
     expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'confirm_and_release'), kp.publicKey(), ESCROW, 'create_trade')).toThrow(/function/);
     const other = 'CAVJAMGCIBSMSA6Q3JQYHAF3CGWTM4XQNZ3TJHUWSU5NISHK6UHRHA3N';
-    expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'create_trade', other), kp.publicKey(), ESCROW, 'create_trade')).toThrow(/contract/);
+    expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'confirm_and_release', other), kp.publicKey(), ESCROW, 'confirm_and_release')).toThrow(/contract/);
+    expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'create_trade'), kp.publicKey(), ESCROW, 'create_trade')).toThrow(/at least 4/);
     const payment = new TransactionBuilder(new Account(kp.publicKey(), '1'), { fee: '100', networkPassphrase: Networks.TESTNET })
       .addOperation(Operation.payment({ destination: Keypair.random().publicKey(), asset: Asset.native(), amount: '1' }))
       .setTimeout(30)
       .build();
-    expect(() => assertEscrowCall(payment, kp.publicKey(), ESCROW, 'create_trade')).toThrow(/invokeHostFunction/);
+    expect(() => assertEscrowCall(payment, kp.publicKey(), ESCROW, 'confirm_and_release')).toThrow(/invokeHostFunction/);
+  });
+
+  it('pins the arguments a wallet would show: the trade, the provider, the recipient, the caller', () => {
+    const lp = kp.publicKey();
+    const demo = Keypair.random().publicKey();
+    const other = Keypair.random().publicKey();
+    const create = (provider: string, recipient: string) =>
+      escrowCall(lp, 'create_trade', ESCROW, [bytes(TRADE), addr(provider), addr(recipient), addr(lp), nativeToScVal(1n, { type: 'i128' })]);
+    expect(assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { provider: lp, recipient: demo })).toBe(TRADE);
+    expect(() => assertEscrowCall(create(lp, other), lp, ESCROW, 'create_trade', { provider: lp, recipient: demo })).toThrow(/recipient/);
+    expect(() => assertEscrowCall(create(other, demo), lp, ESCROW, 'create_trade', { provider: lp, recipient: demo })).toThrow(/provider/);
+
+    const mark = (caller: string, trade = TRADE) => escrowCall(demo, 'mark_fiat_paid', ESCROW, [bytes(trade), addr(caller)]);
+    expect(assertEscrowCall(mark(demo), demo, ESCROW, 'mark_fiat_paid', { tradeIdHex: TRADE })).toBe(TRADE);
+    expect(() => assertEscrowCall(mark(other), demo, ESCROW, 'mark_fiat_paid', { tradeIdHex: TRADE })).toThrow(/caller/);
+    expect(() => assertEscrowCall(mark(demo, 'cd'.repeat(32)), demo, ESCROW, 'mark_fiat_paid', { tradeIdHex: TRADE })).toThrow(/names trade/);
+
+    const release = (trade = TRADE) => escrowCall(lp, 'confirm_and_release', ESCROW, [bytes(trade)]);
+    expect(assertEscrowCall(release(), lp, ESCROW, 'confirm_and_release', { tradeIdHex: TRADE })).toBe(TRADE);
+    expect(() => assertEscrowCall(release('cd'.repeat(32)), lp, ESCROW, 'confirm_and_release', { tradeIdHex: TRADE })).toThrow(/names trade/);
   });
 
   it('picks exactly the fresh MATCHED order for the demo account, never a stale one', () => {

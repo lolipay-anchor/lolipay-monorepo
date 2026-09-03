@@ -2,7 +2,7 @@ import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
-import { Address, Keypair, StellarToml, Transaction, WebAuth } from '@stellar/stellar-sdk';
+import { Address, Keypair, StellarToml, Transaction, WebAuth, scValToNative } from '@stellar/stellar-sdk';
 import { Server } from '@stellar/stellar-sdk/rpc';
 
 export const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015';
@@ -47,7 +47,19 @@ export function signSep10Challenge(
   return tx.toXdr();
 }
 
-export function assertEscrowCall(tx: Transaction, signer: string, contractId: string, fn: string): void {
+export interface EscrowCallExpectation {
+  tradeIdHex?: string;
+  provider?: string;
+  recipient?: string;
+}
+
+export function assertEscrowCall(
+  tx: Transaction,
+  signer: string,
+  contractId: string,
+  fn: string,
+  expect: EscrowCallExpectation = {},
+): string {
   if (tx.source !== signer) throw new Error(`transaction source ${tx.source} is not the signer ${signer}`);
   if (tx.operations.length !== 1) throw new Error(`expected exactly 1 operation, got ${tx.operations.length}`);
   const op = tx.operations[0];
@@ -58,6 +70,28 @@ export function assertEscrowCall(tx: Transaction, signer: string, contractId: st
   if (target !== contractId) throw new Error(`expected contract ${contractId}, got ${target}`);
   const name = call.functionName.toString();
   if (name !== fn) throw new Error(`expected function "${fn}", got "${name}"`);
+  const args = call.args;
+  if (args.length < 1) throw new Error(`${fn} carries no trade id`);
+  const tradeIdHex = Buffer.from(scValToNative(args[0]) as Uint8Array).toString('hex');
+  if (expect.tradeIdHex && tradeIdHex !== expect.tradeIdHex) {
+    throw new Error(`${fn} names trade ${tradeIdHex}, not ${expect.tradeIdHex}`);
+  }
+  if (fn === 'create_trade') {
+    if (args.length < 4) throw new Error(`create_trade carries ${args.length} arguments, expected at least 4`);
+    const provider = Address.fromScVal(args[1]).toString();
+    const recipient = Address.fromScVal(args[2]).toString();
+    if (expect.provider && provider !== expect.provider) throw new Error(`create_trade names provider ${provider}, not ${expect.provider}`);
+    if (expect.recipient && recipient !== expect.recipient) throw new Error(`create_trade names recipient ${recipient}, not ${expect.recipient}`);
+  }
+  if (fn === 'mark_fiat_paid') {
+    if (args.length !== 2) throw new Error(`mark_fiat_paid carries ${args.length} arguments, expected 2`);
+    const caller = Address.fromScVal(args[1]).toString();
+    if (caller !== signer) throw new Error(`mark_fiat_paid names caller ${caller}, not the signer ${signer}`);
+  }
+  if (fn === 'confirm_and_release' && args.length !== 1) {
+    throw new Error(`confirm_and_release carries ${args.length} arguments, expected 1`);
+  }
+  return tradeIdHex;
 }
 
 export interface AssignmentOrder {
@@ -295,7 +329,7 @@ async function assertScreened(id: string, cookie: string): Promise<void> {
       [
         'The demo account has no screened identity yet.',
         vendorUrl
-          ? `Complete the verification at:\n  ${vendorUrl}\nthen re-run.`
+          ? `Complete the verification at:\n  ${vendorUrl}\nthen re-run. (Whoever opens that link can submit documents into the demo identity; do not archive it.)`
           : `The interactive page shows "${screen}"; open the deposit in a browser to see why, then re-run.`,
       ].join('\n'),
     );
@@ -314,10 +348,16 @@ async function xdrFor(jwt: () => Promise<string>, orderId: string, leg: string):
   return json(await fetch(`${API}/orders/${orderId}/tx/${leg}`, { headers: bearer(await jwt()) }), `tx/${leg}`);
 }
 
-async function signAndSubmit(kp: Keypair, built: { xdr: string; networkPassphrase: string }, contractId: string, fn: string): Promise<string> {
+async function signAndSubmit(
+  kp: Keypair,
+  built: { xdr: string; networkPassphrase: string },
+  contractId: string,
+  fn: string,
+  expect: EscrowCallExpectation = {},
+): Promise<{ hash: string; tradeIdHex: string }> {
   assertTestnet(built.networkPassphrase);
   const tx = new Transaction(built.xdr, TESTNET_PASSPHRASE);
-  assertEscrowCall(tx, kp.publicKey(), contractId, fn);
+  const tradeIdHex = assertEscrowCall(tx, kp.publicKey(), contractId, fn, expect);
   tx.sign(kp);
   const server = new Server(RPC_URL);
   const sent = await server.sendTransaction(tx);
@@ -327,7 +367,7 @@ async function signAndSubmit(kp: Keypair, built: { xdr: string; networkPassphras
   const until = Date.now() + POLL_LIMIT_MS;
   while (Date.now() < until) {
     const got = await server.getTransaction(sent.hash);
-    if (got.status === 'SUCCESS') return sent.hash;
+    if (got.status === 'SUCCESS') return { hash: sent.hash, tradeIdHex };
     if (got.status === 'FAILED') throw new Error(`transaction ${sent.hash} failed on chain`);
     await new Promise((r) => setTimeout(r, 3_000));
   }
@@ -363,10 +403,13 @@ async function depositToFunded(a: Actors) {
   await postForm(id, 'amount', cookie, { fiat_amount: DEMO_IDR });
   const order = await freshOrderFor(a.lpJwt, a.demo.publicKey(), t0);
   console.log(`deposit ${id}: order ${order.id} ${order.status}, created ${order.created_at}`);
-  const funded = await signAndSubmit(a.lp, await xdrFor(a.lpJwt, order.id, 'create-trade'), a.escrow, 'create_trade');
-  console.log(`  escrow funded by the provider: ${funded}`);
+  const funded = await signAndSubmit(a.lp, await xdrFor(a.lpJwt, order.id, 'create-trade'), a.escrow, 'create_trade', {
+    provider: a.lp.publicKey(),
+    recipient: a.demo.publicKey(),
+  });
+  console.log(`  escrow funded by the provider: ${funded.hash} (trade ${funded.tradeIdHex})`);
   await waitForSep24(a.demoSep10, id, 'pending_user_transfer_start');
-  return { id, orderId: order.id, createdAt: order.created_at };
+  return { id, orderId: order.id, createdAt: order.created_at, tradeIdHex: funded.tradeIdHex };
 }
 
 function writeConfig(cfg: unknown): void {
@@ -400,9 +443,15 @@ async function main(): Promise<void> {
   const stop = await readyLp(a.lpJwt, lp.publicKey());
   try {
     const first = await depositToFunded(a);
-    const paid = await signAndSubmit(demo, await xdrFor(a.demoJwt, first.orderId, 'mark-paid'), escrow, 'mark_fiat_paid');
-    console.log(`  rupiah marked paid by the depositor: ${paid}`);
-    const released = await signAndSubmit(lp, await xdrFor(a.lpJwt, first.orderId, 'confirm-release'), escrow, 'confirm_and_release');
+    const paid = await signAndSubmit(demo, await xdrFor(a.demoJwt, first.orderId, 'mark-paid'), escrow, 'mark_fiat_paid', {
+      tradeIdHex: first.tradeIdHex,
+    });
+    console.log(`  rupiah marked paid by the depositor: ${paid.hash}`);
+    const released = (
+      await signAndSubmit(lp, await xdrFor(a.lpJwt, first.orderId, 'confirm-release'), escrow, 'confirm_and_release', {
+        tradeIdHex: first.tradeIdHex,
+      })
+    ).hash;
     console.log(`  escrow released by the provider: ${released}`);
     let done = await waitForSep24(a.demoSep10, first.id, 'completed');
     for (let i = 0; i < 6 && !done.stellar_transaction_id; i++) {
