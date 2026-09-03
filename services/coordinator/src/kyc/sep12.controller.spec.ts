@@ -5,6 +5,6 @@ describe('the endpoint that spends money carries a limit of its own', () => {
     const ttl = Reflect.getMetadata('THROTTLER:TTLdefault', Sep12Controller.prototype.put);
     const limit = Reflect.getMetadata('THROTTLER:LIMITdefault', Sep12Controller.prototype.put);
     expect(ttl).toBe(3_600_000);
-    expect(limit).toBe(10);
+    expect(limit).toBe(40);
   });
 });

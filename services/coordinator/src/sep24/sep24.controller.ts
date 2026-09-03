@@ -80,7 +80,7 @@ export class Sep24Controller {
   }
 
   @Post('transactions/deposit/interactive')
-  @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
+  @Throttle({ default: { ttl: 3_600_000, limit: 60 } })
   @UseInterceptors(AnyFilesInterceptor({ limits: { files: 0, fieldSize: 4096, fields: 40 } }))
   @HttpCode(200)
   @UseGuards(Sep24AuthGuard)
@@ -95,7 +95,7 @@ export class Sep24Controller {
   }
 
   @Post('transactions/withdraw/interactive')
-  @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
+  @Throttle({ default: { ttl: 3_600_000, limit: 60 } })
   @UseInterceptors(AnyFilesInterceptor({ limits: { files: 0, fieldSize: 4096, fields: 40 } }))
   @HttpCode(200)
   @UseGuards(Sep24AuthGuard)
@@ -164,7 +164,7 @@ export class Sep24Controller {
   @UseFilters(InteractiveErrorFilter)
   @Post('interactive/:id/identity')
   @Header('cross-origin-opener-policy', 'unsafe-none')
-  @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
+  @Throttle({ default: { ttl: 3_600_000, limit: 60 } })
   @Header('content-type', 'text/html; charset=utf-8')
   @Header('cache-control', 'no-store')
   async identity(
@@ -191,7 +191,7 @@ export class Sep24Controller {
   @UseFilters(InteractiveErrorFilter)
   @Post('interactive/:id/amount')
   @Header('cross-origin-opener-policy', 'unsafe-none')
-  @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
+  @Throttle({ default: { ttl: 3_600_000, limit: 60 } })
   @Header('cache-control', 'no-store')
   async amount(
     @Req() req: any,
