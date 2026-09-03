@@ -165,7 +165,6 @@ export class Sep24Controller {
   @Post('interactive/:id/identity')
   @Header('cross-origin-opener-policy', 'unsafe-none')
   @Throttle({ default: { ttl: 3_600_000, limit: 40 } })
-  @Header('content-type', 'text/html; charset=utf-8')
   @Header('cache-control', 'no-store')
   async identity(
     @Req() req: any,

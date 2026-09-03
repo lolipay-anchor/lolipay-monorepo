@@ -324,7 +324,7 @@ describe('handing the depositor to the vendor, and finding the way back', () => 
 
   const http = () => request(app.getHttpServer());
 
-  it('offers a link rather than redirecting across origins, which the page policy forbids', async () => {
+  it('sends the browser back to its own page after the identity form, never to the vendor origin', async () => {
     const kp = Keypair.random();
     const jwt = await anchorToken(app, kp);
     const opened = await http()
@@ -347,11 +347,8 @@ describe('handing the depositor to the vendor, and finding the way back', () => 
         id_type: 'id_card',
         id_country_code: 'IDN',
       });
-    expect([200, 302]).toContain(res.status);
-    if (res.status === 200) {
-      expect(res.headers['content-type']).toMatch(/text\/html/);
-      expect(res.text).toMatch(/<a href=/);
-    }
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe(`/sep24/interactive/${id}`);
   });
 
   it('shows a way back to verification while waiting, so a closed tab is not a dead end', async () => {
