@@ -155,7 +155,7 @@ describe('the operator can attest that rupiah arrived, from the orders page', ()
 
   it('counts the attestation window from the earlier of the confirm deadline and the paid deadline plus the grace hour', async () => {
     const now = Math.floor(Date.now() / 1000)
-    vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder({ pay_deadline: now + 600, confirm_deadline: now + 7200 })])
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder({ pay_deadline: now + 630, confirm_deadline: now + 7200 })])
     mount()
     await waitFor(() => screen.getByTestId('attest-panel'))
     expect(screen.getByTestId('attest-panel').textContent).toContain('1h 10m')

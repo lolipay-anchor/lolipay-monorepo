@@ -8,7 +8,7 @@ import { getRate, getMarkets, createQuote, createOrder, getOrders, getOrder, can
   getCreateTradeTx, getConfirmReleaseTx,
   uploadProof, uploadDisputeEvidence, postDispute,
   downloadOrderProof, downloadDisputeEvidence, getMyProfile, getAdminOrderRisk,
-  getMetricsOverview } from '../endpoints'
+  getMetricsOverview, attestFiatPaid } from '../endpoints'
 import type { Rate, Market, Quote, Order, CreateOrderResponse, TxEnvelope,
   Lp, LpMe, LpEarnings, AdminConfig, Assignment, Eligibility, PostDisputeResponse,
   UserProfile, OrderRisk, MetricsOverview } from '../types'
@@ -22,6 +22,18 @@ describe('endpoints', () => {
     const client = new ApiClient({ baseUrl: 'https://api.test', getToken: () => null, setToken: () => {} })
     return { client, fetchMock }
   }
+
+  it('attestFiatPaid: POSTs the evidence to the order path with the id encoded, so a hostile id cannot reach another route', async () => {
+    const { client, fetchMock } = makeClient()
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ orderId: 'a/b#c', submission: 'SUCCESS' }) })
+
+    await attestFiatPaid(client, 'a/b#c', 'BCA 12345')
+
+    const [url, opts] = fetchMock.mock.calls[0]
+    expect(url).toBe('https://api.test/admin/orders/a%2Fb%23c/attest')
+    expect(opts.method).toBe('POST')
+    expect(JSON.parse(opts.body)).toEqual({ evidence: 'BCA 12345' })
+  })
 
   it('getRate: GETs /rate?fiat=IDR and returns Rate object', async () => {
     const { client, fetchMock } = makeClient()
