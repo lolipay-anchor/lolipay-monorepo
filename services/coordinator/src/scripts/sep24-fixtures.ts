@@ -55,6 +55,7 @@ export interface EscrowCallExpectation {
   tradeIdHex?: string;
   provider?: string;
   recipient?: string;
+  confirmer?: string;
   lpWallet?: string;
   maxUsdcStroops?: bigint;
   usdcStroops?: bigint;
@@ -70,6 +71,7 @@ const CREATE_TRADE_PINS = Object.keys({
   tradeIdHex: 1,
   provider: 1,
   recipient: 1,
+  confirmer: 1,
   lpWallet: 1,
   usdcStroops: 1,
   maxUsdcStroops: 1,
@@ -87,15 +89,17 @@ export function createTradeExpectation(order: FundableOrder, lp: string, demo: s
   if (BigInt(order.fiat_amount) !== fiatAmount) {
     throw new Error(`assignment ${order.id} quotes fiat_amount ${order.fiat_amount}, not the ${demoIdr} the driver asked for`);
   }
+  if (order.fiat_currency !== 'IDR') throw new Error(`assignment ${order.id} quotes fiat_currency ${order.fiat_currency}, not the IDR this driver funds`);
   return {
     tradeIdHex: order.trade_id,
     provider: lp,
     recipient: demo,
+    confirmer: lp,
     lpWallet: lp,
     usdcStroops: BigInt(order.usdc_amount),
     maxUsdcStroops: MAX_DEMO_USDC_STROOPS,
     fiatAmount,
-    fiatCurrency: order.fiat_currency,
+    fiatCurrency: 'IDR',
     lpFeeBps: order.lp_fee_bps,
     payDeadline: BigInt(order.pay_deadline),
     confirmDeadline: BigInt(order.confirm_deadline),
@@ -133,10 +137,11 @@ export function assertEscrowCall(
     case 'create_trade': {
         if (args.length !== 15) throw new Error(`create_trade carries ${args.length} arguments, expected 15`);
         const unpinned = CREATE_TRADE_PINS.filter((k) => expect[k] === undefined);
-        if (unpinned.length > 0) throw new Error(`create_trade expectation carries no ${unpinned.join(', ')}; refusing to sign what the guard cannot pin`);
+        if (unpinned.length > 0) throw new Error(`create_trade expectation carries no ${unpinned.join(', ')}; refusing to sign with a pin the guard does not hold`);
         const pins = expect as Required<EscrowCallExpectation>;
         const provider = Address.fromScVal(args[1]).toString();
         const recipient = Address.fromScVal(args[2]).toString();
+        const confirmer = Address.fromScVal(args[3]).toString();
         const amountArg = args[4];
         if (amountArg.type !== 'scvI128') throw new Error(`create_trade amount is ${amountArg.type}, not scvI128`);
         const usdcStroops = scValToNative(amountArg) as bigint;
@@ -146,6 +151,7 @@ export function assertEscrowCall(
         if (flowArg.type !== 'scvU32' || scValToNative(flowArg) !== 0) throw new Error('create_trade flow is not the deposit discriminant (u32 0), the only flow this driver funds');
         if (provider !== pins.provider) throw new Error(`create_trade names provider ${provider}, not ${pins.provider}`);
         if (recipient !== pins.recipient) throw new Error(`create_trade names recipient ${recipient}, not ${pins.recipient}`);
+        if (confirmer !== pins.confirmer) throw new Error(`create_trade names confirmer ${confirmer}, not ${pins.confirmer}`);
         if (lpWallet !== pins.lpWallet) throw new Error(`create_trade pays the LP fee to ${lpWallet}, not ${pins.lpWallet}`);
         if (usdcStroops > pins.maxUsdcStroops) {
           throw new Error(`create_trade escrows ${usdcStroops} stroops, above the demo ceiling of ${pins.maxUsdcStroops}`);
@@ -264,7 +270,7 @@ export function assembleSepConfig(input: {
 const API = process.env.SEP24_API ?? 'https://api.lolipay.app';
 const HOME_DOMAIN = process.env.SEP24_HOME_DOMAIN ?? 'lolipay.app';
 const DEMO_IDR = process.env.SEP24_DEMO_IDR ?? '200000';
-const DEMO_IDR_DIGITS = DEMO_IDR.replace(/[^0-9]/g, '');
+const DEMO_IDR_DIGITS = String(BigInt(DEMO_IDR.replace(/[^0-9]/g, '')));
 const RPC_URL = process.env.STELLAR_RPC_URL ?? 'https://soroban-testnet.stellar.org';
 const HEARTBEAT_MS = 30_000;
 const POLL_MS = 5_000;
@@ -516,15 +522,18 @@ async function waitForSep24(
   id: string,
   status: string,
   amountIn: string,
-): Promise<{ status: string; stellar_transaction_id: string | null; amount_in: string | null }> {
+): Promise<{ status: string; stellar_transaction_id: string | null; amount_in: string | null; amount_in_asset: string | null }> {
   const until = Date.now() + POLL_LIMIT_MS;
   while (Date.now() < until) {
-    const { transaction } = await json<{ transaction: { status: string; stellar_transaction_id: string | null; amount_in: string | null } }>(
+    const { transaction } = await json<{
+      transaction: { status: string; stellar_transaction_id: string | null; amount_in: string | null; amount_in_asset: string | null };
+    }>(
       await fetch(`${API}/sep24/transaction?id=${id}`, { headers: bearer(await demoSep10()) }),
       'sep24/transaction',
     );
     if (transaction.status === status) {
       if (transaction.amount_in !== amountIn) throw new Error(`transaction ${id} records amount_in ${transaction.amount_in}, not the ${amountIn} the driver asked for`);
+      if (transaction.amount_in_asset !== 'iso4217:IDR') throw new Error(`transaction ${id} records amount_in_asset ${transaction.amount_in_asset}, not iso4217:IDR`);
       return transaction;
     }
     await new Promise((r) => setTimeout(r, POLL_MS));
@@ -573,6 +582,7 @@ function writeConfig(cfg: unknown): void {
 }
 
 async function main(): Promise<void> {
+  if (DEMO_IDR_DIGITS === '0') throw new Error(`SEP24_DEMO_IDR "${DEMO_IDR}" carries no rupiah digits`);
   const escrow = process.env.ESCROW_CONTRACT_ID;
   if (!escrow) throw new Error('ESCROW_CONTRACT_ID is not set; the driver refuses to sign a call to an unnamed contract');
   const demo = identity(process.env.SEP24_DEMO_IDENTITY ?? 'sep24-demo');
