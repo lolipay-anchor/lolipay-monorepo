@@ -1,6 +1,6 @@
 import { Sep24Service } from './sep24.service';
 
-function harness() {
+function harness(flow: 'TOP_UP' | 'WITHDRAW' = 'TOP_UP') {
   const prisma: any = {
     sep24Transaction: {
       findUnique: jest.fn(async () => ({
@@ -9,7 +9,7 @@ function harness() {
         personId: 'person-1',
         orderId: null,
         startedAt: new Date(),
-        flow: 'TOP_UP',
+        flow,
         order: null,
       })),
       updateMany: jest.fn(async () => ({ count: 1 })),
@@ -47,13 +47,34 @@ describe('the amount step reads rupiah the way an Indonesian types it', () => {
   it.each([
     ['two form fields', ['200000', '000']],
     ['a JSON object', { toString: 'x' }],
-    ['a boolean', true],
-  ])('refuses an amount that is not one string or number: %s', async (_label, raw) => {
+    ['a JSON array of one', ['200000']],
+    ['a JSON number', 200000],
+  ])('refuses an amount that is not one string: %s', async (_label, raw) => {
     const { svc, cfg, rate } = harness();
     const { mintInteractiveToken } = await import('./interactive-token');
     const token = mintInteractiveToken(cfg, 'tx-1', 'GABC');
     await expect(svc.submitAmount('tx-1', token, raw as any)).rejects.toThrow(/name an amount/);
     expect(rate.createQuote).not.toHaveBeenCalled();
+  });
+
+  it('refuses more than eighteen digits before anything is quoted', async () => {
+    const { svc, cfg, rate } = harness();
+    const { mintInteractiveToken } = await import('./interactive-token');
+    const token = mintInteractiveToken(cfg, 'tx-1', 'GABC');
+    await expect(svc.submitAmount('tx-1', token, '9'.repeat(19))).rejects.toThrow(/name an amount/);
+    expect(rate.createQuote).not.toHaveBeenCalled();
+  });
+
+  it('on a withdrawal, refuses a bank account that is not one string, and accepts one that is', async () => {
+    const refused = harness('WITHDRAW');
+    const { mintInteractiveToken } = await import('./interactive-token');
+    const token = mintInteractiveToken(refused.cfg, 'tx-1', 'GABC');
+    await expect(refused.svc.submitAmount('tx-1', token, '200000', { toString: 'x' } as any)).rejects.toThrow(/bank account/);
+    await expect(refused.svc.submitAmount('tx-1', token, '200000', ['BCA 1', 'BCA 2'] as any)).rejects.toThrow(/bank account/);
+    expect(refused.rate.createQuote).not.toHaveBeenCalled();
+    const honest = harness('WITHDRAW');
+    await honest.svc.submitAmount('tx-1', mintInteractiveToken(honest.cfg, 'tx-1', 'GABC'), '200000', 'BCA 1234567890');
+    expect(honest.rate.createQuote).toHaveBeenCalledWith('GABC', 'WITHDRAW', 'BANK', { fiatAmount: 200000n });
   });
 
   it('refuses zero rupiah as a bad request rather than letting the quote blow up', async () => {

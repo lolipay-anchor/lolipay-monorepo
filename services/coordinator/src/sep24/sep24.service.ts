@@ -454,7 +454,7 @@ export class Sep24Service {
       );
     }
 
-    if (typeof rawAmount !== 'string' && typeof rawAmount !== 'number') {
+    if (typeof rawAmount !== 'string') {
       throw new BadRequestException('name an amount in rupiah');
     }
     const digits = fiatDigits(rawAmount);
@@ -464,6 +464,9 @@ export class Sep24Service {
 
     let userPaymentMethod: string | undefined;
     if (row.flow === 'WITHDRAW') {
+      if (rawPaymentMethod !== undefined && typeof rawPaymentMethod !== 'string') {
+        throw new BadRequestException('name the bank account this anchor should pay the rupiah into');
+      }
       userPaymentMethod = String(rawPaymentMethod ?? '').trim();
       if (userPaymentMethod.length === 0) {
         throw new BadRequestException('name the bank account this anchor should pay the rupiah into');
