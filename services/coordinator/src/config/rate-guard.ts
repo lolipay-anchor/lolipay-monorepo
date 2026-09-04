@@ -10,9 +10,9 @@ export function spreadCoversPriceDeviation(
   );
 }
 
-export function platformFeeFitsSpread(platformFeeBps: number, spreadBps: number): string | null {
-  if (platformFeeBps > spreadBps) {
-    return `platformFeeBps (${platformFeeBps}) must not exceed Config.spreadBps (${spreadBps}): on a withdrawal the platform fee is paid out of the spread and the SEP-24 record declares no fee, so a fee above the spread would drain the provider on every trade`;
+export function platformFeeFitsSpread(platformFeeBps: number, spreadBps: number, priceDeviationMaxBps: number): string | null {
+  if (platformFeeBps + priceDeviationMaxBps >= spreadBps) {
+    return `platformFeeBps (${platformFeeBps}) plus priceDeviationMaxBps (${priceDeviationMaxBps}) must stay strictly below Config.spreadBps (${spreadBps}): on a withdrawal the provider keeps the spread less the platform fee, the SEP-24 record declares no fee, and one accepted price move of up to the deviation band must still leave the provider something`;
   }
   return null;
 }

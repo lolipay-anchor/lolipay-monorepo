@@ -287,11 +287,15 @@ describe('AdminService.updateConfigTransactional', () => {
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
-  it('accepts a platformFeeBps patch equal to the spread', async () => {
+  it('accepts a platformFeeBps patch that leaves a basis point after the deviation band, and refuses one that does not', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
-    await svc.updateConfigTransactional({ platformFeeBps: CURRENT.spreadBps } as any, 'GADMINTEST');
-    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { platformFeeBps: CURRENT.spreadBps } });
+    const room = CURRENT.spreadBps - makeCfg().priceDeviationMaxBps - 1;
+    await svc.updateConfigTransactional({ platformFeeBps: room } as any, 'GADMINTEST');
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { platformFeeBps: room } });
+    await expect(
+      svc.updateConfigTransactional({ platformFeeBps: room + 1 } as any, 'GADMINTEST'),
+    ).rejects.toThrow('PLATFORM_FEE_EXCEEDS_SPREAD');
   });
 
   it('rejects a spreadBps patch that no longer covers the price-deviation allowance', async () => {
@@ -304,12 +308,12 @@ describe('AdminService.updateConfigTransactional', () => {
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
-  it('accepts a spreadBps patch that keeps a cushion above the deviation allowance', async () => {
+  it('accepts a spreadBps patch that keeps a cushion above the deviation allowance and the stored platform fee', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
-    await svc.updateConfigTransactional({ spreadBps: 101 } as any, 'GADMINTEST');
-    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { spreadBps: 101 } });
+    await svc.updateConfigTransactional({ spreadBps: 131 } as any, 'GADMINTEST');
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { spreadBps: 131 } });
   });
 
   it('does not block an unrelated config change when the stored spread already violates INV-30.1', async () => {

@@ -120,6 +120,9 @@ export class AdminController {
       if (typeof err?.message === 'string' && err.message.startsWith('SPREAD_TOO_NARROW: ')) {
         throw new BadRequestException(err.message.slice('SPREAD_TOO_NARROW: '.length));
       }
+      if (typeof err?.message === 'string' && err.message.startsWith('PLATFORM_FEE_EXCEEDS_SPREAD: ')) {
+        throw new BadRequestException(err.message.slice('PLATFORM_FEE_EXCEEDS_SPREAD: '.length));
+      }
       if (typeof err?.message === 'string' && err.message.startsWith('WINDOW_BOUNDS_INVALID: ')) {
         throw new BadRequestException(
           `${err.message.slice('WINDOW_BOUNDS_INVALID: '.length)} — the escrow contract would reject every order created with these windows`,

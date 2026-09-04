@@ -501,6 +501,15 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
     expect(res.body.message).toMatch(/minOrder must be less than maxOrder/i);
   });
 
+  it('PATCH /admin/config surfaces AdminService PLATFORM_FEE_EXCEEDS_SPREAD as 400 with the reason, never as a 500', async () => {
+    mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
+      new Error('PLATFORM_FEE_EXCEEDS_SPREAD: platformFeeBps (60) plus priceDeviationMaxBps (100) must stay strictly below Config.spreadBps (150)'),
+    );
+    const res = await request(app.getHttpServer()).patch('/admin/config').send({ platformFeeBps: 60 }).expect(400);
+    expect(res.body.message).toMatch(/platformFeeBps \(60\)/);
+    expect(res.body.message).not.toMatch(/^PLATFORM_FEE_EXCEEDS_SPREAD/);
+  });
+
   it('PATCH /admin/config surfaces AdminService SPREAD_TOO_NARROW as 400 without the error prefix', async () => {
     mockAdminService.updateConfigTransactional.mockRejectedValue(
       new Error('SPREAD_TOO_NARROW: PRICE_DEVIATION_MAX_BPS (100) must stay strictly below Config.spreadBps (100) — INV-30.1'),

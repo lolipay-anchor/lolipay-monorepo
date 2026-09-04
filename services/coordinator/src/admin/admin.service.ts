@@ -216,15 +216,6 @@ export class AdminService {
       if (effectivePlatformFee + effectiveLpFee >= 10000) {
         throw new Error('BPS_OVERFLOW');
       }
-      if (patch.platformFeeBps !== undefined || patch.spreadBps !== undefined) {
-        const feeProblem = platformFeeFitsSpread(
-          effectivePlatformFee,
-          patch.spreadBps !== undefined ? patch.spreadBps : (current?.spreadBps ?? 0),
-        );
-        if (feeProblem) {
-          throw new Error(`PLATFORM_FEE_EXCEEDS_SPREAD: ${feeProblem}`);
-        }
-      }
 
 
       const windowProblem = windowsFitTheContract(
@@ -244,6 +235,16 @@ export class AdminService {
         );
         if (spreadProblem) {
           throw new Error(`SPREAD_TOO_NARROW: ${spreadProblem}`);
+        }
+      }
+      if (patch.platformFeeBps !== undefined || patch.spreadBps !== undefined) {
+        const feeProblem = platformFeeFitsSpread(
+          effectivePlatformFee,
+          patch.spreadBps !== undefined ? patch.spreadBps : (current?.spreadBps ?? 0),
+          this.cfg.priceDeviationMaxBps,
+        );
+        if (feeProblem) {
+          throw new Error(`PLATFORM_FEE_EXCEEDS_SPREAD: ${feeProblem}`);
         }
       }
 

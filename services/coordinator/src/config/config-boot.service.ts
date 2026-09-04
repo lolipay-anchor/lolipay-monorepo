@@ -94,7 +94,7 @@ export class ConfigBootService implements OnModuleInit {
     if (problem) {
       throw new Error(`refusing to start: ${problem}`);
     }
-    const feeProblem = platformFeeFitsSpread(row.platformFeeBps, row.spreadBps);
+    const feeProblem = platformFeeFitsSpread(row.platformFeeBps, row.spreadBps, this.cfg.priceDeviationMaxBps);
     if (feeProblem) {
       throw new Error(`refusing to start: ${feeProblem}`);
     }
