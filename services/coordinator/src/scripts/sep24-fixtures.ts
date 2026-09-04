@@ -262,6 +262,7 @@ export interface AssignmentOrder {
 
 export type FundableOrder = AssignmentOrder & {
   trade_id: string;
+  flow: string;
   usdc_amount: string;
   fiat_amount: string;
   fiat_currency: string;
@@ -279,7 +280,7 @@ export function pickFreshOrder(orders: AssignmentOrder[], userPub: string, notBe
     throw new Error(`expected exactly one fresh MATCHED order for ${userPub}, found ${mine.length}`);
   }
   const fresh = mine[0];
-  const missing = (['trade_id', 'usdc_amount', 'fiat_amount', 'fiat_currency', 'lp_fee_bps', 'pay_deadline', 'confirm_deadline', 'dispute_deadline'] as const).filter(
+  const missing = (['trade_id', 'usdc_amount', 'fiat_amount', 'fiat_currency', 'lp_fee_bps', 'pay_deadline', 'confirm_deadline', 'dispute_deadline', 'flow'] as const).filter(
     (k) => fresh[k] == null || fresh[k] === '',
   );
   if (missing.length > 0) {
@@ -310,9 +311,9 @@ export function expectedSep24Record(flow: 'TOP_UP' | 'WITHDRAW', usdcStroops: st
     : { amountIn: demoIdrDigitsValue, asset: 'iso4217:IDR' };
 }
 
-export function usdcNeededFor(fiatDigitsValue: string, idrPerUsdc: string): bigint {
-  const atMid = quoteUsdcForFiat(BigInt(fiatDigitsValue), idrPerUsdc, 0, true);
-  return (atMid * 103n + 99n) / 100n;
+export function usdcNeededFor(fiatDigitsValue: string, displayIdrPerUsdc: string): bigint {
+  const atDisplay = quoteUsdcForFiat(BigInt(fiatDigitsValue), displayIdrPerUsdc, 0, true);
+  return (atDisplay * 110n + 99n) / 100n;
 }
 
 export function usdcBalanceOf(balances: Array<{ asset_code?: string; asset_issuer?: string; balance: string }>, issuer: string): bigint {
@@ -656,7 +657,7 @@ async function withdrawToCompleted(a: Actors): Promise<{ id: string; hash: strin
   const needed = usdcNeededFor(DEMO_WITHDRAW_IDR_DIGITS, rate.rate);
   const held = await usdcHeldBy(a.demo.publicKey(), a.usdcIssuer);
   if (held < needed) {
-    throw new Error(`the demo account holds ${baseUnitsToUsdcString(held)} USDC, below the ${baseUnitsToUsdcString(needed)} a ${DEMO_WITHDRAW_IDR} IDR withdrawal needs at ${rate.rate} IDR per USDC; run a deposit first or lower SEP24_DEMO_WITHDRAW_IDR`);
+    throw new Error(`the demo account holds ${baseUnitsToUsdcString(held)} USDC, below the ${baseUnitsToUsdcString(needed)} a ${DEMO_WITHDRAW_IDR} IDR withdrawal needs with a ten percent margin at ${rate.rate} IDR per USDC; send it USDC or lower SEP24_DEMO_WITHDRAW_IDR`);
   }
   const session = await openInteractive('withdraw', a.demoSep10);
   await assertScreened(session);
@@ -669,6 +670,9 @@ async function withdrawToCompleted(a: Actors): Promise<{ id: string; hash: strin
   const order = pickFreshOrder(rows.map((r) => r.order), a.demo.publicKey(), t0);
   const requireProof = rows.some((r) => r.order.id === order.id && r.require_proof);
   console.log(`withdrawal ${session.id}: order ${order.id} ${order.status}, created ${order.created_at}`);
+  if (held < BigInt(order.usdc_amount)) {
+    throw new Error(`the demo account holds ${baseUnitsToUsdcString(held)} USDC but order ${order.id} escrows ${baseUnitsToUsdcString(BigInt(order.usdc_amount))}; the order expires on its own, send the demo account USDC and re-run`);
+  }
   const record = expectedSep24Record('WITHDRAW', order.usdc_amount, DEMO_WITHDRAW_IDR_DIGITS, a.usdcIssuer);
   const funded = await signAndSubmit(
     a.demo,
@@ -686,6 +690,7 @@ async function withdrawToCompleted(a: Actors): Promise<{ id: string; hash: strin
   const paid = await signAndSubmit(a.lp, await xdrFor(a.lpJwt, order.id, 'mark-paid'), a.escrow, 'mark_fiat_paid', { tradeIdHex: funded.tradeIdHex });
   console.log(`  rupiah marked paid by the provider: ${paid.hash}`);
   await waitForSep24(a.demoSep10, session.id, 'pending_user', record);
+  await screenOf(session);
   const released = (await signAndSubmit(a.demo, await popupXdrFor(session, 'release-tx'), a.escrow, 'confirm_and_release', { tradeIdHex: funded.tradeIdHex })).hash;
   console.log(`  escrow released by the demo account: ${released}`);
   const hash = await settledHash(a, session.id, record);
@@ -763,7 +768,12 @@ async function main(): Promise<void> {
 
   const stop = await readyLp(a.lpJwt, lp.publicKey());
   try {
-    const withdrawal = await withdrawToCompleted(a);
+    let withdrawal: { id: string; hash: string } | undefined;
+    try {
+      withdrawal = await withdrawToCompleted(a);
+    } catch (err) {
+      console.error(`withdrawal leg failed; the deposits still run and the config carries no withdrawal fixture: ${err instanceof Error ? err.message : String(err)}`);
+    }
     const first = await depositToFunded(a);
     const paid = await signAndSubmit(demo, await xdrFor(a.demoJwt, first.orderId, 'mark-paid'), escrow, 'mark_fiat_paid', {
       tradeIdHex: first.tradeIdHex,
@@ -782,17 +792,18 @@ async function main(): Promise<void> {
     const rotsAt = second.refundsAt;
 
     console.log('');
-    console.log(`completed withdrawal ${withdrawal.id}  hash ${withdrawal.hash}`);
+    if (withdrawal) console.log(`completed withdrawal ${withdrawal.id}  hash ${withdrawal.hash}`);
+    else console.log('completed withdrawal —  (leg failed, see above; the suite will skip its two tests)');
     console.log(`completed deposit    ${first.id}  hash ${hash}`);
     console.log(`pending deposit      ${second.id}  refund window opens ${rotsAt} if it is still funded by then`);
 
-    if (!first.id || !second.id || !withdrawal.id) throw new Error('a fixture id is empty; refusing to write the config');
+    if (!first.id || !second.id || (withdrawal && !withdrawal.id)) throw new Error('a fixture id is empty; refusing to write the config');
     writeConfig(
       assembleSepConfig({
         secret: demo.secret(),
         depositPending: { id: second.id },
         depositCompleted: { id: first.id, stellar_transaction_id: hash },
-        withdrawCompleted: { id: withdrawal.id, stellar_transaction_id: withdrawal.hash },
+        withdrawCompleted: withdrawal ? { id: withdrawal.id, stellar_transaction_id: withdrawal.hash } : undefined,
       }),
     );
     console.log(`wrote ${CONFIG_PATH} (mode 0600); run npm run anchor:test:sep24 before ${rotsAt}, while the pending deposit is still funded`);

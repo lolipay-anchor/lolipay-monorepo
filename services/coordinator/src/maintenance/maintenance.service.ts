@@ -106,6 +106,7 @@ export class MaintenanceService {
         text: `at least ${DIVERGENCE_SCAN_LIMIT} cancelled or expired orders are within the divergence window — the scan is truncated and nothing in this family will be reported as cleared until it is not`,
       });
     }
+    const walkPeriods = Math.ceil(candidates.length / AUTO_REFUND_BATCH_SIZE) + 1;
     for (const o of candidates) {
       const contractId = contractIdFor(o, this.cfg);
       let onChain;
@@ -116,6 +117,7 @@ export class MaintenanceService {
         incomplete.add('escrow_divergence');
         continue;
       }
+      try {
       if (!onChain) continue;
       if (onChain.status === 'REFUNDED') continue;
       if (onChain.status === 'FUNDED') {
@@ -129,8 +131,8 @@ export class MaintenanceService {
               ? ['no-signer', 'no refund signer is configured']
               : !inLookback
                 ? ['old', 'it is older than the reconciler lookback, so nothing automatic will ever see it']
-                : nowSecs > refundAt + 2 * RECONCILER_PERIOD_SECS
-                  ? ['missed', 'the refund instant passed more than two reconciler periods ago and the escrow is still funded, so the reconciler did not act']
+                : nowSecs > refundAt + walkPeriods * RECONCILER_PERIOD_SECS
+                  ? ['missed', `the refund instant passed more than ${walkPeriods} reconciler periods ago, longer than a full walk of the pool, and the escrow is still funded, so the reconciler did not act`]
                   : ['reconciler', 'the refund reconciler will return it on its next pass'];
         found.push({
           key: `escrow_divergence:${o.id}`,
@@ -146,6 +148,16 @@ export class MaintenanceService {
         urgency: 'urgent',
         text: `order ${o.id} (trade ${o.tradeId}) is ${o.status} off chain but ${onChain.status} on chain — a human must look at this`,
       });
+      } catch (err) {
+        this.log.warn(`alertOnEscrowDivergence: order ${o.id} could not be described: ${errMsg(err)}`);
+        incomplete.add('escrow_divergence');
+        found.push({
+          key: `escrow_divergence:${o.id}`,
+          fingerprint: `${onChain?.status ?? 'unknown'}:undescribed`,
+          urgency: 'urgent',
+          text: `order ${o.id} (trade ${o.tradeId}) is ${o.status} off chain but ${onChain?.status ?? 'unknown'} on chain and its alert could not be composed: ${errMsg(err)}`,
+        });
+      }
     }
 
     await this.alerts.raise(['escrow_divergence'], found, incomplete);
@@ -454,10 +466,8 @@ export class MaintenanceService {
           continue;
         }
         recovered += 1;
-        await this.prisma.order.updateMany({
-          where: { id: o.id, settlementTxHash: null, settledAt: null },
-          data: { settlementTxHash: result.hash, settledAt: new Date() },
-        });
+        await this.prisma.order.updateMany({ where: { id: o.id, settlementTxHash: null }, data: { settlementTxHash: result.hash } });
+        await this.prisma.order.updateMany({ where: { id: o.id, settledAt: null }, data: { settledAt: new Date() } });
         this.log.log(
           `reconcileOrphanedEscrows: recovered a funded escrow orphaned by a ${o.status} order ${o.id} (hash=${result.hash})`,
         );

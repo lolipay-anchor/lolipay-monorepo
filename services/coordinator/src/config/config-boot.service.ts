@@ -2,6 +2,9 @@ import { Networks } from '@stellar/stellar-sdk';
 import { windowsFitTheContract } from './contract-limits';
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { platformWalletRemedy } from './platform-wallet-remedy';
+import { RPC_TIMEOUT_MS } from '../stellar/stellar-read.service';
+
+export const BOOT_CHAIN_READ_MS = 2 * RPC_TIMEOUT_MS + 1000;
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from './app-config.service';
 import { StellarReadService, withRpcTimeout } from '../stellar/stellar-read.service';
@@ -105,7 +108,7 @@ export class ConfigBootService implements OnModuleInit {
     }
     let chain: { platformFeeBps: number; platformWallet: string } | undefined;
     try {
-      chain = await withRpcTimeout(this.stellar.readEscrowPlatformDefaults(this.cfg.escrowContractId), 'escrow get_config', 6000);
+      chain = await withRpcTimeout(this.stellar.readEscrowPlatformDefaults(this.cfg.escrowContractId), 'escrow get_config', BOOT_CHAIN_READ_MS);
     } catch (err) {
       this.log.warn(`the escrow contract defaults could not be read at boot, so Config.platformFeeBps and platformWallet are unchecked against them until the drift tick runs: ${String(err)}`);
     }

@@ -168,15 +168,17 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     expect(res.text).toMatch(/A fee of 1\.5% is taken from the USDC you receive/);
   });
 
-  it('a paused platform shows no estimate at all, because the next screen would refuse the order', async () => {
+  it('a paused platform shows no estimate and says it is paused, because the next screen would refuse the order', async () => {
+    const before = await prisma.config.findUniqueOrThrow({ where: { id: 1 }, select: { paused: true } });
     await prisma.config.update({ where: { id: 1 }, data: { paused: true } });
     try {
       const { id, token } = await openedWithdrawal(true);
       const res = await screen(id, token);
       expect(res.text).not.toMatch(/1 USDC ≈/);
+      expect(res.text).toMatch(/paused right now/);
       expect(res.text).toMatch(/how much/i);
     } finally {
-      await prisma.config.update({ where: { id: 1 }, data: { paused: false } });
+      await prisma.config.update({ where: { id: 1 }, data: { paused: before.paused } });
     }
   });
 

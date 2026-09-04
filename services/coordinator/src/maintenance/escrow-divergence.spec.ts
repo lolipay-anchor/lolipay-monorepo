@@ -1,6 +1,5 @@
 import 'reflect-metadata';
 import { CronExpression } from '@nestjs/schedule';
-import { SCHEDULE_CRON_OPTIONS } from '@nestjs/schedule/dist/schedule.constants';
 import { MaintenanceService, RECONCILER_PERIOD_SECS } from './maintenance.service';
 
 function make(opts: {
@@ -109,7 +108,7 @@ describe('an order the chain disagrees about reaches a human', () => {
     expect(found[0].fingerprint).toBe('FUNDED:missed');
   });
 
-  it('gives the reconciler two full periods before calling it missed, because one tick can outlast its period when twenty refunds each poll for thirty seconds', async () => {
+  it('gives the reconciler a full walk of the pool plus one period before calling it missed, so a queued orphan is not paged as neglected', async () => {
     const now = Math.floor(Date.now() / 1000);
     const refundAt = now - RECONCILER_PERIOD_SECS - 30;
     const { svc, raise } = make({
@@ -124,8 +123,39 @@ describe('an order the chain disagrees about reaches a human', () => {
     expect(found[0].fingerprint).toBe('FUNDED:reconciler');
   });
 
+  it('scales the walk allowance with the pool: forty-one candidates need four periods before an orphan counts as missed', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const refundAt = now - 3 * RECONCILER_PERIOD_SECS - 30;
+    const filler = Array.from({ length: 40 }, (_, i) => order({ id: `f${i}`, tradeId: `${i}`.padStart(64, '0'), status: 'CANCELLED' }));
+    const { svc, raise, stellar } = make({
+      orders: [order({ status: 'EXPIRED', payDeadline: BigInt(refundAt - 3600), confirmDeadline: BigInt(refundAt) }), ...filler],
+      onChain: { status: 'FUNDED', settledAt: 0 },
+      autoRefund: true,
+      refundConfigured: true,
+    });
+    stellar.getTradeStatusStrict.mockImplementation(async (_c: string, tradeId: string) => (tradeId === 'a'.repeat(64) ? { status: 'FUNDED', settledAt: 0 } : null));
+    await svc.alertOnEscrowDivergence();
+    const found = (raise.mock.calls[0] as any[])[1];
+    expect(found).toHaveLength(1);
+    expect(found[0].fingerprint).toBe('FUNDED:reconciler');
+  });
+
+  it('a row whose alert cannot be composed still reaches a human, and never takes the rest of the family down with it', async () => {
+    const { svc, raise } = make({
+      orders: [order({ id: 'o1', status: 'EXPIRED', confirmDeadline: BigInt('9'.repeat(18)), payDeadline: BigInt('9'.repeat(18)) }), order({ id: 'o2', tradeId: 'b'.repeat(64), status: 'EXPIRED' })],
+      onChain: { status: 'FUNDED', settledAt: 0 },
+      autoRefund: false,
+      refundConfigured: false,
+    });
+    await svc.alertOnEscrowDivergence();
+    const found = (raise.mock.calls[0] as any[])[1];
+    expect(found.map((a: any) => a.key).sort()).toEqual(['escrow_divergence:o1', 'escrow_divergence:o2']);
+    expect(found.find((a: any) => a.key === 'escrow_divergence:o1').text).toMatch(/could not be composed/);
+    expect(found.find((a: any) => a.key === 'escrow_divergence:o2').text).toMatch(/autoRefund is off/);
+  });
+
   it('the period the alert assumes is the cron the reconciler actually runs on', () => {
-    const meta = Reflect.getMetadata(SCHEDULE_CRON_OPTIONS, MaintenanceService.prototype.reconcileOrphanedEscrows);
+    const meta = Reflect.getMetadata('SCHEDULE_CRON_OPTIONS', MaintenanceService.prototype.reconcileOrphanedEscrows);
     expect(meta.cronTime).toBe(CronExpression.EVERY_10_MINUTES);
     expect(RECONCILER_PERIOD_SECS).toBe(600);
   });

@@ -130,10 +130,10 @@ describe('the reconciler walks the whole refundable pool a page at a time and le
     expect(args.orderBy).toEqual([{ createdAt: 'asc' }, { id: 'asc' }]);
     expect(args.where.settlementTxHash).toBeNull();
     expect(args.where.settledAt).toBeNull();
-    expect(args.where.OR).toEqual([
-      { confirmDeadline: { lt: expect.any(BigInt) } },
-      { flow: 'TOP_UP', payDeadline: { lt: expect.any(BigInt) } },
-    ]);
+    const nowSecs = BigInt(Math.floor(Date.now() / 1000));
+    expect(args.where.OR[0].confirmDeadline.lt).toBeGreaterThanOrEqual(nowSecs - 5n);
+    expect(args.where.OR[0].confirmDeadline.lt).toBeLessThanOrEqual(nowSecs);
+    expect(args.where.OR[1]).toEqual({ flow: 'TOP_UP', payDeadline: { lt: args.where.OR[0].confirmDeadline.lt - 3600n } });
     expect(args.where.AND).toBeUndefined();
   });
 
@@ -155,6 +155,9 @@ describe('the reconciler walks the whole refundable pool a page at a time and le
     const { svc, prisma } = make({ orders: [cancelledOrder()], onChain: { status: 'FUNDED', settledAt: 0 } });
     await svc.reconcileOrphanedEscrows();
     const writes = prisma.order.updateMany.mock.calls.map((c: any[]) => c[0]);
-    expect(writes.some((w: any) => w.data.settlementTxHash === 'h1' && w.data.status === undefined && w.where.settledAt === null)).toBe(true);
+    expect(writes).toEqual([
+      { where: { id: 'o1', settlementTxHash: null }, data: { settlementTxHash: 'h1' } },
+      { where: { id: 'o1', settledAt: null }, data: { settledAt: expect.any(Date) } },
+    ]);
   });
 });

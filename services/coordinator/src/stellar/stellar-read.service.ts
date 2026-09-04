@@ -796,7 +796,7 @@ export class StellarReadService {
   }
 }
 
-const RPC_TIMEOUT_MS = 5000;
+export const RPC_TIMEOUT_MS = 5000;
 const STATUS_CACHE_TTL_MS = 4000;
 export function withRpcTimeout<T>(p: Promise<T>, label: string, ms = RPC_TIMEOUT_MS): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;

@@ -219,7 +219,7 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     const me = kp.publicKey();
     const t0 = Date.parse('2026-09-03T05:00:00Z');
     const fresh = {
-      id: 'new', status: 'MATCHED', user_address: me, created_at: '2026-09-03T05:00:10Z', trade_id: TRADE, usdc_amount: '125000000',
+      id: 'new', flow: 'TOP_UP', status: 'MATCHED', user_address: me, created_at: '2026-09-03T05:00:10Z', trade_id: TRADE, usdc_amount: '125000000',
       fiat_amount: '200000', fiat_currency: 'IDR', lp_fee_bps: 20, pay_deadline: 1_700_000_600, confirm_deadline: 1_700_003_600, dispute_deadline: 1_700_090_000,
     };
     const stale = { id: 'old', status: 'MATCHED', user_address: me, created_at: '2026-09-03T04:00:00Z' };
@@ -306,9 +306,9 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(expectedSep24Record('TOP_UP', '85090000', '150000', issuer)).toEqual({ amountIn: '150000', asset: 'iso4217:IDR' });
   });
 
-  it('asks for three percent more USDC than the mid rate implies before opening a withdrawal, so the spread cannot strand an order the demo cannot fund', () => {
-    expect(usdcNeededFor('150000', '16000')).toBe(96_562_500n);
-    expect(usdcNeededFor('160000', '16000')).toBe(103_000_000n);
+  it('asks for ten percent more USDC than the display rate implies before opening a withdrawal, which covers a sell-side spread up to several hundred basis points', () => {
+    expect(usdcNeededFor('150000', '16240')).toBe(101_600_987n);
+    expect(usdcNeededFor('160000', '16000')).toBe(110_000_000n);
   });
 
   it('reads the USDC balance of the issuer it was told, never another issuer\'s USDC', () => {

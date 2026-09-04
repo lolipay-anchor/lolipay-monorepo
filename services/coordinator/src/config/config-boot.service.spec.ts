@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
-import { ConfigBootService } from './config-boot.service';
+import { BOOT_CHAIN_READ_MS, ConfigBootService } from './config-boot.service';
+import { RPC_TIMEOUT_MS } from '../stellar/stellar-read.service';
 
 const WALLET = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
 const OTHER_WALLET = 'GCMUR7GXQPMY4XSMHEQO4EHPGXQ72RQTLYSMJ2VQ7NPCBHKRJ7NTTUSD';
@@ -78,6 +79,18 @@ describe('ConfigBootService', () => {
     const stellar = makeStellar({ readEscrowPlatformDefaults: jest.fn(async () => ({ platformFeeBps: 30, platformWallet: OTHER_WALLET })) });
     await expect(new ConfigBootService(prisma, makeCfg(), stellar).onModuleInit()).resolves.toBeUndefined();
     expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(new RegExp(`platformWallet \\(${WALLET}\\) differs from the escrow contract default_platform_wallet \\(${OTHER_WALLET}\\)`));
+  });
+
+  it('bounds the boot read above two full RPC attempts, because one read is two round trips and a cap below that never lets the check run', () => {
+    expect(BOOT_CHAIN_READ_MS).toBeGreaterThan(2 * RPC_TIMEOUT_MS);
+  });
+
+  it('names a contract wallet on chain as a divergence the admin API cannot cure, at boot as in the tick', async () => {
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET, payWindowSecs: 1800, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const stellar = makeStellar({ readEscrowPlatformDefaults: jest.fn(async () => ({ platformFeeBps: 30, platformWallet: 'CDKJ5OX2WY424DXPMYRGI2TCMTI5LFGLSLHSBKA5AODIGTS4R2TIDK3Z' })) });
+    await expect(new ConfigBootService(prisma, makeCfg(), stellar).onModuleInit()).resolves.toBeUndefined();
+    expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(/cannot be patched to match/);
   });
 
   it('warns and starts when the escrow contract defaults cannot be read at boot, carrying the error so the operator knows why', async () => {
