@@ -44,6 +44,22 @@ describe('the amount step reads rupiah the way an Indonesian types it', () => {
     expect(rate.createQuote).toHaveBeenCalledWith('GABC', 'TOP_UP', 'BANK', { fiatAmount: 200000n });
   });
 
+  it.each(['200,000', '200,000.00', '1,5', 'Rp 200,000'])('refuses "%s" with a clear message rather than guessing whether the comma means thousands or a fraction', async (raw) => {
+    const { svc, cfg, rate } = harness();
+    const { mintInteractiveToken } = await import('./interactive-token');
+    const token = mintInteractiveToken(cfg, 'tx-1', 'GABC');
+    await expect(svc.submitAmount('tx-1', token, raw)).rejects.toThrow(/without a comma/);
+    expect(rate.createQuote).not.toHaveBeenCalled();
+  });
+
+  it('still takes a dot as the thousands separator an Indonesian keyboard produces', async () => {
+    const { svc, cfg, rate } = harness();
+    const { mintInteractiveToken } = await import('./interactive-token');
+    const token = mintInteractiveToken(cfg, 'tx-1', 'GABC');
+    await svc.submitAmount('tx-1', token, '1.500.000');
+    expect(rate.createQuote).toHaveBeenCalledWith('GABC', 'TOP_UP', 'BANK', { fiatAmount: 1500000n });
+  });
+
   it.each([
     ['two form fields', ['200000', '000']],
     ['a JSON object', { toString: 'x' }],

@@ -254,9 +254,15 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
       disputeDeadline: 1_700_090_000n,
     });
     expect(() => createTradeExpectation({ ...order, fiat_amount: '999' }, lp, demo, '200000')).toThrow(/quotes fiat_amount 999, not the 200000/);
-    expect(createTradeExpectation({ ...order, fiat_amount: '250000' }, lp, demo, '250,000').fiatAmount).toBe(250_000n);
+    expect(() => createTradeExpectation({ ...order, fiat_amount: '250000' }, lp, demo, '250,000')).toThrow(/without a comma/);
+    expect(createTradeExpectation({ ...order, fiat_amount: '250000' }, lp, demo, '250.000').fiatAmount).toBe(250_000n);
     expect(() => createTradeExpectation({ ...order, fiat_amount: '0' }, lp, demo, 'abc')).toThrow(/carries no rupiah digits/);
     expect(() => createTradeExpectation({ ...order, fiat_currency: 'USD' }, lp, demo, '200000')).toThrow(/quotes fiat_currency USD, not the IDR/);
+  });
+
+  it('refuses a comma in the demo amount before anything is opened, with the same words the anchor would answer', () => {
+    expect(() => demoIdrDigits('200,000')).toThrow(/without a comma/);
+    expect(demoIdrDigits('200.000')).toBe('200000');
   });
 
   it('canonicalises the demo amount the way the record will echo it, so a leading zero cannot refuse an honest run', () => {

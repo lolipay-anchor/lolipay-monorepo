@@ -79,6 +79,9 @@ export function quoteUsdcForFiat(
   return (numerator + withSpread - 1n) / withSpread;
 }
 
+export const COMMA_REFUSAL =
+  'write the amount without a comma, for example 200000 or 200.000: a comma could mean thousands or a fraction, and this anchor will not guess which';
+
 export function fiatDigits(raw: unknown): string {
   return String(raw).replace(/[^0-9]/g, '');
 }
