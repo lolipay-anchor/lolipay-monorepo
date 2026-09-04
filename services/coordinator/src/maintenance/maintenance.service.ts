@@ -130,6 +130,42 @@ export class MaintenanceService {
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES)
+  async alertOnEscrowConfigDrift(): Promise<void> {
+    await this.once('alertOnEscrowConfigDrift', () => this.run_alertOnEscrowConfigDrift());
+  }
+
+  private async run_alertOnEscrowConfigDrift(): Promise<void> {
+    const found: Alert[] = [];
+    const incomplete = new Set<string>();
+    try {
+      const row = await this.prisma.config.findUnique({ where: { id: 1 } });
+      const contractId = this.cfg.escrowContractId;
+      const chainFee = await this.stellar.readEscrowPlatformFeeBps(contractId);
+      const chainWallet = await this.stellar.readEscrowPlatformWallet(contractId);
+      if (row && row.platformFeeBps !== chainFee) {
+        found.push({
+          key: 'escrow_config_drift:platformFeeBps',
+          fingerprint: `${row.platformFeeBps}:${chainFee}`,
+          urgency: 'urgent',
+          text: `Config.platformFeeBps (${row.platformFeeBps}) differs from the escrow contract default_platform_fee_bps (${chainFee}); create_trade refuses every funding until the row is patched to match`,
+        });
+      }
+      if (row && row.platformWallet !== chainWallet) {
+        found.push({
+          key: 'escrow_config_drift:platformWallet',
+          fingerprint: `${row.platformWallet}:${chainWallet}`,
+          urgency: 'urgent',
+          text: `Config.platformWallet differs from the escrow contract default_platform_wallet (${chainWallet}), which the contract will not let anyone change; create_trade refuses every funding until the row is patched to match`,
+        });
+      }
+    } catch (err) {
+      this.log.warn(`alertOnEscrowConfigDrift: could not compare the row with the contract: ${errMsg(err)}`);
+      incomplete.add('escrow_config_drift');
+    }
+    await this.alerts.raise(['escrow_config_drift'], found, incomplete);
+  }
+
+  @Cron(CronExpression.EVERY_5_MINUTES)
   async expireStaleOrders(): Promise<void> {
     await this.once('expireStaleOrders', () => this.run_expireStaleOrders());
   }

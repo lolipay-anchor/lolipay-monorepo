@@ -21,6 +21,8 @@ function makePrisma() {
   return client as any;
 }
 
+const CHAIN_WALLET = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
+
 function chainFee(bps: number, stellar: any) {
   stellar.readEscrowPlatformFeeBps = jest.fn(async () => bps);
   return stellar;
@@ -29,6 +31,7 @@ function chainFee(bps: number, stellar: any) {
 function makeStellar(hasTrustline = true, cooldownSecs: number | Error = 349_201) {
   return {
     readEscrowPlatformFeeBps: jest.fn(async () => 30),
+    readEscrowPlatformWallet: jest.fn(async () => CHAIN_WALLET),
     hasUsdcTrustline: jest.fn().mockResolvedValue(hasTrustline),
     stakingCooldownSecs: jest.fn(() =>
       cooldownSecs instanceof Error ? Promise.reject(cooldownSecs) : Promise.resolve(cooldownSecs),
@@ -312,6 +315,32 @@ describe('AdminService.updateConfigTransactional', () => {
       svc.updateConfigTransactional({ spreadBps: CURRENT.platformFeeBps + makeCfg().priceDeviationMaxBps } as any, 'GADMINTEST'),
     ).rejects.toThrow('PLATFORM_FEE_EXCEEDS_SPREAD');
     expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a platformWallet patch that differs from the escrow contract default, which the contract will not let anyone change, so every funding would revert', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const stellar = makeStellar();
+    const svc = new AdminService(prisma, stellar, makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    await expect(
+      svc.updateConfigTransactional({ platformWallet: 'GCMUR7GXQPMY4XSMHEQO4EHPGXQ72RQTLYSMJ2VQ7NPCBHKRJ7NTTUSD' } as any, 'GADMINTEST'),
+    ).rejects.toThrow('PLATFORM_WALLET_DIVERGES_FROM_CHAIN');
+    expect(configApi.update).not.toHaveBeenCalled();
+    expect(stellar.readEscrowPlatformWallet).toHaveBeenCalledWith('CDEFAULT');
+  });
+
+  it('accepts a platformWallet patch equal to the escrow contract default', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    await svc.updateConfigTransactional({ platformWallet: CHAIN_WALLET } as any, 'GADMINTEST');
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { platformWallet: CHAIN_WALLET } });
+  });
+
+  it('reads the fee default from the escrow contract the coordinator is configured with', async () => {
+    const { prisma } = makeConfigPrisma(CURRENT);
+    const stellar = makeStellar();
+    const svc = new AdminService(prisma, stellar, makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    await svc.updateConfigTransactional({ platformFeeBps: 30 } as any, 'GADMINTEST');
+    expect(stellar.readEscrowPlatformFeeBps).toHaveBeenCalledWith('CDEFAULT');
   });
 
   it('refuses a platformFeeBps patch that diverges from the escrow contract default, because create_trade requires equality and every funding would revert', async () => {

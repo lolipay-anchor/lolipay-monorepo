@@ -3,7 +3,7 @@ import { windowsFitTheContract } from './contract-limits';
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from './app-config.service';
-import { StellarReadService } from '../stellar/stellar-read.service';
+import { StellarReadService, withRpcTimeout } from '../stellar/stellar-read.service';
 import { spreadCoversPriceDeviation, platformFeeFitsSpread } from './rate-guard';
 
 @Injectable()
@@ -102,16 +102,23 @@ export class ConfigBootService implements OnModuleInit {
     if (feeProblem) {
       throw new Error(`refusing to start: ${feeProblem}`);
     }
+    let chainFee: number | undefined;
+    let chainWallet: string | undefined;
     try {
-      const chainDefault = await this.stellar.readEscrowPlatformFeeBps(this.cfg.escrowContractId);
-      if (chainDefault !== row.platformFeeBps) {
-        throw new Error(
-          `refusing to start: Config.platformFeeBps (${row.platformFeeBps}) differs from the escrow contract default_platform_fee_bps (${chainDefault}); create_trade would refuse every funding`,
-        );
-      }
+      chainFee = await withRpcTimeout(this.stellar.readEscrowPlatformFeeBps(this.cfg.escrowContractId), 'escrow get_config', 3000);
+      chainWallet = await withRpcTimeout(this.stellar.readEscrowPlatformWallet(this.cfg.escrowContractId), 'escrow get_config', 3000);
     } catch (err) {
-      if (err instanceof Error && err.message.startsWith('refusing to start')) throw err;
-      this.log.warn(`the escrow contract default_platform_fee_bps could not be read at boot, so Config.platformFeeBps is unchecked against it: ${String(err)}`);
+      this.log.warn(`the escrow contract defaults could not be read at boot, so Config.platformFeeBps and platformWallet are unchecked against them until the drift tick runs: ${String(err)}`);
+    }
+    if (chainFee !== undefined && chainFee !== row.platformFeeBps) {
+      this.log.warn(
+        `Config.platformFeeBps (${row.platformFeeBps}) differs from the escrow contract default_platform_fee_bps (${chainFee}); create_trade will refuse every funding until the row is patched to match, and the drift tick will keep alerting`,
+      );
+    }
+    if (chainWallet !== undefined && chainWallet !== row.platformWallet) {
+      this.log.warn(
+        `Config.platformWallet differs from the escrow contract default_platform_wallet (${chainWallet}); create_trade will refuse every funding until the row is patched to match, and the drift tick will keep alerting`,
+      );
     }
     const windowProblem = windowsFitTheContract(row.payWindowSecs, row.confirmWindowSecs, row.disputeWindowSecs);
     if (windowProblem) {

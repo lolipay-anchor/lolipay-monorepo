@@ -20,6 +20,8 @@ describe('MaintenanceService', () => {
           : () => Promise.resolve(onChain),
       ),
       latestLedgerCloseTime: jest.fn(async () => new Date()),
+      readEscrowPlatformFeeBps: jest.fn(async () => 30),
+      readEscrowPlatformWallet: jest.fn(async () => 'GPLATFORM'),
     } as any;
     const refundSigner = {
       isConfigured: false,
@@ -605,5 +607,46 @@ describe('MaintenanceService.autoRefundExpired', () => {
 
     const arg = prisma.consumedChallenge.deleteMany.mock.calls[0][0];
     expect(arg.where.expiresAt.lt).toBeInstanceOf(Date);
+  });
+});
+
+describe('the escrow config drift tick tells a human when the row and the contract disagree, because every funding then reverts and boot no longer refuses', () => {
+  function drift(row: any, stellar: Record<string, any> = {}) {
+    const raise = jest.fn(async () => ({ sent: [], cleared: [] }));
+    const prisma = { config: { findUnique: jest.fn(async () => row) } } as any;
+    const st = { readEscrowPlatformFeeBps: jest.fn(async () => 30), readEscrowPlatformWallet: jest.fn(async () => 'GPLATFORM'), ...stellar } as any;
+    const svc = new MaintenanceService(prisma, st, { isConfigured: false } as any, { escrowContractId: 'CESCROW' } as any, { notifyOrderStatus: jest.fn() } as any, { raise } as any, { prune: jest.fn(async () => 0), stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })) } as any);
+    return { svc, raise, st };
+  }
+
+  it('clears when the row matches the contract', async () => {
+    const { svc, raise, st } = drift({ platformFeeBps: 30, platformWallet: 'GPLATFORM' });
+    await svc.alertOnEscrowConfigDrift();
+    expect(raise).toHaveBeenCalledWith(['escrow_config_drift'], [], expect.any(Set));
+    expect(st.readEscrowPlatformFeeBps).toHaveBeenCalledWith('CESCROW');
+  });
+
+  it('raises an urgent alert naming both values when the fee differs', async () => {
+    const { svc, raise } = drift({ platformFeeBps: 40, platformWallet: 'GPLATFORM' });
+    await svc.alertOnEscrowConfigDrift();
+    const found = (raise.mock.calls[0] as any[])[1];
+    expect(found).toHaveLength(1);
+    expect(found[0].urgency).toBe('urgent');
+    expect(found[0].text).toMatch(/platformFeeBps \(40\)/);
+    expect(found[0].text).toMatch(/default_platform_fee_bps \(30\)/);
+  });
+
+  it('raises when the wallet differs', async () => {
+    const { svc, raise } = drift({ platformFeeBps: 30, platformWallet: 'GOTHER' });
+    await svc.alertOnEscrowConfigDrift();
+    const found = (raise.mock.calls[0] as any[])[1];
+    expect(found[0].text).toMatch(/platformWallet/);
+  });
+
+  it('marks the family incomplete rather than clearing when the contract cannot be read', async () => {
+    const { svc, raise } = drift({ platformFeeBps: 30, platformWallet: 'GPLATFORM' }, { readEscrowPlatformFeeBps: jest.fn(async () => { throw new Error('rpc down'); }) });
+    await svc.alertOnEscrowConfigDrift();
+    const incomplete = (raise.mock.calls[0] as any[])[2] as Set<string>;
+    expect(incomplete.has('escrow_config_drift')).toBe(true);
   });
 });

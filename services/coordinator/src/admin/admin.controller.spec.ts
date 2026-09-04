@@ -501,6 +501,14 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
     expect(res.body.message).toMatch(/minOrder must be less than maxOrder/i);
   });
 
+  it('PATCH /admin/config surfaces AdminService PLATFORM_WALLET_DIVERGES_FROM_CHAIN as 400 with the reason', async () => {
+    mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
+      new Error('PLATFORM_WALLET_DIVERGES_FROM_CHAIN: platformWallet must equal the escrow contract default_platform_wallet (GBSY…)'),
+    );
+    const res = await request(app.getHttpServer()).patch('/admin/config').send({ platformWallet: 'GCMUR7GXQPMY4XSMHEQO4EHPGXQ72RQTLYSMJ2VQ7NPCBHKRJ7NTTUSD' }).expect(400);
+    expect(res.body.message).toMatch(/default_platform_wallet/);
+  });
+
   it('PATCH /admin/config surfaces AdminService PLATFORM_FEE_DIVERGES_FROM_CHAIN as 400 with the reason', async () => {
     mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
       new Error('PLATFORM_FEE_DIVERGES_FROM_CHAIN: platformFeeBps (40) must equal the escrow contract default_platform_fee_bps (30)'),

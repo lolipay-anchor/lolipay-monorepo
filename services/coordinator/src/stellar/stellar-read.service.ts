@@ -738,11 +738,20 @@ export class StellarReadService {
 
   async readEscrowPlatformFeeBps(contractId: string): Promise<number> {
     const cfg = await this.simulateCall(contractId, 'get_config', []);
-    const bps = Number(cfg?.default_platform_fee_bps);
-    if (!Number.isInteger(bps) || bps < 0) {
+    const bps = asNumber(cfg?.default_platform_fee_bps);
+    if (bps === undefined || bps < 0) {
       throw new Error(`readEscrowPlatformFeeBps: ${contractId} returned no readable default_platform_fee_bps`);
     }
     return bps;
+  }
+
+  async readEscrowPlatformWallet(contractId: string): Promise<string> {
+    const cfg = await this.simulateCall(contractId, 'get_config', []);
+    const wallet = cfg?.default_platform_wallet;
+    if (typeof wallet !== 'string' || !/^G[A-Z2-7]{55}$/.test(wallet)) {
+      throw new Error(`readEscrowPlatformWallet: ${contractId} returned no readable default_platform_wallet`);
+    }
+    return wallet;
   }
 
   async readEscrowFiatAttestor(contractId: string): Promise<string> {

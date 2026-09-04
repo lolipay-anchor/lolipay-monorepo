@@ -126,6 +126,9 @@ export class AdminController {
       if (typeof err?.message === 'string' && err.message.startsWith('PLATFORM_FEE_DIVERGES_FROM_CHAIN: ')) {
         throw new BadRequestException(err.message.slice('PLATFORM_FEE_DIVERGES_FROM_CHAIN: '.length));
       }
+      if (typeof err?.message === 'string' && err.message.startsWith('PLATFORM_WALLET_DIVERGES_FROM_CHAIN: ')) {
+        throw new BadRequestException(err.message.slice('PLATFORM_WALLET_DIVERGES_FROM_CHAIN: '.length));
+      }
       if (typeof err?.message === 'string' && err.message.startsWith('WINDOW_BOUNDS_INVALID: ')) {
         throw new BadRequestException(
           `${err.message.slice('WINDOW_BOUNDS_INVALID: '.length)} — the escrow contract would reject every order created with these windows`,

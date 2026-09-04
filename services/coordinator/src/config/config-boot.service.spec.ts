@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigBootService } from './config-boot.service';
 
 const WALLET = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
@@ -12,13 +13,14 @@ function makePrisma(row: Record<string, unknown>) {
 }
 
 function makeStellar(over: Record<string, unknown> = {}) {
-  return { readEscrowPlatformFeeBps: jest.fn(async () => 30), ...over } as any;
+  return { readEscrowPlatformFeeBps: jest.fn(async () => 30), readEscrowPlatformWallet: jest.fn(async () => WALLET), ...over } as any;
 }
 
 function makeCfg(over: Record<string, unknown> = {}) {
   return {
     priceDeviationMaxBps: 100,
     platformWallet: WALLET,
+    escrowContractId: 'CESCROW',
     anchorBaseUrl: 'https://api.lolipay.app',
     rpcUrl: 'https://soroban-testnet.stellar.org',
     usdcAssetCode: 'USDC',
@@ -59,14 +61,31 @@ describe('ConfigBootService', () => {
     await expect(new ConfigBootService(prisma, makeCfg(), makeStellar()).onModuleInit()).rejects.toThrow(/platformFeeBps/);
   });
 
-  it('refuses to start when the persisted platform fee differs from the escrow contract default, because every funding would revert with InvalidFee', async () => {
+  it('warns and still starts when the persisted platform fee differs from the escrow contract default, because refusing would also take down the reads and disputes the chain does not refuse, and the monitoring tick carries the alert', async () => {
     const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET, payWindowSecs: 1800, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
-    await expect(new ConfigBootService(prisma, makeCfg(), makeStellar({ readEscrowPlatformFeeBps: jest.fn(async () => 40) })).onModuleInit()).rejects.toThrow(/default_platform_fee_bps/);
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const stellar = makeStellar({ readEscrowPlatformFeeBps: jest.fn(async () => 40) });
+    await expect(new ConfigBootService(prisma, makeCfg(), stellar).onModuleInit()).resolves.toBeUndefined();
+    expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(/default_platform_fee_bps \(40\)/);
+    expect(stellar.readEscrowPlatformFeeBps).toHaveBeenCalledWith('CESCROW');
+    warn.mockRestore();
   });
 
-  it('starts with a loud warning when the escrow contract default cannot be read at boot, so a dead RPC does not keep the coordinator down', async () => {
+  it('warns and still starts when the persisted platform wallet differs from the escrow contract default', async () => {
     const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET, payWindowSecs: 1800, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const stellar = makeStellar({ readEscrowPlatformWallet: jest.fn(async () => OTHER_WALLET) });
+    await expect(new ConfigBootService(prisma, makeCfg(), stellar).onModuleInit()).resolves.toBeUndefined();
+    expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(/default_platform_wallet/);
+    warn.mockRestore();
+  });
+
+  it('warns and starts when the escrow contract defaults cannot be read at boot, naming the read that failed', async () => {
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET, payWindowSecs: 1800, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     await expect(new ConfigBootService(prisma, makeCfg(), makeStellar({ readEscrowPlatformFeeBps: jest.fn(async () => { throw new Error('rpc down'); }) })).onModuleInit()).resolves.toBeUndefined();
+    expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(/could not be read at boot/);
+    warn.mockRestore();
   });
 
   it('refuses to start when the persisted pay window leaves nobody time to sign inside the contract floor', async () => {
