@@ -454,7 +454,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
     ['autoRefund', { autoRefund: false }],
     ['dailyLimitByTier', { dailyLimitByTier: { BRONZE: 500, GOLD: 50000 } }],
     ['postSettleDisputeWindowSecs', { postSettleDisputeWindowSecs: 1800 }],
-    ['payWindowSecs at the on-chain floor', { payWindowSecs: 600 }],
+    ['payWindowSecs at the usable floor, twice the on-chain minimum', { payWindowSecs: 1200 }],
     ['confirmWindowSecs', { confirmWindowSecs: 900 }],
     ['disputeWindowSecs', { disputeWindowSecs: 3600 }],
     ['minOrder', { minOrder: '10000000' }],

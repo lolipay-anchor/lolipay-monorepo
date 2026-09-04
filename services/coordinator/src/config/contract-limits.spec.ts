@@ -10,6 +10,7 @@ import {
   LONGEST_TAIL_PAST_SETTLEMENT_SECS,
   cooldownFloorSecs,
   windowsFitTheContract,
+  MIN_USABLE_PAY_WINDOW_SECS,
 } from './contract-limits';
 
 const LIB_RS = path.resolve(__dirname, '../../../../contracts/escrow/src/lib.rs');
@@ -85,8 +86,14 @@ describe('windowsFitTheContract', () => {
     expect(windowsFitTheContract(1800, 1800, 7200)).toBeNull();
   });
 
-  it('rejects a pay window under the contract floor', () => {
-    expect(windowsFitTheContract(599, 1800, 7200)).toMatch(/at least 600/);
+  it('rejects a pay window that leaves no time to sign: the contract floor is the minimum distance at signing, not at creation', () => {
+    expect(windowsFitTheContract(599, 1800, 7200)).toMatch(/at least 1200/);
+    expect(windowsFitTheContract(600, 1800, 7200)).toMatch(/at least 1200/);
+    expect(windowsFitTheContract(1199, 1800, 7200)).toMatch(/at least 1200/);
+  });
+
+  it('the usable floor is twice the contract minimum, so at least as long as the contract refuses inside remains to sign', () => {
+    expect(MIN_USABLE_PAY_WINDOW_SECS).toBe(MIN_PAY_WINDOW_SECS * 2);
   });
 
   it('rejects a pay window over the contract ceiling — the value that bricked funding', () => {
@@ -94,7 +101,7 @@ describe('windowsFitTheContract', () => {
   });
 
   it('accepts a pay window exactly at each bound', () => {
-    expect(windowsFitTheContract(600, 1, 1)).toBeNull();
+    expect(windowsFitTheContract(1200, 1, 1)).toBeNull();
     expect(windowsFitTheContract(86_400, 1, 1)).toBeNull();
   });
 

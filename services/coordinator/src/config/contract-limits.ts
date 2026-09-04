@@ -1,4 +1,5 @@
 export const MIN_PAY_WINDOW_SECS = 600;
+export const MIN_USABLE_PAY_WINDOW_SECS = MIN_PAY_WINDOW_SECS * 2;
 export const MAX_PAY_WINDOW_SECS = 86_400;
 export const MAX_TOTAL_WINDOW_SECS = 2_592_000;
 
@@ -24,8 +25,8 @@ export function windowsFitTheContract(
   disputeWindowSecs: number,
   deployedCooldownSecs?: number,
 ): string | null {
-  if (payWindowSecs < MIN_PAY_WINDOW_SECS) {
-    return `payWindowSecs must be at least ${MIN_PAY_WINDOW_SECS}`;
+  if (payWindowSecs < MIN_USABLE_PAY_WINDOW_SECS) {
+    return `payWindowSecs must be at least ${MIN_USABLE_PAY_WINDOW_SECS}, because the contract refuses a funding signature inside the last ${MIN_PAY_WINDOW_SECS} seconds of the window`;
   }
   if (payWindowSecs > MAX_PAY_WINDOW_SECS) {
     return `payWindowSecs must be at most ${MAX_PAY_WINDOW_SECS}`;

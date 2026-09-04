@@ -11,7 +11,7 @@ import {
   ValidationOptions,
 } from 'class-validator';
 import {
-  MIN_PAY_WINDOW_SECS,
+  MIN_USABLE_PAY_WINDOW_SECS,
   MAX_PAY_WINDOW_SECS,
   MAX_TOTAL_WINDOW_SECS,
 } from '../../config/contract-limits';
@@ -96,7 +96,7 @@ export class UpdateConfigDto {
   postSettleDisputeWindowSecs?: number;
 
   @IsInt()
-  @Min(MIN_PAY_WINDOW_SECS)
+  @Min(MIN_USABLE_PAY_WINDOW_SECS)
   @Max(MAX_PAY_WINDOW_SECS)
   @IsOptional()
   payWindowSecs?: number;
