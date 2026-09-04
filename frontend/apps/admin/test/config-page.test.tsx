@@ -53,7 +53,7 @@ const MOCK_CONFIG = {
   platformWallet: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
   minOrder: '10000000',
   maxOrder: '1000000000',
-  payWindowSecs: 900,
+  payWindowSecs: 1800,
   confirmWindowSecs: 900,
   disputeWindowSecs: 86400,
   paused: false,
@@ -195,7 +195,8 @@ describe('Config page', () => {
     })
     expect(screen.getByDisplayValue('1000000000')).toBeTruthy()
 
-    expect(screen.getAllByDisplayValue('900').length).toBe(2)
+    expect(screen.getAllByDisplayValue('1800').length).toBe(1)
+    expect(screen.getAllByDisplayValue('900').length).toBe(1)
     expect(screen.getByDisplayValue('86400')).toBeTruthy()
   })
 
@@ -280,7 +281,7 @@ describe('Config page', () => {
     expect(patchArg).toEqual({ requireProof: true })
   })
 
-  it('rejects a payWindowSecs below the 600s floor and disables save', async () => {
+  it.each(['300', '600', '1199'])('rejects a payWindowSecs of %s, under the usable floor the coordinator enforces, and disables save', async (value) => {
     vi.mocked(apiClient.getAdminConfig).mockResolvedValueOnce(MOCK_CONFIG)
 
     render(
@@ -289,14 +290,28 @@ describe('Config page', () => {
       </TestProviders>,
     )
 
-    await waitFor(() => screen.getAllByDisplayValue('900'))
-    const payWindowInput = screen.getAllByDisplayValue('900')[0] as HTMLInputElement
-    fireEvent.change(payWindowInput, { target: { value: '300' } })
+    await waitFor(() => screen.getAllByDisplayValue('1800'))
+    const payWindowInput = screen.getAllByDisplayValue('1800')[0] as HTMLInputElement
+    fireEvent.change(payWindowInput, { target: { value } })
 
     await waitFor(() => {
-      expect(screen.getByText(/payWindowSecs must be at least 600 seconds/i)).toBeTruthy()
+      expect(screen.getByText(/payWindowSecs must be at least 1200 seconds/i)).toBeTruthy()
     })
     expect((screen.getByTestId('save-config') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('names the reason for the floor in the hint: the contract refuses a signature inside the last ten minutes', async () => {
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValueOnce(MOCK_CONFIG)
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getAllByDisplayValue('1800'))
+    expect(screen.getByText(/last 600 seconds/i)).toBeTruthy()
+    expect(screen.queryByText(/rejects anything shorter/i)).toBeNull()
   })
 
   it('rejects a non-numeric minOrder string and disables save', async () => {

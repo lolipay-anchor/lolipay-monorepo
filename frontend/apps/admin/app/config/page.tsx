@@ -11,7 +11,8 @@ import { client } from '@/lib/client'
 const STELLAR_ADDR_RE = /^G[A-Z2-7]{55}$/
 const POSITIVE_INT_STRING_RE = /^[1-9]\d*$/
 
-const MIN_PAY_WINDOW_SECS = 600
+const CONTRACT_MIN_PAY_WINDOW_SECS = 600
+const MIN_USABLE_PAY_WINDOW_SECS = CONTRACT_MIN_PAY_WINDOW_SECS * 2
 
 function validatePlatformWallet(v: string): string | null {
   if (!STELLAR_ADDR_RE.test(v)) return 'Must be a valid Stellar address (G…, 56 chars)'
@@ -29,8 +30,8 @@ function validatePositiveInt(v: number, name: string): string | null {
 }
 
 function validatePayWindow(v: number): string | null {
-  if (!Number.isInteger(v) || v < MIN_PAY_WINDOW_SECS) {
-    return `payWindowSecs must be at least ${MIN_PAY_WINDOW_SECS} seconds`
+  if (!Number.isInteger(v) || v < MIN_USABLE_PAY_WINDOW_SECS) {
+    return `payWindowSecs must be at least ${MIN_USABLE_PAY_WINDOW_SECS} seconds`
   }
   return null
 }
@@ -388,8 +389,8 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
           value={form.payWindowSecs}
           onChange={(v) => set('payWindowSecs', v)}
           disabled={mutation.isPending}
-          min={MIN_PAY_WINDOW_SECS}
-          hint={`Minimum ${MIN_PAY_WINDOW_SECS}s — the escrow contract rejects anything shorter.`}
+          min={MIN_USABLE_PAY_WINDOW_SECS}
+          hint={`Minimum ${MIN_USABLE_PAY_WINDOW_SECS}s: the escrow contract refuses a funding signature inside the last ${CONTRACT_MIN_PAY_WINDOW_SECS} seconds of the window, so a shorter window leaves nobody time to sign.`}
         />
         {payWindowErr && <p className="text-xs text-lp-danger">{payWindowErr}</p>}
 
