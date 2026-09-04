@@ -2,6 +2,7 @@ import type { Flow, OrderStatus } from '../generated/prisma/client';
 import { accountOf } from '../sep10/account-signers.service';
 import { baseUnitsToUsdcString, splitFees } from '../money/money';
 import { sep24Status, Sep24Status } from './sep24-status';
+import { MIN_PAY_WINDOW_SECS } from '../config/contract-limits';
 
 export interface Sep24Order {
   status: OrderStatus;
@@ -92,9 +93,8 @@ export function serializeSep24(record: Sep24Record, assets: Sep24Assets): Sep24T
   json.amount_out_asset = withdrawing ? fiatAsset : usdc;
   json.fee_details = { total: baseUnitsToUsdcString(withdrawing ? 0n : platformFee + lpFee), asset: usdc };
 
-  if (withdrawing && status === 'pending_user') {
-    const by = order.status === 'MATCHED' ? order.payDeadline : order.confirmDeadline;
-    json.user_action_required_by = new Date(Number(by) * 1000).toISOString();
+  if (withdrawing && order.status === 'MATCHED') {
+    json.user_action_required_by = new Date((Number(order.payDeadline) - MIN_PAY_WINDOW_SECS) * 1000).toISOString();
   }
   if (order.ref) json.external_transaction_id = order.ref;
   if (status === 'completed' || status === 'refunded') {
