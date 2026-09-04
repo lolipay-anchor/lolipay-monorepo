@@ -13,7 +13,7 @@ import {
   uploadProof,
 } from '@lolipay/api-client'
 import type { Assignment, Order } from '@lolipay/api-client'
-import { useWallet } from '@lolipay/wallet'
+import { submissionFailure, useWallet } from '@lolipay/wallet'
 import { Card, Button, StatusPill, BottomSheet, type PillTone, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
 import { AppHeader } from '@/components/AppHeader'
 import { client } from '@/lib/client'
@@ -28,7 +28,7 @@ async function defaultSubmit(signedXdr: string, networkPassphrase: string) {
   )
   const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase)
   const res = await server.sendTransaction(tx)
-  if (res.status !== 'PENDING') throw new Error(`Submission failed (${res.status})`)
+  if (res.status !== 'PENDING') throw new Error(submissionFailure(res))
   return res
 }
 

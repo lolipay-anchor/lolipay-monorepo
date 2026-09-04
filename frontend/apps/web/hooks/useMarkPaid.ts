@@ -3,7 +3,7 @@
 import { useMutation } from '@tanstack/react-query'
 import { rpc, TransactionBuilder } from '@stellar/stellar-sdk'
 import { getMarkPaidTx } from '@lolipay/api-client'
-import { useWallet } from '@lolipay/wallet'
+import { submissionFailure, useWallet } from '@lolipay/wallet'
 import { client } from '@/lib/client'
 
 async function defaultSubmit(signedXdr: string, networkPassphrase: string) {
@@ -12,7 +12,7 @@ async function defaultSubmit(signedXdr: string, networkPassphrase: string) {
   )
   const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase)
   const res = await server.sendTransaction(tx)
-  if (res.status !== 'PENDING') throw new Error(`Submission failed (${res.status})`)
+  if (res.status !== 'PENDING') throw new Error(submissionFailure(res))
   return res
 }
 
