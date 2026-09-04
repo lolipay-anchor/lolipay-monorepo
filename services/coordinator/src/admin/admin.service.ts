@@ -15,7 +15,7 @@ import { PersonId } from '../person/person.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { recordAudit, auditPayload } from './admin-audit';
 import { windowsFitTheContract } from '../config/contract-limits';
-import { spreadCoversPriceDeviation } from '../config/rate-guard';
+import { spreadCoversPriceDeviation, platformFeeFitsSpread } from '../config/rate-guard';
 import { invalidateAllConfigCaches } from '../config/config-cache';
 import { AppConfigService } from '../config/app-config.service';
 import { MarketsService } from '../market/markets.service';
@@ -215,6 +215,15 @@ export class AdminService {
 
       if (effectivePlatformFee + effectiveLpFee >= 10000) {
         throw new Error('BPS_OVERFLOW');
+      }
+      if (patch.platformFeeBps !== undefined || patch.spreadBps !== undefined) {
+        const feeProblem = platformFeeFitsSpread(
+          effectivePlatformFee,
+          patch.spreadBps !== undefined ? patch.spreadBps : (current?.spreadBps ?? 0),
+        );
+        if (feeProblem) {
+          throw new Error(`PLATFORM_FEE_EXCEEDS_SPREAD: ${feeProblem}`);
+        }
       }
 
 

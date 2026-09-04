@@ -17,7 +17,7 @@ function makePrisma(lpRow: any) {
     adminAudit: { create: jest.fn().mockImplementation(async ({ data }: any) => { audits.push(data); return data; }) },
     config: {
       findUnique: jest.fn().mockResolvedValue({
-        id: 1, platformFeeBps: 30, lpFeeBps: 120, minOrder: 1n, maxOrder: 9n,
+        id: 1, spreadBps: 150, platformFeeBps: 30, lpFeeBps: 120, minOrder: 1n, maxOrder: 9n,
         payWindowSecs: 1800, confirmWindowSecs: 1800, disputeWindowSecs: 7200,
       }),
       update: jest.fn().mockImplementation(async ({ data }: any) => ({ id: 1, ...data })),

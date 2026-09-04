@@ -136,6 +136,7 @@ describe('a window change cannot outgrow the collateral it depends on', () => {
     const prisma = makePrisma();
     prisma.config.findUnique = jest.fn(async () => ({
       id: 1,
+      spreadBps: 150,
       platformFeeBps: 30,
       lpFeeBps: 120,
       minOrder: 1n,
@@ -155,6 +156,7 @@ describe('a window change cannot outgrow the collateral it depends on', () => {
     const prisma = makePrisma();
     prisma.config.findUnique = jest.fn(async () => ({
       id: 1,
+      spreadBps: 150,
       platformFeeBps: 30,
       lpFeeBps: 120,
       minOrder: 1n,
@@ -184,6 +186,7 @@ describe('a change that cannot move the floor is not held hostage to the chain',
     const prisma = makePrisma();
     prisma.config.findUnique = jest.fn(async () => ({
       id: 1,
+      spreadBps: 150,
       platformFeeBps: 30,
       lpFeeBps: 120,
       minOrder: 1n,
@@ -264,6 +267,31 @@ describe('AdminService.updateConfigTransactional', () => {
     await cache.read(cachePrisma, 'GADMINTEST');
 
     expect(cachePrisma.config.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a platformFeeBps patch above the spread, because on a withdrawal the platform fee comes out of the spread and the record declares no fee', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    await expect(
+      svc.updateConfigTransactional({ platformFeeBps: CURRENT.spreadBps + 1 } as any, 'GADMINTEST'),
+    ).rejects.toThrow('PLATFORM_FEE_EXCEEDS_SPREAD');
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a spreadBps patch that drops below the stored platformFeeBps, using the CURRENT row for the omitted side', async () => {
+    const { prisma, configApi } = makeConfigPrisma({ ...CURRENT, platformFeeBps: 140 });
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    await expect(
+      svc.updateConfigTransactional({ spreadBps: 130 } as any, 'GADMINTEST'),
+    ).rejects.toThrow('PLATFORM_FEE_EXCEEDS_SPREAD');
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('accepts a platformFeeBps patch equal to the spread', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    await svc.updateConfigTransactional({ platformFeeBps: CURRENT.spreadBps } as any, 'GADMINTEST');
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { platformFeeBps: CURRENT.spreadBps } });
   });
 
   it('rejects a spreadBps patch that no longer covers the price-deviation allowance', async () => {

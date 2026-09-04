@@ -3,7 +3,7 @@ import { windowsFitTheContract } from './contract-limits';
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from './app-config.service';
-import { spreadCoversPriceDeviation } from './rate-guard';
+import { spreadCoversPriceDeviation, platformFeeFitsSpread } from './rate-guard';
 
 @Injectable()
 export class ConfigBootService implements OnModuleInit {
@@ -93,6 +93,10 @@ export class ConfigBootService implements OnModuleInit {
     const problem = spreadCoversPriceDeviation(row.spreadBps, this.cfg.priceDeviationMaxBps);
     if (problem) {
       throw new Error(`refusing to start: ${problem}`);
+    }
+    const feeProblem = platformFeeFitsSpread(row.platformFeeBps, row.spreadBps);
+    if (feeProblem) {
+      throw new Error(`refusing to start: ${feeProblem}`);
     }
     const windowProblem = windowsFitTheContract(row.payWindowSecs, row.confirmWindowSecs, row.disputeWindowSecs);
     if (windowProblem) {

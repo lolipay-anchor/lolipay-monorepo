@@ -9,3 +9,10 @@ export function spreadCoversPriceDeviation(
     `entire spread cushion on an escrow lock that cannot be repriced`
   );
 }
+
+export function platformFeeFitsSpread(platformFeeBps: number, spreadBps: number): string | null {
+  if (platformFeeBps > spreadBps) {
+    return `platformFeeBps (${platformFeeBps}) must not exceed Config.spreadBps (${spreadBps}): on a withdrawal the platform fee is paid out of the spread and the SEP-24 record declares no fee, so a fee above the spread would drain the provider on every trade`;
+  }
+  return null;
+}

@@ -50,6 +50,11 @@ describe('ConfigBootService', () => {
     ).rejects.toThrow(/USDC_ASSET_CODE/);
   });
 
+  it('refuses to start when the persisted platform fee exceeds the spread, because every withdrawal would then drain the provider while the record declares no fee', async () => {
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 151, platformWallet: WALLET, payWindowSecs: 1800, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
+    await expect(new ConfigBootService(prisma, makeCfg()).onModuleInit()).rejects.toThrow(/platformFeeBps/);
+  });
+
   it('refuses to start when the persisted pay window leaves nobody time to sign inside the contract floor', async () => {
     const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET, payWindowSecs: 900, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
     await expect(new ConfigBootService(prisma, makeCfg()).onModuleInit()).rejects.toThrow(/at least 1200/);
