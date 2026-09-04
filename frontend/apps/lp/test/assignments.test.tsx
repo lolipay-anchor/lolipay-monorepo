@@ -198,6 +198,7 @@ describe('AssignmentCard — Confirm receipt & release (FIAT_PAID)', () => {
 
     expect(screen.getByRole('button', { name: /Confirm receipt & release/i })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Lock USDC/i })).toBeNull()
+    expect((screen.getByTestId('lp-open-dispute') as HTMLButtonElement).type).toBe('button')
   })
 
   it('opens the safeguard sheet with warning when button is clicked', async () => {
@@ -376,6 +377,33 @@ describe('AssignmentCard — WITHDRAW (LP pays fiat)', () => {
     })
   })
 
+  it('shows the USDC the provider will actually receive on a withdrawal: the gross less the platform fee, which the escrow pays elsewhere', () => {
+    render(
+      <TestProviders kit={fakeKit}>
+        <AssignmentCard
+          assignment={{ order: makeOrder({ status: 'FUNDED', flow: 'WITHDRAW', usdc_amount: '100000000', platform_fee_bps: 30 }) }}
+          onRefetch={vi.fn()}
+        />
+      </TestProviders>,
+    )
+
+    expect(screen.getByText(/Receive 9\.97 USDC/)).toBeTruthy()
+    expect(screen.queryByText(/Receive 10\.00 USDC/)).toBeNull()
+  })
+
+  it('still shows the full gross the provider must lock on a deposit, because create_trade moves all of it', () => {
+    render(
+      <TestProviders kit={fakeKit}>
+        <AssignmentCard
+          assignment={{ order: makeOrder({ status: 'MATCHED', flow: 'TOP_UP', usdc_amount: '100000000', platform_fee_bps: 30 }) }}
+          onRefetch={vi.fn()}
+        />
+      </TestProviders>,
+    )
+
+    expect(screen.getByText(/Provide 10\.00 USDC/)).toBeTruthy()
+  })
+
   it('MATCHED: LP waits for the seller to lock USDC (no Lock button)', () => {
     render(
       <TestProviders kit={fakeKit}>
@@ -421,7 +449,7 @@ describe('AssignmentCard — Open dispute (WITHDRAW FIAT_PAID)', () => {
   })
 
   it('shows the wallet rejection when the LP declines to sign the dispute', async () => {
-    vi.mocked(apiClient.getRaiseDisputeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+    vi.mocked(apiClient.getRaiseDisputeTx).mockResolvedValueOnce({ xdr: 'XDR', networkPassphrase: 'np' })
     vi.mocked(fakeKit.signTransaction).mockRejectedValueOnce(new Error('User rejected transaction'))
     mountFiatPaidWithdrawal()
 

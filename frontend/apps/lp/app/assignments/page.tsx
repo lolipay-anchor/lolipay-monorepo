@@ -190,7 +190,8 @@ export function AssignmentCard({
   const [proofAmount, setProofAmount] = React.useState(() => String(parseInt(order.fiat_amount, 10)))
   const [proofPaidAt, setProofPaidAt] = React.useState('')
 
-  const usdcDisplay = formatUSDC(BigInt(order.usdc_amount))
+  const grossUsdc = BigInt(order.usdc_amount)
+  const usdcDisplay = formatUSDC(lpIsFiatPayer ? grossUsdc - (grossUsdc * BigInt(order.platform_fee_bps)) / 10000n : grossUsdc)
   const fiatDisplay = formatIDR(parseInt(order.fiat_amount, 10))
 
   function copyRef(ref: string) {
@@ -281,6 +282,7 @@ export function AssignmentCard({
   const DisputeLink = (
     <div>
       <button
+        type="button"
         className="w-full py-1 text-center text-xs text-lp-danger underline disabled:opacity-50"
         data-testid="lp-open-dispute"
         disabled={disputeBusy}
