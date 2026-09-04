@@ -7,6 +7,10 @@ import {
   TESTNET_PASSPHRASE,
   assembleSepConfig,
   createTradeExpectation,
+  createWithdrawExpectation,
+  expectedSep24Record,
+  usdcNeededFor,
+  usdcBalanceOf,
   demoIdrDigits,
   assertEscrowCall,
   assertTestnet,
@@ -146,7 +150,7 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     ) => [bytes(trade), addr(provider), addr(recipient), confirmer, amount, fiat, currency, flow, u32Max, lpFee, addr(platform), addr(lpWallet), pay, confirm, dispute];
     const create = (...a: Parameters<typeof createArgs>) => escrowCall(lp, 'create_trade', ESCROW, createArgs(...a));
     const want = {
-      tradeIdHex: TRADE, provider: lp, recipient: demo, confirmer: lp, lpWallet: lp, usdcStroops: 125_000_000n, maxUsdcStroops: 1_000_000_000n,
+      tradeIdHex: TRADE, flow: 0 as const, provider: lp, recipient: demo, confirmer: lp, lpWallet: lp, usdcStroops: 125_000_000n, maxUsdcStroops: 1_000_000_000n,
       fiatAmount: FIAT, fiatCurrency: 'IDR', lpFeeBps: 20, payDeadline: PAY, confirmDeadline: CONFIRM, disputeDeadline: DISPUTE,
     };
     const A = i128(125_000_000n);
@@ -164,6 +168,9 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(() => assertEscrowCall(create(lp, demo, lp, i128(-5n)), lp, ESCROW, 'create_trade', want)).toThrow(/not positive/);
     expect(() => assertEscrowCall(create(lp, demo, lp, i128(0n)), lp, ESCROW, 'create_trade', want)).toThrow(/not positive/);
     expect(() => assertEscrowCall(create(lp, demo, lp, i128(125_000_000n), TRADE, u32(1)), lp, ESCROW, 'create_trade', want)).toThrow(/not the deposit discriminant/);
+    expect(assertEscrowCall(create(lp, demo, lp, i128(125_000_000n), TRADE, u32(1)), lp, ESCROW, 'create_trade', { ...want, flow: 1 })).toBe(TRADE);
+    expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, flow: 1 })).toThrow(/not the withdrawal discriminant \(u32 1\)/);
+    expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, flow: undefined })).toThrow(/carries no flow;/);
     expect(() => assertEscrowCall(create(lp, demo, lp, i128(125_000_000n), TRADE, nativeToScVal(0, { type: 'i32' })), lp, ESCROW, 'create_trade', want)).toThrow(/not the deposit discriminant/);
     expect(() => assertEscrowCall(create(lp, demo, lp, i128(125_000_000n), TRADE, u32(0), u64(PAY + 1n)), lp, ESCROW, 'create_trade', want)).toThrow(/pay_deadline .* the assignment quoted/);
     expect(() => assertEscrowCall(create(lp, demo, lp, i128(125_000_000n), TRADE, u32(0), u64(PAY), u64(CONFIRM - 1n)), lp, ESCROW, 'create_trade', want)).toThrow(/confirm_deadline .* the assignment quoted/);
@@ -172,7 +179,7 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, payDeadline: undefined })).toThrow(/carries no payDeadline;/);
     expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, lpWallet: undefined, confirmDeadline: undefined })).toThrow(/carries no lpWallet, confirmDeadline;/);
     expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', PIN)).toThrow(
-      'carries no provider, recipient, confirmer, lpWallet, usdcStroops, maxUsdcStroops, fiatAmount, fiatCurrency, lpFeeBps, payDeadline, confirmDeadline, disputeDeadline;',
+      'carries no flow, provider, recipient, confirmer, lpWallet, usdcStroops, maxUsdcStroops, fiatAmount, fiatCurrency, lpFeeBps, payDeadline, confirmDeadline, disputeDeadline;',
     );
     expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, provider: '' })).toThrow(/names provider/);
     expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, tradeIdHex: '' })).toThrow(/names trade/);
@@ -236,11 +243,13 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     const lp = kp.publicKey();
     const demo = Keypair.random().publicKey();
     const order = {
-      id: 'o', status: 'MATCHED', created_at: '2026-09-03T05:00:10Z', trade_id: TRADE, usdc_amount: '125000000',
+      id: 'o', status: 'MATCHED', flow: 'TOP_UP', created_at: '2026-09-03T05:00:10Z', trade_id: TRADE, usdc_amount: '125000000',
       fiat_amount: '200000', fiat_currency: 'IDR', lp_fee_bps: 20, pay_deadline: 1_700_000_600, confirm_deadline: 1_700_003_600, dispute_deadline: 1_700_090_000,
     };
+    expect(() => createTradeExpectation({ ...order, flow: 'WITHDRAW' }, lp, demo, '200000')).toThrow(/is a WITHDRAW order, not the TOP_UP/);
     expect(createTradeExpectation(order, lp, demo, 'Rp 200.000')).toEqual({
       tradeIdHex: TRADE,
+      flow: 0,
       provider: lp,
       recipient: demo,
       confirmer: lp,
@@ -261,6 +270,58 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(() => createTradeExpectation({ ...order, fiat_amount: '0' }, lp, demo, 'abc')).toThrow(FIAT_INPUT_REFUSAL);
     expect(() => createTradeExpectation({ ...order, fiat_amount: '0' }, lp, demo, '0')).toThrow(/carries no rupiah digits/);
     expect(() => createTradeExpectation({ ...order, fiat_currency: 'USD' }, lp, demo, '200000')).toThrow(/quotes fiat_currency USD, not the IDR/);
+  });
+
+  it('builds the withdrawal expectation with the parties reversed: the demo provides and confirms, the provider receives and takes the fee, flow 1', () => {
+    const lp = kp.publicKey();
+    const demo = Keypair.random().publicKey();
+    const order = {
+      id: 'w', status: 'MATCHED', flow: 'WITHDRAW', created_at: '2026-09-04T19:00:10Z', trade_id: TRADE, usdc_amount: '85090000',
+      fiat_amount: '150000', fiat_currency: 'IDR', lp_fee_bps: 120, pay_deadline: 1_700_000_600, confirm_deadline: 1_700_003_600, dispute_deadline: 1_700_090_000,
+    };
+    expect(createWithdrawExpectation(order, lp, demo, '150.000')).toEqual({
+      tradeIdHex: TRADE,
+      flow: 1,
+      provider: demo,
+      recipient: lp,
+      confirmer: demo,
+      lpWallet: lp,
+      usdcStroops: 85_090_000n,
+      maxUsdcStroops: MAX_DEMO_USDC_STROOPS,
+      fiatAmount: 150_000n,
+      fiatCurrency: 'IDR',
+      lpFeeBps: 120,
+      payDeadline: 1_700_000_600n,
+      confirmDeadline: 1_700_003_600n,
+      disputeDeadline: 1_700_090_000n,
+    });
+    expect(() => createWithdrawExpectation({ ...order, flow: 'TOP_UP' }, lp, demo, '150000')).toThrow(/is a TOP_UP order, not the WITHDRAW/);
+    expect(() => createWithdrawExpectation({ ...order, fiat_amount: '999' }, lp, demo, '150000')).toThrow(/quotes fiat_amount 999, not the 150000/);
+    expect(() => createWithdrawExpectation(order, lp, demo, '150,000')).toThrow(FIAT_INPUT_REFUSAL);
+  });
+
+  it('names the record a withdrawal must show: gross USDC in, the Stellar asset; a deposit shows the rupiah and iso4217', () => {
+    const issuer = Keypair.random().publicKey();
+    expect(expectedSep24Record('WITHDRAW', '85090000', '150000', issuer)).toEqual({ amountIn: '8.5090000', asset: `stellar:USDC:${issuer}` });
+    expect(expectedSep24Record('TOP_UP', '85090000', '150000', issuer)).toEqual({ amountIn: '150000', asset: 'iso4217:IDR' });
+  });
+
+  it('asks for three percent more USDC than the mid rate implies before opening a withdrawal, so the spread cannot strand an order the demo cannot fund', () => {
+    expect(usdcNeededFor('150000', '16000')).toBe(96_562_500n);
+    expect(usdcNeededFor('160000', '16000')).toBe(103_000_000n);
+  });
+
+  it('reads the USDC balance of the issuer it was told, never another issuer\'s USDC', () => {
+    const issuer = Keypair.random().publicKey();
+    const other = Keypair.random().publicKey();
+    const balances = [
+      { asset_type: 'native', balance: '9999.0000000' },
+      { asset_code: 'USDC', asset_issuer: other, balance: '500.0000000' },
+      { asset_code: 'USDC', asset_issuer: issuer, balance: '11.0200000' },
+    ];
+    expect(usdcBalanceOf(balances, issuer)).toBe(110_200_000n);
+    expect(usdcBalanceOf(balances.slice(0, 2), issuer)).toBe(0n);
+    expect(usdcBalanceOf([{ asset_code: 'USDC', asset_issuer: issuer, balance: '3' }], issuer)).toBe(30_000_000n);
   });
 
   it('refuses an ambiguous demo amount before anything is opened, with the same words the anchor would answer', () => {
@@ -317,6 +378,20 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     });
     expect(cfg['24'].depositPendingTransaction).toEqual({ id: 'd1', status: 'pending_user_transfer_start' });
     expect(cfg['24'].depositCompletedTransaction).toEqual({ id: 'd2', status: 'completed', stellar_transaction_id: 'h2' });
+    expect(cfg['24']).not.toHaveProperty('withdrawPendingUserTransferStartTransaction');
+    expect(cfg['24']).not.toHaveProperty('withdrawCompletedTransaction');
+    expect(JSON.stringify(cfg).split(secret).length - 1).toBe(1);
+  });
+
+  it('adds the completed withdrawal fixture when the run produced one, and never a pending-withdrawal one, which would send a wallet to a null anchor account', () => {
+    const secret = Keypair.random().secret();
+    const cfg = assembleSepConfig({
+      secret,
+      depositPending: { id: 'd1' },
+      depositCompleted: { id: 'd2', stellar_transaction_id: 'h2' },
+      withdrawCompleted: { id: 'w1', stellar_transaction_id: 'h3' },
+    });
+    expect(cfg['24'].withdrawCompletedTransaction).toEqual({ id: 'w1', status: 'completed', stellar_transaction_id: 'h3' });
     expect(cfg['24']).not.toHaveProperty('withdrawPendingUserTransferStartTransaction');
     expect(JSON.stringify(cfg).split(secret).length - 1).toBe(1);
   });

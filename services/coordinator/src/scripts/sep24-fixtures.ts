@@ -4,7 +4,7 @@ import { chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } from 'fs
 import { resolve } from 'path';
 import { Address, Keypair, StellarToml, Transaction, WebAuth, scValToNative } from '@stellar/stellar-sdk';
 import { refundOpensAt } from '../order/dispute.util';
-import { fiatDigits, fiatInputAccepted, FIAT_INPUT_REFUSAL } from '../money/money';
+import { baseUnitsToUsdcString, fiatDigits, fiatInputAccepted, FIAT_INPUT_REFUSAL, quoteUsdcForFiat } from '../money/money';
 import { Server } from '@stellar/stellar-sdk/rpc';
 
 export const MAX_DEMO_FEE_STROOPS = 10_000_000n;
@@ -52,8 +52,11 @@ export function signSep10Challenge(
   return tx.toXdr();
 }
 
+export type EscrowFlow = 0 | 1;
+
 export interface EscrowCallExpectation {
   tradeIdHex?: string;
+  flow?: EscrowFlow;
   provider?: string;
   recipient?: string;
   confirmer?: string;
@@ -70,6 +73,7 @@ export interface EscrowCallExpectation {
 
 const CREATE_TRADE_PINS = Object.keys({
   tradeIdHex: 1,
+  flow: 1,
   provider: 1,
   recipient: 1,
   confirmer: 1,
@@ -84,15 +88,42 @@ const CREATE_TRADE_PINS = Object.keys({
   disputeDeadline: 1,
 } satisfies Record<keyof EscrowCallExpectation, 1>) as (keyof EscrowCallExpectation)[];
 
-export function createTradeExpectation(order: FundableOrder, lp: string, demo: string, demoIdr: string): Required<EscrowCallExpectation> {
+function pinnedAmounts(order: FundableOrder, demoIdr: string, flow: 'TOP_UP' | 'WITHDRAW') {
   const fiatAmount = BigInt(demoIdrDigits(demoIdr));
   if (fiatAmount <= 0n) throw new Error(`demo amount "${demoIdr}" carries no rupiah digits; refusing to pin a zero fiat amount`);
   if (BigInt(order.fiat_amount) !== fiatAmount) {
     throw new Error(`assignment ${order.id} quotes fiat_amount ${order.fiat_amount}, not the ${demoIdr} the driver asked for`);
   }
   if (order.fiat_currency !== 'IDR') throw new Error(`assignment ${order.id} quotes fiat_currency ${order.fiat_currency}, not the IDR this driver funds`);
+  if (order.flow !== flow) throw new Error(`assignment ${order.id} is a ${order.flow} order, not the ${flow} this leg signs`);
+  return fiatAmount;
+}
+
+export function createWithdrawExpectation(order: FundableOrder, lp: string, demo: string, demoIdr: string): Required<EscrowCallExpectation> {
+  const fiatAmount = pinnedAmounts(order, demoIdr, 'WITHDRAW');
   return {
     tradeIdHex: order.trade_id,
+    flow: 1,
+    provider: demo,
+    recipient: lp,
+    confirmer: demo,
+    lpWallet: lp,
+    usdcStroops: BigInt(order.usdc_amount),
+    maxUsdcStroops: MAX_DEMO_USDC_STROOPS,
+    fiatAmount,
+    fiatCurrency: 'IDR',
+    lpFeeBps: order.lp_fee_bps,
+    payDeadline: BigInt(order.pay_deadline),
+    confirmDeadline: BigInt(order.confirm_deadline),
+    disputeDeadline: BigInt(order.dispute_deadline),
+  };
+}
+
+export function createTradeExpectation(order: FundableOrder, lp: string, demo: string, demoIdr: string): Required<EscrowCallExpectation> {
+  const fiatAmount = pinnedAmounts(order, demoIdr, 'TOP_UP');
+  return {
+    tradeIdHex: order.trade_id,
+    flow: 0,
     provider: lp,
     recipient: demo,
     confirmer: lp,
@@ -149,7 +180,9 @@ export function assertEscrowCall(
         if (usdcStroops <= 0n) throw new Error(`create_trade amount ${usdcStroops} is not positive`);
         const lpWallet = Address.fromScVal(args[11]).toString();
         const flowArg = args[7];
-        if (flowArg.type !== 'scvU32' || scValToNative(flowArg) !== 0) throw new Error('create_trade flow is not the deposit discriminant (u32 0), the only flow this driver funds');
+        if (flowArg.type !== 'scvU32' || scValToNative(flowArg) !== pins.flow) {
+          throw new Error(`create_trade flow is not the ${pins.flow === 0 ? 'deposit' : 'withdrawal'} discriminant (u32 ${pins.flow}) this leg signs`);
+        }
         if (provider !== pins.provider) throw new Error(`create_trade names provider ${provider}, not ${pins.provider}`);
         if (recipient !== pins.recipient) throw new Error(`create_trade names recipient ${recipient}, not ${pins.recipient}`);
         if (confirmer !== pins.confirmer) throw new Error(`create_trade names confirmer ${confirmer}, not ${pins.confirmer}`);
@@ -214,6 +247,7 @@ export function assertEscrowCall(
 export interface AssignmentOrder {
   id: string;
   status: string;
+  flow?: string | null;
   trade_id?: string | null;
   usdc_amount?: string | null;
   fiat_amount?: string | null;
@@ -258,25 +292,50 @@ export function assembleSepConfig(input: {
   secret: string;
   depositPending: { id: string };
   depositCompleted: { id: string; stellar_transaction_id: string };
+  withdrawCompleted?: { id: string; stellar_transaction_id: string };
 }) {
   return {
     '24': {
       account: { secretKey: input.secret },
       depositPendingTransaction: { id: input.depositPending.id, status: 'pending_user_transfer_start' },
       depositCompletedTransaction: { ...input.depositCompleted, status: 'completed' },
+      ...(input.withdrawCompleted ? { withdrawCompletedTransaction: { ...input.withdrawCompleted, status: 'completed' } } : {}),
     },
   };
+}
+
+export function expectedSep24Record(flow: 'TOP_UP' | 'WITHDRAW', usdcStroops: string, demoIdrDigitsValue: string, usdcIssuer: string): { amountIn: string; asset: string } {
+  return flow === 'WITHDRAW'
+    ? { amountIn: baseUnitsToUsdcString(BigInt(usdcStroops)), asset: `stellar:USDC:${usdcIssuer}` }
+    : { amountIn: demoIdrDigitsValue, asset: 'iso4217:IDR' };
+}
+
+export function usdcNeededFor(fiatDigitsValue: string, idrPerUsdc: string): bigint {
+  const atMid = quoteUsdcForFiat(BigInt(fiatDigitsValue), idrPerUsdc, 0, true);
+  return (atMid * 103n + 99n) / 100n;
+}
+
+export function usdcBalanceOf(balances: Array<{ asset_code?: string; asset_issuer?: string; balance: string }>, issuer: string): bigint {
+  const line = balances.find((b) => b.asset_code === 'USDC' && b.asset_issuer === issuer);
+  if (!line) return 0n;
+  const [whole, frac = ''] = line.balance.split('.');
+  return BigInt(whole) * 10_000_000n + BigInt((frac + '0000000').slice(0, 7));
 }
 
 const API = process.env.SEP24_API ?? 'https://api.lolipay.app';
 const HOME_DOMAIN = process.env.SEP24_HOME_DOMAIN ?? 'lolipay.app';
 const DEMO_IDR = process.env.SEP24_DEMO_IDR ?? '200000';
+const DEMO_WITHDRAW_IDR = process.env.SEP24_DEMO_WITHDRAW_IDR ?? '150000';
+const DEMO_PAYOUT_ACCOUNT = process.env.SEP24_DEMO_PAYOUT_ACCOUNT ?? 'BNI 1112223334 SEP24 DEMO';
+const HORIZON_URL = process.env.HORIZON_URL ?? 'https://horizon-testnet.stellar.org';
 export const demoIdrDigits = (raw: string) => {
   if (!fiatInputAccepted(raw) || fiatDigits(raw).length > 18) throw new Error(`"${raw}" is refused: ${FIAT_INPUT_REFUSAL}`);
   return String(BigInt(fiatDigits(raw)));
 };
 const demoIdrReadable = (raw: string) => fiatInputAccepted(raw) && fiatDigits(raw).length <= 18;
 export const DEMO_IDR_DIGITS = demoIdrReadable(DEMO_IDR) ? demoIdrDigits(DEMO_IDR) : '0';
+export const DEMO_WITHDRAW_IDR_DIGITS = demoIdrReadable(DEMO_WITHDRAW_IDR) ? demoIdrDigits(DEMO_WITHDRAW_IDR) : '0';
+const PROOF_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 const RPC_URL = process.env.STELLAR_RPC_URL ?? 'https://soroban-testnet.stellar.org';
 const HEARTBEAT_MS = 30_000;
 const POLL_MS = 5_000;
@@ -404,14 +463,19 @@ async function readyLp(lpJwt: () => Promise<string>, lpPub: string): Promise<() 
   return () => clearInterval(timer);
 }
 
-async function openDeposit(demoSep10: () => Promise<string>): Promise<{ id: string; cookie: string }> {
+interface Session {
+  id: string;
+  cookie: string;
+}
+
+async function openInteractive(kind: 'deposit' | 'withdraw', demoSep10: () => Promise<string>): Promise<Session> {
   const opened = await json<{ id: string; url: string }>(
-    await fetch(`${API}/sep24/transactions/deposit/interactive`, {
+    await fetch(`${API}/sep24/transactions/${kind}/interactive`, {
       method: 'POST',
       headers: { ...bearer(await demoSep10()), 'content-type': 'application/json' },
       body: JSON.stringify({ asset_code: 'USDC' }),
     }),
-    'deposit/interactive',
+    `${kind}/interactive`,
   );
   const hop = await fetch(opened.url, { redirect: 'manual' });
   const setCookie = hop.headers.get('set-cookie') ?? '';
@@ -421,8 +485,10 @@ async function openDeposit(demoSep10: () => Promise<string>): Promise<{ id: stri
 
 type Screen = 'identity' | 'waiting' | 'amount' | 'refused' | 'other';
 
-async function screenOf(id: string, cookie: string): Promise<{ screen: Screen; vendorUrl?: string }> {
-  const res = await fetch(`${API}/sep24/interactive/${id}`, { headers: { cookie } });
+async function screenOf(session: Session): Promise<{ screen: Screen; vendorUrl?: string }> {
+  const res = await fetch(`${API}/sep24/interactive/${session.id}`, { headers: { cookie: session.cookie } });
+  const refreshed = res.headers.get('set-cookie');
+  if (refreshed) session.cookie = refreshed.split(';')[0];
   const page = await res.text();
   if (!res.ok) throw new Error(`interactive page: HTTP ${res.status} ${plain(page)}`);
   const title = (page.match(/<h1>([^<]*)<\/h1>/) ?? [])[1] ?? '';
@@ -434,10 +500,10 @@ async function screenOf(id: string, cookie: string): Promise<{ screen: Screen; v
   return { screen: 'other' };
 }
 
-async function postForm(id: string, step: string, cookie: string, fields: Record<string, string>): Promise<void> {
-  const res = await fetch(`${API}/sep24/interactive/${id}/${step}`, {
+async function postForm(session: Session, step: string, fields: Record<string, string>): Promise<void> {
+  const res = await fetch(`${API}/sep24/interactive/${session.id}/${step}`, {
     method: 'POST',
-    headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+    headers: { cookie: session.cookie, 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(fields).toString(),
     redirect: 'manual',
   });
@@ -451,23 +517,23 @@ async function postForm(id: string, step: string, cookie: string, fields: Record
   throw new Error(`${step}: HTTP ${res.status} ${body}`);
 }
 
-async function assertScreened(id: string, cookie: string): Promise<void> {
-  let { screen, vendorUrl } = await screenOf(id, cookie);
+async function assertScreened(session: Session): Promise<void> {
+  let { screen, vendorUrl } = await screenOf(session);
   if (screen === 'identity') {
-    await postForm(id, 'identity', cookie, {
+    await postForm(session, 'identity', {
       first_name: 'Budi',
       last_name: 'Santoso',
       email_address: 'budi.santoso@example.com',
       id_type: 'id_card',
       id_country_code: 'IDN',
     });
-    ({ screen, vendorUrl } = await screenOf(id, cookie));
+    ({ screen, vendorUrl } = await screenOf(session));
   }
   if (screen === 'waiting') {
     const until = Date.now() + 60_000;
     while (Date.now() < until && screen === 'waiting') {
       await new Promise((r) => setTimeout(r, 10_000));
-      ({ screen, vendorUrl } = await screenOf(id, cookie));
+      ({ screen, vendorUrl } = await screenOf(session));
     }
   }
   if (screen === 'refused') {
@@ -495,6 +561,22 @@ async function freshOrderFor(lpJwt: () => Promise<string>, userPub: string, notB
 
 async function xdrFor(jwt: () => Promise<string>, orderId: string, leg: string): Promise<{ xdr: string; networkPassphrase: string }> {
   return json(await fetch(`${API}/orders/${orderId}/tx/${leg}`, { headers: bearer(await jwt()) }), `tx/${leg}`);
+}
+
+async function popupXdrFor(session: Session, leg: 'fund-tx' | 'release-tx'): Promise<{ xdr: string; networkPassphrase: string }> {
+  return json(await fetch(`${API}/sep24/interactive/${session.id}/${leg}`, { headers: { cookie: session.cookie } }), leg);
+}
+
+async function uploadProof(lpJwt: () => Promise<string>, orderId: string): Promise<void> {
+  const form = new FormData();
+  form.append('file', new Blob([PROOF_PNG], { type: 'image/png' }), 'proof.png');
+  await json(await fetch(`${API}/orders/${orderId}/proof`, { method: 'POST', headers: bearer(await lpJwt()), body: form }), 'orders/proof');
+}
+
+async function usdcHeldBy(account: string, issuer: string): Promise<bigint> {
+  const res = await fetch(`${HORIZON_URL}/accounts/${account}`);
+  const body = await json<{ balances: Array<{ asset_code?: string; asset_issuer?: string; balance: string }> }>(res, 'horizon/accounts');
+  return usdcBalanceOf(body.balances, issuer);
 }
 
 async function signAndSubmit(
@@ -527,7 +609,7 @@ async function waitForSep24(
   demoSep10: () => Promise<string>,
   id: string,
   status: string,
-  amountIn: string,
+  record: { amountIn: string; asset: string },
 ): Promise<{ status: string; stellar_transaction_id: string | null; amount_in: string | null; amount_in_asset: string | null }> {
   const until = Date.now() + POLL_LIMIT_MS;
   while (Date.now() < until) {
@@ -538,8 +620,8 @@ async function waitForSep24(
       'sep24/transaction',
     );
     if (transaction.status === status) {
-      if (transaction.amount_in !== amountIn) throw new Error(`transaction ${id} records amount_in ${transaction.amount_in}, not the ${amountIn} the driver asked for`);
-      if (transaction.amount_in_asset !== 'iso4217:IDR') throw new Error(`transaction ${id} records amount_in_asset ${transaction.amount_in_asset}, not iso4217:IDR`);
+      if (transaction.amount_in !== record.amountIn) throw new Error(`transaction ${id} records amount_in ${transaction.amount_in}, not the ${record.amountIn} the driver asked for`);
+      if (transaction.amount_in_asset !== record.asset) throw new Error(`transaction ${id} records amount_in_asset ${transaction.amount_in_asset}, not ${record.asset}`);
       return transaction;
     }
     await new Promise((r) => setTimeout(r, POLL_MS));
@@ -554,13 +636,69 @@ interface Actors {
   lpJwt: () => Promise<string>;
   demoSep10: () => Promise<string>;
   escrow: string;
+  usdcIssuer: string;
+}
+
+const DEPOSIT_RECORD = { amountIn: DEMO_IDR_DIGITS, asset: 'iso4217:IDR' };
+
+async function settledHash(a: Actors, id: string, record: { amountIn: string; asset: string }): Promise<string> {
+  let done = await waitForSep24(a.demoSep10, id, 'completed', record);
+  for (let i = 0; i < 6 && !done.stellar_transaction_id; i++) {
+    await new Promise((r) => setTimeout(r, POLL_MS));
+    done = await waitForSep24(a.demoSep10, id, 'completed', record);
+  }
+  if (!done.stellar_transaction_id) throw new Error(`transaction ${id} is completed but carries no stellar_transaction_id`);
+  return done.stellar_transaction_id;
+}
+
+async function withdrawToCompleted(a: Actors): Promise<{ id: string; hash: string }> {
+  const rate = await json<{ rate: string }>(await fetch(`${API}/rate?fiat=IDR`), 'rate');
+  const needed = usdcNeededFor(DEMO_WITHDRAW_IDR_DIGITS, rate.rate);
+  const held = await usdcHeldBy(a.demo.publicKey(), a.usdcIssuer);
+  if (held < needed) {
+    throw new Error(`the demo account holds ${baseUnitsToUsdcString(held)} USDC, below the ${baseUnitsToUsdcString(needed)} a ${DEMO_WITHDRAW_IDR} IDR withdrawal needs at ${rate.rate} IDR per USDC; run a deposit first or lower SEP24_DEMO_WITHDRAW_IDR`);
+  }
+  const session = await openInteractive('withdraw', a.demoSep10);
+  await assertScreened(session);
+  const t0 = Date.now() - 5_000;
+  await postForm(session, 'amount', { fiat_amount: DEMO_WITHDRAW_IDR, user_payment_method: DEMO_PAYOUT_ACCOUNT });
+  const rows = await json<Array<{ order: AssignmentOrder; require_proof: boolean }>>(
+    await fetch(`${API}/lp/assignments`, { headers: bearer(await a.lpJwt()) }),
+    'lp/assignments',
+  );
+  const order = pickFreshOrder(rows.map((r) => r.order), a.demo.publicKey(), t0);
+  const requireProof = rows.some((r) => r.order.id === order.id && r.require_proof);
+  console.log(`withdrawal ${session.id}: order ${order.id} ${order.status}, created ${order.created_at}`);
+  const record = expectedSep24Record('WITHDRAW', order.usdc_amount, DEMO_WITHDRAW_IDR_DIGITS, a.usdcIssuer);
+  const funded = await signAndSubmit(
+    a.demo,
+    await popupXdrFor(session, 'fund-tx'),
+    a.escrow,
+    'create_trade',
+    createWithdrawExpectation(order, a.lp.publicKey(), a.demo.publicKey(), DEMO_WITHDRAW_IDR),
+  );
+  console.log(`  escrow funded by the demo account: ${funded.hash} (trade ${funded.tradeIdHex})`);
+  await waitForSep24(a.demoSep10, session.id, 'pending_anchor', record);
+  if (requireProof) {
+    await uploadProof(a.lpJwt, order.id);
+    console.log('  proof of the rupiah transfer uploaded by the provider');
+  }
+  const paid = await signAndSubmit(a.lp, await xdrFor(a.lpJwt, order.id, 'mark-paid'), a.escrow, 'mark_fiat_paid', { tradeIdHex: funded.tradeIdHex });
+  console.log(`  rupiah marked paid by the provider: ${paid.hash}`);
+  await waitForSep24(a.demoSep10, session.id, 'pending_user', record);
+  const released = (await signAndSubmit(a.demo, await popupXdrFor(session, 'release-tx'), a.escrow, 'confirm_and_release', { tradeIdHex: funded.tradeIdHex })).hash;
+  console.log(`  escrow released by the demo account: ${released}`);
+  const hash = await settledHash(a, session.id, record);
+  if (hash !== released) throw new Error(`recorded hash ${hash} is not the release transaction ${released}`);
+  return { id: session.id, hash };
 }
 
 async function depositToFunded(a: Actors) {
-  const { id, cookie } = await openDeposit(a.demoSep10);
-  await assertScreened(id, cookie);
+  const session = await openInteractive('deposit', a.demoSep10);
+  const { id } = session;
+  await assertScreened(session);
   const t0 = Date.now() - 5_000;
-  await postForm(id, 'amount', cookie, { fiat_amount: DEMO_IDR });
+  await postForm(session, 'amount', { fiat_amount: DEMO_IDR });
   const order = await freshOrderFor(a.lpJwt, a.demo.publicKey(), t0);
   console.log(`deposit ${id}: order ${order.id} ${order.status}, created ${order.created_at}`);
   const funded = await signAndSubmit(
@@ -571,7 +709,7 @@ async function depositToFunded(a: Actors) {
     createTradeExpectation(order, a.lp.publicKey(), a.demo.publicKey(), DEMO_IDR),
   );
   console.log(`  escrow funded by the provider: ${funded.hash} (trade ${funded.tradeIdHex})`);
-  await waitForSep24(a.demoSep10, id, 'pending_user_transfer_start', DEMO_IDR_DIGITS);
+  await waitForSep24(a.demoSep10, id, 'pending_user_transfer_start', DEPOSIT_RECORD);
   const refundsAt = new Date(
     Number(refundOpensAt({ flow: 'TOP_UP', payDeadline: BigInt(order.pay_deadline), confirmDeadline: BigInt(order.confirm_deadline) })) * 1000,
   ).toISOString();
@@ -595,8 +733,17 @@ async function main(): Promise<void> {
         : `SEP24_DEMO_IDR "${DEMO_IDR}" is refused: ${FIAT_INPUT_REFUSAL}`,
     );
   }
+  if (DEMO_WITHDRAW_IDR_DIGITS === '0') {
+    throw new Error(
+      demoIdrReadable(DEMO_WITHDRAW_IDR)
+        ? `SEP24_DEMO_WITHDRAW_IDR "${DEMO_WITHDRAW_IDR}" is zero rupiah; name a positive amount`
+        : `SEP24_DEMO_WITHDRAW_IDR "${DEMO_WITHDRAW_IDR}" is refused: ${FIAT_INPUT_REFUSAL}`,
+    );
+  }
   const escrow = process.env.ESCROW_CONTRACT_ID;
   if (!escrow) throw new Error('ESCROW_CONTRACT_ID is not set; the driver refuses to sign a call to an unnamed contract');
+  const usdcIssuer = process.env.USDC_ASSET_ISSUER;
+  if (!usdcIssuer || !/^G[A-Z2-7]{55}$/.test(usdcIssuer)) throw new Error('USDC_ASSET_ISSUER is not set to a G address; the driver cannot name the asset a withdrawal records');
   const demo = identity(process.env.SEP24_DEMO_IDENTITY ?? 'sep24-demo');
   const lp = identity(process.env.SEP24_LP_IDENTITY ?? 'e2e-provider');
   console.log(`demo account ${demo.publicKey()}`);
@@ -608,6 +755,7 @@ async function main(): Promise<void> {
     demo,
     lp,
     escrow,
+    usdcIssuer,
     demoJwt: tokenSource(() => sessionJwt(demo)),
     lpJwt: tokenSource(() => sessionJwt(lp)),
     demoSep10: tokenSource(() => sep10Jwt(demo, anchor)),
@@ -615,6 +763,7 @@ async function main(): Promise<void> {
 
   const stop = await readyLp(a.lpJwt, lp.publicKey());
   try {
+    const withdrawal = await withdrawToCompleted(a);
     const first = await depositToFunded(a);
     const paid = await signAndSubmit(demo, await xdrFor(a.demoJwt, first.orderId, 'mark-paid'), escrow, 'mark_fiat_paid', {
       tradeIdHex: first.tradeIdHex,
@@ -626,28 +775,24 @@ async function main(): Promise<void> {
       })
     ).hash;
     console.log(`  escrow released by the provider: ${released}`);
-    let done = await waitForSep24(a.demoSep10, first.id, 'completed', DEMO_IDR_DIGITS);
-    for (let i = 0; i < 6 && !done.stellar_transaction_id; i++) {
-      await new Promise((r) => setTimeout(r, POLL_MS));
-      done = await waitForSep24(a.demoSep10, first.id, 'completed', DEMO_IDR_DIGITS);
-    }
-    const hash = done.stellar_transaction_id;
-    if (!hash) throw new Error(`deposit ${first.id} is completed but carries no stellar_transaction_id`);
+    const hash = await settledHash(a, first.id, DEPOSIT_RECORD);
     if (hash !== released) throw new Error(`recorded hash ${hash} is not the release transaction ${released}`);
 
     const second = await depositToFunded(a);
     const rotsAt = second.refundsAt;
 
     console.log('');
-    console.log(`completed deposit  ${first.id}  hash ${hash}`);
-    console.log(`pending deposit    ${second.id}  refund window opens ${rotsAt} if it is still funded by then`);
+    console.log(`completed withdrawal ${withdrawal.id}  hash ${withdrawal.hash}`);
+    console.log(`completed deposit    ${first.id}  hash ${hash}`);
+    console.log(`pending deposit      ${second.id}  refund window opens ${rotsAt} if it is still funded by then`);
 
-    if (!first.id || !second.id) throw new Error('a fixture id is empty; refusing to write the config');
+    if (!first.id || !second.id || !withdrawal.id) throw new Error('a fixture id is empty; refusing to write the config');
     writeConfig(
       assembleSepConfig({
         secret: demo.secret(),
         depositPending: { id: second.id },
         depositCompleted: { id: first.id, stellar_transaction_id: hash },
+        withdrawCompleted: { id: withdrawal.id, stellar_transaction_id: withdrawal.hash },
       }),
     );
     console.log(`wrote ${CONFIG_PATH} (mode 0600); run npm run anchor:test:sep24 before ${rotsAt}, while the pending deposit is still funded`);
