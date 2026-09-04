@@ -80,5 +80,5 @@ export function quoteUsdcForFiat(
 }
 
 export function fiatDigits(raw: unknown): string {
-  return String(raw ?? '').replace(/[^0-9]/g, '');
+  return String(raw).replace(/[^0-9]/g, '');
 }

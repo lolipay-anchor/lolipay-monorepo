@@ -1,4 +1,4 @@
-import { applyBps, splitFees, quoteFiat, quoteUsdcForFiat, baseUnitsToUsdc , fiatDigits } from './money';
+import { applyBps, splitFees, quoteFiat, quoteUsdcForFiat, baseUnitsToUsdc, fiatDigits } from './money';
 describe('money', () => {
   it('applyBps: 0.30% of 100 USDC', () => {
     expect(applyBps(1_000_000_000n, 30)).toBe(3_000_000n);

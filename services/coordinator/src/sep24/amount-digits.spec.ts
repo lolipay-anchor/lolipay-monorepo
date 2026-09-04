@@ -13,7 +13,6 @@ function harness() {
         order: null,
       })),
       updateMany: jest.fn(async () => ({ count: 1 })),
-      update: jest.fn(async () => ({})),
     },
     kycVerification: {
       findUnique: jest.fn(async () => ({ status: 'ACCEPTED', screenedAt: new Date() })),
@@ -43,6 +42,26 @@ describe('the amount step reads rupiah the way an Indonesian types it', () => {
     const token = mintInteractiveToken(cfg, 'tx-1', 'GABC');
     await svc.submitAmount('tx-1', token, 'Rp 200.000');
     expect(rate.createQuote).toHaveBeenCalledWith('GABC', 'TOP_UP', 'BANK', { fiatAmount: 200000n });
+  });
+
+  it.each([
+    ['two form fields', ['200000', '000']],
+    ['a JSON object', { toString: 'x' }],
+    ['a boolean', true],
+  ])('refuses an amount that is not one string or number: %s', async (_label, raw) => {
+    const { svc, cfg, rate } = harness();
+    const { mintInteractiveToken } = await import('./interactive-token');
+    const token = mintInteractiveToken(cfg, 'tx-1', 'GABC');
+    await expect(svc.submitAmount('tx-1', token, raw as any)).rejects.toThrow(/name an amount/);
+    expect(rate.createQuote).not.toHaveBeenCalled();
+  });
+
+  it('refuses zero rupiah as a bad request rather than letting the quote blow up', async () => {
+    const { svc, cfg, rate } = harness();
+    const { mintInteractiveToken } = await import('./interactive-token');
+    const token = mintInteractiveToken(cfg, 'tx-1', 'GABC');
+    await expect(svc.submitAmount('tx-1', token, 'Rp 0')).rejects.toThrow(/name an amount/);
+    expect(rate.createQuote).not.toHaveBeenCalled();
   });
 
   it('refuses an amount with no digits at all', async () => {

@@ -1,4 +1,4 @@
-import { interactiveScreen, escapeHtml, page } from './interactive-page';
+import { interactiveScreen, escapeHtml, page, formatFiat } from './interactive-page';
 
 const at = (kycStatus: any, screened: boolean, orderStatus: any) =>
   interactiveScreen({ kycStatus, screened, orderStatus });
@@ -96,5 +96,13 @@ describe('what the page puts on screen cannot be turned into markup', () => {
   it('polls only when asked to', () => {
     expect(page('t', '')).not.toContain('http-equiv');
     expect(page('t', '', 10)).toContain('content="10"');
+  });
+});
+
+describe('formatFiat', () => {
+  it('renders rupiah with dot thousands from whatever digits it is given', () => {
+    expect(formatFiat('Rp 1.234.567')).toBe('1.234.567');
+    expect(formatFiat(200000n)).toBe('200.000');
+    expect(formatFiat('')).toBe('');
   });
 });

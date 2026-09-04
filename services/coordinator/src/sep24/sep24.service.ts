@@ -454,8 +454,11 @@ export class Sep24Service {
       );
     }
 
+    if (typeof rawAmount !== 'string' && typeof rawAmount !== 'number') {
+      throw new BadRequestException('name an amount in rupiah');
+    }
     const digits = fiatDigits(rawAmount);
-    if (digits.length === 0 || digits.length > 18) {
+    if (digits.length === 0 || digits.length > 18 || BigInt(digits) === 0n) {
       throw new BadRequestException('name an amount in rupiah');
     }
 

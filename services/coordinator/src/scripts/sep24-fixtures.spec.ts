@@ -7,6 +7,7 @@ import {
   TESTNET_PASSPHRASE,
   assembleSepConfig,
   createTradeExpectation,
+  DEMO_IDR_DIGITS,
   demoIdrDigits,
   assertEscrowCall,
   assertTestnet,
@@ -264,6 +265,17 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(demoIdrDigits('Rp 200.000')).toBe('200000');
     expect(demoIdrDigits('abc')).toBe('0');
     expect(demoIdrDigits('')).toBe('0');
+    expect(DEMO_IDR_DIGITS).toBe(demoIdrDigits(process.env.SEP24_DEMO_IDR ?? '200000'));
+    const previous = process.env.SEP24_DEMO_IDR;
+    process.env.SEP24_DEMO_IDR = 'Rp 0200.000';
+    try {
+      jest.isolateModules(() => {
+        expect(require('./sep24-fixtures').DEMO_IDR_DIGITS).toBe('200000');
+      });
+    } finally {
+      if (previous === undefined) delete process.env.SEP24_DEMO_IDR;
+      else process.env.SEP24_DEMO_IDR = previous;
+    }
   });
 
   it('holds the ceilings that bound a compromised coordinator, 100 USDC, 1 XLM and 10,000 IDR per USDC, so changing any is a decision with a test to edit', () => {
