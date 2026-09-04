@@ -168,6 +168,10 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     );
     expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, provider: '' })).toThrow(/names provider/);
     expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, tradeIdHex: '' })).toThrow(/names trade/);
+    expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, recipient: '' })).toThrow(/names recipient/);
+    expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, lpWallet: '' })).toThrow(/pays the LP fee to/);
+    expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, fiatCurrency: '' })).toThrow(/fiat_currency IDR is not the /);
+    expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, lpFeeBps: 0 })).toThrow(/lp_fee_bps 20 is not the 0 /);
     expect(() => assertEscrowCall(create(lp, demo, lp, A, TRADE, u32(0), u64(PAY), u64(CONFIRM), i128(FIAT + 1n)), lp, ESCROW, 'create_trade', want)).toThrow(/fiat_amount .* the assignment quoted/);
     expect(() => assertEscrowCall(create(lp, demo, lp, A, TRADE, u32(0), u64(PAY), u64(CONFIRM), u32(200_000)), lp, ESCROW, 'create_trade', want)).toThrow(/fiat amount is scvU32/);
     expect(() => assertEscrowCall(create(lp, demo, lp, A, TRADE, u32(0), u64(PAY), u64(CONFIRM), i128(FIAT), sym('USD')), lp, ESCROW, 'create_trade', want)).toThrow(/fiat_currency .* the assignment quoted/);
@@ -210,6 +214,7 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(() => pickFreshOrder([{ ...fresh, pay_deadline: null }], me, t0)).toThrow(/carries no pay_deadline;/);
     expect(() => pickFreshOrder([{ ...fresh, confirm_deadline: null }], me, t0)).toThrow(/carries no confirm_deadline;/);
     expect(() => pickFreshOrder([{ ...fresh, fiat_currency: '' }], me, t0)).toThrow(/carries no fiat_currency;/);
+    expect(() => pickFreshOrder([{ ...fresh, fiat_amount: null }], me, t0)).toThrow(/carries no fiat_amount;/);
     expect(() => pickFreshOrder([{ ...fresh, dispute_deadline: undefined }], me, t0)).toThrow(/carries no dispute_deadline;/);
     expect(pickFreshOrder([{ ...fresh, lp_fee_bps: 0 }], me, t0).lp_fee_bps).toBe(0);
     expect(() => pickFreshOrder([{ ...fresh, trade_id: null, confirm_deadline: null }], me, t0)).toThrow(/carries no trade_id, confirm_deadline;/);
@@ -222,7 +227,7 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
       id: 'o', status: 'MATCHED', created_at: '2026-09-03T05:00:10Z', trade_id: TRADE, usdc_amount: '125000000',
       fiat_amount: '200000', fiat_currency: 'IDR', lp_fee_bps: 20, pay_deadline: 1_700_000_600, confirm_deadline: 1_700_003_600, dispute_deadline: 1_700_090_000,
     };
-    expect(createTradeExpectation(order, lp, demo)).toEqual({
+    expect(createTradeExpectation(order, lp, demo, 'Rp 200.000')).toEqual({
       tradeIdHex: TRADE,
       provider: lp,
       recipient: demo,
@@ -236,7 +241,8 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
       confirmDeadline: 1_700_003_600n,
       disputeDeadline: 1_700_090_000n,
     });
-    expect(createTradeExpectation({ ...order, fiat_amount: '999' }, lp, demo).fiatAmount).toBe(200_000n);
+    expect(() => createTradeExpectation({ ...order, fiat_amount: '999' }, lp, demo, '200000')).toThrow(/quotes fiat_amount 999, not the 200000/);
+    expect(createTradeExpectation({ ...order, fiat_amount: '250000' }, lp, demo, '250,000').fiatAmount).toBe(250_000n);
   });
 
   it('holds the two ceilings that bound a compromised coordinator at 100 USDC and 1 XLM, so changing either is a decision with a test to edit', () => {

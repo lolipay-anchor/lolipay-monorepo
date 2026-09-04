@@ -80,7 +80,11 @@ const CREATE_TRADE_PINS = Object.keys({
   disputeDeadline: 1,
 } satisfies Record<keyof EscrowCallExpectation, 1>) as (keyof EscrowCallExpectation)[];
 
-export function createTradeExpectation(order: FundableOrder, lp: string, demo: string): Required<EscrowCallExpectation> {
+export function createTradeExpectation(order: FundableOrder, lp: string, demo: string, demoIdr: string): Required<EscrowCallExpectation> {
+  const fiatAmount = BigInt(demoIdr.replace(/[^0-9]/g, ''));
+  if (BigInt(order.fiat_amount) !== fiatAmount) {
+    throw new Error(`assignment ${order.id} quotes fiat_amount ${order.fiat_amount}, not the ${demoIdr} the driver asked for`);
+  }
   return {
     tradeIdHex: order.trade_id,
     provider: lp,
@@ -88,7 +92,7 @@ export function createTradeExpectation(order: FundableOrder, lp: string, demo: s
     lpWallet: lp,
     usdcStroops: BigInt(order.usdc_amount),
     maxUsdcStroops: MAX_DEMO_USDC_STROOPS,
-    fiatAmount: BigInt(DEMO_IDR.replace(/[^0-9]/g, '')),
+    fiatAmount,
     fiatCurrency: order.fiat_currency,
     lpFeeBps: order.lp_fee_bps,
     payDeadline: BigInt(order.pay_deadline),
@@ -535,7 +539,7 @@ async function depositToFunded(a: Actors) {
     await xdrFor(a.lpJwt, order.id, 'create-trade'),
     a.escrow,
     'create_trade',
-    createTradeExpectation(order, a.lp.publicKey(), a.demo.publicKey()),
+    createTradeExpectation(order, a.lp.publicKey(), a.demo.publicKey(), DEMO_IDR),
   );
   console.log(`  escrow funded by the provider: ${funded.hash} (trade ${funded.tradeIdHex})`);
   await waitForSep24(a.demoSep10, id, 'pending_user_transfer_start');
