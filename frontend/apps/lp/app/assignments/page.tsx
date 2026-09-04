@@ -388,7 +388,7 @@ export function AssignmentCard({
               Pay {fiatDisplay} to
             </p>
             <p className="break-all text-sm font-bold text-lp-accent-ink">
-              {order.payment_instructions ?? '—'}
+              {order.payment_instructions ?? (order.payment_instructions_withheld === 'kyc_required' ? 'Withheld until the customer finishes identity verification; the account appears here as soon as it is complete.' : '—')}
             </p>
           </div>
           {}

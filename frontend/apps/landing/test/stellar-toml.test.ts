@@ -329,7 +329,7 @@ describe('the currencies section', () => {
     expect(t).toMatch(/staked, slashable collateral rather than a treasury account/)
   })
 
-  it('discloses that a memo does not buy a separate screened identity, which SEP-10 asks for and this anchor does not provide', async () => {
+  it('discloses that a memo does not buy a separately verified identity, which SEP-10 asks for and this anchor does not provide', async () => {
     const t = await body()
     expect(t).toMatch(/conditions=".*Identity verification is bound to the verified person rather than to a SEP-10 subject string.*"/)
     expect(t).toMatch(/a memo or muxed subaccount does not create a separately verified identity/)

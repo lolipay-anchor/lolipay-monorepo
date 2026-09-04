@@ -417,6 +417,19 @@ describe('AssignmentCard — WITHDRAW (LP pays fiat)', () => {
     expect(screen.getByText(/Waiting for seller to lock USDC/i)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Lock USDC/i })).toBeNull()
   })
+
+  it('tells the provider why the bank account is withheld on a FUNDED withdrawal whose customer is not yet verified', () => {
+    render(
+      <TestProviders kit={fakeKit}>
+        <AssignmentCard
+          assignment={{ order: makeOrder({ status: 'FUNDED', flow: 'WITHDRAW', payment_instructions_withheld: 'kyc_required' }) }}
+          onRefetch={vi.fn()}
+        />
+      </TestProviders>,
+    )
+
+    expect(screen.getByText(/Withheld until the customer finishes identity verification/i)).toBeTruthy()
+  })
 })
 
 describe('AssignmentCard — Open dispute (WITHDRAW FIAT_PAID)', () => {
