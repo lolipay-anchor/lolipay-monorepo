@@ -67,7 +67,11 @@ describe('the interactive error page tells the operator about the failures it hi
     expect(line).not.toContain('S_SHOULD_NEVER_BE_LOGGED');
     const long = new Error('x'.repeat(5000));
     new InteractiveErrorFilter().catch(long, host);
-    expect(String(told.mock.calls[1][0]).length).toBeLessThanOrEqual(1024);
+    expect(String(told.mock.calls[1][0]).length).toBe(1024);
+    const longPath = { params: { id: 'x'.repeat(5000) }, method: 'POST', path: `/sep24/interactive/${'x'.repeat(5000)}/amount`, body: '' };
+    const hostLongPath: any = { switchToHttp: () => ({ getResponse: () => res, getRequest: () => longPath }) };
+    new InteractiveErrorFilter().catch(new TypeError('the name must survive a long path'), hostLongPath);
+    expect(String(told.mock.calls[2][0])).toContain('TypeError: the name must survive a long path');
   });
 
   it('stays quiet for an HTTP refusal, which is the user being told no, not a failure', () => {
