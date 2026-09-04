@@ -36,6 +36,7 @@ const order = (over: any = {}) => ({
   tradeId: 'a'.repeat(64),
   contractId: 'CESCROW',
   status: 'CANCELLED',
+  createdAt: new Date(),
   ...over,
 });
 
@@ -72,27 +73,70 @@ describe('an order the chain disagrees about reaches a human', () => {
     expect((raise.mock.calls[0] as any[])[1]).toHaveLength(1);
   });
 
-  it('says nothing about an order the escrow still holds as funded while the refund reconciler will act on it', async () => {
+  it('keeps a funded escrow behind an EXPIRED row in the list at routine urgency while the reconciler will act on it, so a later flip of the switch cannot clear an alert nothing on chain resolved', async () => {
     const { svc, raise } = make({
-      orders: [order()],
+      orders: [order({ status: 'EXPIRED' })],
       onChain: { status: 'FUNDED', settledAt: 0 },
       autoRefund: true,
       refundConfigured: true,
     });
     await svc.alertOnEscrowDivergence();
-    expect((raise.mock.calls[0] as any[])[1]).toEqual([]);
+    const found = (raise.mock.calls[0] as any[])[1];
+    expect(found).toHaveLength(1);
+    expect(found[0].urgency).toBe('routine');
+    expect(found[0].text).toMatch(/FUNDED on chain/);
   });
 
-  it('names an order the escrow holds as funded when no reconciler will act, because the USDC is locked behind an EXPIRED row and nobody else is told', async () => {
+  it('names an order the escrow holds as funded when no reconciler will act, as urgent, with the permissionless refund and the switch that is off', async () => {
     const { svc, raise } = make({
-      orders: [order()],
+      orders: [order({ status: 'EXPIRED' })],
       onChain: { status: 'FUNDED', settledAt: 0 },
       autoRefund: false,
+      refundConfigured: true,
+    });
+    await svc.alertOnEscrowDivergence();
+    const found = (raise.mock.calls[0] as any[])[1];
+    expect(found[0].urgency).toBe('urgent');
+    expect(found[0].text).toMatch(/refund\(/);
+    expect(found[0].text).toMatch(/autoRefund is off/);
+    expect(found[0].text).not.toMatch(/no refund signer/);
+  });
+
+  it('says which condition is missing when it is the signer', async () => {
+    const { svc, raise } = make({
+      orders: [order({ status: 'EXPIRED' })],
+      onChain: { status: 'FUNDED', settledAt: 0 },
+      autoRefund: true,
       refundConfigured: false,
     });
     await svc.alertOnEscrowDivergence();
     const found = (raise.mock.calls[0] as any[])[1];
-    expect(found.map((f: any) => f.text).join(' ')).toMatch(/FUNDED on chain/);
+    expect(found[0].urgency).toBe('urgent');
+    expect(found[0].text).toMatch(/no refund signer/);
+  });
+
+  it('treats a funded escrow older than the reconciler lookback as urgent even with both switches on, because the reconciler will never see it', async () => {
+    const { svc, raise } = make({
+      orders: [order({ status: 'EXPIRED', createdAt: new Date(Date.now() - 46 * 86_400_000) })],
+      onChain: { status: 'FUNDED', settledAt: 0 },
+      autoRefund: true,
+      refundConfigured: true,
+    });
+    await svc.alertOnEscrowDivergence();
+    const found = (raise.mock.calls[0] as any[])[1];
+    expect(found[0].urgency).toBe('urgent');
+    expect(found[0].text).toMatch(/older than the reconciler/);
+  });
+
+  it('fails closed when the config row cannot be read: the funded escrow is reported as urgent rather than assumed handled', async () => {
+    const { svc, raise, prisma } = make({
+      orders: [order({ status: 'EXPIRED' })],
+      onChain: { status: 'FUNDED', settledAt: 0 },
+      refundConfigured: true,
+    });
+    prisma.config.findUnique.mockRejectedValueOnce(new Error('db down'));
+    await svc.alertOnEscrowDivergence();
+    const found = (raise.mock.calls[0] as any[])[1];
     expect(found[0].urgency).toBe('urgent');
   });
 

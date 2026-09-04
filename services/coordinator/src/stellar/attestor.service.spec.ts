@@ -42,8 +42,8 @@ describe('the attestor refuses before it signs, not after', () => {
 
   it('refuses to attest at all when unconfigured, as unavailable rather than broken', async () => {
     const { svc, built } = makeSvc(undefined);
-    await expect(svc.attest(CONTRACT, TRADE)).rejects.toBeInstanceOf(ServiceUnavailableException);
-    await expect(svc.attest(CONTRACT, TRADE)).rejects.toThrow(/attestor key is configured/i);
+    await expect(svc.attest(CONTRACT, TRADE, Math.floor(Date.now() / 1000) + 3600)).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(svc.attest(CONTRACT, TRADE, Math.floor(Date.now() / 1000) + 3600)).rejects.toThrow(/attestor key is configured/i);
     expect(built).not.toHaveBeenCalled();
   });
 
@@ -51,7 +51,7 @@ describe('the attestor refuses before it signs, not after', () => {
     const kp = Keypair.random();
     const { svc, built } = makeSvc(kp.secret(), Keypair.random().publicKey());
 
-    await expect(svc.attest(CONTRACT, TRADE)).rejects.toThrow(/is not the attestor/i);
+    await expect(svc.attest(CONTRACT, TRADE, Math.floor(Date.now() / 1000) + 3600)).rejects.toThrow(/is not the attestor/i);
 
     expect(built).not.toHaveBeenCalled();
   });
@@ -59,7 +59,7 @@ describe('the attestor refuses before it signs, not after', () => {
   it('names the immutability in the refusal, because a wrong key cannot be fixed by config', async () => {
     const kp = Keypair.random();
     const { svc } = makeSvc(kp.secret(), Keypair.random().publicKey());
-    await expect(svc.attest(CONTRACT, TRADE)).rejects.toThrow(/immutable/i);
+    await expect(svc.attest(CONTRACT, TRADE, Math.floor(Date.now() / 1000) + 3600)).rejects.toThrow(/immutable/i);
   });
 
   it('refuses a contract this anchor does not recognise, before it asks that contract anything', async () => {
@@ -67,7 +67,7 @@ describe('the attestor refuses before it signs, not after', () => {
     const { svc, read } = makeSvc(kp.secret(), kp.publicKey());
 
     await expect(
-      svc.attest('CAVJAMGCNBJQIDE6U7DHGYIWUREBOYH6PI2GWERLCF2DV6AGRAZOUBG2', TRADE),
+      svc.attest('CAVJAMGCNBJQIDE6U7DHGYIWUREBOYH6PI2GWERLCF2DV6AGRAZOUBG2', TRADE, Math.floor(Date.now() / 1000) + 3600),
     ).rejects.toThrow(/not an escrow this anchor/i);
 
     expect(read.readEscrowFiatAttestor).not.toHaveBeenCalled();
@@ -81,7 +81,7 @@ describe('the attestor refuses before it signs, not after', () => {
     (svc as any).cfg.escrowContractIdsExtra = [older];
     read.buildMarkFiatPaidTx.mockRejectedValue(new Error('stop here'));
 
-    await expect(svc.attest(older, TRADE)).rejects.toThrow('stop here');
+    await expect(svc.attest(older, TRADE, Math.floor(Date.now() / 1000) + 3600)).rejects.toThrow('stop here');
   });
 
   it('asks the chain once per contract, not once per attestation', async () => {
@@ -89,8 +89,8 @@ describe('the attestor refuses before it signs, not after', () => {
     const { svc, read } = makeSvc(kp.secret(), kp.publicKey());
     read.buildMarkFiatPaidTx.mockRejectedValue(new Error('stop here'));
 
-    await expect(svc.attest(CONTRACT, TRADE)).rejects.toThrow('stop here');
-    await expect(svc.attest(CONTRACT, TRADE)).rejects.toThrow('stop here');
+    await expect(svc.attest(CONTRACT, TRADE, Math.floor(Date.now() / 1000) + 3600)).rejects.toThrow('stop here');
+    await expect(svc.attest(CONTRACT, TRADE, Math.floor(Date.now() / 1000) + 3600)).rejects.toThrow('stop here');
 
     expect(read.readEscrowFiatAttestor).toHaveBeenCalledTimes(1);
   });
@@ -146,7 +146,7 @@ describe('the attestor refuses before it signs, not after', () => {
       envelopeFor({ tradeIdHex: 'cd'.repeat(32), caller: kp.publicKey() }),
     );
 
-    await expect(svc.attest(CONTRACT, TRADE)).rejects.toThrow(/refused to sign/i);
+    await expect(svc.attest(CONTRACT, TRADE, Math.floor(Date.now() / 1000) + 3600)).rejects.toThrow(/refused to sign/i);
   });
 
   it('refuses to sign an envelope pointed at a different escrow contract', async () => {
@@ -159,7 +159,7 @@ describe('the attestor refuses before it signs, not after', () => {
       }),
     );
 
-    await expect(svc.attest(CONTRACT, TRADE)).rejects.toThrow(/refused to sign/i);
+    await expect(svc.attest(CONTRACT, TRADE, Math.floor(Date.now() / 1000) + 3600)).rejects.toThrow(/refused to sign/i);
   });
 
   it('signs with its own key and submits, and reports what the chain said', async () => {
@@ -179,7 +179,7 @@ describe('the attestor refuses before it signs, not after', () => {
     (svc as any).pollTimeoutMs = 200;
     (svc as any).createRpcServer = () => ({ sendTransaction, getTransaction });
 
-    await expect(svc.attest(CONTRACT, TRADE)).resolves.toEqual({
+    await expect(svc.attest(CONTRACT, TRADE, Math.floor(Date.now() / 1000) + 3600)).resolves.toEqual({
       status: 'SUCCESS',
       hash: 'facade',
     });
@@ -216,7 +216,7 @@ describe('the attestor refuses before it signs, not after', () => {
     const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
 
     try {
-      await svc.attest(CONTRACT, TRADE);
+      await svc.attest(CONTRACT, TRADE, Math.floor(Date.now() / 1000) + 3600);
 
       const signedXdr = submitted!.toXdr();
       for (const call of [...logSpy.mock.calls, ...warnSpy.mock.calls]) {
@@ -236,8 +236,8 @@ describe('the attestor refuses before it signs, not after', () => {
     const { svc, read } = makeSvc(kp.secret(), kp.publicKey());
     read.buildMarkFiatPaidTx.mockRejectedValue(new Error('stop here'));
 
-    await expect(svc.attest(CONTRACT, TRADE)).rejects.toThrow('stop here');
+    await expect(svc.attest(CONTRACT, TRADE, Math.floor(Date.now() / 1000) + 3600)).rejects.toThrow('stop here');
 
-    expect(read.buildMarkFiatPaidTx).toHaveBeenCalledWith(CONTRACT, kp.publicKey(), TRADE);
+    expect(read.buildMarkFiatPaidTx).toHaveBeenCalledWith(CONTRACT, kp.publicKey(), TRADE, expect.any(Number));
   });
 });

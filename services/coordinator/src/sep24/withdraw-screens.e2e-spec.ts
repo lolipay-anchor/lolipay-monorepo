@@ -90,6 +90,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     flow: 'TOP_UP' | 'WITHDRAW',
     status: 'CREATED' | 'MATCHED' | 'AWAITING_ONCHAIN' | 'FUNDED' | 'FIAT_PAID' = 'FUNDED',
     payDeadline = 9_999_999_999n,
+    confirmDeadline = 10_000_003_599n,
   ) {
     const link = await prisma.walletLink.findUnique({ where: { stellarAddress: address } });
     const order = await prisma.order.create({
@@ -109,7 +110,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
         userPaymentDetails: 'BNI 111222333 THE USER',
         status,
         payDeadline,
-        confirmDeadline: 10_000_003_599n,
+        confirmDeadline,
         disputeDeadline: 9_999_999_999n,
         expiresAt: new Date(Date.now() + 86_400_000),
       },
@@ -264,6 +265,17 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     const res = await screen(id, token);
     expect(res.text).toMatch(/send your rupiah/i);
     expect(res.text).toContain('BCA 999888777');
+  });
+
+  it('the deposit instructions name the attestor grace end, an hour after the pay deadline, even when the confirm window is longer', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await prisma.sep24Transaction.update({ where: { id }, data: { flow: 'TOP_UP' } });
+    await linkOrder(id, address, 'TOP_UP', 'FUNDED', 9_999_999_999n, 10_000_007_199n);
+
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/send your rupiah/i);
+    expect(res.text).toContain('2286-11-20T18:46:39.000Z');
+    expect(res.text).not.toContain('2286-11-20T19:46:39.000Z');
   });
 
   it('a settled withdrawal reports withdrawal status, not deposit status', async () => {

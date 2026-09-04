@@ -1,4 +1,4 @@
-import { Account } from '@stellar/stellar-sdk';
+import { Account, Transaction } from '@stellar/stellar-sdk';
 import { StellarReadService } from './stellar-read.service';
 import { signingDeadlineSecs } from '../config/contract-limits';
 
@@ -17,7 +17,7 @@ function harness() {
     getAccount: async () => new Account(SOURCE, '1'),
     prepareTransaction: async (tx: any) => {
       built.push(tx);
-      return { toXdr: () => 'prepared' };
+      return { toXdr: () => tx.toEnvelope() };
     },
   });
   return { svc, built };
@@ -48,8 +48,9 @@ describe('the funding transaction expires on its own at the last instant the esc
   it('caps maxTime at payDeadline minus the contract minimum when that comes before the usual five minutes', async () => {
     const { svc, built } = harness();
     const now = Math.floor(Date.now() / 1000);
-    await svc.buildCreateTradeTx(params(now + 700));
-    expect(Number(built[0].timeBounds.maxTime)).toBe(signingDeadlineSecs(now + 700));
+    const { xdr } = await svc.buildCreateTradeTx(params(now + 700));
+    const served = new Transaction(xdr as any, 'Test SDF Network ; September 2015');
+    expect(Number(served.timeBounds!.maxTime)).toBe(signingDeadlineSecs(now + 700));
   });
 
   it('keeps the usual five-minute bound when the deadline is far away', async () => {
@@ -57,6 +58,24 @@ describe('the funding transaction expires on its own at the last instant the esc
     const now = Math.floor(Date.now() / 1000);
     await svc.buildCreateTradeTx(params(now + 86_400));
     const maxTime = Number(built[0].timeBounds.maxTime);
+    expect(maxTime).toBeGreaterThanOrEqual(now + 299);
+    expect(maxTime).toBeLessThanOrEqual(now + 301);
+  });
+});
+
+describe('the mark-paid transaction expires itself at the deadline the contract holds its caller to', () => {
+  it('caps maxTime at the bound the caller was given', async () => {
+    const { svc } = harness();
+    const now = Math.floor(Date.now() / 1000);
+    const { xdr } = await svc.buildMarkFiatPaidTx(CONTRACT, SOURCE, 'ab'.repeat(32), now + 100);
+    expect(Number(new Transaction(xdr as any, 'Test SDF Network ; September 2015').timeBounds!.maxTime)).toBe(now + 100);
+  });
+
+  it('keeps the usual five minutes when the bound is further away', async () => {
+    const { svc } = harness();
+    const now = Math.floor(Date.now() / 1000);
+    const { xdr } = await svc.buildMarkFiatPaidTx(CONTRACT, SOURCE, 'ab'.repeat(32), now + 86_400);
+    const maxTime = Number(new Transaction(xdr as any, 'Test SDF Network ; September 2015').timeBounds!.maxTime);
     expect(maxTime).toBeGreaterThanOrEqual(now + 299);
     expect(maxTime).toBeLessThanOrEqual(now + 301);
   });

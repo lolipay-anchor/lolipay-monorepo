@@ -15,6 +15,7 @@ describe('latestLedgerCloseTime reads the close time the RPC reports, and refuse
   it('throws naming the field when the close time is missing or unreadable, rather than yielding an Invalid Date the sweeper would act on', async () => {
     await expect(svcWith(async () => ({ id: 'x', sequence: 1 })).latestLedgerCloseTime()).rejects.toThrow(/closeTime/);
     await expect(svcWith(async () => ({ closeTime: 'abc' })).latestLedgerCloseTime()).rejects.toThrow(/closeTime/);
+    await expect(svcWith(async () => ({ closeTime: '0' })).latestLedgerCloseTime()).rejects.toThrow(/closeTime/);
   });
 });
 

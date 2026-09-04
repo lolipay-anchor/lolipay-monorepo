@@ -25,7 +25,7 @@ async function invokedArgs(caller = CALLER) {
     }),
   });
 
-  await svc.buildMarkFiatPaidTx(CONTRACT, caller, TRADE_ID);
+  await svc.buildMarkFiatPaidTx(CONTRACT, caller, TRADE_ID, Math.floor(Date.now() / 1000) + 1800);
   return seenOp.func.invokeContract.args;
 }
 

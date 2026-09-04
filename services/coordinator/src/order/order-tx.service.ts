@@ -61,6 +61,7 @@ export class OrderTxService {
         this.status.contractIdFor(currentOrder),
         callerAddress,
         currentOrder.tradeId,
+        Number(currentOrder.flow === 'TOP_UP' ? currentOrder.payDeadline : currentOrder.confirmDeadline),
       );
     } catch (err) {
       console.error('buildMarkFiatPaidTx error:', err instanceof Error ? err.message : String(err));

@@ -56,13 +56,19 @@ export class MaintenanceService {
   }
 
   private async run_alertOnEscrowDivergence(): Promise<void> {
-    const config = await this.prisma.config.findUnique({ where: { id: 1 } });
-    const reconcilerWillAct = Boolean(config?.autoRefund) && this.refundSigner.isConfigured;
-    let candidates: { id: string; tradeId: string; contractId: string | null; status: string }[];
+    let autoRefund = false;
+    try {
+      autoRefund = Boolean((await this.prisma.config.findUnique({ where: { id: 1 } }))?.autoRefund);
+    } catch (err) {
+      this.log.warn(`alertOnEscrowDivergence: config read failed, assuming the refund reconciler will not act: ${errMsg(err)}`);
+    }
+    const reconcilerWillAct = autoRefund && this.refundSigner.isConfigured;
+    const orphanCutoff = Date.now() - ORPHAN_LOOKBACK_MS;
+    let candidates: { id: string; tradeId: string; contractId: string | null; status: string; createdAt: Date }[];
     try {
       candidates = await this.prisma.order.findMany({
         where: { status: { in: ['CANCELLED', 'EXPIRED'] } },
-        select: { id: true, tradeId: true, contractId: true, status: true },
+        select: { id: true, tradeId: true, contractId: true, status: true, createdAt: true },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         take: DIVERGENCE_SCAN_LIMIT,
       });
@@ -94,7 +100,24 @@ export class MaintenanceService {
       }
       if (!onChain) continue;
       if (onChain.status === 'REFUNDED') continue;
-      if (onChain.status === 'FUNDED' && reconcilerWillAct) continue;
+      if (onChain.status === 'FUNDED') {
+        const inLookback = o.createdAt.getTime() > orphanCutoff;
+        const handled = reconcilerWillAct && inLookback;
+        const why = !autoRefund
+          ? 'Config.autoRefund is off'
+          : !this.refundSigner.isConfigured
+            ? 'no refund signer is configured'
+            : inLookback
+              ? 'the refund reconciler will return it on its next pass'
+              : 'it is older than the reconciler lookback, so nothing automatic will ever see it';
+        found.push({
+          key: `escrow_divergence:${o.id}`,
+          fingerprint: onChain.status,
+          urgency: handled ? 'routine' : 'urgent',
+          text: `order ${o.id} (trade ${o.tradeId}) is ${o.status} off chain but FUNDED on chain: ${why}; refund(${o.tradeId}) is permissionless once the refund instant has passed and returns the USDC to the provider`,
+        });
+        continue;
+      }
       found.push({
         key: `escrow_divergence:${o.id}`,
         fingerprint: onChain.status,

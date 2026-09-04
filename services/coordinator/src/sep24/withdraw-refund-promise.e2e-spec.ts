@@ -31,9 +31,12 @@ describe.each([
   });
 
   afterAll(async () => {
-    await prisma.config.update({ where: { id: 1 }, data: { autoRefund: true } });
-    restoreEnv();
-    await app.close();
+    try {
+      await prisma?.config.update({ where: { id: 1 }, data: { autoRefund: true } });
+    } finally {
+      restoreEnv();
+      await app?.close();
+    }
   });
 
   it('says exactly what this deployment will do about the refund route', async () => {

@@ -53,7 +53,7 @@ export class AttestorService {
     return this.cachedKeypair;
   }
 
-  async attest(contractId: string, tradeIdHex: string): Promise<{ status: string; hash: string }> {
+  async attest(contractId: string, tradeIdHex: string, notAfterSecs: number): Promise<{ status: string; hash: string }> {
     const kp = this.resolveKeypair();
     if (!kp) {
       throw new ServiceUnavailableException(
@@ -71,6 +71,7 @@ export class AttestorService {
       contractId,
       kp.publicKey(),
       tradeIdHex,
+      notAfterSecs,
     );
     const tx = new Transaction(xdr, networkPassphrase);
     assertIsThisTradesAttestation(tx, { contractId, tradeIdHex, attestor: kp.publicKey() });

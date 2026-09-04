@@ -59,7 +59,7 @@ describe('StellarReadService.buildMarkFiatPaidTx (unit, mocked RPC server)', () 
     };
     (svc as any).createRpcServer = () => mockServer;
 
-    const result = await svc.buildMarkFiatPaidTx(FAKE_CONTRACT, USER_ADDR, FAKE_TRADE_ID);
+    const result = await svc.buildMarkFiatPaidTx(FAKE_CONTRACT, USER_ADDR, FAKE_TRADE_ID, Math.floor(Date.now() / 1000) + 1800);
 
     expect(mockServer.getAccount).toHaveBeenCalledWith(USER_ADDR);
     expect(mockServer.prepareTransaction).toHaveBeenCalledTimes(1);
@@ -74,7 +74,7 @@ describe('StellarReadService.buildMarkFiatPaidTx (unit, mocked RPC server)', () 
     };
     (svc as any).createRpcServer = () => mockServer;
 
-    await expect(svc.buildMarkFiatPaidTx(FAKE_CONTRACT, USER_ADDR, FAKE_TRADE_ID)).rejects.toThrow(
+    await expect(svc.buildMarkFiatPaidTx(FAKE_CONTRACT, USER_ADDR, FAKE_TRADE_ID, Math.floor(Date.now() / 1000) + 1800)).rejects.toThrow(
       /could not load account/i,
     );
     expect(mockServer.prepareTransaction).not.toHaveBeenCalled();
@@ -88,7 +88,7 @@ describe('StellarReadService.buildMarkFiatPaidTx (unit, mocked RPC server)', () 
     };
     (svc as any).createRpcServer = () => mockServer;
 
-    await expect(svc.buildMarkFiatPaidTx(FAKE_CONTRACT, USER_ADDR, FAKE_TRADE_ID)).rejects.toThrow(
+    await expect(svc.buildMarkFiatPaidTx(FAKE_CONTRACT, USER_ADDR, FAKE_TRADE_ID, Math.floor(Date.now() / 1000) + 1800)).rejects.toThrow(
       /prepareTransaction failed/i,
     );
   });

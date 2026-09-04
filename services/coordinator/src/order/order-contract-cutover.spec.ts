@@ -141,13 +141,13 @@ describe('OrderService — Phase 5A per-order contractId cutover', () => {
   it('buildMarkFiatPaidTx targets order.contractId (not the env default)', async () => {
     const { svc, tx, stellar } = makeSvc();
     await tx.buildMarkFiatPaidTx('order-1', USER_ADDR);
-    expect(stellar.buildMarkFiatPaidTx).toHaveBeenCalledWith(SNAPSHOTTED_CONTRACT, USER_ADDR, FAKE_TRADE_ID);
+    expect(stellar.buildMarkFiatPaidTx).toHaveBeenCalledWith(SNAPSHOTTED_CONTRACT, USER_ADDR, FAKE_TRADE_ID, expect.any(Number));
   });
 
   it('buildMarkFiatPaidTx falls back to cfg.escrowContractId for a legacy order (contractId NULL)', async () => {
     const { svc, tx, stellar } = makeSvc({ contractId: null });
     await tx.buildMarkFiatPaidTx('order-1', USER_ADDR);
-    expect(stellar.buildMarkFiatPaidTx).toHaveBeenCalledWith(ENV_CONTRACT, USER_ADDR, FAKE_TRADE_ID);
+    expect(stellar.buildMarkFiatPaidTx).toHaveBeenCalledWith(ENV_CONTRACT, USER_ADDR, FAKE_TRADE_ID, expect.any(Number));
   });
 
   it('buildCreateTradeTx targets order.contractId', async () => {

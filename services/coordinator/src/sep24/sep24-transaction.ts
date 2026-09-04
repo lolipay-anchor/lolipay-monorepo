@@ -136,7 +136,7 @@ function userAction(withdrawing: boolean, order: Sep24Order): { by?: bigint; mes
       message:
         Number(order.payDeadline) * 1000 > now
           ? 'Send the rupiah to the provider account shown on the deposit page you opened from your wallet.'
-          : refundAt > now
+          : refundAt >= now
             ? `The time to send the rupiah has passed. Do not start a transfer now. One you already sent can still be confirmed by the anchor until ${new Date(refundAt).toISOString()}; after that anyone, including the provider, can return the escrow to them.`
             : 'The time to send the rupiah has passed. Do not send it now; anyone, including the provider, can now return the escrow to them.',
     };

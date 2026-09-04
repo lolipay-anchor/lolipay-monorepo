@@ -60,7 +60,7 @@ describe('Soroban authorisation format', () => {
     const svc = makeSvc();
     const calls = recordPrepare(svc);
 
-    await svc.buildMarkFiatPaidTx(CONTRACT, SOURCE, TRADE_ID);
+    await svc.buildMarkFiatPaidTx(CONTRACT, SOURCE, TRADE_ID, Math.floor(Date.now() / 1000) + 1800);
 
     expect(calls[0][1]).toBe(false);
   });

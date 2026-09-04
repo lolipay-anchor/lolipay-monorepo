@@ -8,6 +8,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { refundOpensAt } from '../order/dispute.util';
 import { LpStatus, Market, OrderStatus, Prisma } from '../generated/prisma/client';
 import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
@@ -485,7 +486,7 @@ export class AdminService {
   private async attestFiatPaidOnce(orderId: string, actorAddress: string, evidence: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      select: { id: true, flow: true, status: true, tradeId: true, contractId: true, userAddress: true, lpWallet: true, settledAt: true },
+      select: { id: true, flow: true, status: true, tradeId: true, contractId: true, userAddress: true, lpWallet: true, settledAt: true, payDeadline: true, confirmDeadline: true },
     });
     if (!order) {
       throw new NotFoundException('no such order');
@@ -505,7 +506,7 @@ export class AdminService {
     let outcome: { submission: string; txHash?: string; error?: string };
     let refusal: unknown;
     try {
-      const result = await this.attestor.attest(contractId, order.tradeId);
+      const result = await this.attestor.attest(contractId, order.tradeId, Number(refundOpensAt(order)));
       outcome = { submission: result.status, txHash: result.hash };
     } catch (err) {
       refusal = err;

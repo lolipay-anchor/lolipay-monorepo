@@ -53,6 +53,7 @@ const ORDER_FIELDS = {
   ref: true,
   payDeadline: true,
   confirmDeadline: true,
+  flow: true,
 } as const;
 
 @Injectable()

@@ -243,6 +243,7 @@ export class StellarReadService {
     contractId: string,
     userAddress: string,
     tradeIdHex: string,
+    notAfterSecs: number,
   ): Promise<{ xdr: string; networkPassphrase: string }> {
     const server = this.createRpcServer();
 
@@ -270,7 +271,7 @@ export class StellarReadService {
           ],
         }),
       )
-      .setTimeout(300)
+      .setTimebounds(0, Math.max(1, Math.min(Math.floor(Date.now() / 1000) + 300, notAfterSecs)))
       .build();
 
     let preparedTx;
