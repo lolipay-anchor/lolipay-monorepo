@@ -560,6 +560,7 @@ export class Sep24Service {
       `<h1>lolipay ${noun}</h1>`,
       `<p>Status: <strong>${tx.status}</strong></p>`,
       `<p>Started: ${tx.started_at}</p>`,
+      `<p>If something is wrong with this ${noun}, sign in with the same wallet at <a href="https://app.lolipay.app">app.lolipay.app</a>: the order appears there with its evidence, and a dispute can be raised from it while the escrow still holds the funds.</p>`,
       '</body></html>',
     ].join('');
   }
