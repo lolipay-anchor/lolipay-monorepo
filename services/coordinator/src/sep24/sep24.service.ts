@@ -7,6 +7,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { MIN_PAY_WINDOW_SECS } from '../config/contract-limits';
 import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { Sep12Service } from '../kyc/sep12.service';
@@ -357,7 +358,10 @@ export class Sep24Service {
         funding ? 'Sign to lock your USDC' : 'Confirm your rupiah arrived',
         [
           funding
-            ? `<p>Your wallet will ask you to approve moving <strong>${escapeHtml(formatUsdc((row.order as any).usdcAmount))}</strong> USDC into escrow. The provider then pays <strong>${escapeHtml(formatFiat((row.order as any).fiatAmount))}</strong> ${escapeHtml((row.order as any).fiatCurrency)} to your bank account, and the escrow releases to them only when you confirm it arrived. Nothing leaves your wallet until you approve it.</p>`
+            ? [
+                `<p>Your wallet will ask you to approve moving <strong>${escapeHtml(formatUsdc((row.order as any).usdcAmount))}</strong> USDC into escrow. The provider then pays <strong>${escapeHtml(formatFiat((row.order as any).fiatAmount))}</strong> ${escapeHtml((row.order as any).fiatCurrency)} to your bank account, and the escrow releases to them when you confirm it arrived. If you never confirm, only a dispute a resolver decides can move it. Nothing leaves your wallet until you approve it.</p>`,
+                `<p>Sign before <strong>${escapeHtml(new Date((Number((row.order as any).payDeadline) - MIN_PAY_WINDOW_SECS) * 1000).toISOString())}</strong>. After that the escrow refuses the signature and this withdrawal expires.</p>`,
+              ].join('')
             : [
                 `<p>The provider says they sent <strong>${escapeHtml(formatFiat((row.order as any).fiatAmount))}</strong> ${escapeHtml((row.order as any).fiatCurrency)} to:</p>`,
                 `<pre>${escapeHtml((row.order as any).userPaymentDetails ?? 'the account you gave this anchor')}</pre>`,

@@ -114,7 +114,7 @@ describe('formatUsdc', () => {
     [10_0000000n, '10'],
     [1n, '0.0000001'],
     [0n, '0'],
-  ])('shows %s stroops as %s, no trailing zeros and no dangling point', (units, shown) => {
+  ])('shows %s base units as %s, no trailing zeros and no dangling point', (units, shown) => {
     expect(formatUsdc(units)).toBe(shown);
   });
 });

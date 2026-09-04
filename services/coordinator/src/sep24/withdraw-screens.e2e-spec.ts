@@ -84,11 +84,11 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     expect(res.text).not.toMatch(/lolipay deposit/);
   });
 
-  async function linkFundedOrder(
+  async function linkOrder(
     id: string,
     address: string,
     flow: 'TOP_UP' | 'WITHDRAW',
-    status: 'CREATED' | 'MATCHED' | 'FUNDED' | 'FIAT_PAID' = 'FUNDED',
+    status: 'CREATED' | 'MATCHED' | 'AWAITING_ONCHAIN' | 'FUNDED' | 'FIAT_PAID' = 'FUNDED',
   ) {
     const link = await prisma.walletLink.findUnique({ where: { stellarAddress: address } });
     const order = await prisma.order.create({
@@ -118,18 +118,46 @@ describe('a withdrawal is never described to the user as a deposit', () => {
 
   it('states the USDC to be locked and the rupiah to be received before the wallet prompt, so the user signs a number they have read', async () => {
     const { id, token, address } = await openedWithdrawal(true);
-    await linkFundedOrder(id, address, 'WITHDRAW', 'MATCHED');
+    await linkOrder(id, address, 'WITHDRAW', 'MATCHED');
 
     const res = await screen(id, token);
     expect(res.text).toMatch(/sign to lock your usdc/i);
+    expect(res.text).toMatch(/sign in my wallet/i);
     expect(res.text).toContain('<strong>1000</strong> USDC');
     expect(res.text).toContain('<strong>16.000.000</strong> IDR');
     expect(res.text).not.toContain('1000.0000000');
   });
 
+  it('names the last instant the escrow accepts the signature, ten minutes before the pay deadline, so the button is never a surprise', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await linkOrder(id, address, 'WITHDRAW', 'MATCHED');
+
+    const res = await screen(id, token);
+    expect(res.text).toContain('2286-11-20T17:36:39.000Z');
+    expect(res.text).not.toContain('2286-11-20T17:46:39.000Z');
+  });
+
+  it('does not promise that only the user can release the escrow, because a dispute a resolver decides can also move it', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await linkOrder(id, address, 'WITHDRAW', 'MATCHED');
+
+    const res = await screen(id, token);
+    expect(res.text).not.toMatch(/only when you confirm/i);
+    expect(res.text).toMatch(/dispute/i);
+  });
+
+  it('shows the same signing screen and figures at AWAITING_ONCHAIN, which the popup treats as still waiting for the signature', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await linkOrder(id, address, 'WITHDRAW', 'AWAITING_ONCHAIN');
+
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/sign to lock your usdc/i);
+    expect(res.text).toContain('<strong>1000</strong> USDC');
+  });
+
   it('while a provider is still being matched, says so, rather than claiming USDC is already moving', async () => {
     const { id, token, address } = await openedWithdrawal(true);
-    await linkFundedOrder(id, address, 'WITHDRAW', 'CREATED');
+    await linkOrder(id, address, 'WITHDRAW', 'CREATED');
 
     const res = await screen(id, token);
     expect(res.text).toMatch(/finding a provider/i);
@@ -139,7 +167,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
 
   it('a FUNDED withdrawal is never told to send rupiah, and is never shown the provider bank account', async () => {
     const { id, token, address } = await openedWithdrawal(true);
-    await linkFundedOrder(id, address, 'WITHDRAW');
+    await linkOrder(id, address, 'WITHDRAW');
 
     const res = await screen(id, token);
     expect(res.text).not.toMatch(/send your rupiah/i);
@@ -149,7 +177,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
 
   it('does not offer the confirm button at FUNDED, the one status the escrow refuses it at', async () => {
     const { id, token, address } = await openedWithdrawal(true);
-    await linkFundedOrder(id, address, 'WITHDRAW');
+    await linkOrder(id, address, 'WITHDRAW');
 
     const res = await screen(id, token);
     expect(res.text).not.toMatch(/i received the rupiah/i);
@@ -163,7 +191,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
 
   it('offers the confirm button at FIAT_PAID, which is the only status confirm_and_release accepts', async () => {
     const { id, token, address } = await openedWithdrawal(true);
-    await linkFundedOrder(id, address, 'WITHDRAW', 'FIAT_PAID');
+    await linkOrder(id, address, 'WITHDRAW', 'FIAT_PAID');
 
     const res = await screen(id, token);
     expect(res.text).toMatch(/confirm your rupiah arrived/i);
@@ -177,7 +205,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
   it('leaves a FIAT_PAID deposit on the settled status page, with no button', async () => {
     const { id, token, address } = await openedWithdrawal(true);
     await prisma.sep24Transaction.update({ where: { id }, data: { flow: 'TOP_UP' } });
-    await linkFundedOrder(id, address, 'TOP_UP', 'FIAT_PAID');
+    await linkOrder(id, address, 'TOP_UP', 'FIAT_PAID');
 
     const res = await screen(id, token);
     expect(res.text).toMatch(/deposit status/i);
@@ -207,7 +235,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
         verifiedAt: new Date(),
       },
     });
-    await linkFundedOrder(id, kp.publicKey(), 'TOP_UP');
+    await linkOrder(id, kp.publicKey(), 'TOP_UP');
 
     const res = await screen(id, token);
     expect(res.text).toMatch(/send your rupiah/i);
