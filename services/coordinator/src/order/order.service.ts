@@ -9,6 +9,7 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
+import { acceptedForFunds } from '../kyc/screening-requirement';
 import { signingDeadlineSecs } from '../config/contract-limits';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -118,7 +119,7 @@ export class OrderService {
   ): Promise<boolean> {
     if (!personId) return false;
     const verification = await db.kycVerification.findFirst({
-      where: { personId, status: 'ACCEPTED', screenedAt: { not: null } },
+      where: { personId, ...acceptedForFunds(this.cfg.kycRequireAml) },
     });
     if (!verification) return false;
     const refused = await db.kycVerification.findFirst({

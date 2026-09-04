@@ -55,12 +55,16 @@ export class DiditKycProvider implements KycProvider {
       return;
     }
     if (!/\bAML\b/i.test(features)) {
-      log.warn(
-        `this deployment CANNOT SCREEN: the configured workflow performs ${features}, with no AML step, so no customer will ever be screened and every deposit will refuse`,
-      );
+      if (this.cfg.kycRequireAml) {
+        log.warn(
+          `this deployment CANNOT SCREEN: the configured workflow performs ${features}, with no AML step, so no customer will ever be screened and every deposit will refuse; set KYC_REQUIRE_AML=false to accept identity checks alone`,
+        );
+      } else {
+        log.log(`the configured verification workflow performs ${features}; AML is not required (KYC_REQUIRE_AML=false), so an accepted identity alone may move funds`);
+      }
       return;
     }
-    log.log(`the configured verification workflow performs ${features}`);
+    log.log(`the configured verification workflow performs ${features}${this.cfg.kycRequireAml ? '' : '; AML is not required (KYC_REQUIRE_AML=false)'}`);
   }
 
   async start(customerRef: string, _fields: Record<string, string>): Promise<KycDecision> {

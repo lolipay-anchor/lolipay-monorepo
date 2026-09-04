@@ -153,7 +153,7 @@ export class Sep12Service {
         message: row.rejectionReason ?? 'this identity was refused',
       };
     }
-    if (row.status === 'ACCEPTED' && row.screenedAt === null) {
+    if (row.status === 'ACCEPTED' && row.screenedAt === null && this.cfg.kycRequireAml) {
       return {
         id: row.customerRef,
         status: 'PROCESSING',

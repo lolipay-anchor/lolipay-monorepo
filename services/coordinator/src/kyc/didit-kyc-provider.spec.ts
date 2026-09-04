@@ -1,4 +1,4 @@
-import { ServiceUnavailableException } from '@nestjs/common';
+import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 import { DiditKycProvider } from './didit-kyc-provider';
 
@@ -22,6 +22,7 @@ function provider(reply: { status: number; body: unknown }, cfg: Record<string, 
     diditApiKey: 'example-api-key-not-a-real-one',
     diditWorkflowId: 'wf-1',
     diditDailySessionBudget: 200,
+    kycRequireAml: true,
     ...cfg,
   } as any;
   const refusals = new DiditRefusalsService();
@@ -158,5 +159,37 @@ describe('a budget slot is held while the money is being spent', () => {
     release(null);
     await first;
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('what boot says about a workflow with no AML step depends on whether AML is required', () => {
+  const workflows = { status: 200, body: [{ workflow_id: 'wf-1', features: 'OCR + LIVENESS + FACE_MATCH + IP_ANALYSIS' }] };
+
+  it('warns that the deployment cannot screen when AML is required', async () => {
+    const { p } = provider(workflows, { kycRequireAml: true });
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    try {
+      await p.onModuleInit();
+      expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(/CANNOT SCREEN/);
+      expect(log.mock.calls.map((c) => String(c[0])).join(' ')).not.toMatch(/AML is not required/);
+    } finally {
+      warn.mockRestore();
+      log.mockRestore();
+    }
+  });
+
+  it('says identity alone may move funds when AML is not required, and does not call that a failure', async () => {
+    const { p } = provider(workflows, { kycRequireAml: false });
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    try {
+      await p.onModuleInit();
+      expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).not.toMatch(/CANNOT SCREEN/);
+      expect(log.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(/AML is not required \(KYC_REQUIRE_AML=false\)/);
+    } finally {
+      warn.mockRestore();
+      log.mockRestore();
+    }
   });
 });

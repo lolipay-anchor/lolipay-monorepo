@@ -2,7 +2,7 @@ import { DiditKycProvider, DIDIT_WORKFLOWS_URL } from './didit-kyc-provider';
 import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 import { Logger } from '@nestjs/common';
 
-const cfg = { diditApiKey: 'k', diditWorkflowId: 'wf-1', diditDailySessionBudget: 200 } as any;
+const cfg = { diditApiKey: 'k', diditWorkflowId: 'wf-1', diditDailySessionBudget: 200, kycRequireAml: true } as any;
 
 function build(reply: { status: number; body: unknown } | Error) {
   const fetcher = jest.fn(async (url: string) => {

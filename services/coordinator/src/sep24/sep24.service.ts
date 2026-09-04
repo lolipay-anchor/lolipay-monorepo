@@ -7,6 +7,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { acceptedForFunds } from '../kyc/screening-requirement';
 import { RESOLVER_WINDOW_SECS, signingCutoffSecs } from '../config/contract-limits';
 import { refundOpensAt } from '../order/dispute.util';
 import { RefundSignerService } from '../stellar/refund-signer.service';
@@ -119,7 +120,7 @@ export class Sep24Service {
   private async screenedPeople(personIds: string[]): Promise<Set<string>> {
     if (personIds.length === 0) return new Set();
     const rows = await this.prisma.kycVerification.findMany({
-      where: { personId: { in: personIds }, status: 'ACCEPTED', screenedAt: { not: null } },
+      where: { personId: { in: personIds }, ...acceptedForFunds(this.cfg.kycRequireAml) },
       select: { personId: true },
     });
     return new Set(rows.map((r) => r.personId));
@@ -272,7 +273,7 @@ export class Sep24Service {
     const [kyc, screenedElsewhere, refusedAnywhere] = await Promise.all([
       this.prisma.kycVerification.findUnique({ where: { customerRef: row.stellarAccount } }),
       this.prisma.kycVerification.findFirst({
-        where: { personId: row.personId, status: 'ACCEPTED', screenedAt: { not: null } },
+        where: { personId: row.personId, ...acceptedForFunds(this.cfg.kycRequireAml) },
         select: { customerRef: true },
       }),
       this.prisma.kycVerification.findFirst({
@@ -560,7 +561,7 @@ export class Sep24Service {
       `<h1>lolipay ${noun}</h1>`,
       `<p>Status: <strong>${tx.status}</strong></p>`,
       `<p>Started: ${tx.started_at}</p>`,
-      `<p>If something is wrong with this ${noun}, sign in with the same wallet at <a href="https://app.lolipay.app">app.lolipay.app</a>: the order appears there with its evidence, and a dispute can be raised from it while the escrow still holds the funds.</p>`,
+      `<p>If something is wrong with this ${noun}, sign in with the same wallet at <a href="https://app.lolipay.app">app.lolipay.app</a>: the order appears there with its evidence, and it shows whether a dispute can still be opened and until when.</p>`,
       '</body></html>',
     ].join('');
   }

@@ -26,10 +26,21 @@ function dbOf(...rows: Row[]) {
   return { kycVerification: { findFirst } } as any;
 }
 
-const check = (db: any, personId: any) =>
-  (OrderService.prototype as any).identityVerified.call({}, personId, db);
+const check = (db: any, personId: any, kycRequireAml = true) =>
+  (OrderService.prototype as any).identityVerified.call({ cfg: { kycRequireAml } }, personId, db);
 
 describe('the predicate that governs both the deposit gate and the reveal gate', () => {
+  it('with KYC_REQUIRE_AML=false an accepted identity that was never screened may move funds, and with it true it may not', async () => {
+    const db = dbOf(verifiedRow({ screenedAt: null }));
+    expect(await check(db, 'person-1', false)).toBe(true);
+    expect(await check(db, 'person-1', true)).toBe(false);
+  });
+
+  it('a refusal still blocks the person even when AML is not required', async () => {
+    const db = dbOf(verifiedRow({ screenedAt: null }), verifiedRow({ customerRef: 'GOTHER', status: 'REJECTED', screenedAt: null }));
+    expect(await check(db, 'person-1', false)).toBe(false);
+  });
+
   it('accepts a verified customer bound to the person asking', async () => {
     await expect(check(dbOf(verifiedRow()), 'person-1')).resolves.toBe(true);
   });
