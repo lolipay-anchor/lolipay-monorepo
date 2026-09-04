@@ -84,7 +84,7 @@ describe('what we serialise satisfies the acceptance suite own schemas, not our 
     expect(serializeSep24(record({ order }), ASSETS).from).toBeUndefined();
   });
 
-  it('reports a withdrawal as paying USDC and receiving rupiah, not the reverse', () => {
+  it('reports a withdrawal as paying USDC and receiving rupiah, not the reverse, and paying the gross rather than the net', () => {
     const dep = serializeSep24(record({ order }), ASSETS);
     expect(dep.amount_in_asset).toBe('iso4217:IDR');
     expect(dep.amount_out_asset).toBe(`stellar:USDC:${ASSETS.usdcIssuer}`);

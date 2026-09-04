@@ -131,7 +131,7 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
     expect(asUnits(out.amount_out!) + asUnits(out.fee_details!.total)).toBe(250000000n);
   });
 
-  describe('a withdrawal record states the money that actually moves, ADR 0037', () => {
+  describe('a withdrawal record states the money that actually moves', () => {
     const withdrawal = (over: Record<string, unknown> = {}) =>
       order({ usdcAmount: 10_0000000n, fiatAmount: 176_315n, platformFeeBps: 30, lpFeeBps: 120, ...over });
 
@@ -141,7 +141,7 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       expect(out.amount_in_asset).toBe(`stellar:USDC:${BASE.usdcIssuer}`);
     });
 
-    it('amount_out is the rupiah the LP actually pays, priced on the gross', () => {
+    it('amount_out is the order\'s rupiah amount, passed through unchanged', () => {
       const out = serializeSep24(tx({ flow: 'WITHDRAW', order: withdrawal() }), BASE);
       expect(out.amount_out).toBe('176315');
       expect(out.amount_out_asset).toBe('iso4217:IDR');
