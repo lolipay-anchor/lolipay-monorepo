@@ -314,11 +314,11 @@ export class MonitoringService {
       if (unreadable > 0) {
         alerts.push({
           key: 'didit_approval_overruled',
-          fingerprint: 'unreadable',
-          urgency: 'routine',
+          fingerprint: `${10 ** Math.floor(Math.log10(unreadable))}+`,
+          urgency: unreadable >= 10 ? 'urgent' : 'routine',
           text:
-            `${unreadable} customers' latest verification delivery could not be read by this anchor and they were asked to verify again ` +
-            `— if this number grows, the vendor's payload shape has changed and every new customer will loop until the reader is updated`,
+            `${unreadable} customers were approved by the vendor with a screening this anchor could not read, so they were asked to verify again ` +
+            `— one is a stray payload; ten or more means the vendor's payload shape has changed and every new customer will loop until the reader is updated`,
         });
       }
     } catch (e) {

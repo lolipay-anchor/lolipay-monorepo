@@ -185,6 +185,30 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     expect(row!.screenedAt).toBeNull();
   });
 
+  it('asks a customer again when the vendor approved them with a screening this anchor cannot read, and marks the row so the monitor can count it', async () => {
+    const kp = Keypair.random();
+    await sessionToken(app, kp);
+
+    const raw = JSON.stringify({
+      event_id: 'e-unreadable',
+      webhook_type: 'status.updated',
+      timestamp: Math.floor(Date.now() / 1000),
+      session_id: 'sess-live-unreadable',
+      status: 'Approved',
+      vendor_data: kp.publicKey(),
+      environment: 'sandbox',
+      decision: { aml_screenings: [{ status: 'Approved', total_hits: 0, hits: [], warnings: ['SOME_NEW_WARNING'] }] },
+    });
+    await post(raw, signed(raw)).expect(200);
+
+    const row = await prisma.kycVerification.findUnique({ where: { customerRef: kp.publicKey() } });
+    expect(row!.status).toBe('NEEDS_INFO');
+    expect(row!.rejectionReason).toBe('the screening could not be read');
+    expect(row!.deliveredAt).not.toBeNull();
+    expect(row!.screenedAt).toBeNull();
+    expect(await prisma.kycVerification.count({ where: { status: 'NEEDS_INFO', rejectionReason: 'the screening could not be read', customerRef: kp.publicKey() } })).toBe(1);
+  });
+
   it('writes nothing at all when the delivery came from another environment', async () => {
     const kp = Keypair.random();
     await sessionToken(app, kp);

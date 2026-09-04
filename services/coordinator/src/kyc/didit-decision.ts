@@ -1,4 +1,5 @@
 import { KycStatus } from '../generated/prisma/client';
+import { UNREADABLE_SCREENING } from './screening-requirement';
 
 const PROCESSING_STATUSES = ['Not Started', 'In Progress', 'In Review'];
 const RETRYABLE_STATUSES = ['Awaiting User', 'Resubmitted', 'Abandoned', 'Expired', 'Kyc Expired'];
@@ -99,7 +100,7 @@ export function readDiditDecision(payload: any, requireAml = true): DiditConclus
     }
     if (noScreeningDelivered(payload)) return { ...base, status: 'ACCEPTED' };
     if (ranAndFoundNothing(payload)) return { ...base, status: 'ACCEPTED', screened: true };
-    return { ...base, status: 'NEEDS_INFO' };
+    return { ...base, status: 'NEEDS_INFO', rejectionReason: UNREADABLE_SCREENING };
   }
 
   if (status === 'Declined') {

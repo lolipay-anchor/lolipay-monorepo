@@ -1,3 +1,4 @@
+import { UNREADABLE_SCREENING } from './screening-requirement';
 import { readDiditDecision } from './didit-decision';
 
 const clean = { status: 'Approved', total_hits: 0, hits: [], warnings: [] };
@@ -69,6 +70,7 @@ describe('what the anchor concludes from a delivery', () => {
         const res = readDiditDecision(payload({ decision: { aml_screenings: [entry] } }), requireAml);
         expect(res.status).toBe('NEEDS_INFO');
         expect(res.screened).toBe(false);
+        expect(res.rejectionReason).toBe(UNREADABLE_SCREENING);
       }
     }
   });
@@ -268,5 +270,21 @@ describe('a warning never outranks a hit that is sitting right beside it', () =>
     const declined = payload({ status: 'Declined', decision: { aml_screenings: [unperformed], id_verifications: [{ status: 'Approved' }] } });
     expect(readDiditDecision(declined, true).status).toBe('REJECTED');
     expect(readDiditDecision(declined, false).status).toBe('NEEDS_INFO');
+  });
+
+  it('marks only the unreadable approval, so an abandoned session, an expired one or a blurry document is not counted as a delivery this anchor could not read', () => {
+    const ordinary = [
+      payload({ status: 'Abandoned' }),
+      payload({ status: 'Expired' }),
+      payload({ status: 'Kyc Expired' }),
+      payload({ status: 'Awaiting User' }),
+      payload({ status: 'Resubmitted' }),
+      payload({ status: 'Declined', decision: { aml_screenings: [], id_verifications: [{ status: 'Expired' }] } }),
+    ];
+    for (const p of ordinary) {
+      const res = readDiditDecision(p, false);
+      expect(res.status).toBe('NEEDS_INFO');
+      expect(res.rejectionReason).toBeUndefined();
+    }
   });
 });

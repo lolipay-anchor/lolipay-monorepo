@@ -1,3 +1,5 @@
+export const UNREADABLE_SCREENING = 'the screening could not be read';
+
 export function acceptedForFunds(requireAml: boolean) {
   return requireAml
     ? { status: 'ACCEPTED' as const, screenedAt: { not: null } }
@@ -13,5 +15,5 @@ export function awaitingProvider(
 }
 
 export function deliveredButUnreadable() {
-  return { status: 'NEEDS_INFO' as const, deliveredAt: { not: null }, providerRef: { not: null } };
+  return { status: 'NEEDS_INFO' as const, rejectionReason: UNREADABLE_SCREENING };
 }

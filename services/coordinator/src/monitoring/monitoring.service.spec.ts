@@ -165,7 +165,9 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_approval_overruled');
     expect(alert).toBeDefined();
     expect(alert.text).toContain('3 customers');
-    expect(prisma.kycVerification.count.mock.calls[0][0].where).toEqual({ status: 'NEEDS_INFO', deliveredAt: { not: null }, providerRef: { not: null } });
+    expect(alert.fingerprint).toBe('1+');
+    expect(alert.urgency).toBe('routine');
+    expect(prisma.kycVerification.count.mock.calls[0][0].where).toEqual({ status: 'NEEDS_INFO', rejectionReason: 'the screening could not be read' });
   });
 
   it('says the unreadable-delivery family is incomplete rather than cleared when the count itself fails', async () => {
@@ -173,6 +175,15 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     prisma.kycVerification.count.mockRejectedValue(new Error('connection reset'));
     await svc.checkAndAlert();
     expect(raised[0].incomplete.has('didit_approval_overruled')).toBe(true);
+  });
+
+  it('pages urgently and re-sends when the unreadable count crosses an order of magnitude, because that is what vendor payload drift looks like', async () => {
+    const { svc, raised, prisma } = quiet();
+    prisma.kycVerification.count.mockResolvedValue(40);
+    await svc.checkAndAlert();
+    const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_approval_overruled');
+    expect(alert.fingerprint).toBe('10+');
+    expect(alert.urgency).toBe('urgent');
   });
 
   it('does not page anyone urgently because a stranger posted to the public endpoint', async () => {
@@ -212,11 +223,11 @@ describe('a new alert reaches the operator only if its family is in scope', () =
 
   it('every alert family this service pushes is inside the scope it raises with, so none is filtered out on the way to the webhook', () => {
     const src = readFileSync(join(__dirname, 'monitoring.service.ts'), 'utf8');
-    const families = [...src.matchAll(/key: ['`]([a-z_]+)/g)].map((m) => m[1]);
+    const families = [...src.matchAll(/key:\s*['`]([a-z_]+)/g)].map((m) => m[1]);
     expect(families.length).toBeGreaterThan(5);
     for (const family of families) expect(MONITORING_ALERT_SCOPE).toContain(family);
-    const sites = (src.match(/key: /g) ?? []).length;
-    const computed = [...src.matchAll(/key: `\$\{([a-zA-Z]+)\}/g)].map((m) => m[1]);
+    const sites = (src.match(/key:\s*/g) ?? []).length;
+    const computed = [...src.matchAll(/key:\s*`\$\{([a-zA-Z]+)\}/g)].map((m) => m[1]);
     expect(families.length + computed.length).toBe(sites);
     expect(computed).toEqual(['kind']);
     const kinds = [...src.matchAll(/noteOverflow\('([a-z_]+)'/g)].map((m) => m[1]);
