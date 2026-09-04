@@ -75,9 +75,10 @@ export class Sep24Service {
 
   private async indicativeRateLine(flow: 'TOP_UP' | 'WITHDRAW'): Promise<string> {
     try {
-      const [price, config] = await Promise.all([this.rate.getReferencePrice('IDR'), this.prisma.config.findUnique({ where: { id: 1 } })]);
+      const config = await this.prisma.config.findUnique({ where: { id: 1 } });
       if (!config) return '';
       if (config.paused) return '<p>This anchor is paused right now; an amount named now will be refused. Try again later.</p>';
+      const price = await this.rate.getReferencePrice('IDR');
       const perUsdc = quoteFiat(10_000_000n, price, config.spreadBps, flow === 'WITHDRAW');
       const fee = flow === 'TOP_UP' ? ` A fee of ${(config.platformFeeBps + config.lpFeeBps) / 100}% is taken from the USDC you receive.` : '';
       return `<p>1 USDC ≈ <strong>${escapeHtml(formatFiat(perUsdc))}</strong> IDR right now. This is an estimate; the rate applied is fixed the moment you continue and may differ from this one.${fee}</p>`;

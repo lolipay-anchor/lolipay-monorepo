@@ -81,8 +81,24 @@ describe('ConfigBootService', () => {
     expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(new RegExp(`platformWallet \\(${WALLET}\\) differs from the escrow contract default_platform_wallet \\(${OTHER_WALLET}\\)`));
   });
 
-  it('bounds the boot read above two full RPC attempts, because one read is two round trips and a cap below that never lets the check run', () => {
+  it('bounds the boot read above two full RPC attempts, because one read is two round trips and a cap below that never lets the check run', async () => {
     expect(BOOT_CHAIN_READ_MS).toBeGreaterThan(2 * RPC_TIMEOUT_MS);
+    jest.useFakeTimers();
+    try {
+      const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 40, platformWallet: WALLET, payWindowSecs: 1800, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      const stellar = makeStellar({
+        readEscrowPlatformDefaults: jest.fn(() => new Promise((resolve) => setTimeout(() => resolve({ platformFeeBps: 30, platformWallet: WALLET }), 2 * RPC_TIMEOUT_MS + 500))),
+      });
+      const boot = new ConfigBootService(prisma, makeCfg(), stellar).onModuleInit();
+      await jest.advanceTimersByTimeAsync(2 * RPC_TIMEOUT_MS + 600);
+      await boot;
+      const warned = warn.mock.calls.map((c) => String(c[0])).join(' ');
+      expect(warned).not.toMatch(/could not be read at boot/);
+      expect(warned).toMatch(/default_platform_fee_bps \(30\)/);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('names a contract wallet on chain as a divergence the admin API cannot cure, at boot as in the tick', async () => {

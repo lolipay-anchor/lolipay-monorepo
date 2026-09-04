@@ -15,6 +15,7 @@ function make(opts: {
       findMany: jest.fn().mockResolvedValue(opts.orders ?? []),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    $transaction: jest.fn(async (ops: unknown[]) => Promise.all(ops)),
     quote: { deleteMany: jest.fn() },
     config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: true }) },
   } as any;
@@ -125,14 +126,14 @@ describe('MaintenanceService.reconcileOrphanedEscrows (X3)', () => {
 describe('the reconciler walks the whole refundable pool a page at a time and lets a recovered one leave it', () => {
   it('asks only for rows whose refund instant has passed and that carry no settlement, oldest first', async () => {
     const { svc, prisma } = make();
+    const before = BigInt(Math.floor(Date.now() / 1000));
     await svc.reconcileOrphanedEscrows();
     const args = prisma.order.findMany.mock.calls[0][0];
     expect(args.orderBy).toEqual([{ createdAt: 'asc' }, { id: 'asc' }]);
     expect(args.where.settlementTxHash).toBeNull();
     expect(args.where.settledAt).toBeNull();
-    const nowSecs = BigInt(Math.floor(Date.now() / 1000));
-    expect(args.where.OR[0].confirmDeadline.lt).toBeGreaterThanOrEqual(nowSecs - 5n);
-    expect(args.where.OR[0].confirmDeadline.lt).toBeLessThanOrEqual(nowSecs);
+    expect(args.where.OR[0].confirmDeadline.lt).toBeGreaterThanOrEqual(before);
+    expect(args.where.OR[0].confirmDeadline.lt).toBeLessThanOrEqual(BigInt(Math.floor(Date.now() / 1000)));
     expect(args.where.OR[1]).toEqual({ flow: 'TOP_UP', payDeadline: { lt: args.where.OR[0].confirmDeadline.lt - 3600n } });
     expect(args.where.AND).toBeUndefined();
   });
@@ -159,5 +160,6 @@ describe('the reconciler walks the whole refundable pool a page at a time and le
       { where: { id: 'o1', settlementTxHash: null }, data: { settlementTxHash: 'h1' } },
       { where: { id: 'o1', settledAt: null }, data: { settledAt: expect.any(Date) } },
     ]);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 });

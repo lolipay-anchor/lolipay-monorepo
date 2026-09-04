@@ -231,6 +231,7 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(() => pickFreshOrder([{ ...fresh, trade_id: null }], me, t0)).toThrow(/carries no trade_id;/);
     expect(() => pickFreshOrder([{ ...fresh, usdc_amount: undefined }], me, t0)).toThrow(/carries no usdc_amount;/);
     expect(() => pickFreshOrder([{ ...fresh, pay_deadline: null }], me, t0)).toThrow(/carries no pay_deadline;/);
+    expect(() => pickFreshOrder([{ ...fresh, flow: null }], me, t0)).toThrow(/carries no flow;/);
     expect(() => pickFreshOrder([{ ...fresh, confirm_deadline: null }], me, t0)).toThrow(/carries no confirm_deadline;/);
     expect(() => pickFreshOrder([{ ...fresh, fiat_currency: '' }], me, t0)).toThrow(/carries no fiat_currency;/);
     expect(() => pickFreshOrder([{ ...fresh, fiat_amount: null }], me, t0)).toThrow(/carries no fiat_amount;/);

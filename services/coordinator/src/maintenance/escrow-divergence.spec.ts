@@ -3,6 +3,7 @@ import { CronExpression } from '@nestjs/schedule';
 import { MaintenanceService, RECONCILER_PERIOD_SECS } from './maintenance.service';
 
 function make(opts: {
+  poolSize?: number;
   orders?: any[];
   onChain?: any;
   readThrows?: boolean;
@@ -11,7 +12,7 @@ function make(opts: {
 }) {
   const raise = jest.fn(async () => ({ sent: [], cleared: [] }));
   const prisma = {
-    order: { findMany: jest.fn().mockResolvedValue(opts.orders ?? []) },
+    order: { findMany: jest.fn().mockResolvedValue(opts.orders ?? []), count: jest.fn().mockResolvedValue(opts.poolSize ?? (opts.orders ?? []).length) },
     config: {
       findUnique: jest.fn().mockResolvedValue({ id: 1, autoRefund: opts.autoRefund ?? false }),
     },
@@ -108,7 +109,7 @@ describe('an order the chain disagrees about reaches a human', () => {
     expect(found[0].fingerprint).toBe('FUNDED:missed');
   });
 
-  it('gives the reconciler a full walk of the pool plus one period before calling it missed, so a queued orphan is not paged as neglected', async () => {
+  it('gives the reconciler one period per twenty rows of its pool plus one before calling it missed, so a queued orphan is not paged as neglected', async () => {
     const now = Math.floor(Date.now() / 1000);
     const refundAt = now - RECONCILER_PERIOD_SECS - 30;
     const { svc, raise } = make({
@@ -123,12 +124,32 @@ describe('an order the chain disagrees about reaches a human', () => {
     expect(found[0].fingerprint).toBe('FUNDED:reconciler');
   });
 
-  it('scales the walk allowance with the pool: forty-one candidates need four periods before an orphan counts as missed', async () => {
+  it('scales the walk allowance with the reconciler pool it counts, not with the scan: a pool of forty-one needs four periods before an orphan counts as missed', async () => {
     const now = Math.floor(Date.now() / 1000);
     const refundAt = now - 3 * RECONCILER_PERIOD_SECS - 30;
-    const filler = Array.from({ length: 40 }, (_, i) => order({ id: `f${i}`, tradeId: `${i}`.padStart(64, '0'), status: 'CANCELLED' }));
+    const { svc, raise, prisma } = make({
+      orders: [order({ status: 'EXPIRED', payDeadline: BigInt(refundAt - 3600), confirmDeadline: BigInt(refundAt) })],
+      poolSize: 41,
+      onChain: { status: 'FUNDED', settledAt: 0 },
+      autoRefund: true,
+      refundConfigured: true,
+    });
+    await svc.alertOnEscrowDivergence();
+    const found = (raise.mock.calls[0] as any[])[1];
+    expect(found[0].fingerprint).toBe('FUNDED:reconciler');
+    const where = prisma.order.count.mock.calls[0][0].where;
+    expect(where.status).toEqual({ in: ['CANCELLED', 'EXPIRED'] });
+    expect(where.settlementTxHash).toBeNull();
+    expect(where.OR[1]).toEqual({ flow: 'TOP_UP', payDeadline: { lt: where.OR[0].confirmDeadline.lt - 3600n } });
+  });
+
+  it('a wide scan over a small reconciler pool does not stretch the allowance: four hundred never-funded rows in the scan and a pool of one still page a four-hour-old orphan', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const refundAt = now - 4 * 3600;
+    const filler = Array.from({ length: 400 }, (_, i) => order({ id: `f${i}`, tradeId: `${i}`.padStart(64, '0'), status: 'CANCELLED' }));
     const { svc, raise, stellar } = make({
       orders: [order({ status: 'EXPIRED', payDeadline: BigInt(refundAt - 3600), confirmDeadline: BigInt(refundAt) }), ...filler],
+      poolSize: 1,
       onChain: { status: 'FUNDED', settledAt: 0 },
       autoRefund: true,
       refundConfigured: true,
@@ -137,7 +158,7 @@ describe('an order the chain disagrees about reaches a human', () => {
     await svc.alertOnEscrowDivergence();
     const found = (raise.mock.calls[0] as any[])[1];
     expect(found).toHaveLength(1);
-    expect(found[0].fingerprint).toBe('FUNDED:reconciler');
+    expect(found[0].fingerprint).toBe('FUNDED:missed');
   });
 
   it('a row whose alert cannot be composed still reaches a human, and never takes the rest of the family down with it', async () => {
@@ -151,6 +172,7 @@ describe('an order the chain disagrees about reaches a human', () => {
     const found = (raise.mock.calls[0] as any[])[1];
     expect(found.map((a: any) => a.key).sort()).toEqual(['escrow_divergence:o1', 'escrow_divergence:o2']);
     expect(found.find((a: any) => a.key === 'escrow_divergence:o1').text).toMatch(/could not be composed/);
+    expect(((raise.mock.calls[0] as any[])[2] as Set<string>).has('escrow_divergence')).toBe(false);
     expect(found.find((a: any) => a.key === 'escrow_divergence:o2').text).toMatch(/autoRefund is off/);
   });
 

@@ -20,6 +20,16 @@ const DIVERGENCE_SCAN_LIMIT = 500;
 const ORPHAN_LOOKBACK_MS = 45 * 24 * 60 * 60 * 1000;
 export const RECONCILER_PERIOD_SECS = 600;
 
+function refundablePoolWhere(nowSecs: bigint) {
+  return {
+    status: { in: ['CANCELLED', 'EXPIRED'] as ('CANCELLED' | 'EXPIRED')[] },
+    settlementTxHash: null,
+    settledAt: null,
+    createdAt: { gt: new Date(Date.now() - ORPHAN_LOOKBACK_MS) },
+    OR: [{ confirmDeadline: { lt: nowSecs } }, { flow: 'TOP_UP' as const, payDeadline: { lt: nowSecs - ATTEST_GRACE_SECS } }],
+  };
+}
+
 
 @Injectable()
 export class MaintenanceService {
@@ -106,7 +116,14 @@ export class MaintenanceService {
         text: `at least ${DIVERGENCE_SCAN_LIMIT} cancelled or expired orders are within the divergence window — the scan is truncated and nothing in this family will be reported as cleared until it is not`,
       });
     }
-    const walkPeriods = Math.ceil(candidates.length / AUTO_REFUND_BATCH_SIZE) + 1;
+    let poolSize: number;
+    try {
+      poolSize = await this.prisma.order.count({ where: refundablePoolWhere(BigInt(nowSecs)) });
+    } catch (err) {
+      this.log.warn(`alertOnEscrowDivergence: could not size the reconciler pool, assuming the scan's width: ${errMsg(err)}`);
+      poolSize = candidates.length;
+    }
+    const walkPeriods = Math.ceil(poolSize / AUTO_REFUND_BATCH_SIZE) + 1;
     for (const o of candidates) {
       const contractId = contractIdFor(o, this.cfg);
       let onChain;
@@ -150,7 +167,6 @@ export class MaintenanceService {
       });
       } catch (err) {
         this.log.warn(`alertOnEscrowDivergence: order ${o.id} could not be described: ${errMsg(err)}`);
-        incomplete.add('escrow_divergence');
         found.push({
           key: `escrow_divergence:${o.id}`,
           fingerprint: `${onChain?.status ?? 'unknown'}:undescribed`,
@@ -414,14 +430,7 @@ export class MaintenanceService {
     const after = this.orphanCursor;
     const candidates = await this.prisma.order.findMany({
       where: {
-        status: { in: ['CANCELLED', 'EXPIRED'] },
-        settlementTxHash: null,
-        settledAt: null,
-        createdAt: { gt: new Date(Date.now() - ORPHAN_LOOKBACK_MS) },
-        OR: [
-          { confirmDeadline: { lt: nowSecs } },
-          { flow: 'TOP_UP', payDeadline: { lt: nowSecs - ATTEST_GRACE_SECS } },
-        ],
+        ...refundablePoolWhere(nowSecs),
         ...(after ? { AND: [{ OR: [{ createdAt: { gt: after.createdAt } }, { createdAt: after.createdAt, id: { gt: after.id } }] }] } : {}),
       },
       select: {
@@ -466,8 +475,10 @@ export class MaintenanceService {
           continue;
         }
         recovered += 1;
-        await this.prisma.order.updateMany({ where: { id: o.id, settlementTxHash: null }, data: { settlementTxHash: result.hash } });
-        await this.prisma.order.updateMany({ where: { id: o.id, settledAt: null }, data: { settledAt: new Date() } });
+        await this.prisma.$transaction([
+          this.prisma.order.updateMany({ where: { id: o.id, settlementTxHash: null }, data: { settlementTxHash: result.hash } }),
+          this.prisma.order.updateMany({ where: { id: o.id, settledAt: null }, data: { settledAt: new Date() } }),
+        ]);
         this.log.log(
           `reconcileOrphanedEscrows: recovered a funded escrow orphaned by a ${o.status} order ${o.id} (hash=${result.hash})`,
         );

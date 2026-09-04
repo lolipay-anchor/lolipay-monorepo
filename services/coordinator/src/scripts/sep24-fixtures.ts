@@ -772,7 +772,7 @@ async function main(): Promise<void> {
     try {
       withdrawal = await withdrawToCompleted(a);
     } catch (err) {
-      console.error(`withdrawal leg failed; the deposits still run and the config carries no withdrawal fixture: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`withdrawal leg failed; the deposits still run and the config carries no withdrawal fixture. If the log above shows the escrow was funded, that withdrawal order is FUNDED on chain and holds provider capacity until its deadlines pass or a human settles it: ${err instanceof Error ? err.message : String(err)}`);
     }
     const first = await depositToFunded(a);
     const paid = await signAndSubmit(demo, await xdrFor(a.demoJwt, first.orderId, 'mark-paid'), escrow, 'mark_fiat_paid', {
