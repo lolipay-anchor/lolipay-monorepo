@@ -90,6 +90,7 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     const other = 'CAVJAMGCIBSMSA6Q3JQYHAF3CGWTM4XQNZ3TJHUWSU5NISHK6UHRHA3N';
     expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'confirm_and_release', other), kp.publicKey(), ESCROW, 'confirm_and_release')).toThrow(/contract/);
     expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'create_trade'), kp.publicKey(), ESCROW, 'create_trade', PIN)).toThrow(/expected 15/);
+    expect(() => assertEscrowCall(escrowCall(kp.publicKey(), 'raise_dispute'), kp.publicKey(), ESCROW, 'raise_dispute', PIN)).toThrow(/not a call this driver signs/);
     const stringId = escrowCall(kp.publicKey(), 'confirm_and_release', ESCROW, [nativeToScVal('x'.repeat(32))]);
     expect(() => assertEscrowCall(stringId, kp.publicKey(), ESCROW, 'confirm_and_release')).toThrow(/not scvBytes/);
     const longId = escrowCall(kp.publicKey(), 'confirm_and_release', ESCROW, [bytes('ab'.repeat(33))]);
@@ -235,6 +236,7 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
       confirmDeadline: 1_700_003_600n,
       disputeDeadline: 1_700_090_000n,
     });
+    expect(createTradeExpectation({ ...order, fiat_amount: '999' }, lp, demo).fiatAmount).toBe(200_000n);
   });
 
   it('holds the two ceilings that bound a compromised coordinator at 100 USDC and 1 XLM, so changing either is a decision with a test to edit', () => {
