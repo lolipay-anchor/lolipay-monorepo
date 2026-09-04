@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { TestProviders } from './helpers'
 import { queryClient } from '@/app/providers'
 
@@ -182,7 +182,7 @@ describe('BuyForm', () => {
   })
 })
 
-describe('BuyForm — an unreadable rate from the server', () => {
+describe('BuyForm — an unusable rate from the server', () => {
   beforeEach(() => {
     queryClient.clear()
     mockCreateOrder.mockClear()
@@ -190,8 +190,13 @@ describe('BuyForm — an unreadable rate from the server', () => {
     mockGetMyProfile.mockResolvedValue(undefined as unknown as never)
   })
 
+  afterEach(() => {
+    vi.mocked(apiClient.getRate).mockImplementation(async () => ({ asset: 'USDC', fiat: 'IDR', rate: '16000', ts: 't' }) as never)
+  })
+
   it('renders, asks for no quote and keeps Continue disabled when the rate is 0, instead of crashing on BigInt', async () => {
-    vi.mocked(apiClient.getRate).mockResolvedValueOnce({ rate: '0', source: 'test', fetched_at: new Date().toISOString() } as never)
+    vi.mocked(apiClient.getRate).mockImplementation(async () => ({ asset: 'USDC', fiat: 'IDR', rate: '0', ts: 't' }) as never)
+    const quotesBefore = vi.mocked(apiClient.createQuote).mock.calls.length
     render(
       <TestProviders>
         <BuyForm />
@@ -202,8 +207,9 @@ describe('BuyForm — an unreadable rate from the server', () => {
     fireEvent.change(input, { target: { value: '1624000' } })
 
     await new Promise((r) => setTimeout(r, 600))
-    expect(screen.queryByText(/1 USDC = Rp/)).toBeNull()
     expect(screen.getByRole('textbox')).toBeTruthy()
+    expect(vi.mocked(apiClient.createQuote).mock.calls.length).toBe(quotesBefore)
+    expect((screen.getByRole('button', { name: /Continue to pay/ }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
 

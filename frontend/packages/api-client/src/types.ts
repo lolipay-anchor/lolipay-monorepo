@@ -17,7 +17,6 @@ export interface Quote {
   platform_fee_bps: number
   lp_fee_bps: number
   expires_at: string
-  sign_by?: number
 }
 
 export interface Order {
