@@ -272,10 +272,10 @@ const API = process.env.SEP24_API ?? 'https://api.lolipay.app';
 const HOME_DOMAIN = process.env.SEP24_HOME_DOMAIN ?? 'lolipay.app';
 const DEMO_IDR = process.env.SEP24_DEMO_IDR ?? '200000';
 export const demoIdrDigits = (raw: string) => {
-  if (!fiatInputAccepted(raw)) throw new Error(`"${raw}" is refused: ${FIAT_INPUT_REFUSAL}`);
+  if (!fiatInputAccepted(raw) || fiatDigits(raw).length > 18) throw new Error(`"${raw}" is refused: ${FIAT_INPUT_REFUSAL}`);
   return String(BigInt(fiatDigits(raw)));
 };
-export const DEMO_IDR_DIGITS = fiatInputAccepted(DEMO_IDR) ? demoIdrDigits(DEMO_IDR) : '0';
+export const DEMO_IDR_DIGITS = fiatInputAccepted(DEMO_IDR) && fiatDigits(DEMO_IDR).length <= 18 ? demoIdrDigits(DEMO_IDR) : '0';
 const RPC_URL = process.env.STELLAR_RPC_URL ?? 'https://soroban-testnet.stellar.org';
 const HEARTBEAT_MS = 30_000;
 const POLL_MS = 5_000;

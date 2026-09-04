@@ -220,10 +220,10 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       expect(out.message).not.toMatch(/within|before|deadline|by /i);
     });
 
-    it('tells a depositing user at FUNDED to send the rupiah to the account on the deposit page', () => {
+    it('tells a depositing user at FUNDED to send the rupiah to the account on the deposit page they opened, because more_info_url cannot show that account', () => {
       const out = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED' }) }), BASE);
       expect(out.message).toMatch(/send the rupiah/i);
-      expect(out.message).toMatch(/deposit page/i);
+      expect(out.message).toMatch(/deposit page you opened from your wallet/i);
     });
 
     it.each([

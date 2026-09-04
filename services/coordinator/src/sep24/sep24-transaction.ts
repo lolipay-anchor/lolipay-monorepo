@@ -124,7 +124,7 @@ function userAction(withdrawing: boolean, order: Sep24Order): { by?: bigint; mes
     return null;
   }
   if (order.status === 'FUNDED') {
-    return { by: order.payDeadline, message: 'Send the rupiah to the provider account shown on the deposit page.' };
+    return { by: order.payDeadline, message: 'Send the rupiah to the provider account shown on the deposit page you opened from your wallet.' };
   }
   return null;
 }

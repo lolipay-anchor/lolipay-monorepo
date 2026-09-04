@@ -266,6 +266,8 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(() => demoIdrDigits('150000.00')).toThrow(/plain digits|dots as thousands/);
     expect(() => demoIdrDigits('abc')).toThrow(/plain digits|dots as thousands/);
     expect(() => demoIdrDigits('')).toThrow(/plain digits|dots as thousands/);
+    expect(() => demoIdrDigits('9'.repeat(19))).toThrow(/plain digits|dots as thousands/);
+    expect(demoIdrDigits('9'.repeat(18))).toBe('9'.repeat(18));
     expect(demoIdrDigits('200.000')).toBe('200000');
   });
 
