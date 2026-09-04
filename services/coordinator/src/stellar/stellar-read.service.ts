@@ -735,6 +735,15 @@ export class StellarReadService {
     return resolver;
   }
 
+  async readEscrowPlatformFeeBps(contractId: string): Promise<number> {
+    const cfg = await this.simulateCall(contractId, 'get_config', []);
+    const bps = Number(cfg?.default_platform_fee_bps);
+    if (!Number.isInteger(bps) || bps < 0) {
+      throw new Error(`readEscrowPlatformFeeBps: ${contractId} returned no readable default_platform_fee_bps`);
+    }
+    return bps;
+  }
+
   async readEscrowFiatAttestor(contractId: string): Promise<string> {
     const cfg = await this.simulateCall(contractId, 'get_config', []);
     const attestor = cfg?.fiat_attestor;

@@ -1,15 +1,19 @@
 import { Networks } from '@stellar/stellar-sdk';
 import { windowsFitTheContract } from './contract-limits';
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from './app-config.service';
+import { StellarReadService } from '../stellar/stellar-read.service';
 import { spreadCoversPriceDeviation, platformFeeFitsSpread } from './rate-guard';
 
 @Injectable()
 export class ConfigBootService implements OnModuleInit {
+  private readonly log = new Logger(ConfigBootService.name);
+
   constructor(
     private prisma: PrismaService,
     private cfg: AppConfigService,
+    private readonly stellar: StellarReadService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -97,6 +101,17 @@ export class ConfigBootService implements OnModuleInit {
     const feeProblem = platformFeeFitsSpread(row.platformFeeBps, row.spreadBps, this.cfg.priceDeviationMaxBps);
     if (feeProblem) {
       throw new Error(`refusing to start: ${feeProblem}`);
+    }
+    try {
+      const chainDefault = await this.stellar.readEscrowPlatformFeeBps(this.cfg.escrowContractId);
+      if (chainDefault !== row.platformFeeBps) {
+        throw new Error(
+          `refusing to start: Config.platformFeeBps (${row.platformFeeBps}) differs from the escrow contract default_platform_fee_bps (${chainDefault}); create_trade would refuse every funding`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('refusing to start')) throw err;
+      this.log.warn(`the escrow contract default_platform_fee_bps could not be read at boot, so Config.platformFeeBps is unchecked against it: ${String(err)}`);
     }
     const windowProblem = windowsFitTheContract(row.payWindowSecs, row.confirmWindowSecs, row.disputeWindowSecs);
     if (windowProblem) {

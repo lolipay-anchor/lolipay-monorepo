@@ -501,6 +501,14 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
     expect(res.body.message).toMatch(/minOrder must be less than maxOrder/i);
   });
 
+  it('PATCH /admin/config surfaces AdminService PLATFORM_FEE_DIVERGES_FROM_CHAIN as 400 with the reason', async () => {
+    mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
+      new Error('PLATFORM_FEE_DIVERGES_FROM_CHAIN: platformFeeBps (40) must equal the escrow contract default_platform_fee_bps (30)'),
+    );
+    const res = await request(app.getHttpServer()).patch('/admin/config').send({ platformFeeBps: 40 }).expect(400);
+    expect(res.body.message).toMatch(/default_platform_fee_bps \(30\)/);
+  });
+
   it('PATCH /admin/config surfaces AdminService PLATFORM_FEE_EXCEEDS_SPREAD as 400 with the reason, never as a 500', async () => {
     mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
       new Error('PLATFORM_FEE_EXCEEDS_SPREAD: platformFeeBps (60) plus priceDeviationMaxBps (100) must stay strictly below Config.spreadBps (150)'),

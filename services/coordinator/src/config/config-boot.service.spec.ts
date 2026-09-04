@@ -11,6 +11,10 @@ function makePrisma(row: Record<string, unknown>) {
   return { prisma: { config: configApi } as any, configApi };
 }
 
+function makeStellar(over: Record<string, unknown> = {}) {
+  return { readEscrowPlatformFeeBps: jest.fn(async () => 30), ...over } as any;
+}
+
 function makeCfg(over: Record<string, unknown> = {}) {
   return {
     priceDeviationMaxBps: 100,
@@ -25,72 +29,82 @@ function makeCfg(over: Record<string, unknown> = {}) {
 
 describe('ConfigBootService', () => {
   it('starts when the spread stays above the price-deviation allowance', async () => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
-    await expect(new ConfigBootService(prisma, makeCfg()).onModuleInit()).resolves.toBeUndefined();
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET });
+    await expect(new ConfigBootService(prisma, makeCfg(), makeStellar()).onModuleInit()).resolves.toBeUndefined();
   });
 
   it('refuses to start when the settlement asset has no issuer, because every trustline check would quietly fail', async () => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET });
     await expect(
-      new ConfigBootService(prisma, makeCfg({ usdcAssetIssuer: '' })).onModuleInit(),
+      new ConfigBootService(prisma, makeCfg({ usdcAssetIssuer: '' }), makeStellar()).onModuleInit(),
     ).rejects.toThrow(/USDC_ASSET_ISSUER/);
   });
 
   it('refuses to start when the issuer is not a Stellar address', async () => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET });
     await expect(
-      new ConfigBootService(prisma, makeCfg({ usdcAssetIssuer: 'not-an-address' })).onModuleInit(),
+      new ConfigBootService(prisma, makeCfg({ usdcAssetIssuer: 'not-an-address' }), makeStellar()).onModuleInit(),
     ).rejects.toThrow(/USDC_ASSET_ISSUER/);
   });
 
   it('refuses to start when the settlement asset has no code', async () => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET });
     await expect(
-      new ConfigBootService(prisma, makeCfg({ usdcAssetCode: '' })).onModuleInit(),
+      new ConfigBootService(prisma, makeCfg({ usdcAssetCode: '' }), makeStellar()).onModuleInit(),
     ).rejects.toThrow(/USDC_ASSET_CODE/);
   });
 
   it('refuses to start when the persisted platform fee leaves the provider nothing after the deviation band, because a withdrawal would then drain the provider while the record declares no fee', async () => {
     const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 50, platformWallet: WALLET, payWindowSecs: 1800, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
-    await expect(new ConfigBootService(prisma, makeCfg()).onModuleInit()).rejects.toThrow(/platformFeeBps/);
+    await expect(new ConfigBootService(prisma, makeCfg(), makeStellar()).onModuleInit()).rejects.toThrow(/platformFeeBps/);
+  });
+
+  it('refuses to start when the persisted platform fee differs from the escrow contract default, because every funding would revert with InvalidFee', async () => {
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET, payWindowSecs: 1800, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
+    await expect(new ConfigBootService(prisma, makeCfg(), makeStellar({ readEscrowPlatformFeeBps: jest.fn(async () => 40) })).onModuleInit()).rejects.toThrow(/default_platform_fee_bps/);
+  });
+
+  it('starts with a loud warning when the escrow contract default cannot be read at boot, so a dead RPC does not keep the coordinator down', async () => {
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET, payWindowSecs: 1800, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
+    await expect(new ConfigBootService(prisma, makeCfg(), makeStellar({ readEscrowPlatformFeeBps: jest.fn(async () => { throw new Error('rpc down'); }) })).onModuleInit()).resolves.toBeUndefined();
   });
 
   it('refuses to start when the persisted pay window leaves nobody time to sign inside the contract floor', async () => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET, payWindowSecs: 900, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
-    await expect(new ConfigBootService(prisma, makeCfg()).onModuleInit()).rejects.toThrow(/at least 1200/);
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET, payWindowSecs: 900, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
+    await expect(new ConfigBootService(prisma, makeCfg(), makeStellar()).onModuleInit()).rejects.toThrow(/at least 1200/);
   });
 
   it('refuses to start when the spread does not cover the deviation allowance', async () => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 100, platformWallet: WALLET });
-    await expect(new ConfigBootService(prisma, makeCfg()).onModuleInit()).rejects.toThrow(/INV-30\.1/);
+    const { prisma } = makePrisma({ id: 1, spreadBps: 100, platformFeeBps: 30, platformWallet: WALLET });
+    await expect(new ConfigBootService(prisma, makeCfg(), makeStellar()).onModuleInit()).rejects.toThrow(/INV-30\.1/);
   });
 
   it('materialises the Config row so the first quote does not race a lazy upsert', async () => {
-    const { prisma, configApi } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
-    await new ConfigBootService(prisma, makeCfg()).onModuleInit();
+    const { prisma, configApi } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET });
+    await new ConfigBootService(prisma, makeCfg(), makeStellar()).onModuleInit();
     expect(configApi.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 1 }, update: {} }),
     );
   });
 
   it('seeds a newly created row with the validated platform wallet from the environment', async () => {
-    const { prisma, configApi } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
-    await new ConfigBootService(prisma, makeCfg()).onModuleInit();
+    const { prisma, configApi } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET });
+    await new ConfigBootService(prisma, makeCfg(), makeStellar()).onModuleInit();
     expect(configApi.upsert.mock.calls[0][0].create).toEqual({ id: 1, platformWallet: WALLET });
   });
 
   it('refuses to start when the stored platform wallet is empty', async () => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: '' });
-    await expect(new ConfigBootService(prisma, makeCfg()).onModuleInit()).rejects.toThrow(
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: '' });
+    await expect(new ConfigBootService(prisma, makeCfg(), makeStellar()).onModuleInit()).rejects.toThrow(
       /platformWallet/,
     );
   });
 
   it('keeps a stored platform wallet that disagrees with the environment, and says so', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const { prisma, configApi } = makePrisma({ id: 1, spreadBps: 150, platformWallet: OTHER_WALLET });
+    const { prisma, configApi } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: OTHER_WALLET });
 
-    await new ConfigBootService(prisma, makeCfg()).onModuleInit();
+    await new ConfigBootService(prisma, makeCfg(), makeStellar()).onModuleInit();
 
     expect(configApi.update).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(OTHER_WALLET));
@@ -99,9 +113,9 @@ describe('ConfigBootService', () => {
 
   it('stays quiet when the stored platform wallet matches the environment', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET });
 
-    await new ConfigBootService(prisma, makeCfg()).onModuleInit();
+    await new ConfigBootService(prisma, makeCfg(), makeStellar()).onModuleInit();
 
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
@@ -114,8 +128,8 @@ describe('a stack that only pretends to screen must never be the one taking real
   const vendor = { diditApiKey: 'k', diditWorkflowId: 'wf', diditWebhookSecret: 'shared' };
 
   const boot = (over: Record<string, unknown>) => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
-    return new ConfigBootService(prisma, makeCfg({ ...vendor, ...over })).onModuleInit();
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET });
+    return new ConfigBootService(prisma, makeCfg({ ...vendor, ...over }), makeStellar()).onModuleInit();
   };
 
   it('refuses to start on the public network while pointed at a mocked environment', async () => {
@@ -151,9 +165,9 @@ describe('a stack that only pretends to screen must never be the one taking real
 
 describe('an anchor that cannot name itself cannot serve SEP-24', () => {
   it('refuses to start without an absolute https base url', async () => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET });
     await expect(
-      new ConfigBootService(prisma, makeCfg({ anchorBaseUrl: '' })).onModuleInit(),
+      new ConfigBootService(prisma, makeCfg({ anchorBaseUrl: '' }), makeStellar()).onModuleInit(),
     ).rejects.toThrow(/ANCHOR_BASE_URL/);
   });
 
@@ -163,9 +177,9 @@ describe('an anchor that cannot name itself cannot serve SEP-24', () => {
     ['a query string a wallet would carry into the webview', 'https://api.lolipay.app?next=evil'],
     ['a fragment', 'https://api.lolipay.app#evil'],
   ])('refuses %s, because every URL handed to a wallet is built from this value', async (_n, value) => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET });
     await expect(
-      new ConfigBootService(prisma, makeCfg({ anchorBaseUrl: value })).onModuleInit(),
+      new ConfigBootService(prisma, makeCfg({ anchorBaseUrl: value }), makeStellar()).onModuleInit(),
     ).rejects.toThrow(/ANCHOR_BASE_URL/);
   });
 
@@ -177,24 +191,24 @@ describe('an anchor that cannot name itself cannot serve SEP-24', () => {
   ])(
     'refuses %s for STELLAR_RPC_URL, because the signing page hands it to the browser verbatim',
     async (_n, value) => {
-      const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+      const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET });
       await expect(
-        new ConfigBootService(prisma, makeCfg({ rpcUrl: value })).onModuleInit(),
+        new ConfigBootService(prisma, makeCfg({ rpcUrl: value }), makeStellar()).onModuleInit(),
       ).rejects.toThrow(/STELLAR_RPC_URL/);
     },
   );
 
   it('admits an https rpc endpoint that carries a path, which providers routinely use', async () => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET });
     await expect(
-      new ConfigBootService(prisma, makeCfg({ rpcUrl: 'https://rpc.example.com/soroban/rpc' })).onModuleInit(),
+      new ConfigBootService(prisma, makeCfg({ rpcUrl: 'https://rpc.example.com/soroban/rpc' }), makeStellar()).onModuleInit(),
     ).resolves.toBeUndefined();
   });
 
   it('refuses a base url that is not https, because more_info_url must be absolute and trusted', async () => {
-    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET });
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET });
     await expect(
-      new ConfigBootService(prisma, makeCfg({ anchorBaseUrl: 'http://api.lolipay.app' })).onModuleInit(),
+      new ConfigBootService(prisma, makeCfg({ anchorBaseUrl: 'http://api.lolipay.app' }), makeStellar()).onModuleInit(),
     ).rejects.toThrow(/ANCHOR_BASE_URL/);
   });
 });

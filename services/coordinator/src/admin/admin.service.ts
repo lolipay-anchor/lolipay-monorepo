@@ -192,6 +192,16 @@ export class AdminService {
   }
 
   async updateConfigTransactional(patch: UpdateConfigDto, actorAddress: string) {
+    let chainPlatformFeeBps: number | undefined;
+    if (patch.platformFeeBps !== undefined) {
+      try {
+        chainPlatformFeeBps = await this.stellar.readEscrowPlatformFeeBps(this.cfg.escrowContractId);
+      } catch {
+        throw new Error(
+          'PLATFORM_FEE_DIVERGES_FROM_CHAIN: the escrow contract default_platform_fee_bps could not be read, so platformFeeBps cannot be checked against it',
+        );
+      }
+    }
     let deployedCooldownSecs: number | undefined;
     if (patch.payWindowSecs !== undefined || patch.confirmWindowSecs !== undefined) {
       try {
@@ -246,6 +256,11 @@ export class AdminService {
         if (feeProblem) {
           throw new Error(`PLATFORM_FEE_EXCEEDS_SPREAD: ${feeProblem}`);
         }
+      }
+      if (chainPlatformFeeBps !== undefined && patch.platformFeeBps !== chainPlatformFeeBps) {
+        throw new Error(
+          `PLATFORM_FEE_DIVERGES_FROM_CHAIN: platformFeeBps (${patch.platformFeeBps}) must equal the escrow contract default_platform_fee_bps (${chainPlatformFeeBps}), because create_trade refuses any other value and every funding would revert`,
+        );
       }
 
       const { minOrder: minOrderPatch, maxOrder: maxOrderPatch, ...rest } = patch;

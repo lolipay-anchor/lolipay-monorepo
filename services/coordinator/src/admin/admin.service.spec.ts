@@ -21,8 +21,14 @@ function makePrisma() {
   return client as any;
 }
 
+function chainFee(bps: number, stellar: any) {
+  stellar.readEscrowPlatformFeeBps = jest.fn(async () => bps);
+  return stellar;
+}
+
 function makeStellar(hasTrustline = true, cooldownSecs: number | Error = 349_201) {
   return {
+    readEscrowPlatformFeeBps: jest.fn(async () => 30),
     hasUsdcTrustline: jest.fn().mockResolvedValue(hasTrustline),
     stakingCooldownSecs: jest.fn(() =>
       cooldownSecs instanceof Error ? Promise.reject(cooldownSecs) : Promise.resolve(cooldownSecs),
@@ -145,7 +151,7 @@ describe('a window change cannot outgrow the collateral it depends on', () => {
       confirmWindowSecs: 1800,
       disputeWindowSecs: 7200,
     }));
-    const svc = new AdminService(prisma, makeStellar(true, 349_201), makeCfg(), {} as any, {} as any, {} as any, { notifyOrderStatus: jest.fn() } as any);
+    const svc = new AdminService(prisma, chainFee(40, makeStellar(true, 349_201)), makeCfg(), {} as any, {} as any, {} as any, { notifyOrderStatus: jest.fn() } as any);
 
     await expect(
       svc.updateConfigTransactional({ payWindowSecs: 86_400 } as any, ADDR),
@@ -197,7 +203,7 @@ describe('a change that cannot move the floor is not held hostage to the chain',
     }));
     const svc = new AdminService(
       prisma,
-      makeStellar(true, new Error('rpc down')),
+      chainFee(40, makeStellar(true, new Error('rpc down'))),
       makeCfg(),
       {} as any,
       {} as any,
@@ -289,8 +295,8 @@ describe('AdminService.updateConfigTransactional', () => {
 
   it('accepts a platformFeeBps patch that leaves a basis point after the deviation band, and refuses one that does not', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
     const room = CURRENT.spreadBps - makeCfg().priceDeviationMaxBps - 1;
+    const svc = new AdminService(prisma, chainFee(room, makeStellar()), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
     await svc.updateConfigTransactional({ platformFeeBps: room } as any, 'GADMINTEST');
     expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { platformFeeBps: room } });
     await expect(
@@ -305,6 +311,37 @@ describe('AdminService.updateConfigTransactional', () => {
     await expect(
       svc.updateConfigTransactional({ spreadBps: CURRENT.platformFeeBps + makeCfg().priceDeviationMaxBps } as any, 'GADMINTEST'),
     ).rejects.toThrow('PLATFORM_FEE_EXCEEDS_SPREAD');
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a platformFeeBps patch that diverges from the escrow contract default, because create_trade requires equality and every funding would revert', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const stellar = makeStellar();
+    stellar.readEscrowPlatformFeeBps = jest.fn(async () => CURRENT.platformFeeBps);
+    const svc = new AdminService(prisma, stellar, makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    await expect(
+      svc.updateConfigTransactional({ platformFeeBps: CURRENT.platformFeeBps + 10 } as any, 'GADMINTEST'),
+    ).rejects.toThrow('PLATFORM_FEE_DIVERGES_FROM_CHAIN');
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('accepts a platformFeeBps patch equal to the escrow contract default', async () => {
+    const { prisma, configApi } = makeConfigPrisma({ ...CURRENT, platformFeeBps: 20 });
+    const stellar = makeStellar();
+    stellar.readEscrowPlatformFeeBps = jest.fn(async () => 30);
+    const svc = new AdminService(prisma, stellar, makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    await svc.updateConfigTransactional({ platformFeeBps: 30 } as any, 'GADMINTEST');
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { platformFeeBps: 30 } });
+  });
+
+  it('refuses a platformFeeBps patch when the escrow contract default cannot be read, the way the windows are refused without the cooldown', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const stellar = makeStellar();
+    stellar.readEscrowPlatformFeeBps = jest.fn(async () => { throw new Error('rpc down'); });
+    const svc = new AdminService(prisma, stellar, makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    await expect(
+      svc.updateConfigTransactional({ platformFeeBps: CURRENT.platformFeeBps } as any, 'GADMINTEST'),
+    ).rejects.toThrow('PLATFORM_FEE_DIVERGES_FROM_CHAIN');
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -346,7 +383,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
   it('accepts a bps patch that stays under the 10000 sum', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
-    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    const svc = new AdminService(prisma, chainFee(40, makeStellar()), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
     await svc.updateConfigTransactional({ platformFeeBps: 40 } as any, 'GADMINTEST');
     expect(configApi.update).toHaveBeenCalledWith({
