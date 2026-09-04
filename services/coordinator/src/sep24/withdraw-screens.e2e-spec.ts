@@ -88,7 +88,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     id: string,
     address: string,
     flow: 'TOP_UP' | 'WITHDRAW',
-    status: 'FUNDED' | 'FIAT_PAID' = 'FUNDED',
+    status: 'CREATED' | 'MATCHED' | 'FUNDED' | 'FIAT_PAID' = 'FUNDED',
   ) {
     const link = await prisma.walletLink.findUnique({ where: { stellarAddress: address } });
     const order = await prisma.order.create({
@@ -115,6 +115,27 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     });
     await prisma.sep24Transaction.update({ where: { id }, data: { orderId: order.id } });
   }
+
+  it('states the USDC to be locked and the rupiah to be received before the wallet prompt, so the user signs a number they have read', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await linkFundedOrder(id, address, 'WITHDRAW', 'MATCHED');
+
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/sign to lock your usdc/i);
+    expect(res.text).toContain('<strong>1000</strong> USDC');
+    expect(res.text).toContain('<strong>16.000.000</strong> IDR');
+    expect(res.text).not.toContain('1000.0000000');
+  });
+
+  it('while a provider is still being matched, says so, rather than claiming USDC is already moving', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await linkFundedOrder(id, address, 'WITHDRAW', 'CREATED');
+
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/finding a provider/i);
+    expect(res.text).not.toMatch(/is being placed in escrow/i);
+    expect(res.text).toMatch(/http-equiv="refresh"/i);
+  });
 
   it('a FUNDED withdrawal is never told to send rupiah, and is never shown the provider bank account', async () => {
     const { id, token, address } = await openedWithdrawal(true);

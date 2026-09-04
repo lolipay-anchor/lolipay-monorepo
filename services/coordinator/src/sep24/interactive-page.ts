@@ -1,5 +1,5 @@
 import { KycStatus, OrderStatus } from '../generated/prisma/client';
-import { fiatDigits } from '../money/money';
+import { baseUnitsToUsdcString, fiatDigits } from '../money/money';
 
 export type InteractiveScreen =
   | 'identity'
@@ -57,4 +57,8 @@ export function page(title: string, body: string, refreshSecs?: number): string 
 export function formatFiat(amount: unknown): string {
   const digits = fiatDigits(amount);
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+export function formatUsdc(units: bigint): string {
+  return baseUnitsToUsdcString(units).replace(/\.?0+$/, '');
 }

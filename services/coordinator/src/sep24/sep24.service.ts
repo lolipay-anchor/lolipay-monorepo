@@ -23,7 +23,7 @@ import {
   mintInteractiveToken,
   readInteractiveToken,
 } from './interactive-token';
-import { escapeHtml, formatFiat, interactiveScreen, page } from './interactive-page';
+import { escapeHtml, formatFiat, formatUsdc, interactiveScreen, page } from './interactive-page';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
 import { PersonService } from '../person/person.service';
 import { sep24Status } from './sep24-status';
@@ -326,7 +326,7 @@ export class Sep24Service {
       return page(
         withdrawing ? 'Preparing your withdrawal' : 'Preparing your deposit',
         withdrawing
-          ? '<p>Your USDC is being placed in escrow. This page refreshes itself.</p>'
+          ? '<p>Finding a provider for your withdrawal. This page refreshes itself.</p>'
           : '<p>A liquidity provider is locking the USDC in escrow. This page refreshes itself.</p>',
         10,
       );
@@ -354,7 +354,7 @@ export class Sep24Service {
         funding ? 'Sign to lock your USDC' : 'Confirm your rupiah arrived',
         [
           funding
-            ? '<p>Your wallet will ask you to approve moving your USDC into escrow. Nothing leaves your wallet until you approve it.</p>'
+            ? `<p>Your wallet will ask you to approve moving <strong>${escapeHtml(formatUsdc((row.order as any).usdcAmount))}</strong> USDC into escrow. The provider then pays <strong>${escapeHtml(formatFiat((row.order as any).fiatAmount))}</strong> ${escapeHtml((row.order as any).fiatCurrency)} to your bank account, and the escrow releases to them only when you confirm it arrived. Nothing leaves your wallet until you approve it.</p>`
             : [
                 `<p>The provider says they sent <strong>${escapeHtml(formatFiat((row.order as any).fiatAmount))}</strong> ${escapeHtml((row.order as any).fiatCurrency)} to:</p>`,
                 `<pre>${escapeHtml((row.order as any).userPaymentDetails ?? 'the account you gave this anchor')}</pre>`,
@@ -498,7 +498,7 @@ export class Sep24Service {
         data: { status: 'CANCELLED' },
       });
       this.log.warn(
-        `a second deposit order was opened for SEP-24 transaction ${id} and has been cancelled (${undone.count} row) rather than left holding provider capacity`,
+        `a second order was opened for SEP-24 transaction ${id} and has been cancelled (${undone.count} row) rather than left holding provider capacity`,
       );
       throw new ConflictException('this transaction was already opened');
     }

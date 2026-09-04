@@ -1,4 +1,4 @@
-import { interactiveScreen, escapeHtml, page, formatFiat } from './interactive-page';
+import { interactiveScreen, escapeHtml, page, formatFiat, formatUsdc } from './interactive-page';
 
 const at = (kycStatus: any, screened: boolean, orderStatus: any) =>
   interactiveScreen({ kycStatus, screened, orderStatus });
@@ -104,5 +104,17 @@ describe('formatFiat', () => {
     expect(formatFiat('Rp 1.234.567')).toBe('1.234.567');
     expect(formatFiat(200000n)).toBe('200.000');
     expect(formatFiat('')).toBe('');
+  });
+});
+
+describe('formatUsdc', () => {
+  it.each([
+    [1_000_0000000n, '1000'],
+    [85_090_000n, '8.509'],
+    [10_0000000n, '10'],
+    [1n, '0.0000001'],
+    [0n, '0'],
+  ])('shows %s stroops as %s, no trailing zeros and no dangling point', (units, shown) => {
+    expect(formatUsdc(units)).toBe(shown);
   });
 });
