@@ -30,6 +30,8 @@ const order = (over: Record<string, unknown> = {}) => ({
   settlementTxHash: null,
   settledAt: null,
   ref: null,
+  payDeadline: 1_790_000_000n,
+  confirmDeadline: 1_790_003_600n,
   ...over,
 }) as any;
 
@@ -181,14 +183,63 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       expect(out).not.toHaveProperty('user_action_required_by');
     });
 
-    it.each(['CREATED', 'AWAITING_ONCHAIN', 'FUNDED', 'DISPUTED', 'RELEASED'])('is absent on a withdrawal at %s, where the user is not the one waited on', (status) => {
+    it('at AWAITING_ONCHAIN on a withdrawal it is the same signing instant, because the popup still offers the signature there', () => {
+      const out = serializeSep24(tx({ flow: 'WITHDRAW', order: order({ status: 'AWAITING_ONCHAIN', ...deadlines }) }), BASE);
+      expect(out.status).toBe('pending_user');
+      expect(out.user_action_required_by).toBe('2026-09-21T14:03:20.000Z');
+    });
+
+    it.each(['CREATED', 'FUNDED', 'DISPUTED', 'RELEASED'])('is absent on a withdrawal at %s, where the user is not the one waited on', (status) => {
       const out = serializeSep24(tx({ flow: 'WITHDRAW', order: order({ status, ...deadlines }) }), BASE);
       expect(out).not.toHaveProperty('user_action_required_by');
     });
 
-    it('is absent on a deposit, whose user-side deadline is spoken by the instructions page instead', () => {
+    it('on a deposit at FUNDED it is the pay deadline, the instant the contract stops accepting the rupiah as paid, and the same one the instructions page prints', () => {
       const out = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', ...deadlines }) }), BASE);
+      expect(out.status).toBe('pending_user_transfer_start');
+      expect(out.user_action_required_by).toBe('2026-09-21T14:13:20.000Z');
+    });
+
+    it.each(['CREATED', 'MATCHED', 'FIAT_PAID', 'RELEASED'])('is absent on a deposit at %s', (status) => {
+      const out = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status, ...deadlines }) }), BASE);
       expect(out).not.toHaveProperty('user_action_required_by');
+    });
+  });
+
+  describe('message names the action a wallet is waiting on the user for, which the spec asks for wherever a deadline is published', () => {
+    it('tells a withdrawing user at MATCHED to open the page and sign', () => {
+      const out = serializeSep24(tx({ flow: 'WITHDRAW', order: order({ status: 'MATCHED' }) }), BASE);
+      expect(out.message).toMatch(/open the withdrawal page/i);
+      expect(out.message).toMatch(/sign/i);
+    });
+
+    it('tells a withdrawing user at FIAT_PAID to check the bank account before confirming, and never mentions a deadline', () => {
+      const out = serializeSep24(tx({ flow: 'WITHDRAW', order: order({ status: 'FIAT_PAID' }) }), BASE);
+      expect(out.message).toMatch(/check your bank account/i);
+      expect(out.message).toMatch(/confirm/i);
+      expect(out.message).not.toMatch(/within|before|deadline|by /i);
+    });
+
+    it('tells a depositing user at FUNDED to send the rupiah to the account on the deposit page', () => {
+      const out = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED' }) }), BASE);
+      expect(out.message).toMatch(/send the rupiah/i);
+      expect(out.message).toMatch(/deposit page/i);
+    });
+
+    it.each([
+      ['TOP_UP', 'MATCHED'],
+      ['TOP_UP', 'FIAT_PAID'],
+      ['TOP_UP', 'RELEASED'],
+      ['WITHDRAW', 'CREATED'],
+      ['WITHDRAW', 'FUNDED'],
+      ['WITHDRAW', 'RELEASED'],
+    ])('says nothing on a %s at %s, where the user is not the one waited on', (flow, status) => {
+      const out = serializeSep24(tx({ flow: flow as any, order: order({ status }) }), BASE);
+      expect(out).not.toHaveProperty('message');
+    });
+
+    it('says nothing before an order exists, where the popup itself is the message', () => {
+      expect(serializeSep24(tx({ flow: 'WITHDRAW' }), BASE)).not.toHaveProperty('message');
     });
   });
 

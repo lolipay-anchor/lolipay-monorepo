@@ -79,6 +79,15 @@ describe('what we serialise satisfies the acceptance suite own schemas, not our 
     expect(r.errors.map((e) => e.stack)).toEqual([]);
   });
 
+  it('a withdrawal waiting on the user, at MATCHED, still satisfies the list schema every deposit assertion relies on', () => {
+    const list = {
+      transactions: [serializeSep24(record({ flow: 'WITHDRAW', order: { ...order, status: 'MATCHED' as const } }), ASSETS)],
+    };
+    const r = validate(list, transactionsSchema);
+    expect(r.errors.map((e) => e.stack)).toEqual([]);
+    expect(list.transactions[0].status).toBe('pending_user');
+  });
+
   it('never fabricates a from on a deposit, where it is genuinely unknown', () => {
     expect(serializeSep24(record(), ASSETS).from).toBeUndefined();
     expect(serializeSep24(record({ order }), ASSETS).from).toBeUndefined();

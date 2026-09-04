@@ -46,7 +46,7 @@ describe('what an escrow trade looks like to a wallet that only speaks SEP-24', 
     it.each([
       ['CREATED', 'pending_anchor'],
       ['MATCHED', 'pending_user'],
-      ['AWAITING_ONCHAIN', 'pending_stellar'],
+      ['AWAITING_ONCHAIN', 'pending_user'],
       ['FUNDED', 'pending_anchor'],
       ['FIAT_PAID', 'pending_user'],
       ['DISPUTED', 'pending_anchor'],
@@ -62,6 +62,10 @@ describe('what an escrow trade looks like to a wallet that only speaks SEP-24', 
       for (const status of ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'RELEASED', 'REFUNDED', 'EXPIRED', 'CANCELLED']) {
         expect(wd(status)).not.toBe('pending_user_transfer_start');
       }
+    });
+
+    it('never advertises pending_stellar, because no code path writes AWAITING_ONCHAIN and the popup still asks the user to sign there', () => {
+      expect(SEP24_EMITTED_STATUSES).not.toContain('pending_stellar');
     });
 
     it('never reports on_hold, which the acceptance suite does not know', () => {

@@ -48,6 +48,7 @@ export interface Sep24TransactionJson {
   external_transaction_id?: string;
   completed_at?: string | null;
   user_action_required_by?: string;
+  message?: string;
 }
 
 export interface Sep24Assets {
@@ -93,8 +94,10 @@ export function serializeSep24(record: Sep24Record, assets: Sep24Assets): Sep24T
   json.amount_out_asset = withdrawing ? fiatAsset : usdc;
   json.fee_details = { total: baseUnitsToUsdcString(withdrawing ? 0n : platformFee + lpFee), asset: usdc };
 
-  if (withdrawing && order.status === 'MATCHED') {
-    json.user_action_required_by = new Date((Number(order.payDeadline) - MIN_PAY_WINDOW_SECS) * 1000).toISOString();
+  const awaited = userAction(withdrawing, order);
+  if (awaited) {
+    if (awaited.by !== undefined) json.user_action_required_by = new Date(Number(awaited.by) * 1000).toISOString();
+    json.message = awaited.message;
   }
   if (order.ref) json.external_transaction_id = order.ref;
   if (status === 'completed' || status === 'refunded') {
@@ -102,4 +105,26 @@ export function serializeSep24(record: Sep24Record, assets: Sep24Assets): Sep24T
     json.completed_at = order.settledAt?.toISOString() ?? null;
   }
   return json;
+}
+
+function userAction(withdrawing: boolean, order: Sep24Order): { by?: bigint; message: string } | null {
+  if (withdrawing) {
+    if (order.status === 'MATCHED' || order.status === 'AWAITING_ONCHAIN') {
+      return {
+        by: order.payDeadline - BigInt(MIN_PAY_WINDOW_SECS),
+        message: 'Open the withdrawal page and sign in your wallet to lock your USDC in escrow.',
+      };
+    }
+    if (order.status === 'FIAT_PAID') {
+      return {
+        message:
+          'The provider says the rupiah was sent. Check your bank account, then open the withdrawal page to confirm and release the USDC.',
+      };
+    }
+    return null;
+  }
+  if (order.status === 'FUNDED') {
+    return { by: order.payDeadline, message: 'Send the rupiah to the provider account shown on the deposit page.' };
+  }
+  return null;
 }

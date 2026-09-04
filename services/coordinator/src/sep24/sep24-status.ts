@@ -5,7 +5,6 @@ export type Sep24Status =
   | 'pending_anchor'
   | 'pending_user_transfer_start'
   | 'pending_user'
-  | 'pending_stellar'
   | 'completed'
   | 'refunded'
   | 'expired';
@@ -15,7 +14,6 @@ export const SEP24_EMITTED_STATUSES: readonly Sep24Status[] = [
   'pending_anchor',
   'pending_user_transfer_start',
   'pending_user',
-  'pending_stellar',
   'completed',
   'refunded',
   'expired',
@@ -36,7 +34,7 @@ const BY_ORDER_STATUS: Record<OrderStatus, Sep24Status> = {
 
 const WITHDRAW_BY_ORDER_STATUS: Partial<Record<OrderStatus, Sep24Status>> = {
   MATCHED: 'pending_user',
-  AWAITING_ONCHAIN: 'pending_stellar',
+  AWAITING_ONCHAIN: 'pending_user',
   FUNDED: 'pending_anchor',
   FIAT_PAID: 'pending_user',
 };
