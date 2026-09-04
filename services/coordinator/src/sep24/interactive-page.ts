@@ -62,3 +62,8 @@ export function formatFiat(amount: unknown): string {
 export function formatUsdc(units: bigint): string {
   return baseUnitsToUsdcString(units).replace(/\.?0+$/, '');
 }
+
+export function effectiveIdrPerUsdc(fiatAmount: bigint, usdcAmount: bigint): bigint {
+  if (usdcAmount <= 0n) return 0n;
+  return (fiatAmount * 10_000_000n + usdcAmount / 2n) / usdcAmount;
+}

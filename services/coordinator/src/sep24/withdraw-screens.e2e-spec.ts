@@ -130,6 +130,30 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     expect(res.text).not.toContain('1000.0000000');
   });
 
+  it('states the exchange rate the order holds, that it is fixed for this order, and that no fee is deducted from the USDC, as the spec requires of the interactive flow', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await linkOrder(id, address, 'WITHDRAW', 'MATCHED');
+
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/1 USDC = <strong>16\.000<\/strong> IDR/);
+    expect(res.text).toMatch(/fixed for this order/i);
+    expect(res.text).toMatch(/no fee is deducted from your usdc/i);
+    expect(res.text).not.toMatch(/estimate/i);
+  });
+
+  it('shows an indicative rate on the amount screen and says it is an estimate until the order is opened', async () => {
+    await prisma.fiatPriceCache.upsert({
+      where: { fiat: 'IDR' },
+      update: { pricePerUsdc: '16000', fetchedAt: new Date(), source: 'test' },
+      create: { fiat: 'IDR', pricePerUsdc: '16000', fetchedAt: new Date(), source: 'test' },
+    });
+    const { id, token } = await openedWithdrawal(true);
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/1 USDC ≈ <strong>[\d.]+<\/strong> IDR/);
+    expect(res.text).toMatch(/estimate/i);
+    expect(res.text).toMatch(/fixed when you continue/i);
+  });
+
   it('names the last instant the escrow accepts the signature, ten minutes before the pay deadline, so the button is never a surprise', async () => {
     const { id, token, address } = await openedWithdrawal(true);
     await linkOrder(id, address, 'WITHDRAW', 'MATCHED');

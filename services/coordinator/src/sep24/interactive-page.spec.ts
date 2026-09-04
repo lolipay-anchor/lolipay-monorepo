@@ -1,4 +1,4 @@
-import { interactiveScreen, escapeHtml, page, formatFiat, formatUsdc } from './interactive-page';
+import { interactiveScreen, escapeHtml, page, formatFiat, formatUsdc, effectiveIdrPerUsdc } from './interactive-page';
 
 const at = (kycStatus: any, screened: boolean, orderStatus: any) =>
   interactiveScreen({ kycStatus, screened, orderStatus });
@@ -116,5 +116,16 @@ describe('formatUsdc', () => {
     [0n, '0'],
   ])('shows %s base units as %s, no trailing zeros and no dangling point', (units, shown) => {
     expect(formatUsdc(units)).toBe(shown);
+  });
+});
+
+describe('effectiveIdrPerUsdc', () => {
+  it.each([
+    [16_000_000n, 1_000_0000000n, 16_000n],
+    [176_315n, 10_0000000n, 17_632n],
+    [1n, 3_0000000n, 0n],
+    [1n, 0n, 0n],
+  ])('turns %s IDR for %s base units into %s IDR per USDC, rounded to the nearest rupiah, never dividing by zero', (fiat, usdc, expected) => {
+    expect(effectiveIdrPerUsdc(fiat, usdc)).toBe(expected);
   });
 });

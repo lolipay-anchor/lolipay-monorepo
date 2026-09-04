@@ -19,14 +19,14 @@ import { OrderTxService } from '../order/order-tx.service';
 import { OrderStatusService, REFRESH_FROM_CHAIN_STATUSES } from '../order/order-status.service';
 import { accountOf } from '../sep10/account-signers.service';
 import { AppConfigService } from '../config/app-config.service';
-import { baseUnitsToUsdc, fiatDigits, fiatInputAccepted, FIAT_INPUT_REFUSAL } from '../money/money';
+import { baseUnitsToUsdc, fiatDigits, fiatInputAccepted, FIAT_INPUT_REFUSAL, quoteFiat } from '../money/money';
 import { serializeSep24, Sep24Record, Sep24TransactionJson } from './sep24-transaction';
 import {
   SEP24_INTERACTIVE_LINK_TTL_SECS,
   mintInteractiveToken,
   readInteractiveToken,
 } from './interactive-token';
-import { escapeHtml, formatFiat, formatUsdc, interactiveScreen, page } from './interactive-page';
+import { effectiveIdrPerUsdc, escapeHtml, formatFiat, formatUsdc, interactiveScreen, page } from './interactive-page';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
 import { PersonService } from '../person/person.service';
 import { sep24Status } from './sep24-status';
@@ -72,6 +72,16 @@ export class Sep24Service {
     private refundSigner: RefundSignerService,
   ) {}
 
+
+  private async indicativeRateLine(flow: 'TOP_UP' | 'WITHDRAW'): Promise<string> {
+    try {
+      const [price, config] = await Promise.all([this.rate.getReferencePrice('IDR'), this.prisma.config.findUnique({ where: { id: 1 } })]);
+      const perUsdc = quoteFiat(10_000_000n, price, config?.spreadBps ?? 0, flow !== 'TOP_UP');
+      return `<p>1 USDC ≈ <strong>${escapeHtml(formatFiat(perUsdc))}</strong> IDR right now. This is an estimate; the rate is fixed when you continue.</p>`;
+    } catch {
+      return '';
+    }
+  }
   private assets() {
     return { baseUrl: this.cfg.anchorBaseUrl, usdcIssuer: this.cfg.usdcAssetIssuer };
   }
@@ -322,12 +332,13 @@ export class Sep24Service {
       );
     }
     if (screen === 'amount') {
+      const indicative = await this.indicativeRateLine(withdrawing ? 'WITHDRAW' : 'TOP_UP');
       const bank = withdrawing
         ? '<p><label>The bank account to pay your rupiah into<br><input name="user_payment_method" maxlength="500" required></label></p>'
         : '';
       return page(
         withdrawing ? 'How much would you like to withdraw?' : 'How much would you like to deposit?',
-        `${credits}<form method="post" action="${escapeHtml(post('/amount'))}"><p><label>Amount in IDR<br><input name="fiat_amount" inputmode="numeric" required></label></p>${bank}<button type="submit">Continue</button></form>`,
+        `${credits}${indicative}<form method="post" action="${escapeHtml(post('/amount'))}"><p><label>Amount in IDR<br><input name="fiat_amount" inputmode="numeric" required></label></p>${bank}<button type="submit">Continue</button></form>`,
       );
     }
     if (screen === 'waiting_on_escrow') {
@@ -374,6 +385,7 @@ export class Sep24Service {
           funding
             ? [
                 `<p>Your wallet will ask you to approve moving <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC into escrow. The provider then pays <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to your bank account, and the escrow releases to them when you confirm it arrived. Nothing leaves your wallet until you approve it.</p>`,
+                `<p>Rate: 1 USDC = <strong>${escapeHtml(formatFiat(effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount)))}</strong> ${escapeHtml(o.fiatCurrency)}, fixed for this order. No fee is deducted from your USDC; the platform's share is inside that rate.</p>`,
                 `<p>If the provider never marks the rupiah sent, anyone, including you, can take the USDC back out of the escrow after <strong>${escapeHtml(new Date(Number(refundOpensAt(o)) * 1000).toISOString())}</strong>${anchorRefunds ? ', and this anchor\'s refund service does it for you' : '; this anchor will not do it for you, so the route is open on chain to anyone, including you'}. Once they do mark it sent, only your confirmation or a dispute can move it, decided by the resolver, or by the platform if the resolver does not act within ${RESOLVER_WINDOW_SECS / 3600} hours.</p>`,
                 `<p>Sign before <strong>${escapeHtml(signBy!.toISOString())}</strong>. After that the escrow refuses the signature and this withdrawal expires.</p>`,
               ].join('')
