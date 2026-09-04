@@ -64,7 +64,13 @@ export class DiditKycProvider implements KycProvider {
       }
       return;
     }
-    log.log(`the configured verification workflow performs ${features}${this.cfg.kycRequireAml ? '' : '; AML is not required (KYC_REQUIRE_AML=false)'}`);
+    if (!this.cfg.kycRequireAml) {
+      log.warn(
+        `the configured verification workflow performs ${features}, but AML is not required (KYC_REQUIRE_AML=false), so a delivery that carries no screening still opens the gate — a vendor payload that dropped aml_screenings would not be noticed here`,
+      );
+      return;
+    }
+    log.log(`the configured verification workflow performs ${features}`);
   }
 
   async start(customerRef: string, _fields: Record<string, string>): Promise<KycDecision> {

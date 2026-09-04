@@ -192,4 +192,16 @@ describe('what boot says about a workflow with no AML step depends on whether AM
       log.mockRestore();
     }
   });
+
+  it('warns when the workflow does perform AML but AML is not required, because a delivery with no screening would then open the gate unnoticed', async () => {
+    const withAml = { status: 200, body: [{ workflow_id: 'wf-1', features: 'OCR + LIVENESS + FACE_MATCH + AML + IP_ANALYSIS' }] };
+    const { p } = provider(withAml, { kycRequireAml: false });
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    try {
+      await p.onModuleInit();
+      expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(/no screening still opens the gate/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });

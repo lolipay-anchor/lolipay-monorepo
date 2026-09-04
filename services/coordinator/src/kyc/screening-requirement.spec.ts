@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
-import { acceptedForFunds, awaitingProvider } from './screening-requirement';
+import { acceptedForFunds, awaitingProvider, deliveredButUnreadable } from './screening-requirement';
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -27,6 +27,10 @@ describe('whether a customer may move funds depends on one predicate that reads 
     expect(awaitingProvider(stub, true)).toBe(true);
     expect(awaitingProvider(stub, false)).toBe(true);
     expect(awaitingProvider({ ...stub, status: 'REJECTED' }, false)).toBe(false);
+  });
+
+  it('names a delivery this anchor could not read as the NEEDS_INFO rows the provider stamped, so an incomplete form over an old delivery does not count', () => {
+    expect(deliveredButUnreadable()).toEqual({ status: 'NEEDS_INFO', deliveredAt: { not: null }, providerRef: { not: null } });
   });
 
   it('no other source file reads screenedAt or deliveredAt, so no gate can require or skip the provider behind the switch', () => {

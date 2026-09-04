@@ -11,3 +11,7 @@ export function awaitingProvider(
   if (row.status !== 'ACCEPTED') return false;
   return requireAml ? row.screenedAt === null : row.deliveredAt === null;
 }
+
+export function deliveredButUnreadable() {
+  return { status: 'NEEDS_INFO' as const, deliveredAt: { not: null }, providerRef: { not: null } };
+}

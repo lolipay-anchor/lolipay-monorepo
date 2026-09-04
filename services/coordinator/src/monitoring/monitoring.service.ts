@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../generated/prisma/client';
 import { Alert, AlertsService, Urgency } from './alerts.service';
 import { DiditRefusalsService } from './didit-refusals.service';
+import { deliveredButUnreadable } from '../kyc/screening-requirement';
 import { OutboxService } from '../outbox/outbox.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { AppConfigService } from '../config/app-config.service';
@@ -178,7 +179,6 @@ export class MonitoringService {
 
     await this.alerts.raise(MONITORING_ALERT_SCOPE, alerts, incomplete);
     this.diditRefusals.seen();
-    this.diditRefusals.overruleSeen();
   }
 
   async buildAlerts(
@@ -309,15 +309,21 @@ export class MonitoringService {
       });
     }
 
-    if (refusals.overruled > 0) {
-      alerts.push({
-        key: 'didit_approval_overruled',
-        fingerprint: refusals.overruledReason ?? 'unknown',
-        urgency: 'urgent',
-        text:
-          `${refusals.overruled} identity verification deliveries the vendor approved were not accepted by this anchor ` +
-          `— the most recent because ${refusals.overruledReason}. Those customers cannot trade until someone reads the delivery.`,
-      });
+    try {
+      const unreadable = await this.prisma.kycVerification.count({ where: deliveredButUnreadable() });
+      if (unreadable > 0) {
+        alerts.push({
+          key: 'didit_approval_overruled',
+          fingerprint: 'unreadable',
+          urgency: 'routine',
+          text:
+            `${unreadable} customers' latest verification delivery could not be read by this anchor and they were asked to verify again ` +
+            `— if this number grows, the vendor's payload shape has changed and every new customer will loop until the reader is updated`,
+        });
+      }
+    } catch (e) {
+      incomplete.add('didit_approval_overruled');
+      this.log.warn(`could not count the deliveries this anchor could not read: ${e instanceof Error ? e.message : String(e)}`);
     }
 
     if (refusals.unauthenticated > 0) {

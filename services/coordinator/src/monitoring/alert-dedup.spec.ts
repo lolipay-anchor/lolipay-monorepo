@@ -350,6 +350,7 @@ describe('a dispute nobody resolves stops being routine', () => {
       },
       config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
+      kycVerification: { count: jest.fn().mockResolvedValue(0) },
     } as any;
     return new MonitoringService(prisma, { raise: jest.fn() } as any, new DiditRefusalsService(), { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n), stakingCooldownSecs: jest.fn(async () => 349_201) } as any, { escrowContractId: 'CESCROW' } as any);
   }
@@ -407,6 +408,7 @@ describe('a dispute the poller stamped still ages', () => {
       },
       config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
+      kycVerification: { count: jest.fn().mockResolvedValue(0) },
     } as any;
     const svc = new MonitoringService(prisma, { raise: jest.fn() } as any, new DiditRefusalsService(), { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n), stakingCooldownSecs: jest.fn(async () => 349_201) } as any, { escrowContractId: 'CESCROW' } as any);
 
@@ -445,6 +447,7 @@ describe('the seam between finding conditions and deciding about them', () => {
       },
       config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
+      kycVerification: { count: jest.fn().mockResolvedValue(0) },
     } as any;
     return { svc: new MonitoringService(prisma, { raise } as any, new DiditRefusalsService(), { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n), stakingCooldownSecs: jest.fn(async () => 349_201) } as any, { escrowContractId: 'CESCROW' } as any), prisma, raise };
   }
@@ -515,6 +518,7 @@ describe('a message that never arrived is itself a condition', () => {
       },
       config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
+      kycVerification: { count: jest.fn().mockResolvedValue(0) },
     } as any;
     const outbox = {
       stuckCounts: jest.fn(async () => counts),

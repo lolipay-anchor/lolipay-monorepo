@@ -4,8 +4,6 @@ import { Injectable } from '@nestjs/common';
 export class DiditRefusalsService {
   private count = 0;
   private lastReason?: string;
-  private overruled = 0;
-  private overruledReason?: string;
   private providerFailures = 0;
   private providerReason?: string;
   private unauthenticated = 0;
@@ -16,11 +14,6 @@ export class DiditRefusalsService {
   record(reason: string): void {
     this.count += 1;
     this.lastReason = reason;
-  }
-
-  overrule(reason: string): void {
-    this.overruled += 1;
-    this.overruledReason = reason;
   }
 
   applied(): void {
@@ -58,16 +51,9 @@ export class DiditRefusalsService {
     if (this.unauthenticated === 0) this.unauthenticatedReason = undefined;
   }
 
-  overruleSeen(): void {
-    if (this.overruled > 0) this.overruled -= 1;
-    if (this.overruled === 0) this.overruledReason = undefined;
-  }
-
   state(): {
     count: number;
     lastReason?: string;
-    overruled: number;
-    overruledReason?: string;
     providerFailures: number;
     providerReason?: string;
     unauthenticated: number;
@@ -78,8 +64,6 @@ export class DiditRefusalsService {
     return {
       count: this.count,
       lastReason: this.lastReason,
-      overruled: this.overruled,
-      overruledReason: this.overruledReason,
       providerFailures: this.providerFailures,
       providerReason: this.providerReason,
       unauthenticated: this.unauthenticated,

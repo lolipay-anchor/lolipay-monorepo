@@ -4,7 +4,6 @@ import { createHmac } from 'crypto';
 import { bootAuthApp, sessionToken } from '../auth/auth-test-helpers';
 import { Keypair } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
-import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 
 const PATH = '/webhooks/didit';
 const now = () => Math.floor(Date.now() / 1000);
@@ -164,10 +163,9 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     expect(row!.personId).not.toBeNull();
   });
 
-  it('refuses an approval whose screening carried a hit, records the refusal against the person, and counts the overrule for the operator', async () => {
+  it('refuses an approval whose screening carried a hit, records the refusal against the person', async () => {
     const kp = Keypair.random();
     await sessionToken(app, kp);
-    const before = app.get(DiditRefusalsService).state().overruled;
 
     const raw = JSON.stringify({
       event_id: 'e-hit',
@@ -185,7 +183,6 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     expect(row!.status).toBe('REJECTED');
     expect(row!.rejectionReason).toBe('sanctions or watchlist match');
     expect(row!.screenedAt).toBeNull();
-    expect(app.get(DiditRefusalsService).state().overruled).toBe(before + 1);
   });
 
   it('writes nothing at all when the delivery came from another environment', async () => {

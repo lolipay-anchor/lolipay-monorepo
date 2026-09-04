@@ -43,6 +43,7 @@ function make(opts: {
         opts.indexerAgeMs == null ? null : { updatedAt: new Date(Date.now() - opts.indexerAgeMs) },
       ),
     },
+    kycVerification: { count: jest.fn().mockResolvedValue(0) },
   } as any;
   const raised: any[] = [];
   const alerts = {
@@ -157,14 +158,21 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     expect(alert.urgency).toBe('urgent');
   });
 
-  it('raises an urgent alert when this anchor did not accept a delivery the vendor approved, because a customer the vendor cleared is now stuck', async () => {
-    const { svc, raised, refusals } = quiet();
-    refusals.overrule('sanctions or watchlist match');
+  it('reports the customers whose latest delivery this anchor could not read, from the database rather than from memory, so a restart or a quiet hour cannot clear it while they are still stuck', async () => {
+    const { svc, raised, prisma } = quiet();
+    prisma.kycVerification.count.mockResolvedValue(3);
     await svc.checkAndAlert();
     const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_approval_overruled');
     expect(alert).toBeDefined();
-    expect(alert.urgency).toBe('urgent');
-    expect(alert.text).toContain('sanctions or watchlist match');
+    expect(alert.text).toContain('3 customers');
+    expect(prisma.kycVerification.count.mock.calls[0][0].where).toEqual({ status: 'NEEDS_INFO', deliveredAt: { not: null }, providerRef: { not: null } });
+  });
+
+  it('says the unreadable-delivery family is incomplete rather than cleared when the count itself fails', async () => {
+    const { svc, raised, prisma } = quiet();
+    prisma.kycVerification.count.mockRejectedValue(new Error('connection reset'));
+    await svc.checkAndAlert();
+    expect(raised[0].incomplete.has('didit_approval_overruled')).toBe(true);
   });
 
   it('does not page anyone urgently because a stranger posted to the public endpoint', async () => {
@@ -207,5 +215,12 @@ describe('a new alert reaches the operator only if its family is in scope', () =
     const families = [...src.matchAll(/key: ['`]([a-z_]+)/g)].map((m) => m[1]);
     expect(families.length).toBeGreaterThan(5);
     for (const family of families) expect(MONITORING_ALERT_SCOPE).toContain(family);
+    const sites = (src.match(/key: /g) ?? []).length;
+    const computed = [...src.matchAll(/key: `\$\{([a-zA-Z]+)\}/g)].map((m) => m[1]);
+    expect(families.length + computed.length).toBe(sites);
+    expect(computed).toEqual(['kind']);
+    const kinds = [...src.matchAll(/noteOverflow\('([a-z_]+)'/g)].map((m) => m[1]);
+    expect(kinds.length).toBeGreaterThan(0);
+    for (const kind of kinds) expect(MONITORING_ALERT_SCOPE).toContain(kind);
   });
 });
