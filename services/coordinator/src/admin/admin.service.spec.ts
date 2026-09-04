@@ -296,6 +296,16 @@ describe('AdminService.updateConfigTransactional', () => {
     await expect(
       svc.updateConfigTransactional({ platformFeeBps: room + 1 } as any, 'GADMINTEST'),
     ).rejects.toThrow('PLATFORM_FEE_EXCEEDS_SPREAD');
+    expect(configApi.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a spreadBps patch that the old at-most rule would have taken but that leaves nothing after the deviation band', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    await expect(
+      svc.updateConfigTransactional({ spreadBps: CURRENT.platformFeeBps + makeCfg().priceDeviationMaxBps } as any, 'GADMINTEST'),
+    ).rejects.toThrow('PLATFORM_FEE_EXCEEDS_SPREAD');
+    expect(configApi.update).not.toHaveBeenCalled();
   });
 
   it('rejects a spreadBps patch that no longer covers the price-deviation allowance', async () => {
