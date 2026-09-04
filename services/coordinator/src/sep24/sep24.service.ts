@@ -16,7 +16,7 @@ import { OrderTxService } from '../order/order-tx.service';
 import { OrderStatusService, REFRESH_FROM_CHAIN_STATUSES } from '../order/order-status.service';
 import { accountOf } from '../sep10/account-signers.service';
 import { AppConfigService } from '../config/app-config.service';
-import { baseUnitsToUsdc, fiatDigits, COMMA_REFUSAL } from '../money/money';
+import { baseUnitsToUsdc, fiatDigits, fiatInputAccepted, FIAT_INPUT_REFUSAL } from '../money/money';
 import { serializeSep24, Sep24Record, Sep24TransactionJson } from './sep24-transaction';
 import {
   SEP24_INTERACTIVE_LINK_TTL_SECS,
@@ -460,8 +460,8 @@ export class Sep24Service {
     if (typeof rawAmount !== 'string') {
       throw new BadRequestException('name an amount in rupiah');
     }
-    if (rawAmount.includes(',')) {
-      throw new BadRequestException(COMMA_REFUSAL);
+    if (!fiatInputAccepted(rawAmount)) {
+      throw new BadRequestException(FIAT_INPUT_REFUSAL);
     }
     const digits = fiatDigits(rawAmount);
     if (digits.length === 0 || digits.length > 18 || BigInt(digits) === 0n) {

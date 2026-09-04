@@ -79,8 +79,14 @@ export function quoteUsdcForFiat(
   return (numerator + withSpread - 1n) / withSpread;
 }
 
-export const COMMA_REFUSAL =
-  'write the amount without a comma, for example 200000 or 200.000: a comma could mean thousands or a fraction, and this anchor will not guess which';
+export const FIAT_INPUT_REFUSAL =
+  'write the amount in plain digits, for example 200000, or with dots as thousands separators, for example 200.000: commas, fractions and other symbols are refused because they could mean two different amounts, and this anchor will not guess which';
+
+const FIAT_INPUT_RE = /^(Rp\.?\s*)?(\d+|[1-9]\d{0,2}(\.\d{3})+)$/;
+
+export function fiatInputAccepted(raw: string): boolean {
+  return FIAT_INPUT_RE.test(raw.trim());
+}
 
 export function fiatDigits(raw: unknown): string {
   return String(raw).replace(/[^0-9]/g, '');

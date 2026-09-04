@@ -44,20 +44,41 @@ describe('the amount step reads rupiah the way an Indonesian types it', () => {
     expect(rate.createQuote).toHaveBeenCalledWith('GABC', 'TOP_UP', 'BANK', { fiatAmount: 200000n });
   });
 
-  it.each(['200,000', '200,000.00', '1,5', 'Rp 200,000'])('refuses "%s" with a clear message rather than guessing whether the comma means thousands or a fraction', async (raw) => {
+  it.each([
+    ['200,000', 'a comma'],
+    ['200,000.00', 'a comma and a fraction'],
+    ['1,5', 'a comma fraction'],
+    ['Rp 200,000', 'a comma after Rp'],
+    ['150000.00', 'a two-digit fraction that stripping would read as 15 million'],
+    ['1500.75', 'a fraction'],
+    ['0.500', 'a leading zero group'],
+    ['150000\uFF0C00', 'a fullwidth comma'],
+    ['150000\u060C00', 'an Arabic comma'],
+    ['150000\uFF10', 'a fullwidth digit mixed in'],
+    ['-150000', 'a sign'],
+    ['2e5', 'an exponent'],
+    ['200 000', 'a space group'],
+    ['200k', 'a suffix'],
+  ])('refuses "%s" (%s) with a clear message rather than guessing what it means', async (raw) => {
     const { svc, cfg, rate } = harness();
     const { mintInteractiveToken } = await import('./interactive-token');
     const token = mintInteractiveToken(cfg, 'tx-1', 'GABC');
-    await expect(svc.submitAmount('tx-1', token, raw)).rejects.toThrow(/without a comma/);
+    await expect(svc.submitAmount('tx-1', token, raw)).rejects.toThrow(/plain digits|dots as thousands/);
     expect(rate.createQuote).not.toHaveBeenCalled();
   });
 
-  it('still takes a dot as the thousands separator an Indonesian keyboard produces', async () => {
+  it.each([
+    ['1.500.000', 1500000n],
+    ['Rp 200.000', 200000n],
+    ['Rp. 200.000', 200000n],
+    ['0200000', 200000n],
+    [' 200000 ', 200000n],
+  ])('still takes "%s", a form an Indonesian keyboard produces, as %s rupiah', async (raw, fiatAmount) => {
     const { svc, cfg, rate } = harness();
     const { mintInteractiveToken } = await import('./interactive-token');
     const token = mintInteractiveToken(cfg, 'tx-1', 'GABC');
-    await svc.submitAmount('tx-1', token, '1.500.000');
-    expect(rate.createQuote).toHaveBeenCalledWith('GABC', 'TOP_UP', 'BANK', { fiatAmount: 1500000n });
+    await svc.submitAmount('tx-1', token, raw);
+    expect(rate.createQuote).toHaveBeenCalledWith('GABC', 'TOP_UP', 'BANK', { fiatAmount });
   });
 
   it.each([
@@ -106,7 +127,7 @@ describe('the amount step reads rupiah the way an Indonesian types it', () => {
     const { svc, cfg, rate } = harness();
     const { mintInteractiveToken } = await import('./interactive-token');
     const token = mintInteractiveToken(cfg, 'tx-1', 'GABC');
-    await expect(svc.submitAmount('tx-1', token, 'Rp')).rejects.toThrow(/name an amount/);
+    await expect(svc.submitAmount('tx-1', token, 'Rp')).rejects.toThrow(/plain digits|dots as thousands/);
     expect(rate.createQuote).not.toHaveBeenCalled();
   });
 });

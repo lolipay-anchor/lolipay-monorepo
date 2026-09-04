@@ -254,24 +254,39 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
       disputeDeadline: 1_700_090_000n,
     });
     expect(() => createTradeExpectation({ ...order, fiat_amount: '999' }, lp, demo, '200000')).toThrow(/quotes fiat_amount 999, not the 200000/);
-    expect(() => createTradeExpectation({ ...order, fiat_amount: '250000' }, lp, demo, '250,000')).toThrow(/without a comma/);
+    expect(() => createTradeExpectation({ ...order, fiat_amount: '250000' }, lp, demo, '250,000')).toThrow(/plain digits|dots as thousands/);
+    expect(() => createTradeExpectation({ ...order, fiat_amount: '25000000' }, lp, demo, '250000.00')).toThrow(/plain digits|dots as thousands/);
     expect(createTradeExpectation({ ...order, fiat_amount: '250000' }, lp, demo, '250.000').fiatAmount).toBe(250_000n);
-    expect(() => createTradeExpectation({ ...order, fiat_amount: '0' }, lp, demo, 'abc')).toThrow(/carries no rupiah digits/);
+    expect(() => createTradeExpectation({ ...order, fiat_amount: '0' }, lp, demo, 'abc')).toThrow(/plain digits|dots as thousands/);
     expect(() => createTradeExpectation({ ...order, fiat_currency: 'USD' }, lp, demo, '200000')).toThrow(/quotes fiat_currency USD, not the IDR/);
   });
 
-  it('refuses a comma in the demo amount before anything is opened, with the same words the anchor would answer', () => {
-    expect(() => demoIdrDigits('200,000')).toThrow(/without a comma/);
+  it('refuses an ambiguous demo amount before anything is opened, with the same words the anchor would answer', () => {
+    expect(() => demoIdrDigits('200,000')).toThrow(/plain digits|dots as thousands/);
+    expect(() => demoIdrDigits('150000.00')).toThrow(/plain digits|dots as thousands/);
+    expect(() => demoIdrDigits('abc')).toThrow(/plain digits|dots as thousands/);
+    expect(() => demoIdrDigits('')).toThrow(/plain digits|dots as thousands/);
     expect(demoIdrDigits('200.000')).toBe('200000');
+  });
+
+  it('still loads as a module when the env carries a refused amount, so a bad value fails the run in main and not every test in this file', () => {
+    const previous = process.env.SEP24_DEMO_IDR;
+    process.env.SEP24_DEMO_IDR = '200,000';
+    try {
+      jest.isolateModules(() => {
+        expect(require('./sep24-fixtures').DEMO_IDR_DIGITS).toBe('0');
+      });
+    } finally {
+      if (previous === undefined) delete process.env.SEP24_DEMO_IDR;
+      else process.env.SEP24_DEMO_IDR = previous;
+    }
   });
 
   it('canonicalises the demo amount the way the record will echo it, so a leading zero cannot refuse an honest run', () => {
     expect(demoIdrDigits('0200000')).toBe('200000');
     expect(demoIdrDigits('Rp 200.000')).toBe('200000');
-    expect(demoIdrDigits('abc')).toBe('0');
-    expect(demoIdrDigits('')).toBe('0');
     const previous = process.env.SEP24_DEMO_IDR;
-    process.env.SEP24_DEMO_IDR = 'Rp 0300.000';
+    process.env.SEP24_DEMO_IDR = 'Rp 0300000';
     try {
       jest.isolateModules(() => {
         expect(require('./sep24-fixtures').DEMO_IDR_DIGITS).toBe('300000');

@@ -4,7 +4,7 @@ import { chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } from 'fs
 import { resolve } from 'path';
 import { Address, Keypair, StellarToml, Transaction, WebAuth, scValToNative } from '@stellar/stellar-sdk';
 import { refundOpensAt } from '../order/dispute.util';
-import { COMMA_REFUSAL, fiatDigits } from '../money/money';
+import { fiatDigits, fiatInputAccepted, FIAT_INPUT_REFUSAL } from '../money/money';
 import { Server } from '@stellar/stellar-sdk/rpc';
 
 export const MAX_DEMO_FEE_STROOPS = 10_000_000n;
@@ -272,10 +272,10 @@ const API = process.env.SEP24_API ?? 'https://api.lolipay.app';
 const HOME_DOMAIN = process.env.SEP24_HOME_DOMAIN ?? 'lolipay.app';
 const DEMO_IDR = process.env.SEP24_DEMO_IDR ?? '200000';
 export const demoIdrDigits = (raw: string) => {
-  if (raw.includes(',')) throw new Error(`"${raw}" carries a comma; ${COMMA_REFUSAL}`);
+  if (!fiatInputAccepted(raw)) throw new Error(`"${raw}" is refused: ${FIAT_INPUT_REFUSAL}`);
   return String(BigInt(fiatDigits(raw)));
 };
-export const DEMO_IDR_DIGITS = demoIdrDigits(DEMO_IDR);
+export const DEMO_IDR_DIGITS = fiatInputAccepted(DEMO_IDR) ? demoIdrDigits(DEMO_IDR) : '0';
 const RPC_URL = process.env.STELLAR_RPC_URL ?? 'https://soroban-testnet.stellar.org';
 const HEARTBEAT_MS = 30_000;
 const POLL_MS = 5_000;
@@ -587,7 +587,7 @@ function writeConfig(cfg: unknown): void {
 }
 
 async function main(): Promise<void> {
-  if (DEMO_IDR_DIGITS === '0') throw new Error(`SEP24_DEMO_IDR "${DEMO_IDR}" carries no rupiah digits`);
+  if (DEMO_IDR_DIGITS === '0') throw new Error(`SEP24_DEMO_IDR "${DEMO_IDR}" is refused: ${FIAT_INPUT_REFUSAL}`);
   const escrow = process.env.ESCROW_CONTRACT_ID;
   if (!escrow) throw new Error('ESCROW_CONTRACT_ID is not set; the driver refuses to sign a call to an unnamed contract');
   const demo = identity(process.env.SEP24_DEMO_IDENTITY ?? 'sep24-demo');
