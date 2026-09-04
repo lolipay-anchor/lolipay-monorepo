@@ -30,8 +30,8 @@ const order = (over: Record<string, unknown> = {}) => ({
   settlementTxHash: null,
   settledAt: null,
   ref: null,
-  payDeadline: 1_790_000_000n,
-  confirmDeadline: 1_790_003_600n,
+  payDeadline: 4_000_000_000n,
+  confirmDeadline: 4_000_003_600n,
   ...over,
 }) as any;
 
@@ -169,12 +169,12 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
   });
 
   describe('user_action_required_by is published only where the escrow really does expire the user, which is the signing window alone', () => {
-    const deadlines = { payDeadline: 1_790_000_000n, confirmDeadline: 1_790_003_600n };
+    const deadlines = { payDeadline: 4_000_000_000n, confirmDeadline: 4_000_003_600n };
 
     it('at MATCHED on a withdrawal it is the pay deadline less the ten minutes create_trade refuses inside, the last moment a signature is accepted', () => {
       const out = serializeSep24(tx({ flow: 'WITHDRAW', order: order({ status: 'MATCHED', ...deadlines }) }), BASE);
       expect(out.status).toBe('pending_user');
-      expect(out.user_action_required_by).toBe('2026-09-21T14:03:20.000Z');
+      expect(out.user_action_required_by).toBe('2096-10-02T06:56:40.000Z');
     });
 
     it('at FIAT_PAID on a withdrawal it is absent, because confirm_and_release has no deadline and the refund is already closed, so a countdown would be a lie the provider could size', () => {
@@ -186,7 +186,7 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
     it('at AWAITING_ONCHAIN on a withdrawal it is the same signing instant, because the popup still offers the signature there', () => {
       const out = serializeSep24(tx({ flow: 'WITHDRAW', order: order({ status: 'AWAITING_ONCHAIN', ...deadlines }) }), BASE);
       expect(out.status).toBe('pending_user');
-      expect(out.user_action_required_by).toBe('2026-09-21T14:03:20.000Z');
+      expect(out.user_action_required_by).toBe('2096-10-02T06:56:40.000Z');
     });
 
     it.each(['CREATED', 'FUNDED', 'DISPUTED', 'RELEASED'])('is absent on a withdrawal at %s, where the user is not the one waited on', (status) => {
@@ -207,7 +207,7 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
     it('on a deposit at FUNDED it is the pay deadline, the user\'s send-by, the same instant the instructions page prints and monitoring calls overdue', () => {
       const out = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', ...deadlines }) }), BASE);
       expect(out.status).toBe('pending_user_transfer_start');
-      expect(out.user_action_required_by).toBe('2026-09-21T14:13:20.000Z');
+      expect(out.user_action_required_by).toBe('2096-10-02T07:06:40.000Z');
     });
 
     it.each(['CREATED', 'MATCHED', 'FIAT_PAID', 'RELEASED'])('is absent on a deposit at %s', (status) => {
