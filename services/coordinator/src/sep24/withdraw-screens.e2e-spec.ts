@@ -80,7 +80,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
   it('more_info_url names it a withdrawal, and the acceptance suite fetches that page', async () => {
     const { id } = await openedWithdrawal(false);
     const res = await http().get(`/sep24/more-info/${id}`).expect(200);
-    expect(res.text).toMatch(/sign in with the same wallet at <a href="https:\/\/app\.lolipay\.app">app\.lolipay\.app<\/a>.*dispute can be raised/);
+    expect(res.text).toMatch(/sign in with the same wallet at <a href="https:\/\/app\.lolipay\.app">app\.lolipay\.app<\/a>.*whether a dispute can still be opened and until when/);
     expect(res.headers['content-type']).toMatch(/text\/html/);
     expect(res.text).toMatch(/lolipay withdrawal/);
     expect(res.text).not.toMatch(/lolipay deposit/);

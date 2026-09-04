@@ -46,4 +46,8 @@ describe('the deployment must not decide what the environment decides', () => {
       expect(line).toMatch(new RegExp(`\\$\\{${key}`));
     }
   });
+
+  it('opens the withdrawal door by default but lets a blank .env line close it, because this flag is a public announcement to every SEP-24 wallet', () => {
+    expect(settingFor('SEP24_WITHDRAW_ENABLED')).toBe('SEP24_WITHDRAW_ENABLED: ${SEP24_WITHDRAW_ENABLED-true}');
+  });
 });
