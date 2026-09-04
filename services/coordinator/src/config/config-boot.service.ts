@@ -1,6 +1,7 @@
 import { Networks } from '@stellar/stellar-sdk';
 import { windowsFitTheContract } from './contract-limits';
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { platformWalletRemedy } from './platform-wallet-remedy';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from './app-config.service';
 import { StellarReadService, withRpcTimeout } from '../stellar/stellar-read.service';
@@ -104,7 +105,7 @@ export class ConfigBootService implements OnModuleInit {
     }
     let chain: { platformFeeBps: number; platformWallet: string } | undefined;
     try {
-      chain = await withRpcTimeout(this.stellar.readEscrowPlatformDefaults(this.cfg.escrowContractId), 'escrow get_config', 3000);
+      chain = await withRpcTimeout(this.stellar.readEscrowPlatformDefaults(this.cfg.escrowContractId), 'escrow get_config', 6000);
     } catch (err) {
       this.log.warn(`the escrow contract defaults could not be read at boot, so Config.platformFeeBps and platformWallet are unchecked against them until the drift tick runs: ${String(err)}`);
     }
@@ -115,7 +116,7 @@ export class ConfigBootService implements OnModuleInit {
     }
     if (chain && chain.platformWallet !== row.platformWallet) {
       this.log.warn(
-        `Config.platformWallet (${row.platformWallet}) differs from the escrow contract default_platform_wallet (${chain.platformWallet}); create_trade will refuse every funding until the row is patched to match, and the drift tick will keep alerting`,
+        `Config.platformWallet (${row.platformWallet}) differs from the escrow contract default_platform_wallet (${chain.platformWallet}); create_trade will refuse every funding ${platformWalletRemedy(chain.platformWallet)}, and the drift tick will keep alerting`,
       );
     }
     const windowProblem = windowsFitTheContract(row.payWindowSecs, row.confirmWindowSecs, row.disputeWindowSecs);

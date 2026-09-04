@@ -198,9 +198,9 @@ export class AdminService {
       let chain: { platformFeeBps: number; platformWallet: string };
       try {
         chain = await this.stellar.readEscrowPlatformDefaults(this.cfg.escrowContractId);
-      } catch {
+      } catch (err) {
         throw new Error(
-          'ESCROW_CONFIG_UNREADABLE: the escrow contract defaults could not be read, so platformFeeBps and platformWallet cannot be checked against them; try again when the RPC answers',
+          `ESCROW_CONFIG_UNREADABLE: the escrow contract defaults could not be read, so platformFeeBps and platformWallet cannot be checked against them: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
       if (patch.platformWallet !== undefined && patch.platformWallet !== chain.platformWallet) {

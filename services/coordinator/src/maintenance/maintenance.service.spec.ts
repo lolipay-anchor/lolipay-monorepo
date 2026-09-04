@@ -644,6 +644,15 @@ describe('the escrow config drift tick tells a human when the row and the contra
     expect(found[0].text).toMatch(/platformWallet \(GOTHER\) differs from the escrow contract default_platform_wallet \(GPLATFORM\)/);
   });
 
+  it('a contract wallet on chain is named as a divergence the admin API cannot cure, so nobody is told to patch a row that will be refused', async () => {
+    const { svc, raise } = drift({ platformFeeBps: 30, platformWallet: 'GPLATFORM' }, { readEscrowPlatformDefaults: jest.fn(async () => ({ platformFeeBps: 30, platformWallet: 'CCONTRACT' })) });
+    await svc.alertOnEscrowConfigDrift();
+    const found = (raise.mock.calls[0] as any[])[1];
+    expect(found.map((a: any) => a.key)).toEqual(['escrow_config_drift:platformWallet']);
+    expect(found[0].text).toMatch(/cannot be patched to match/);
+    expect(found[0].text).not.toMatch(/until the row is patched/);
+  });
+
   it('pages when the contract cannot be read, because this tick is the only check left now that boot no longer refuses, and marks the family incomplete so nothing clears', async () => {
     const { svc, raise } = drift({ platformFeeBps: 30, platformWallet: 'GPLATFORM' }, { readEscrowPlatformDefaults: jest.fn(async () => { throw new Error('rpc down'); }) });
     await svc.alertOnEscrowConfigDrift();

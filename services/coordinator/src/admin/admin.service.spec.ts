@@ -368,7 +368,7 @@ describe('AdminService.updateConfigTransactional', () => {
     const svc = new AdminService(prisma, stellar, makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
     await expect(
       svc.updateConfigTransactional({ platformFeeBps: CURRENT.platformFeeBps } as any, 'GADMINTEST'),
-    ).rejects.toThrow('ESCROW_CONFIG_UNREADABLE');
+    ).rejects.toThrow(/ESCROW_CONFIG_UNREADABLE: .*rpc down/);
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -988,6 +988,15 @@ describe('AdminService.attestFiatPaid — the row follows the chain, and one att
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), { attest } as any, notifications);
     return { svc, prisma, attest, release, notifications };
   }
+
+  it('bounds the attestation by the confirm deadline when that comes before the attest grace, because the contract takes the earlier of the two', async () => {
+    const { svc, prisma, attest, release } = build();
+    prisma.order.findUnique.mockResolvedValue({ ...ORDER, confirmDeadline: 4_000_001_800n });
+    const pending = svc.attestFiatPaid('ord-1', 'GADMIN', 'BCA 12345');
+    release();
+    await pending;
+    expect(attest).toHaveBeenCalledWith('CESCROW', 'a'.repeat(64), 4_000_001_800);
+  });
 
   it('moves the row to FIAT_PAID the moment the chain accepts, so the operator and the indexer agree without a ten-second gap', async () => {
     const { svc, prisma, attest, release, notifications } = build();

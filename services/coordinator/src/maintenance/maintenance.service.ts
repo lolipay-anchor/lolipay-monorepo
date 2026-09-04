@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
-import { StellarReadService, withRpcTimeout } from '../stellar/stellar-read.service';
+import { StellarReadService } from '../stellar/stellar-read.service';
 import { RefundSignerService } from '../stellar/refund-signer.service';
 import { AppConfigService } from '../config/app-config.service';
 import { NotificationService } from '../notification/notification.service';
@@ -11,13 +11,14 @@ import { Alert, AlertsService } from '../monitoring/alerts.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { verifyTradeMatchesOrder } from '../order/trade-binding';
 import { settlementFieldsFrom } from '../order/order-status.service';
+import { platformWalletRemedy } from '../config/platform-wallet-remedy';
 
 const STALE_ORDER_SWEEP_GRACE_MS = 60_000;
 const AUTO_REFUND_BATCH_SIZE = 20;
 const DIVERGENCE_SCAN_LIMIT = 500;
 
 const ORPHAN_LOOKBACK_MS = 45 * 24 * 60 * 60 * 1000;
-const RECONCILER_PERIOD_SECS = 600;
+export const RECONCILER_PERIOD_SECS = 600;
 
 
 @Injectable()
@@ -86,6 +87,11 @@ export class MaintenanceService {
       });
     } catch (err) {
       this.log.error(`alertOnEscrowDivergence: could not read orders: ${errMsg(err)}`);
+      await this.alerts.raise(
+        ['escrow_divergence'],
+        [{ key: 'escrow_divergence:unreadable', fingerprint: 'unreadable', urgency: 'urgent', text: `cancelled and expired orders could not be compared with the escrow because the order query failed: ${errMsg(err)}` }],
+        new Set(['escrow_divergence']),
+      );
       return;
     }
 
@@ -123,14 +129,14 @@ export class MaintenanceService {
               ? ['no-signer', 'no refund signer is configured']
               : !inLookback
                 ? ['old', 'it is older than the reconciler lookback, so nothing automatic will ever see it']
-                : nowSecs > refundAt + RECONCILER_PERIOD_SECS
-                  ? ['missed', 'the refund instant passed more than one reconciler period ago and the escrow is still funded, so the reconciler did not act']
+                : nowSecs > refundAt + 2 * RECONCILER_PERIOD_SECS
+                  ? ['missed', 'the refund instant passed more than two reconciler periods ago and the escrow is still funded, so the reconciler did not act']
                   : ['reconciler', 'the refund reconciler will return it on its next pass'];
         found.push({
           key: `escrow_divergence:${o.id}`,
           fingerprint: `FUNDED:${tag}`,
           urgency: tag === 'reconciler' ? 'routine' : 'urgent',
-          text: `order ${o.id} (trade ${o.tradeId}) is ${o.status} off chain but FUNDED on chain: ${why}; refund(${o.tradeId}) is permissionless once the refund instant has passed (opens at ${new Date(refundAt * 1000).toISOString()}) and returns the USDC to the usdc_provider, ${o.flow === 'WITHDRAW' ? 'the user' : 'the provider'}`,
+          text: `order ${o.id} (trade ${o.tradeId}) is ${o.status} off chain but FUNDED on chain: ${why}; refund() is permissionless once the refund instant has passed (opens at ${new Date(refundAt * 1000).toISOString()}) and returns the USDC to the usdc_provider, ${o.flow === 'WITHDRAW' ? 'the user' : 'the provider'}`,
         });
         continue;
       }
@@ -156,7 +162,7 @@ export class MaintenanceService {
     try {
       const row = await this.prisma.config.findUnique({ where: { id: 1 } });
       if (!row) throw new Error('the Config row is missing');
-      const chain = await withRpcTimeout(this.stellar.readEscrowPlatformDefaults(this.cfg.escrowContractId), 'escrow get_config', 3000);
+      const chain = await this.stellar.readEscrowPlatformDefaults(this.cfg.escrowContractId);
       if (row.platformFeeBps !== chain.platformFeeBps) {
         found.push({
           key: 'escrow_config_drift:platformFeeBps',
@@ -170,7 +176,7 @@ export class MaintenanceService {
           key: 'escrow_config_drift:platformWallet',
           fingerprint: `${row.platformWallet}:${chain.platformWallet}`,
           urgency: 'urgent',
-          text: `Config.platformWallet (${row.platformWallet}) differs from the escrow contract default_platform_wallet (${chain.platformWallet}), which the contract will not let anyone change; create_trade refuses every funding until the row is patched to match`,
+          text: `Config.platformWallet (${row.platformWallet}) differs from the escrow contract default_platform_wallet (${chain.platformWallet}), which the contract will not let anyone change; create_trade refuses every funding ${platformWalletRemedy(chain.platformWallet)}`,
         });
       }
     } catch (err) {
@@ -385,16 +391,26 @@ export class MaintenanceService {
     await this.once('reconcileOrphanedEscrows', () => this.run_reconcileOrphanedEscrows());
   }
 
+  private orphanCursor: { createdAt: Date; id: string } | null = null;
+
   private async run_reconcileOrphanedEscrows() {
     const config = await this.prisma.config.findUnique({ where: { id: 1 } });
     if (!config?.autoRefund) return;
     if (!this.refundSigner.isConfigured) return;
 
+    const nowSecs = BigInt(Math.floor(Date.now() / 1000));
+    const after = this.orphanCursor;
     const candidates = await this.prisma.order.findMany({
       where: {
         status: { in: ['CANCELLED', 'EXPIRED'] },
         settlementTxHash: null,
+        settledAt: null,
         createdAt: { gt: new Date(Date.now() - ORPHAN_LOOKBACK_MS) },
+        OR: [
+          { confirmDeadline: { lt: nowSecs } },
+          { flow: 'TOP_UP', payDeadline: { lt: nowSecs - ATTEST_GRACE_SECS } },
+        ],
+        ...(after ? { AND: [{ OR: [{ createdAt: { gt: after.createdAt } }, { createdAt: after.createdAt, id: { gt: after.id } }] }] } : {}),
       },
       select: {
         id: true,
@@ -404,15 +420,18 @@ export class MaintenanceService {
         flow: true,
         payDeadline: true,
         confirmDeadline: true,
+        createdAt: true,
       },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: AUTO_REFUND_BATCH_SIZE,
     });
+    const last = candidates[candidates.length - 1];
+    this.orphanCursor = candidates.length === AUTO_REFUND_BATCH_SIZE && last ? { createdAt: last.createdAt, id: last.id } : null;
 
-    const nowSecs = BigInt(Math.floor(Date.now() / 1000));
     let recovered = 0;
 
     for (const o of candidates) {
+      if (refundOpensAt(o) >= nowSecs) continue;
       const contractId = contractIdFor(o, this.cfg);
 
       let onChain;
@@ -426,8 +445,6 @@ export class MaintenanceService {
 
       if (onChain.status !== 'FUNDED') continue;
 
-      if (refundOpensAt(o) >= nowSecs) continue;
-
       try {
         const result = await this.refundSigner.submitRefund(contractId, o.tradeId);
         if (result.status !== 'SUCCESS') {
@@ -438,7 +455,7 @@ export class MaintenanceService {
         }
         recovered += 1;
         await this.prisma.order.updateMany({
-          where: { id: o.id, settlementTxHash: null },
+          where: { id: o.id, settlementTxHash: null, settledAt: null },
           data: { settlementTxHash: result.hash, settledAt: new Date() },
         });
         this.log.log(

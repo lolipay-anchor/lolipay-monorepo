@@ -59,7 +59,7 @@ describe('MaintenanceService.reconcileOrphanedEscrows (X3)', () => {
     expect(refundSigner.submitRefund).toHaveBeenCalledWith('CESCROW', 'a'.repeat(64));
   });
 
-  it('does NOT resurrect the order — the cancel stands, only the funds are recovered', async () => {
+  it('writes no status of its own: the cancel stands here, and only the indexer may later move the row to REFUNDED on the refunded event', async () => {
     const { svc, prisma } = make({
       orders: [cancelledOrder()],
       onChain: { status: 'FUNDED', settledAt: 0 },
@@ -74,7 +74,7 @@ describe('MaintenanceService.reconcileOrphanedEscrows (X3)', () => {
   });
 
   it('leaves an orphan alone until the escrow would accept a refund, since it would revert', async () => {
-    const { svc, refundSigner } = make({
+    const { svc, refundSigner, stellar } = make({
       orders: [cancelledOrder({ payDeadline: FUTURE, confirmDeadline: FUTURE })],
       onChain: { status: 'FUNDED', settledAt: 0 },
     });
@@ -82,6 +82,7 @@ describe('MaintenanceService.reconcileOrphanedEscrows (X3)', () => {
     await svc.reconcileOrphanedEscrows();
 
     expect(refundSigner.submitRefund).not.toHaveBeenCalled();
+    expect(stellar.getTradeStatusStrict).not.toHaveBeenCalled();
   });
 
   it('does nothing for a cancelled order that never reached the chain', async () => {
@@ -121,19 +122,39 @@ describe('MaintenanceService.reconcileOrphanedEscrows (X3)', () => {
   });
 });
 
-describe('the reconciler reads the freshest orphans first and lets a recovered one leave the pool without resurrecting it', () => {
-  it('orders candidates newest first and skips rows already carrying a settlement hash', async () => {
+describe('the reconciler walks the whole refundable pool a page at a time and lets a recovered one leave it', () => {
+  it('asks only for rows whose refund instant has passed and that carry no settlement, oldest first', async () => {
     const { svc, prisma } = make();
     await svc.reconcileOrphanedEscrows();
     const args = prisma.order.findMany.mock.calls[0][0];
-    expect(args.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }]);
+    expect(args.orderBy).toEqual([{ createdAt: 'asc' }, { id: 'asc' }]);
     expect(args.where.settlementTxHash).toBeNull();
+    expect(args.where.settledAt).toBeNull();
+    expect(args.where.OR).toEqual([
+      { confirmDeadline: { lt: expect.any(BigInt) } },
+      { flow: 'TOP_UP', payDeadline: { lt: expect.any(BigInt) } },
+    ]);
+    expect(args.where.AND).toBeUndefined();
+  });
+
+  it('continues after a full page on the next tick and starts over after a short one, so no row is starved by the ones ahead of it', async () => {
+    const page = Array.from({ length: 20 }, (_, i) => cancelledOrder({ id: `o${i}`, createdAt: new Date(1_700_000_000_000 + i) }));
+    const { svc, prisma } = make({ orders: page });
+    await svc.reconcileOrphanedEscrows();
+    prisma.order.findMany.mockResolvedValueOnce([cancelledOrder({ id: 'o99', createdAt: new Date(1_700_000_001_000) })]);
+    await svc.reconcileOrphanedEscrows();
+    const second = prisma.order.findMany.mock.calls[1][0];
+    expect(second.where.AND[0].OR[0]).toEqual({ createdAt: { gt: new Date(1_700_000_000_019) } });
+    expect(second.where.AND[0].OR[1]).toEqual({ createdAt: new Date(1_700_000_000_019), id: { gt: 'o19' } });
+    prisma.order.findMany.mockResolvedValueOnce([]);
+    await svc.reconcileOrphanedEscrows();
+    expect(prisma.order.findMany.mock.calls[2][0].where.AND).toBeUndefined();
   });
 
   it('records the refund hash on the row after a recovery, leaving the status as it was', async () => {
     const { svc, prisma } = make({ orders: [cancelledOrder()], onChain: { status: 'FUNDED', settledAt: 0 } });
     await svc.reconcileOrphanedEscrows();
     const writes = prisma.order.updateMany.mock.calls.map((c: any[]) => c[0]);
-    expect(writes.some((w: any) => w.data.settlementTxHash === 'h1' && w.data.status === undefined)).toBe(true);
+    expect(writes.some((w: any) => w.data.settlementTxHash === 'h1' && w.data.status === undefined && w.where.settledAt === null)).toBe(true);
   });
 });

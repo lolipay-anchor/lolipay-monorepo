@@ -509,6 +509,14 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
     expect(res.body.message).toMatch(/default_platform_wallet/);
   });
 
+  it('PATCH /admin/config surfaces AdminService ESCROW_CONFIG_UNREADABLE as 502, because an unreachable chain is not bad input', async () => {
+    mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
+      new Error('ESCROW_CONFIG_UNREADABLE: the escrow contract defaults could not be read, so platformFeeBps and platformWallet cannot be checked against them: rpc down'),
+    );
+    const res = await request(app.getHttpServer()).patch('/admin/config').send({ platformFeeBps: 30 }).expect(502);
+    expect(res.body.message).toMatch(/could not be read.*rpc down/);
+  });
+
   it('PATCH /admin/config surfaces AdminService PLATFORM_FEE_DIVERGES_FROM_CHAIN as 400 with the reason', async () => {
     mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
       new Error('PLATFORM_FEE_DIVERGES_FROM_CHAIN: platformFeeBps (40) must equal the escrow contract default_platform_fee_bps (30)'),

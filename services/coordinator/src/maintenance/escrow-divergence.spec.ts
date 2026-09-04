@@ -1,4 +1,7 @@
-import { MaintenanceService } from './maintenance.service';
+import 'reflect-metadata';
+import { CronExpression } from '@nestjs/schedule';
+import { SCHEDULE_CRON_OPTIONS } from '@nestjs/schedule/dist/schedule.constants';
+import { MaintenanceService, RECONCILER_PERIOD_SECS } from './maintenance.service';
 
 function make(opts: {
   orders?: any[];
@@ -103,7 +106,40 @@ describe('an order the chain disagrees about reaches a human', () => {
     const found = (raise.mock.calls[0] as any[])[1];
     expect(found[0].urgency).toBe('urgent');
     expect(found[0].text).toMatch(/reconciler did not act/i);
-    expect(found[0].fingerprint).not.toBe('FUNDED');
+    expect(found[0].fingerprint).toBe('FUNDED:missed');
+  });
+
+  it('gives the reconciler two full periods before calling it missed, because one tick can outlast its period when twenty refunds each poll for thirty seconds', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const refundAt = now - RECONCILER_PERIOD_SECS - 30;
+    const { svc, raise } = make({
+      orders: [order({ status: 'EXPIRED', payDeadline: BigInt(refundAt - 3600), confirmDeadline: BigInt(refundAt) })],
+      onChain: { status: 'FUNDED', settledAt: 0 },
+      autoRefund: true,
+      refundConfigured: true,
+    });
+    await svc.alertOnEscrowDivergence();
+    const found = (raise.mock.calls[0] as any[])[1];
+    expect(found[0].urgency).toBe('routine');
+    expect(found[0].fingerprint).toBe('FUNDED:reconciler');
+  });
+
+  it('the period the alert assumes is the cron the reconciler actually runs on', () => {
+    const meta = Reflect.getMetadata(SCHEDULE_CRON_OPTIONS, MaintenanceService.prototype.reconcileOrphanedEscrows);
+    expect(meta.cronTime).toBe(CronExpression.EVERY_10_MINUTES);
+    expect(RECONCILER_PERIOD_SECS).toBe(600);
+  });
+
+  it('pages when the order query itself fails, because a scan that cannot run is blindness, not agreement', async () => {
+    const { svc, raise, prisma } = make({ orders: [] });
+    prisma.order.findMany.mockRejectedValueOnce(new Error('db down'));
+    await svc.alertOnEscrowDivergence();
+    const found = (raise.mock.calls[0] as any[])[1];
+    const incomplete = (raise.mock.calls[0] as any[])[2] as Set<string>;
+    expect(found.map((a: any) => a.key)).toEqual(['escrow_divergence:unreadable']);
+    expect(found[0].urgency).toBe('urgent');
+    expect(found[0].text).toMatch(/db down/);
+    expect(incomplete.has('escrow_divergence')).toBe(true);
   });
 
   it('names the instant the refund opens and who the USDC returns to, so the operator knows when refund\(\) will be accepted', async () => {
@@ -116,7 +152,19 @@ describe('an order the chain disagrees about reaches a human', () => {
     await svc.alertOnEscrowDivergence();
     const found = (raise.mock.calls[0] as any[])[1];
     expect(found[0].text).toMatch(/opens at \d{4}-\d{2}-\d{2}T/);
-    expect(found[0].text).toMatch(/usdc_provider/);
+    expect(found[0].text).toMatch(/usdc_provider, the user$/);
+  });
+
+  it('on a deposit the USDC returns to the provider, and the alert says so', async () => {
+    const { svc, raise } = make({
+      orders: [order({ status: 'EXPIRED', flow: 'TOP_UP' })],
+      onChain: { status: 'FUNDED', settledAt: 0 },
+      autoRefund: false,
+      refundConfigured: false,
+    });
+    await svc.alertOnEscrowDivergence();
+    const found = (raise.mock.calls[0] as any[])[1];
+    expect(found[0].text).toMatch(/usdc_provider, the provider$/);
   });
 
   it('names an order the escrow holds as funded when no reconciler will act, as urgent, with the permissionless refund and the switch that is off', async () => {
@@ -246,12 +294,6 @@ describe('an order the chain disagrees about reaches a human', () => {
     expect(args.take).toBe(500);
   });
 
-  it('abandons the tick when the orders cannot be read', async () => {
-    const { svc, raise, prisma } = make({ orders: [] });
-    prisma.order.findMany = jest.fn().mockRejectedValue(new Error('db down'));
-    await svc.alertOnEscrowDivergence();
-    expect(raise).not.toHaveBeenCalled();
-  });
 });
 
 describe('the reconciler own success is not a divergence', () => {
