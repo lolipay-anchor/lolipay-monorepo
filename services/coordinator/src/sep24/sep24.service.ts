@@ -173,7 +173,7 @@ export class Sep24Service {
     body: Record<string, unknown>,
     flow: 'TOP_UP' | 'WITHDRAW' = 'TOP_UP',
   ) {
-    const assetCode = body.asset_code;
+    const assetCode = body?.asset_code;
     if (typeof assetCode !== 'string' || assetCode.length === 0) {
       throw new BadRequestException('asset_code is required');
     }
@@ -464,10 +464,10 @@ export class Sep24Service {
 
     let userPaymentMethod: string | undefined;
     if (row.flow === 'WITHDRAW') {
-      if (rawPaymentMethod !== undefined && typeof rawPaymentMethod !== 'string') {
+      if (typeof rawPaymentMethod !== 'string') {
         throw new BadRequestException('name the bank account this anchor should pay the rupiah into');
       }
-      userPaymentMethod = String(rawPaymentMethod ?? '').trim();
+      userPaymentMethod = rawPaymentMethod.trim();
       if (userPaymentMethod.length === 0) {
         throw new BadRequestException('name the bank account this anchor should pay the rupiah into');
       }

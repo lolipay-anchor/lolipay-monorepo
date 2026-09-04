@@ -93,3 +93,10 @@ describe('the amount step reads rupiah the way an Indonesian types it', () => {
     expect(rate.createQuote).not.toHaveBeenCalled();
   });
 });
+
+describe('opening an interactive transaction without a body', () => {
+  it('is refused as a bad request, not a crash, when no parser produced a body', async () => {
+    const { svc } = harness();
+    await expect(svc.openInteractive('GABC', 'person-1', undefined as any)).rejects.toThrow(/asset_code is required/);
+  });
+});

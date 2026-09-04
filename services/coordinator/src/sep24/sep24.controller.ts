@@ -197,7 +197,7 @@ export class Sep24Controller {
   ) {
     this.refuseForeignOrigin(req);
     const token = this.usableSession(req, id);
-    await this.sep24.submitAmount(id, token, body.fiat_amount, body.user_payment_method);
+    await this.sep24.submitAmount(id, token, body?.fiat_amount, body?.user_payment_method);
     res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
   }
 

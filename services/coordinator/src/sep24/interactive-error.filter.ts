@@ -1,13 +1,19 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { escapeHtml, page } from './interactive-page';
 
 @Catch()
 export class InteractiveErrorFilter implements ExceptionFilter {
+  private readonly log = new Logger('Interactive');
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const http = host.switchToHttp();
     const res = http.getResponse<Response>();
     const req = http.getRequest<Request>();
+    if (!(exception instanceof HttpException)) {
+      const what = exception instanceof Error ? `${exception.name}: ${exception.message}` : String(exception);
+      this.log.error(`${req.method ?? '?'} ${req.path ?? '?'} could not continue: ${what}`);
+    }
 
     const status =
       exception instanceof HttpException

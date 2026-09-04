@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus } from '@nestjs/common';
+import { HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { InteractiveErrorFilter } from './interactive-error.filter';
 
 function hostWith(params: Record<string, string> = {}) {
@@ -47,5 +47,30 @@ describe('the interactive error page keeps the popup in its opener group', () =>
     new InteractiveErrorFilter().catch(new HttpException('nope', HttpStatus.CONFLICT), host);
     expect(res.send).toHaveBeenCalledTimes(1);
     expect(String(res.send.mock.calls[0][0])).toContain('could not continue');
+  });
+});
+
+describe('the interactive error page tells the operator about the failures it hides from the user', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('logs a non-HTTP error with the route and the error, never the body, and still answers 500', () => {
+    const told = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const res: any = { status: jest.fn(() => res), type: jest.fn(() => res), setHeader: jest.fn(() => res), send: jest.fn(() => res) };
+    const req = { params: { id: 'abc' }, method: 'POST', path: '/sep24/interactive/abc/amount', body: 'S_SHOULD_NEVER_BE_LOGGED' };
+    const host: any = { switchToHttp: () => ({ getResponse: () => res, getRequest: () => req }) };
+    new InteractiveErrorFilter().catch(new TypeError("Cannot read properties of undefined (reading 'fiat_amount')"), host);
+    expect(res.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
+    expect(told).toHaveBeenCalledTimes(1);
+    const line = String(told.mock.calls[0][0]);
+    expect(line).toContain('POST /sep24/interactive/abc/amount');
+    expect(line).toContain("TypeError: Cannot read properties of undefined (reading 'fiat_amount')");
+    expect(line).not.toContain('S_SHOULD_NEVER_BE_LOGGED');
+  });
+
+  it('stays quiet for an HTTP refusal, which is the user being told no, not a failure', () => {
+    const told = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { host } = hostWith({ id: 'abc' });
+    new InteractiveErrorFilter().catch(new HttpException('nope', HttpStatus.BAD_REQUEST), host);
+    expect(told).not.toHaveBeenCalled();
   });
 });
