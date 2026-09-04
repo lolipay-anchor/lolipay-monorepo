@@ -45,10 +45,13 @@ describe('what the anchor concludes from a delivery', () => {
     expect(res.screened).toBe(false);
   });
 
-  it('does not call a customer screened when the screening carried hits, however the vendor weighed them', () => {
-    const res = readDiditDecision(payload({ decision: { aml_screenings: [belowThreshold] } }));
-    expect(res.status).toBe('ACCEPTED');
-    expect(res.screened).toBe(false);
+  it('refuses a customer whose screening carried hits however the vendor weighed them, under either flag, because an approval the anchor cannot call clean must never become a delivered acceptance that AML-optional would let move funds', () => {
+    for (const requireAml of [true, false]) {
+      const res = readDiditDecision(payload({ decision: { aml_screenings: [belowThreshold] } }), requireAml);
+      expect(res.status).toBe('REJECTED');
+      expect(res.rejectionReason).toBe('sanctions or watchlist match');
+      expect(res.screened).toBe(false);
+    }
   });
 
   it.each([

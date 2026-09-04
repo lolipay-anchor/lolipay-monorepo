@@ -19,6 +19,7 @@ const DIVERGENCE_SCAN_LIMIT = 500;
 
 const ORPHAN_LOOKBACK_MS = 45 * 24 * 60 * 60 * 1000;
 export const RECONCILER_PERIOD_SECS = 600;
+export const MAX_WALK_PERIODS = 12;
 
 function refundablePoolWhere(nowSecs: bigint) {
   return {
@@ -92,7 +93,7 @@ export class MaintenanceService {
       candidates = await this.prisma.order.findMany({
         where: { status: { in: ['CANCELLED', 'EXPIRED'] } },
         select: { id: true, tradeId: true, contractId: true, status: true, createdAt: true, flow: true, payDeadline: true, confirmDeadline: true },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: DIVERGENCE_SCAN_LIMIT,
       });
     } catch (err) {
@@ -116,14 +117,22 @@ export class MaintenanceService {
         text: `at least ${DIVERGENCE_SCAN_LIMIT} cancelled or expired orders are within the divergence window — the scan is truncated and nothing in this family will be reported as cleared until it is not`,
       });
     }
-    let poolSize: number;
-    try {
-      poolSize = await this.prisma.order.count({ where: refundablePoolWhere(BigInt(nowSecs)) });
-    } catch (err) {
-      this.log.warn(`alertOnEscrowDivergence: could not size the reconciler pool, assuming the scan's width: ${errMsg(err)}`);
-      poolSize = candidates.length;
+    let poolSize = candidates.length;
+    if (configReadable && autoRefund && this.refundSigner.isConfigured) {
+      try {
+        poolSize = await this.prisma.order.count({ where: refundablePoolWhere(BigInt(nowSecs)) });
+      } catch (err) {
+        this.log.warn(`alertOnEscrowDivergence: could not size the reconciler pool, assuming the scan's width: ${errMsg(err)}`);
+        incomplete.add('escrow_divergence');
+        found.push({
+          key: 'escrow_divergence:pool-unsized',
+          fingerprint: 'pool-unsized',
+          urgency: 'urgent',
+          text: `the reconciler pool could not be counted, so the allowance before a funded orphan is called missed is a guess from the scan width: ${errMsg(err)}`,
+        });
+      }
     }
-    const walkPeriods = Math.ceil(poolSize / AUTO_REFUND_BATCH_SIZE) + 1;
+    const walkPeriods = Math.min(Math.ceil(poolSize / AUTO_REFUND_BATCH_SIZE) + 1, MAX_WALK_PERIODS);
     for (const o of candidates) {
       const contractId = contractIdFor(o, this.cfg);
       let onChain;

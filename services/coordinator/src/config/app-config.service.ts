@@ -101,7 +101,7 @@ export class AppConfigService {
   get minioUseSSL(): boolean { return (this.c.get<string>('MINIO_USE_SSL') ?? 'false').toLowerCase() === 'true'; }
 
   get kycRequireAml(): boolean { return (this.c.get<string>('KYC_REQUIRE_AML') ?? 'true').trim().toLowerCase() !== 'false'; }
-  get sep24WithdrawEnabled(): boolean { return (this.c.get<string>('SEP24_WITHDRAW_ENABLED') ?? 'false').toLowerCase() === 'true'; }
+  get sep24WithdrawEnabled(): boolean { return (this.c.get<string>('SEP24_WITHDRAW_ENABLED') ?? 'false').trim().toLowerCase() === 'true'; }
   get minioAccessKey(): string { return this.req('MINIO_ACCESS_KEY'); }
   get minioSecretKey(): string { return this.req('MINIO_SECRET_KEY'); }
   get minioBucket(): string { return this.c.get<string>('MINIO_BUCKET') ?? 'lolipay-uploads'; }

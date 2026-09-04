@@ -19,6 +19,7 @@ function matches(row: Row, where: any): boolean {
   if (where.status !== undefined && row.status !== where.status) return false;
   if (where.screenedAt?.not === null && row.screenedAt == null) return false;
   if (where.deliveredAt?.not === null && row.deliveredAt == null) return false;
+  if (where.OR && !where.OR.some((alt: any) => matches(row, alt))) return false;
   if (where.customerRef !== undefined && row.customerRef !== where.customerRef) return false;
   return true;
 }
@@ -42,6 +43,11 @@ describe('the predicate that governs both the deposit gate and the reveal gate',
     const db = dbOf(verifiedRow({ screenedAt: null, deliveredAt: null }));
     expect(await check(db, 'person-1', false)).toBe(false);
     expect(await check(db, 'person-1', true)).toBe(false);
+  });
+
+  it('a person screened before the delivery stamp existed still moves funds with AML optional, because a screening is itself proof of a delivery', async () => {
+    const db = dbOf(verifiedRow({ deliveredAt: null }));
+    expect(await check(db, 'person-1', false)).toBe(true);
   });
 
   it('a refusal still blocks the person even when AML is not required', async () => {

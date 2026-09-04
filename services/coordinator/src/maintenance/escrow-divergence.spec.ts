@@ -338,11 +338,11 @@ describe('an order the chain disagrees about reaches a human', () => {
     expect(alerts.map((a: any) => a.key)).toContain('escrow_divergence:overflow');
   });
 
-  it('asks the database for a deterministically ordered scan', async () => {
+  it('asks the database for a deterministically ordered scan, newest first, so a recent orphan is seen before the cap fills with history', async () => {
     const { svc, prisma } = make({ orders: [] });
     await svc.alertOnEscrowDivergence();
     const args = prisma.order.findMany.mock.calls[0][0];
-    expect(args.orderBy).toEqual([{ createdAt: 'asc' }, { id: 'asc' }]);
+    expect(args.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }]);
     expect(args.take).toBe(500);
   });
 

@@ -81,6 +81,9 @@ export function readDiditDecision(payload: any, requireAml = true): DiditConclus
   const status: unknown = payload?.status;
 
   if (status === 'Approved') {
+    if (foundSomething(payload)) {
+      return { ...base, status: 'REJECTED', rejectionReason: 'sanctions or watchlist match' };
+    }
     return { ...base, status: 'ACCEPTED', screened: ranAndFoundNothing(payload) };
   }
 

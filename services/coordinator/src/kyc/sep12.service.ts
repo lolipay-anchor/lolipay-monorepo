@@ -154,6 +154,10 @@ export class Sep12Service {
         message: row.rejectionReason ?? 'this identity was refused',
       };
     }
+    const refusedElsewhere = await this.standingRefusal(customerRef);
+    if (refusedElsewhere) {
+      return { id: row.customerRef, status: 'REJECTED', message: refusedElsewhere.rejectionReason ?? 'this identity was refused' };
+    }
     if (awaitingProvider(row, this.cfg.kycRequireAml)) {
       return {
         id: row.customerRef,

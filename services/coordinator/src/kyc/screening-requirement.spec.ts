@@ -6,23 +6,25 @@ function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const p = join(dir, name);
     if (statSync(p).isDirectory()) return name === 'generated' ? [] : sourceFiles(p);
-    return /\.ts$/.test(name) && !/\.(spec|e2e-spec)\.ts$/.test(name) && !/test-helpers\.ts$/.test(name) ? [p] : [];
+    return /\.ts$/.test(name) && !/\.(spec|e2e-spec)\.ts$/.test(name) && !p.endsWith('/order/test-helpers.ts') ? [p] : [];
   });
 }
 
 describe('whether a customer may move funds depends on one predicate that reads KYC_REQUIRE_AML', () => {
-  it('demands a completed screening when AML is required, and a signature-verified delivery from the provider when it is not, so a stub or a self-asserted acceptance never opens the gate', () => {
+  it('demands a completed screening when AML is required, and a provider delivery when it is not, counting a screening as proof of delivery so a row stamped before the delivery column existed is not revoked', () => {
     expect(acceptedForFunds(true)).toEqual({ status: 'ACCEPTED', screenedAt: { not: null } });
-    expect(acceptedForFunds(false)).toEqual({ status: 'ACCEPTED', deliveredAt: { not: null } });
+    expect(acceptedForFunds(false)).toEqual({ status: 'ACCEPTED', OR: [{ deliveredAt: { not: null } }, { screenedAt: { not: null } }] });
   });
 
-  it('answers PROCESSING for exactly the accepted rows the gate would refuse', () => {
+  it('answers PROCESSING for exactly the accepted rows the gate would refuse on the row alone', () => {
     const delivered = { status: 'ACCEPTED', screenedAt: null, deliveredAt: new Date() };
     const screened = { status: 'ACCEPTED', screenedAt: new Date(), deliveredAt: new Date() };
+    const screenedBeforeTheStamp = { status: 'ACCEPTED', screenedAt: new Date(), deliveredAt: null };
     const stub = { status: 'ACCEPTED', screenedAt: null, deliveredAt: null };
     expect(awaitingProvider(delivered, true)).toBe(true);
     expect(awaitingProvider(delivered, false)).toBe(false);
     expect(awaitingProvider(screened, true)).toBe(false);
+    expect(awaitingProvider(screenedBeforeTheStamp, false)).toBe(false);
     expect(awaitingProvider(stub, false)).toBe(true);
     expect(awaitingProvider({ ...stub, status: 'REJECTED' }, false)).toBe(false);
   });
@@ -35,9 +37,22 @@ describe('whether a customer may move funds depends on one predicate that reads 
     expect(offenders).toEqual([]);
   });
 
-  it('sep12.service reads screenedAt and deliveredAt only where it writes them, never as a gate of its own', () => {
-    const text = readFileSync(join(__dirname, 'sep12.service.ts'), 'utf8');
-    const reads = text.split('\n').filter((l) => /\b(screenedAt|deliveredAt)\b\s*(===|!==|==|!=)/.test(l) || /\b(screenedAt|deliveredAt):\s*\{/.test(l));
-    expect(reads).toEqual([]);
+  it('sep12.service touches screenedAt and deliveredAt only on the lines that write them and the one delivery-order guard, so any new read there fails until it is consciously listed', () => {
+    const lines = readFileSync(join(__dirname, 'sep12.service.ts'), 'utf8')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => /\b(screenedAt|deliveredAt)\b/.test(l));
+    expect(lines).toEqual([
+      'async applyDelivery(conclusion: DiditConclusion, deliveredAt: Date): Promise<void> {',
+      'if (!refusing && standing.deliveredAt && standing.deliveredAt > deliveredAt) return;',
+      'await this.writeDelivery(tx, customerRef, person.id, conclusion, deliveredAt, standing);',
+      'deliveredAt: Date,',
+      'deliveredAt,',
+      'screenedAt: screened ? deliveredAt : null,',
+      "verifiedAt: conclusion.status === 'ACCEPTED' ? deliveredAt : null,",
+      'data: { rejectionReason: null, screenedAt: null, verifiedAt: null },',
+      'screenedAt: null,',
+      'deliveredAt: null,',
+    ]);
   });
 });
