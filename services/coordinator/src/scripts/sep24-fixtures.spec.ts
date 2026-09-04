@@ -7,6 +7,7 @@ import {
   TESTNET_PASSPHRASE,
   assembleSepConfig,
   createTradeExpectation,
+  demoIdrDigits,
   assertEscrowCall,
   assertTestnet,
   pickFreshOrder,
@@ -256,6 +257,13 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(createTradeExpectation({ ...order, fiat_amount: '250000' }, lp, demo, '250,000').fiatAmount).toBe(250_000n);
     expect(() => createTradeExpectation({ ...order, fiat_amount: '0' }, lp, demo, 'abc')).toThrow(/carries no rupiah digits/);
     expect(() => createTradeExpectation({ ...order, fiat_currency: 'USD' }, lp, demo, '200000')).toThrow(/quotes fiat_currency USD, not the IDR/);
+  });
+
+  it('canonicalises the demo amount the way the record will echo it, so a leading zero cannot refuse an honest run', () => {
+    expect(demoIdrDigits('0200000')).toBe('200000');
+    expect(demoIdrDigits('Rp 200.000')).toBe('200000');
+    expect(demoIdrDigits('abc')).toBe('0');
+    expect(demoIdrDigits('')).toBe('0');
   });
 
   it('holds the ceilings that bound a compromised coordinator, 100 USDC, 1 XLM and 10,000 IDR per USDC, so changing any is a decision with a test to edit', () => {

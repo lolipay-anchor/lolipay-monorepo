@@ -4,6 +4,7 @@ import { chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } from 'fs
 import { resolve } from 'path';
 import { Address, Keypair, StellarToml, Transaction, WebAuth, scValToNative } from '@stellar/stellar-sdk';
 import { refundOpensAt } from '../order/dispute.util';
+import { fiatDigits } from '../money/money';
 import { Server } from '@stellar/stellar-sdk/rpc';
 
 export const MAX_DEMO_FEE_STROOPS = 10_000_000n;
@@ -84,7 +85,7 @@ const CREATE_TRADE_PINS = Object.keys({
 } satisfies Record<keyof EscrowCallExpectation, 1>) as (keyof EscrowCallExpectation)[];
 
 export function createTradeExpectation(order: FundableOrder, lp: string, demo: string, demoIdr: string): Required<EscrowCallExpectation> {
-  const fiatAmount = BigInt(demoIdr.replace(/[^0-9]/g, ''));
+  const fiatAmount = BigInt(fiatDigits(demoIdr));
   if (fiatAmount <= 0n) throw new Error(`demo amount "${demoIdr}" carries no rupiah digits; refusing to pin a zero fiat amount`);
   if (BigInt(order.fiat_amount) !== fiatAmount) {
     throw new Error(`assignment ${order.id} quotes fiat_amount ${order.fiat_amount}, not the ${demoIdr} the driver asked for`);
@@ -270,7 +271,8 @@ export function assembleSepConfig(input: {
 const API = process.env.SEP24_API ?? 'https://api.lolipay.app';
 const HOME_DOMAIN = process.env.SEP24_HOME_DOMAIN ?? 'lolipay.app';
 const DEMO_IDR = process.env.SEP24_DEMO_IDR ?? '200000';
-const DEMO_IDR_DIGITS = String(BigInt(DEMO_IDR.replace(/[^0-9]/g, '')));
+export const demoIdrDigits = (raw: string) => String(BigInt(fiatDigits(raw)));
+const DEMO_IDR_DIGITS = demoIdrDigits(DEMO_IDR);
 const RPC_URL = process.env.STELLAR_RPC_URL ?? 'https://soroban-testnet.stellar.org';
 const HEARTBEAT_MS = 30_000;
 const POLL_MS = 5_000;

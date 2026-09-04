@@ -1,4 +1,4 @@
-import { applyBps, splitFees, quoteFiat, quoteUsdcForFiat, baseUnitsToUsdc } from './money';
+import { applyBps, splitFees, quoteFiat, quoteUsdcForFiat, baseUnitsToUsdc , fiatDigits } from './money';
 describe('money', () => {
   it('applyBps: 0.30% of 100 USDC', () => {
     expect(applyBps(1_000_000_000n, 30)).toBe(3_000_000n);
@@ -46,5 +46,17 @@ describe('money', () => {
     it('converts zero', () => {
       expect(baseUnitsToUsdc(0n)).toBe(0);
     });
+  });
+});
+
+describe('fiatDigits', () => {
+  it('keeps only the digits of whatever the operator typed, for the anchor, the page and the driver alike', () => {
+    expect(fiatDigits('Rp 200.000')).toBe('200000');
+    expect(fiatDigits('200,000')).toBe('200000');
+    expect(fiatDigits('0200000')).toBe('0200000');
+    expect(fiatDigits('')).toBe('');
+    expect(fiatDigits(undefined)).toBe('');
+    expect(fiatDigits(null)).toBe('');
+    expect(fiatDigits(200000)).toBe('200000');
   });
 });

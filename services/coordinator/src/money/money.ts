@@ -78,3 +78,7 @@ export function quoteUsdcForFiat(
   const numerator = fiatAmount * 10_000_000n * 1_000_000n;
   return (numerator + withSpread - 1n) / withSpread;
 }
+
+export function fiatDigits(raw: unknown): string {
+  return String(raw ?? '').replace(/[^0-9]/g, '');
+}
