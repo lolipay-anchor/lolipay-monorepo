@@ -32,7 +32,7 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@lolipay/api-client')>()
   return {
     ...actual,
-    authenticate: vi.fn(async (_client: unknown, _addr: string) => {
+    authenticate: vi.fn(async () => {
       sessionStorage.setItem('lp_jwt', 'fake-jwt')
     }),
 

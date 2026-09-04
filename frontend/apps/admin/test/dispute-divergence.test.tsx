@@ -1,5 +1,3 @@
-import * as React from 'react'
-import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { disputeFilerDiverges } from '@/app/orders/page'
 import type { Order } from '@lolipay/api-client'
