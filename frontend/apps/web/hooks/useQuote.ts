@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { usdcBaseUnitsFor } from '@/lib/money'
 import { useQuery } from '@tanstack/react-query'
 import { getRate, createQuote } from '@lolipay/api-client'
 import { client } from '@/lib/client'
@@ -26,14 +27,7 @@ export function useQuote(idrAmount: number): UseQuoteResult {
     staleTime: 30_000,
   })
 
-  const usdcAmount = rateData
-    ? String(
-        Math.max(
-          0,
-          Math.round((debouncedIDR / parseFloat(rateData.rate)) * 1e7),
-        ),
-      )
-    : '0'
+  const usdcAmount = rateData ? usdcBaseUnitsFor(debouncedIDR, parseFloat(rateData.rate)) : '0'
 
   const enabled = rateData != null && BigInt(usdcAmount) >= 1n
 

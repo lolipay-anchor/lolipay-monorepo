@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { activeCountdown } from '@/lib/steps'
 
 const base = {
-  flow: 'WITHDRAW',
+  flow: 'WITHDRAW' as const,
   pay_deadline: 1_800,
   confirm_deadline: 3_600,
   expires_at: '2096-10-02T06:56:40.000Z',

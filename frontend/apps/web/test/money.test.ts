@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatIDR, formatUSDC, parseIDRInput, idrInputAccepted } from '../lib/money'
+import { formatIDR, formatUSDC, parseIDRInput, idrInputAccepted, usdcBaseUnitsFor } from '../lib/money'
 describe('money', () => {
   it('formats IDR with thousands separators', () => {
     expect(formatIDR(1624000)).toBe('Rp 1.624.000')
@@ -30,5 +30,21 @@ describe('money', () => {
     expect(idrInputAccepted('9'.repeat(19))).toBe(false)
     expect(parseIDRInput('9'.repeat(19))).toBe(0)
     expect(idrInputAccepted('9'.repeat(18))).toBe(true)
+  })
+})
+
+describe('usdcBaseUnitsFor turns a rupiah amount into USDC base units without ever handing BigInt a number it cannot read', () => {
+  it('rounds to the nearest base unit at the live shape of rate', () => {
+    expect(usdcBaseUnitsFor(1624000, 16000)).toBe('1015000000')
+  })
+
+  it('answers 0 when the product would leave the safe-integer range, where String() turns exponential and BigInt() throws', () => {
+    expect(usdcBaseUnitsFor(1e20, 16000)).toBe('0')
+    expect(usdcBaseUnitsFor(1e18, 1)).toBe('0')
+  })
+
+  it('answers 0 for a zero, negative or unreadable rate rather than dividing by it', () => {
+    expect(usdcBaseUnitsFor(1624000, 0)).toBe('0')
+    expect(usdcBaseUnitsFor(1624000, Number.NaN)).toBe('0')
   })
 })

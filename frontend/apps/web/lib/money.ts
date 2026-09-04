@@ -22,4 +22,11 @@ export function parseIDRInput(s: string): number {
   return parseInt(s.replace(/[^0-9]/g, ''), 10)
 }
 
+export function usdcBaseUnitsFor(idr: number, ratePerUsdc: number): string {
+  if (!(ratePerUsdc > 0) || !Number.isFinite(idr)) return '0'
+  const units = Math.round((idr / ratePerUsdc) * 1e7)
+  if (!Number.isSafeInteger(units) || units < 0) return '0'
+  return String(units)
+}
+
 export { usdcToBaseUnits } from '@lolipay/api-client'
