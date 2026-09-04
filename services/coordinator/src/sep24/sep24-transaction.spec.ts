@@ -131,6 +131,41 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
     expect(asUnits(out.amount_out!) + asUnits(out.fee_details!.total)).toBe(250000000n);
   });
 
+  describe('a withdrawal record states the money that actually moves, ADR 0037', () => {
+    const withdrawal = (over: Record<string, unknown> = {}) =>
+      order({ usdcAmount: 10_0000000n, fiatAmount: 176_315n, platformFeeBps: 30, lpFeeBps: 120, ...over });
+
+    it('amount_in is the gross USDC the escrow locks, never the net the LP receives', () => {
+      const out = serializeSep24(tx({ flow: 'WITHDRAW', order: withdrawal() }), BASE);
+      expect(out.amount_in).toBe('10.0000000');
+      expect(out.amount_in_asset).toBe(`stellar:USDC:${BASE.usdcIssuer}`);
+    });
+
+    it('amount_out is the rupiah the LP actually pays, priced on the gross', () => {
+      const out = serializeSep24(tx({ flow: 'WITHDRAW', order: withdrawal() }), BASE);
+      expect(out.amount_out).toBe('176315');
+      expect(out.amount_out_asset).toBe('iso4217:IDR');
+    });
+
+    it.each([
+      [30, 120],
+      [60, 90],
+      [0, 0],
+      [500, 500],
+    ])('declares a zero fee whatever the split (%i/%i bps), because nothing is deducted from what the user sends', (platformFeeBps, lpFeeBps) => {
+      const out = serializeSep24(tx({ flow: 'WITHDRAW', order: withdrawal({ platformFeeBps, lpFeeBps }) }), BASE);
+      expect(out.fee_details).toEqual({ total: '0.0000000', asset: `stellar:USDC:${BASE.usdcIssuer}` });
+      expect(out.amount_in).toBe('10.0000000');
+    });
+
+    it('leaves the deposit record exactly as it was: net out, fee from the bps', () => {
+      const out = serializeSep24(tx({ flow: 'TOP_UP', order: withdrawal() }), BASE);
+      expect(out.amount_in).toBe('176315');
+      expect(out.amount_out).toBe('9.8500000');
+      expect(out.fee_details!.total).toBe('0.1500000');
+    });
+  });
+
   it('adds the settlement hash and completion time only once released', () => {
     const done = serializeSep24(
       tx({ order: order({ status: 'RELEASED', settlementTxHash: 'abc123', settledAt: new Date('2026-08-28T11:00:00.000Z') }) }),

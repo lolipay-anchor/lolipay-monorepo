@@ -82,11 +82,12 @@ export function serializeSep24(record: Sep24Record, assets: Sep24Assets): Sep24T
   const fiat = order.fiatAmount.toString();
   const fiatAsset = `iso4217:${order.fiatCurrency}`;
   const netUsdc = baseUnitsToUsdcString(net);
-  json.amount_in = withdrawing ? netUsdc : fiat;
+  const grossUsdc = baseUnitsToUsdcString(order.usdcAmount);
+  json.amount_in = withdrawing ? grossUsdc : fiat;
   json.amount_in_asset = withdrawing ? usdc : fiatAsset;
   json.amount_out = withdrawing ? fiat : netUsdc;
   json.amount_out_asset = withdrawing ? fiatAsset : usdc;
-  json.fee_details = { total: baseUnitsToUsdcString(platformFee + lpFee), asset: usdc };
+  json.fee_details = { total: baseUnitsToUsdcString(withdrawing ? 0n : platformFee + lpFee), asset: usdc };
 
   if (order.ref) json.external_transaction_id = order.ref;
   if (status === 'completed' || status === 'refunded') {

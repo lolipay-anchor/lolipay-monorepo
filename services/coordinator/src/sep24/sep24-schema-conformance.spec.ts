@@ -88,7 +88,8 @@ describe('what we serialise satisfies the acceptance suite own schemas, not our 
     const wd = serializeSep24(record({ flow: 'WITHDRAW', order }), ASSETS);
     expect(wd.amount_in_asset).toBe(`stellar:USDC:${ASSETS.usdcIssuer}`);
     expect(wd.amount_out_asset).toBe('iso4217:IDR');
-    expect(wd.amount_in).toBe(dep.amount_out);
+    expect(wd.amount_in).toBe('1000.0000000');
+    expect(wd.amount_in).not.toBe(dep.amount_out);
     expect(wd.amount_out).toBe(dep.amount_in);
   });
 
