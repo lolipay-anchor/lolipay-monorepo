@@ -80,16 +80,19 @@ export class Sep24Service {
   async info() {
     const config = await this.prisma.config.findFirst();
     const code = this.cfg.usdcAssetCode;
+    const bounds = {
+      min_amount: baseUnitsToUsdc(config?.minOrder ?? 0n),
+      max_amount: baseUnitsToUsdc(config?.maxOrder ?? 0n),
+    };
     return {
       deposit: {
         [code]: {
           enabled: true,
-          min_amount: baseUnitsToUsdc(config?.minOrder ?? 0n),
-          max_amount: baseUnitsToUsdc(config?.maxOrder ?? 0n),
+          ...bounds,
           fee_percent: ((config?.platformFeeBps ?? 0) + (config?.lpFeeBps ?? 0)) / 100,
         },
       },
-      withdraw: { [code]: { enabled: this.cfg.sep24WithdrawEnabled } },
+      withdraw: { [code]: { enabled: this.cfg.sep24WithdrawEnabled, ...bounds } },
       fee: { enabled: false },
       features: { account_creation: false, claimable_balances: false },
     };

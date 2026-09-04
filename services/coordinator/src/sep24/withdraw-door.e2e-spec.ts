@@ -100,6 +100,19 @@ describe('the withdrawal door, with the switch on', () => {
     expect(body.withdraw.USDC.enabled).toBe(true);
   });
 
+  it('publishes the same USDC bounds on withdraw as on deposit, because one Config bounds both legs', async () => {
+    const { body } = await http().get('/sep24/info');
+    expect(body.withdraw.USDC.min_amount).toBe(body.deposit.USDC.min_amount);
+    expect(body.withdraw.USDC.max_amount).toBe(body.deposit.USDC.max_amount);
+    expect(typeof body.withdraw.USDC.min_amount).toBe('number');
+    expect(body.withdraw.USDC.max_amount).toBeGreaterThan(body.withdraw.USDC.min_amount);
+  });
+
+  it('publishes no fee fields on withdraw, because the record declares a zero fee and the spec says omit when there is none', async () => {
+    const { body } = await http().get('/sep24/info');
+    expect(Object.keys(body.withdraw.USDC).sort()).toEqual(['enabled', 'max_amount', 'min_amount']);
+  });
+
   it('records the row as a withdrawal, which is the whole point of the separate door', async () => {
     const { res, address } = await open({ asset_code: 'USDC' });
     expect(res.status).toBe(200);
