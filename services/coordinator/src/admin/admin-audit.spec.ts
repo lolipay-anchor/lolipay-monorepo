@@ -103,7 +103,7 @@ describe('auditPayload', () => {
 describe('AdminService — every mutation leaves a trail naming the actor', () => {
   function svc(lpRow: any) {
     const { prisma, tx, audits } = makePrisma(lpRow);
-    const stellar = { stakingCooldownSecs: jest.fn().mockResolvedValue(349_201), hasUsdcTrustline: jest.fn().mockResolvedValue(true), readEscrowPlatformFeeBps: jest.fn(async () => 40) } as any;
+    const stellar = { stakingCooldownSecs: jest.fn().mockResolvedValue(349_201), hasUsdcTrustline: jest.fn().mockResolvedValue(true), readEscrowPlatformDefaults: jest.fn(async () => ({ platformFeeBps: 40, platformWallet: 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT' })) } as any;
     const cfg = { usdcAssetCode: 'USDC', usdcAssetIssuer: 'GISSUER' } as any;
     const markets = { get: jest.fn(), update: jest.fn(), list: jest.fn() } as any;
     const userReputation = { getReputation: jest.fn() } as any;

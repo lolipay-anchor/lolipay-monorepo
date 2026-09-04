@@ -39,23 +39,28 @@ describe('reading a role out of the escrow reads THAT role, not the one beside i
   });
 });
 
-describe('reading the fee defaults out of the escrow reads exactly what create_trade will require', () => {
-  it('takes default_platform_fee_bps as a number and nothing else', async () => {
-    expect(await svc({ default_platform_fee_bps: 30, resolver: 'GRES' }).readEscrowPlatformFeeBps('C')).toBe(30);
-    expect(await svc({ default_platform_fee_bps: 0n }).readEscrowPlatformFeeBps('C')).toBe(0);
+describe('reading the fee defaults out of the escrow reads exactly what create_trade will require, in one call', () => {
+  const WALLET = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
+
+  it('returns both defaults from a single get_config, so the fee and the wallet come from the same ledger', async () => {
+    const s = svc({ default_platform_fee_bps: 30, default_platform_wallet: WALLET, resolver: 'GRES' });
+    expect(await s.readEscrowPlatformDefaults('C')).toEqual({ platformFeeBps: 30, platformWallet: WALLET });
+    expect((s as any).simulateCall).toHaveBeenCalledTimes(1);
+    expect((await svc({ default_platform_fee_bps: 0n, default_platform_wallet: WALLET }).readEscrowPlatformDefaults('C')).platformFeeBps).toBe(0);
   });
 
   it('refuses a config whose default_platform_fee_bps is missing, null, empty, boolean, an array or negative, none of which is a fee of zero', async () => {
-    for (const bad of [{}, { default_platform_fee_bps: null }, { default_platform_fee_bps: '' }, { default_platform_fee_bps: false }, { default_platform_fee_bps: [] }, { default_platform_fee_bps: -1 }, { default_platform_fee_bps: 1.5 }, null]) {
-      await expect(svc(bad).readEscrowPlatformFeeBps('C')).rejects.toThrow(/default_platform_fee_bps/);
+    for (const bad of [{}, { default_platform_fee_bps: null }, { default_platform_fee_bps: '' }, { default_platform_fee_bps: false }, { default_platform_fee_bps: [] }, { default_platform_fee_bps: -1 }, { default_platform_fee_bps: 1.5 }]) {
+      await expect(svc({ default_platform_wallet: WALLET, ...bad }).readEscrowPlatformDefaults('C')).rejects.toThrow(/default_platform_fee_bps/);
     }
+    await expect(svc(null).readEscrowPlatformDefaults('C')).rejects.toThrow(/default_platform_fee_bps/);
   });
 
-  it('takes default_platform_wallet as a Stellar address and nothing else', async () => {
-    const wallet = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
-    expect(await svc({ default_platform_wallet: wallet }).readEscrowPlatformWallet('C')).toBe(wallet);
-    for (const bad of [{}, { default_platform_wallet: '' }, { default_platform_wallet: 'not-an-address' }, { default_platform_wallet: null }, null]) {
-      await expect(svc(bad).readEscrowPlatformWallet('C')).rejects.toThrow(/default_platform_wallet/);
+  it('takes default_platform_wallet as any Stellar address, so a contract wallet on chain is reported as a divergence rather than as an unreadable config', async () => {
+    const contractWallet = 'CDKJ5OX2WY424DXPMYRGI2TCMTI5LFGLSLHSBKA5AODIGTS4R2TIDK3Z';
+    expect((await svc({ default_platform_fee_bps: 30, default_platform_wallet: contractWallet }).readEscrowPlatformDefaults('C')).platformWallet).toBe(contractWallet);
+    for (const bad of [{}, { default_platform_wallet: '' }, { default_platform_wallet: 'not-an-address' }, { default_platform_wallet: null }]) {
+      await expect(svc({ default_platform_fee_bps: 30, ...bad }).readEscrowPlatformDefaults('C')).rejects.toThrow(/default_platform_wallet/);
     }
   });
 });

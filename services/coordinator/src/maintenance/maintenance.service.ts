@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
-import { StellarReadService } from '../stellar/stellar-read.service';
+import { StellarReadService, withRpcTimeout } from '../stellar/stellar-read.service';
 import { RefundSignerService } from '../stellar/refund-signer.service';
 import { AppConfigService } from '../config/app-config.service';
 import { NotificationService } from '../notification/notification.service';
@@ -155,28 +155,33 @@ export class MaintenanceService {
     const incomplete = new Set<string>();
     try {
       const row = await this.prisma.config.findUnique({ where: { id: 1 } });
-      const contractId = this.cfg.escrowContractId;
-      const chainFee = await this.stellar.readEscrowPlatformFeeBps(contractId);
-      const chainWallet = await this.stellar.readEscrowPlatformWallet(contractId);
-      if (row && row.platformFeeBps !== chainFee) {
+      if (!row) throw new Error('the Config row is missing');
+      const chain = await withRpcTimeout(this.stellar.readEscrowPlatformDefaults(this.cfg.escrowContractId), 'escrow get_config', 3000);
+      if (row.platformFeeBps !== chain.platformFeeBps) {
         found.push({
           key: 'escrow_config_drift:platformFeeBps',
-          fingerprint: `${row.platformFeeBps}:${chainFee}`,
+          fingerprint: `${row.platformFeeBps}:${chain.platformFeeBps}`,
           urgency: 'urgent',
-          text: `Config.platformFeeBps (${row.platformFeeBps}) differs from the escrow contract default_platform_fee_bps (${chainFee}); create_trade refuses every funding until the row is patched to match`,
+          text: `Config.platformFeeBps (${row.platformFeeBps}) differs from the escrow contract default_platform_fee_bps (${chain.platformFeeBps}); create_trade refuses every funding until the row is patched to match`,
         });
       }
-      if (row && row.platformWallet !== chainWallet) {
+      if (row.platformWallet !== chain.platformWallet) {
         found.push({
           key: 'escrow_config_drift:platformWallet',
-          fingerprint: `${row.platformWallet}:${chainWallet}`,
+          fingerprint: `${row.platformWallet}:${chain.platformWallet}`,
           urgency: 'urgent',
-          text: `Config.platformWallet differs from the escrow contract default_platform_wallet (${chainWallet}), which the contract will not let anyone change; create_trade refuses every funding until the row is patched to match`,
+          text: `Config.platformWallet (${row.platformWallet}) differs from the escrow contract default_platform_wallet (${chain.platformWallet}), which the contract will not let anyone change; create_trade refuses every funding until the row is patched to match`,
         });
       }
     } catch (err) {
       this.log.warn(`alertOnEscrowConfigDrift: could not compare the row with the contract: ${errMsg(err)}`);
       incomplete.add('escrow_config_drift');
+      found.push({
+        key: 'escrow_config_drift:unreadable',
+        fingerprint: 'unreadable',
+        urgency: 'urgent',
+        text: `Config.platformFeeBps and platformWallet are unchecked against the escrow contract because the comparison could not run: ${errMsg(err)}`,
+      });
     }
     await this.alerts.raise(['escrow_config_drift'], found, incomplete);
   }

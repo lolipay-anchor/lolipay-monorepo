@@ -102,22 +102,20 @@ export class ConfigBootService implements OnModuleInit {
     if (feeProblem) {
       throw new Error(`refusing to start: ${feeProblem}`);
     }
-    let chainFee: number | undefined;
-    let chainWallet: string | undefined;
+    let chain: { platformFeeBps: number; platformWallet: string } | undefined;
     try {
-      chainFee = await withRpcTimeout(this.stellar.readEscrowPlatformFeeBps(this.cfg.escrowContractId), 'escrow get_config', 3000);
-      chainWallet = await withRpcTimeout(this.stellar.readEscrowPlatformWallet(this.cfg.escrowContractId), 'escrow get_config', 3000);
+      chain = await withRpcTimeout(this.stellar.readEscrowPlatformDefaults(this.cfg.escrowContractId), 'escrow get_config', 3000);
     } catch (err) {
       this.log.warn(`the escrow contract defaults could not be read at boot, so Config.platformFeeBps and platformWallet are unchecked against them until the drift tick runs: ${String(err)}`);
     }
-    if (chainFee !== undefined && chainFee !== row.platformFeeBps) {
+    if (chain && chain.platformFeeBps !== row.platformFeeBps) {
       this.log.warn(
-        `Config.platformFeeBps (${row.platformFeeBps}) differs from the escrow contract default_platform_fee_bps (${chainFee}); create_trade will refuse every funding until the row is patched to match, and the drift tick will keep alerting`,
+        `Config.platformFeeBps (${row.platformFeeBps}) differs from the escrow contract default_platform_fee_bps (${chain.platformFeeBps}); create_trade will refuse every funding until the row is patched to match, and the drift tick will keep alerting`,
       );
     }
-    if (chainWallet !== undefined && chainWallet !== row.platformWallet) {
+    if (chain && chain.platformWallet !== row.platformWallet) {
       this.log.warn(
-        `Config.platformWallet differs from the escrow contract default_platform_wallet (${chainWallet}); create_trade will refuse every funding until the row is patched to match, and the drift tick will keep alerting`,
+        `Config.platformWallet (${row.platformWallet}) differs from the escrow contract default_platform_wallet (${chain.platformWallet}); create_trade will refuse every funding until the row is patched to match, and the drift tick will keep alerting`,
       );
     }
     const windowProblem = windowsFitTheContract(row.payWindowSecs, row.confirmWindowSecs, row.disputeWindowSecs);

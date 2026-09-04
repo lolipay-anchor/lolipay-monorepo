@@ -21,17 +21,15 @@ function makePrisma() {
   return client as any;
 }
 
-const CHAIN_WALLET = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
 
 function chainFee(bps: number, stellar: any) {
-  stellar.readEscrowPlatformFeeBps = jest.fn(async () => bps);
+  stellar.readEscrowPlatformDefaults = jest.fn(async () => ({ platformFeeBps: bps, platformWallet: ADDR }));
   return stellar;
 }
 
 function makeStellar(hasTrustline = true, cooldownSecs: number | Error = 349_201) {
   return {
-    readEscrowPlatformFeeBps: jest.fn(async () => 30),
-    readEscrowPlatformWallet: jest.fn(async () => CHAIN_WALLET),
+    readEscrowPlatformDefaults: jest.fn(async () => ({ platformFeeBps: 30, platformWallet: ADDR })),
     hasUsdcTrustline: jest.fn().mockResolvedValue(hasTrustline),
     stakingCooldownSecs: jest.fn(() =>
       cooldownSecs instanceof Error ? Promise.reject(cooldownSecs) : Promise.resolve(cooldownSecs),
@@ -325,14 +323,14 @@ describe('AdminService.updateConfigTransactional', () => {
       svc.updateConfigTransactional({ platformWallet: 'GCMUR7GXQPMY4XSMHEQO4EHPGXQ72RQTLYSMJ2VQ7NPCBHKRJ7NTTUSD' } as any, 'GADMINTEST'),
     ).rejects.toThrow('PLATFORM_WALLET_DIVERGES_FROM_CHAIN');
     expect(configApi.update).not.toHaveBeenCalled();
-    expect(stellar.readEscrowPlatformWallet).toHaveBeenCalledWith('CDEFAULT');
+    expect(stellar.readEscrowPlatformDefaults).toHaveBeenCalledWith('CDEFAULT');
   });
 
   it('accepts a platformWallet patch equal to the escrow contract default', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
-    await svc.updateConfigTransactional({ platformWallet: CHAIN_WALLET } as any, 'GADMINTEST');
-    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { platformWallet: CHAIN_WALLET } });
+    await svc.updateConfigTransactional({ platformWallet: ADDR } as any, 'GADMINTEST');
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { platformWallet: ADDR } });
   });
 
   it('reads the fee default from the escrow contract the coordinator is configured with', async () => {
@@ -340,13 +338,13 @@ describe('AdminService.updateConfigTransactional', () => {
     const stellar = makeStellar();
     const svc = new AdminService(prisma, stellar, makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
     await svc.updateConfigTransactional({ platformFeeBps: 30 } as any, 'GADMINTEST');
-    expect(stellar.readEscrowPlatformFeeBps).toHaveBeenCalledWith('CDEFAULT');
+    expect(stellar.readEscrowPlatformDefaults).toHaveBeenCalledWith('CDEFAULT');
   });
 
   it('refuses a platformFeeBps patch that diverges from the escrow contract default, because create_trade requires equality and every funding would revert', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
     const stellar = makeStellar();
-    stellar.readEscrowPlatformFeeBps = jest.fn(async () => CURRENT.platformFeeBps);
+    stellar.readEscrowPlatformDefaults = jest.fn(async () => ({ platformFeeBps: CURRENT.platformFeeBps, platformWallet: ADDR }));
     const svc = new AdminService(prisma, stellar, makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
     await expect(
       svc.updateConfigTransactional({ platformFeeBps: CURRENT.platformFeeBps + 10 } as any, 'GADMINTEST'),
@@ -357,21 +355,30 @@ describe('AdminService.updateConfigTransactional', () => {
   it('accepts a platformFeeBps patch equal to the escrow contract default', async () => {
     const { prisma, configApi } = makeConfigPrisma({ ...CURRENT, platformFeeBps: 20 });
     const stellar = makeStellar();
-    stellar.readEscrowPlatformFeeBps = jest.fn(async () => 30);
+    stellar.readEscrowPlatformDefaults = jest.fn(async () => ({ platformFeeBps: 30, platformWallet: ADDR }));
     const svc = new AdminService(prisma, stellar, makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
     await svc.updateConfigTransactional({ platformFeeBps: 30 } as any, 'GADMINTEST');
     expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { platformFeeBps: 30 } });
   });
 
-  it('refuses a platformFeeBps patch when the escrow contract default cannot be read, the way the windows are refused without the cooldown', async () => {
+  it('refuses a platformFeeBps patch when the escrow contract defaults cannot be read, and says the chain was unreadable rather than that the value diverged', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
     const stellar = makeStellar();
-    stellar.readEscrowPlatformFeeBps = jest.fn(async () => { throw new Error('rpc down'); });
+    stellar.readEscrowPlatformDefaults = jest.fn(async () => { throw new Error('rpc down'); });
     const svc = new AdminService(prisma, stellar, makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
     await expect(
       svc.updateConfigTransactional({ platformFeeBps: CURRENT.platformFeeBps } as any, 'GADMINTEST'),
-    ).rejects.toThrow('PLATFORM_FEE_DIVERGES_FROM_CHAIN');
+    ).rejects.toThrow('ESCROW_CONFIG_UNREADABLE');
     expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('reads the chain once for a patch naming both the fee and the wallet, so the two are compared against the same ledger', async () => {
+    const { prisma, configApi } = makeConfigPrisma({ ...CURRENT, platformFeeBps: 20 });
+    const stellar = makeStellar();
+    const svc = new AdminService(prisma, stellar, makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    await svc.updateConfigTransactional({ platformFeeBps: 30, platformWallet: ADDR } as any, 'GADMINTEST');
+    expect(stellar.readEscrowPlatformDefaults).toHaveBeenCalledTimes(1);
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { platformFeeBps: 30, platformWallet: ADDR } });
   });
 
   it('rejects a spreadBps patch that no longer covers the price-deviation allowance', async () => {

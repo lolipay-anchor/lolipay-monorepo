@@ -4,6 +4,8 @@ import { ConfigBootService } from './config-boot.service';
 const WALLET = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
 const OTHER_WALLET = 'GCMUR7GXQPMY4XSMHEQO4EHPGXQ72RQTLYSMJ2VQ7NPCBHKRJ7NTTUSD';
 
+afterEach(() => jest.restoreAllMocks());
+
 function makePrisma(row: Record<string, unknown>) {
   const configApi = {
     upsert: jest.fn(async (_args: any) => row),
@@ -13,7 +15,7 @@ function makePrisma(row: Record<string, unknown>) {
 }
 
 function makeStellar(over: Record<string, unknown> = {}) {
-  return { readEscrowPlatformFeeBps: jest.fn(async () => 30), readEscrowPlatformWallet: jest.fn(async () => WALLET), ...over } as any;
+  return { readEscrowPlatformDefaults: jest.fn(async () => ({ platformFeeBps: 30, platformWallet: WALLET })), ...over } as any;
 }
 
 function makeCfg(over: Record<string, unknown> = {}) {
@@ -64,28 +66,27 @@ describe('ConfigBootService', () => {
   it('warns and still starts when the persisted platform fee differs from the escrow contract default, because refusing would also take down the reads and disputes the chain does not refuse, and the monitoring tick carries the alert', async () => {
     const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET, payWindowSecs: 1800, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
     const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-    const stellar = makeStellar({ readEscrowPlatformFeeBps: jest.fn(async () => 40) });
+    const stellar = makeStellar({ readEscrowPlatformDefaults: jest.fn(async () => ({ platformFeeBps: 40, platformWallet: WALLET })) });
     await expect(new ConfigBootService(prisma, makeCfg(), stellar).onModuleInit()).resolves.toBeUndefined();
     expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(/default_platform_fee_bps \(40\)/);
-    expect(stellar.readEscrowPlatformFeeBps).toHaveBeenCalledWith('CESCROW');
-    warn.mockRestore();
+    expect(stellar.readEscrowPlatformDefaults).toHaveBeenCalledWith('CESCROW');
   });
 
   it('warns and still starts when the persisted platform wallet differs from the escrow contract default', async () => {
     const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET, payWindowSecs: 1800, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
     const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-    const stellar = makeStellar({ readEscrowPlatformWallet: jest.fn(async () => OTHER_WALLET) });
+    const stellar = makeStellar({ readEscrowPlatformDefaults: jest.fn(async () => ({ platformFeeBps: 30, platformWallet: OTHER_WALLET })) });
     await expect(new ConfigBootService(prisma, makeCfg(), stellar).onModuleInit()).resolves.toBeUndefined();
-    expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(/default_platform_wallet/);
-    warn.mockRestore();
+    expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(new RegExp(`platformWallet \\(${WALLET}\\) differs from the escrow contract default_platform_wallet \\(${OTHER_WALLET}\\)`));
   });
 
-  it('warns and starts when the escrow contract defaults cannot be read at boot, naming the read that failed', async () => {
+  it('warns and starts when the escrow contract defaults cannot be read at boot, carrying the error so the operator knows why', async () => {
     const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET, payWindowSecs: 1800, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
     const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-    await expect(new ConfigBootService(prisma, makeCfg(), makeStellar({ readEscrowPlatformFeeBps: jest.fn(async () => { throw new Error('rpc down'); }) })).onModuleInit()).resolves.toBeUndefined();
-    expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(/could not be read at boot/);
-    warn.mockRestore();
+    await expect(new ConfigBootService(prisma, makeCfg(), makeStellar({ readEscrowPlatformDefaults: jest.fn(async () => { throw new Error('rpc down'); }) })).onModuleInit()).resolves.toBeUndefined();
+    const warned = warn.mock.calls.map((c) => String(c[0])).join(' ');
+    expect(warned).toMatch(/could not be read at boot/);
+    expect(warned).toMatch(/rpc down/);
   });
 
   it('refuses to start when the persisted pay window leaves nobody time to sign inside the contract floor', async () => {
@@ -127,7 +128,6 @@ describe('ConfigBootService', () => {
 
     expect(configApi.update).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(OTHER_WALLET));
-    warn.mockRestore();
   });
 
   it('stays quiet when the stored platform wallet matches the environment', async () => {
@@ -137,7 +137,6 @@ describe('ConfigBootService', () => {
     await new ConfigBootService(prisma, makeCfg(), makeStellar()).onModuleInit();
 
     expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
   });
 });
 

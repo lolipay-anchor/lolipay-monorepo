@@ -736,22 +736,17 @@ export class StellarReadService {
     return resolver;
   }
 
-  async readEscrowPlatformFeeBps(contractId: string): Promise<number> {
+  async readEscrowPlatformDefaults(contractId: string): Promise<{ platformFeeBps: number; platformWallet: string }> {
     const cfg = await this.simulateCall(contractId, 'get_config', []);
-    const bps = asNumber(cfg?.default_platform_fee_bps);
-    if (bps === undefined || bps < 0) {
-      throw new Error(`readEscrowPlatformFeeBps: ${contractId} returned no readable default_platform_fee_bps`);
+    const platformFeeBps = asNumber(cfg?.default_platform_fee_bps);
+    if (platformFeeBps === undefined || platformFeeBps < 0) {
+      throw new Error(`readEscrowPlatformDefaults: ${contractId} returned no readable default_platform_fee_bps`);
     }
-    return bps;
-  }
-
-  async readEscrowPlatformWallet(contractId: string): Promise<string> {
-    const cfg = await this.simulateCall(contractId, 'get_config', []);
-    const wallet = cfg?.default_platform_wallet;
-    if (typeof wallet !== 'string' || !/^G[A-Z2-7]{55}$/.test(wallet)) {
-      throw new Error(`readEscrowPlatformWallet: ${contractId} returned no readable default_platform_wallet`);
+    const platformWallet = cfg?.default_platform_wallet;
+    if (typeof platformWallet !== 'string' || !STELLAR_ADDRESS_RE.test(platformWallet)) {
+      throw new Error(`readEscrowPlatformDefaults: ${contractId} returned no readable default_platform_wallet`);
     }
-    return wallet;
+    return { platformFeeBps, platformWallet };
   }
 
   async readEscrowFiatAttestor(contractId: string): Promise<string> {

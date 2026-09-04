@@ -20,8 +20,7 @@ describe('MaintenanceService', () => {
           : () => Promise.resolve(onChain),
       ),
       latestLedgerCloseTime: jest.fn(async () => new Date()),
-      readEscrowPlatformFeeBps: jest.fn(async () => 30),
-      readEscrowPlatformWallet: jest.fn(async () => 'GPLATFORM'),
+      readEscrowPlatformDefaults: jest.fn(async () => ({ platformFeeBps: 30, platformWallet: 'GPLATFORM' })),
     } as any;
     const refundSigner = {
       isConfigured: false,
@@ -614,7 +613,7 @@ describe('the escrow config drift tick tells a human when the row and the contra
   function drift(row: any, stellar: Record<string, any> = {}) {
     const raise = jest.fn(async () => ({ sent: [], cleared: [] }));
     const prisma = { config: { findUnique: jest.fn(async () => row) } } as any;
-    const st = { readEscrowPlatformFeeBps: jest.fn(async () => 30), readEscrowPlatformWallet: jest.fn(async () => 'GPLATFORM'), ...stellar } as any;
+    const st = { readEscrowPlatformDefaults: jest.fn(async () => ({ platformFeeBps: 30, platformWallet: 'GPLATFORM' })), ...stellar } as any;
     const svc = new MaintenanceService(prisma, st, { isConfigured: false } as any, { escrowContractId: 'CESCROW' } as any, { notifyOrderStatus: jest.fn() } as any, { raise } as any, { prune: jest.fn(async () => 0), stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })) } as any);
     return { svc, raise, st };
   }
@@ -623,7 +622,8 @@ describe('the escrow config drift tick tells a human when the row and the contra
     const { svc, raise, st } = drift({ platformFeeBps: 30, platformWallet: 'GPLATFORM' });
     await svc.alertOnEscrowConfigDrift();
     expect(raise).toHaveBeenCalledWith(['escrow_config_drift'], [], expect.any(Set));
-    expect(st.readEscrowPlatformFeeBps).toHaveBeenCalledWith('CESCROW');
+    expect((raise.mock.calls[0] as any[])[2].size).toBe(0);
+    expect(st.readEscrowPlatformDefaults).toHaveBeenCalledWith('CESCROW');
   });
 
   it('raises an urgent alert naming both values when the fee differs', async () => {
@@ -640,13 +640,29 @@ describe('the escrow config drift tick tells a human when the row and the contra
     const { svc, raise } = drift({ platformFeeBps: 30, platformWallet: 'GOTHER' });
     await svc.alertOnEscrowConfigDrift();
     const found = (raise.mock.calls[0] as any[])[1];
-    expect(found[0].text).toMatch(/platformWallet/);
+    expect(found.map((a: any) => a.key)).toEqual(['escrow_config_drift:platformWallet']);
+    expect(found[0].text).toMatch(/platformWallet \(GOTHER\) differs from the escrow contract default_platform_wallet \(GPLATFORM\)/);
   });
 
-  it('marks the family incomplete rather than clearing when the contract cannot be read', async () => {
-    const { svc, raise } = drift({ platformFeeBps: 30, platformWallet: 'GPLATFORM' }, { readEscrowPlatformFeeBps: jest.fn(async () => { throw new Error('rpc down'); }) });
+  it('pages when the contract cannot be read, because this tick is the only check left now that boot no longer refuses, and marks the family incomplete so nothing clears', async () => {
+    const { svc, raise } = drift({ platformFeeBps: 30, platformWallet: 'GPLATFORM' }, { readEscrowPlatformDefaults: jest.fn(async () => { throw new Error('rpc down'); }) });
     await svc.alertOnEscrowConfigDrift();
+    const found = (raise.mock.calls[0] as any[])[1];
     const incomplete = (raise.mock.calls[0] as any[])[2] as Set<string>;
     expect(incomplete.has('escrow_config_drift')).toBe(true);
+    expect(found.map((a: any) => a.key)).toEqual(['escrow_config_drift:unreadable']);
+    expect(found[0].urgency).toBe('urgent');
+    expect(found[0].text).toMatch(/rpc down/);
+  });
+
+  it('a missing Config row is blindness, not agreement: it pages and clears nothing', async () => {
+    const { svc, raise, st } = drift(null);
+    await svc.alertOnEscrowConfigDrift();
+    const found = (raise.mock.calls[0] as any[])[1];
+    const incomplete = (raise.mock.calls[0] as any[])[2] as Set<string>;
+    expect(incomplete.has('escrow_config_drift')).toBe(true);
+    expect(found.map((a: any) => a.key)).toEqual(['escrow_config_drift:unreadable']);
+    expect(found[0].text).toMatch(/Config row is missing/);
+    expect(st.readEscrowPlatformDefaults).not.toHaveBeenCalled();
   });
 });

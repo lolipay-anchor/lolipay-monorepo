@@ -193,30 +193,22 @@ export class AdminService {
   }
 
   async updateConfigTransactional(patch: UpdateConfigDto, actorAddress: string) {
-    if (patch.platformWallet !== undefined) {
-      let chainWallet: string;
-      try {
-        chainWallet = await this.stellar.readEscrowPlatformWallet(this.cfg.escrowContractId);
-      } catch {
-        throw new Error(
-          'PLATFORM_WALLET_DIVERGES_FROM_CHAIN: the escrow contract default_platform_wallet could not be read, so platformWallet cannot be checked against it',
-        );
-      }
-      if (patch.platformWallet !== chainWallet) {
-        throw new Error(
-          `PLATFORM_WALLET_DIVERGES_FROM_CHAIN: platformWallet must equal the escrow contract default_platform_wallet (${chainWallet}), which the contract will not let anyone change, because create_trade refuses any other value and every funding would revert`,
-        );
-      }
-    }
     let chainPlatformFeeBps: number | undefined;
-    if (patch.platformFeeBps !== undefined) {
+    if (patch.platformWallet !== undefined || patch.platformFeeBps !== undefined) {
+      let chain: { platformFeeBps: number; platformWallet: string };
       try {
-        chainPlatformFeeBps = await this.stellar.readEscrowPlatformFeeBps(this.cfg.escrowContractId);
+        chain = await this.stellar.readEscrowPlatformDefaults(this.cfg.escrowContractId);
       } catch {
         throw new Error(
-          'PLATFORM_FEE_DIVERGES_FROM_CHAIN: the escrow contract default_platform_fee_bps could not be read, so platformFeeBps cannot be checked against it',
+          'ESCROW_CONFIG_UNREADABLE: the escrow contract defaults could not be read, so platformFeeBps and platformWallet cannot be checked against them; try again when the RPC answers',
         );
       }
+      if (patch.platformWallet !== undefined && patch.platformWallet !== chain.platformWallet) {
+        throw new Error(
+          `PLATFORM_WALLET_DIVERGES_FROM_CHAIN: platformWallet must equal the escrow contract default_platform_wallet (${chain.platformWallet}), which the contract will not let anyone change, because create_trade refuses any other value and every funding would revert`,
+        );
+      }
+      if (patch.platformFeeBps !== undefined) chainPlatformFeeBps = chain.platformFeeBps;
     }
     let deployedCooldownSecs: number | undefined;
     if (patch.payWindowSecs !== undefined || patch.confirmWindowSecs !== undefined) {
