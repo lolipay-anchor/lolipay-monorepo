@@ -494,12 +494,11 @@ export class OrderService {
 
       const serialized = serializeOrderBase(currentOrder);
       const fiatPayer = getFiatPayer(flow, currentOrder.userAddress, lpAddress);
-      if (
-        fiatPayer === lpAddress &&
-        FUNDED_OR_LATER.includes(currentOrder.status) &&
-        (await this.identityVerified(currentOrder.personId, this.prisma))
-      ) {
+      const lpMayReveal = fiatPayer === lpAddress && FUNDED_OR_LATER.includes(currentOrder.status);
+      if (lpMayReveal && (await this.identityVerified(currentOrder.personId, this.prisma))) {
         serialized.payment_instructions = getPaymentInstructions(currentOrder);
+      } else if (lpMayReveal) {
+        serialized.payment_instructions_withheld = 'kyc_required';
       }
 
       return {

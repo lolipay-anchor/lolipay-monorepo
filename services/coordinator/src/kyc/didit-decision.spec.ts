@@ -239,4 +239,10 @@ describe('a warning never outranks a hit that is sitting right beside it', () =>
     );
     expect(res.status).toBe('NEEDS_INFO');
   });
+
+  it('a screening the provider could not perform refuses for good only while AML is required; when it is optional the customer is asked again', () => {
+    const declined = payload({ status: 'Declined', decision: { aml_screenings: [unperformed], id_verifications: [{ status: 'Approved' }] } });
+    expect(readDiditDecision(declined, true).status).toBe('REJECTED');
+    expect(readDiditDecision(declined, false).status).toBe('NEEDS_INFO');
+  });
 });

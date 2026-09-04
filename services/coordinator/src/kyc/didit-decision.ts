@@ -71,7 +71,7 @@ function documentFailed(payload: any): boolean {
   return Array.isArray(list) && list.some((d) => d?.status !== PASSED_DOCUMENT);
 }
 
-export function readDiditDecision(payload: any): DiditConclusion {
+export function readDiditDecision(payload: any, requireAml = true): DiditConclusion {
   const base = {
     screened: false,
     environment: payload?.environment,
@@ -90,11 +90,9 @@ export function readDiditDecision(payload: any): DiditConclusion {
     }
     if (documentFailed(payload)) return { ...base, status: 'NEEDS_INFO' };
     if (couldNotScreen(payload)) {
-      return {
-        ...base,
-        status: 'REJECTED',
-        rejectionReason: 'the required screening could not be carried out',
-      };
+      return requireAml
+        ? { ...base, status: 'REJECTED', rejectionReason: 'the required screening could not be carried out' }
+        : { ...base, status: 'NEEDS_INFO' };
     }
     return { ...base, status: 'REJECTED', rejectionReason: 'the refusal carried no readable cause' };
   }

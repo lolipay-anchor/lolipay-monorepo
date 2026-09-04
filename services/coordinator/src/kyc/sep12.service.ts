@@ -1,4 +1,5 @@
 import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
+import { awaitingProvider } from './screening-requirement';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonService } from '../person/person.service';
 import { AppConfigService } from '../config/app-config.service';
@@ -153,13 +154,13 @@ export class Sep12Service {
         message: row.rejectionReason ?? 'this identity was refused',
       };
     }
-    if (row.status === 'ACCEPTED' && row.screenedAt === null && this.cfg.kycRequireAml) {
+    if (awaitingProvider(row, this.cfg.kycRequireAml)) {
       return {
         id: row.customerRef,
         status: 'PROCESSING',
         provided_fields: PROVIDED,
         message:
-          'identity checks passed, but the screening this anchor requires has not been completed, ' +
+          'identity checks passed, but this anchor has not yet received the verification result it requires, ' +
           'so no trade can be opened yet',
       };
     }

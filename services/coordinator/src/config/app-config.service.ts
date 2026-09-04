@@ -100,7 +100,7 @@ export class AppConfigService {
   get minioPort(): number { return Number(this.c.get<string>('MINIO_PORT') ?? 9000); }
   get minioUseSSL(): boolean { return (this.c.get<string>('MINIO_USE_SSL') ?? 'false').toLowerCase() === 'true'; }
 
-  get kycRequireAml(): boolean { return (this.c.get<string>('KYC_REQUIRE_AML') ?? 'true').toLowerCase() !== 'false'; }
+  get kycRequireAml(): boolean { return (this.c.get<string>('KYC_REQUIRE_AML') ?? 'true').trim().toLowerCase() !== 'false'; }
   get sep24WithdrawEnabled(): boolean { return (this.c.get<string>('SEP24_WITHDRAW_ENABLED') ?? 'false').toLowerCase() === 'true'; }
   get minioAccessKey(): string { return this.req('MINIO_ACCESS_KEY'); }
   get minioSecretKey(): string { return this.req('MINIO_SECRET_KEY'); }

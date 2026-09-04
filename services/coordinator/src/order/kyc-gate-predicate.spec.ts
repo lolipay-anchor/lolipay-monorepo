@@ -7,16 +7,18 @@ type Row = {
   personId: string | null;
   status: string;
   screenedAt: Date | null;
+  deliveredAt: Date | null;
 };
 
 function verifiedRow(over: Partial<Row> = {}): Row {
-  return { customerRef: G, personId: 'person-1', status: 'ACCEPTED', screenedAt: new Date(), ...over };
+  return { customerRef: G, personId: 'person-1', status: 'ACCEPTED', screenedAt: new Date(), deliveredAt: new Date(), ...over };
 }
 
 function matches(row: Row, where: any): boolean {
   if (where.personId !== undefined && row.personId !== where.personId) return false;
   if (where.status !== undefined && row.status !== where.status) return false;
   if (where.screenedAt?.not === null && row.screenedAt == null) return false;
+  if (where.deliveredAt?.not === null && row.deliveredAt == null) return false;
   if (where.customerRef !== undefined && row.customerRef !== where.customerRef) return false;
   return true;
 }
@@ -33,6 +35,12 @@ describe('the predicate that governs both the deposit gate and the reveal gate',
   it('with KYC_REQUIRE_AML=false an accepted identity that was never screened may move funds, and with it true it may not', async () => {
     const db = dbOf(verifiedRow({ screenedAt: null }));
     expect(await check(db, 'person-1', false)).toBe(true);
+    expect(await check(db, 'person-1', true)).toBe(false);
+  });
+
+  it('an acceptance the provider never delivered, the shape a stub or a self-assertion writes, opens nothing under either flag', async () => {
+    const db = dbOf(verifiedRow({ screenedAt: null, deliveredAt: null }));
+    expect(await check(db, 'person-1', false)).toBe(false);
     expect(await check(db, 'person-1', true)).toBe(false);
   });
 

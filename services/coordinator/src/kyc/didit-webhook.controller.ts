@@ -49,7 +49,7 @@ export class DiditWebhookController {
       return;
     }
 
-    const conclusion = readDiditDecision(payload);
+    const conclusion = readDiditDecision(payload, this.cfg.kycRequireAml);
     if (conclusion.unrecognisedStatus !== undefined) {
       this.log.warn(
         `a delivery reported a status this anchor does not recognise: ${JSON.stringify(
