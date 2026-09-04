@@ -20,6 +20,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
   afterAll(async () => {
     if (saved === undefined) delete process.env.SEP24_WITHDRAW_ENABLED;
     else process.env.SEP24_WITHDRAW_ENABLED = saved;
+    await prisma.fiatPriceCache.deleteMany();
     await app.close();
   });
 
@@ -130,18 +131,18 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     expect(res.text).not.toContain('1000.0000000');
   });
 
-  it('states the exchange rate the order holds, that it is fixed for this order, and that no fee is deducted from the USDC, as the spec requires of the interactive flow', async () => {
+  it('states the exchange rate the order holds, that it is fixed for this order, and that no fee comes out of the rupiah', async () => {
     const { id, token, address } = await openedWithdrawal(true);
     await linkOrder(id, address, 'WITHDRAW', 'MATCHED');
 
     const res = await screen(id, token);
-    expect(res.text).toMatch(/1 USDC = <strong>16\.000<\/strong> IDR/);
+    expect(res.text).toMatch(/1 USDC ≈ <strong>16\.000<\/strong> IDR/);
     expect(res.text).toMatch(/fixed for this order/i);
-    expect(res.text).toMatch(/no fee is deducted from your usdc/i);
+    expect(res.text).toMatch(/no fee is deducted from the rupiah you receive/i);
     expect(res.text).not.toMatch(/estimate/i);
   });
 
-  it('shows an indicative rate on the amount screen and says it is an estimate until the order is opened', async () => {
+  it('the withdrawal amount screen quotes the reference price minus the spread, and says the applied rate may differ from the estimate', async () => {
     await prisma.fiatPriceCache.upsert({
       where: { fiat: 'IDR' },
       update: { pricePerUsdc: '16000', fetchedAt: new Date(), source: 'test' },
@@ -149,9 +150,34 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     });
     const { id, token } = await openedWithdrawal(true);
     const res = await screen(id, token);
-    expect(res.text).toMatch(/1 USDC ≈ <strong>[\d.]+<\/strong> IDR/);
-    expect(res.text).toMatch(/estimate/i);
-    expect(res.text).toMatch(/fixed when you continue/i);
+    expect(res.text).toMatch(/1 USDC ≈ <strong>15\.760<\/strong> IDR right now/);
+    expect(res.text).toMatch(/may differ from this one/i);
+    expect(res.text).not.toMatch(/fee of/i);
+  });
+
+  it('the deposit amount screen quotes the reference price plus the spread and names the fee taken from the USDC, so the depositor can see their whole cost', async () => {
+    await prisma.fiatPriceCache.upsert({
+      where: { fiat: 'IDR' },
+      update: { pricePerUsdc: '16000', fetchedAt: new Date(), source: 'test' },
+      create: { fiat: 'IDR', pricePerUsdc: '16000', fetchedAt: new Date(), source: 'test' },
+    });
+    const { id, token } = await openedWithdrawal(true);
+    await prisma.sep24Transaction.update({ where: { id }, data: { flow: 'TOP_UP' } });
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/1 USDC ≈ <strong>16\.240<\/strong> IDR right now/);
+    expect(res.text).toMatch(/A fee of 1\.5% is taken from the USDC you receive/);
+  });
+
+  it('a paused platform shows no estimate at all, because the next screen would refuse the order', async () => {
+    await prisma.config.update({ where: { id: 1 }, data: { paused: true } });
+    try {
+      const { id, token } = await openedWithdrawal(true);
+      const res = await screen(id, token);
+      expect(res.text).not.toMatch(/1 USDC ≈/);
+      expect(res.text).toMatch(/how much/i);
+    } finally {
+      await prisma.config.update({ where: { id: 1 }, data: { paused: false } });
+    }
   });
 
   it('names the last instant the escrow accepts the signature, ten minutes before the pay deadline, so the button is never a surprise', async () => {
@@ -300,6 +326,18 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     expect(res.text).toMatch(/send your rupiah/i);
     expect(res.text).toContain('2286-11-20T18:46:39.000Z');
     expect(res.text).not.toContain('2286-11-20T19:46:39.000Z');
+  });
+
+  it('the deposit instructions state the USDC to be received, the rate applied and the fee taken, all fixed for this order, so the depositor sees the binding terms before sending irrevocable rupiah', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await prisma.sep24Transaction.update({ where: { id }, data: { flow: 'TOP_UP' } });
+    await linkOrder(id, address, 'TOP_UP', 'FUNDED');
+
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/You receive <strong>997<\/strong> USDC/);
+    expect(res.text).toMatch(/1 USDC ≈ <strong>16\.000<\/strong> IDR on the <strong>1000<\/strong> USDC escrowed/);
+    expect(res.text).toMatch(/fee of <strong>3<\/strong> USDC \(0\.3%\)/);
+    expect(res.text).toMatch(/fixed for this order/);
   });
 
   it('a settled withdrawal reports withdrawal status, not deposit status', async () => {

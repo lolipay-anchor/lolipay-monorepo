@@ -9,6 +9,7 @@ import { AccountSignersService } from '../sep10/account-signers.service';
 import { configureHttp } from '../http-setup';
 import { KYC_PROVIDER } from '../kyc/kyc-provider';
 import { StubKycProvider } from '../kyc/stub-kyc-provider';
+import { PRICE_ADAPTER } from '../rate/price/price-adapter.token';
 
 const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
@@ -24,7 +25,9 @@ export async function bootAuthApp(
       .overrideProvider(AccountSignersService)
       .useValue({ load: jest.fn().mockResolvedValue(null) })
       .overrideProvider(KYC_PROVIDER)
-      .useValue(new StubKycProvider()),
+      .useValue(new StubKycProvider())
+      .overrideProvider(PRICE_ADAPTER)
+      .useValue({ name: 'fake', fetchPrices: jest.fn().mockResolvedValue({ IDR: '16000' }) }),
   ).compile();
   const app = mod.createNestApplication();
   configureHttp(app);

@@ -19,7 +19,7 @@ import { OrderTxService } from '../order/order-tx.service';
 import { OrderStatusService, REFRESH_FROM_CHAIN_STATUSES } from '../order/order-status.service';
 import { accountOf } from '../sep10/account-signers.service';
 import { AppConfigService } from '../config/app-config.service';
-import { baseUnitsToUsdc, fiatDigits, fiatInputAccepted, FIAT_INPUT_REFUSAL, quoteFiat } from '../money/money';
+import { baseUnitsToUsdc, fiatDigits, fiatInputAccepted, FIAT_INPUT_REFUSAL, quoteFiat, splitFees } from '../money/money';
 import { serializeSep24, Sep24Record, Sep24TransactionJson } from './sep24-transaction';
 import {
   SEP24_INTERACTIVE_LINK_TTL_SECS,
@@ -72,16 +72,18 @@ export class Sep24Service {
     private refundSigner: RefundSignerService,
   ) {}
 
-
   private async indicativeRateLine(flow: 'TOP_UP' | 'WITHDRAW'): Promise<string> {
     try {
       const [price, config] = await Promise.all([this.rate.getReferencePrice('IDR'), this.prisma.config.findUnique({ where: { id: 1 } })]);
-      const perUsdc = quoteFiat(10_000_000n, price, config?.spreadBps ?? 0, flow !== 'TOP_UP');
-      return `<p>1 USDC ≈ <strong>${escapeHtml(formatFiat(perUsdc))}</strong> IDR right now. This is an estimate; the rate is fixed when you continue.</p>`;
+      if (!config || config.paused) return '';
+      const perUsdc = quoteFiat(10_000_000n, price, config.spreadBps, flow === 'WITHDRAW');
+      const fee = flow === 'TOP_UP' ? ` A fee of ${(config.platformFeeBps + config.lpFeeBps) / 100}% is taken from the USDC you receive.` : '';
+      return `<p>1 USDC ≈ <strong>${escapeHtml(formatFiat(perUsdc))}</strong> IDR right now. This is an estimate; the rate applied is fixed the moment you continue and may differ from this one.${fee}</p>`;
     } catch {
       return '';
     }
   }
+
   private assets() {
     return { baseUrl: this.cfg.anchorBaseUrl, usdcIssuer: this.cfg.usdcAssetIssuer };
   }
@@ -385,7 +387,7 @@ export class Sep24Service {
           funding
             ? [
                 `<p>Your wallet will ask you to approve moving <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC into escrow. The provider then pays <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to your bank account, and the escrow releases to them when you confirm it arrived. Nothing leaves your wallet until you approve it.</p>`,
-                `<p>Rate: 1 USDC = <strong>${escapeHtml(formatFiat(effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount)))}</strong> ${escapeHtml(o.fiatCurrency)}, fixed for this order. No fee is deducted from your USDC; the platform's share is inside that rate.</p>`,
+                `<p>Rate: 1 USDC ≈ <strong>${escapeHtml(formatFiat(effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount)))}</strong> ${escapeHtml(o.fiatCurrency)}, fixed for this order. No fee is deducted from the rupiah you receive; the platform's share is inside that rate.</p>`,
                 `<p>If the provider never marks the rupiah sent, anyone, including you, can take the USDC back out of the escrow after <strong>${escapeHtml(new Date(Number(refundOpensAt(o)) * 1000).toISOString())}</strong>${anchorRefunds ? ', and this anchor\'s refund service does it for you' : '; this anchor will not do it for you, so the route is open on chain to anyone, including you'}. Once they do mark it sent, only your confirmation or a dispute can move it, decided by the resolver, or by the platform if the resolver does not act within ${RESOLVER_WINDOW_SECS / 3600} hours.</p>`,
                 `<p>Sign before <strong>${escapeHtml(signBy!.toISOString())}</strong>. After that the escrow refuses the signature and this withdrawal expires.</p>`,
               ].join('')
@@ -403,12 +405,14 @@ export class Sep24Service {
     if (screen === 'instructions') {
       const o = row.order as any;
       const due = o.payDeadline ? new Date(Number(o.payDeadline) * 1000).toISOString() : null;
+      const { platformFee, lpFee, net } = splitFees(o.usdcAmount, o.platformFeeBps, o.lpFeeBps);
       return page(
         'Send your rupiah',
         [
           `<p>Send <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to:</p>`,
           `<pre>${escapeHtml(o.lpPaymentDetails ?? 'your provider will be shown here')}</pre>`,
           `<p>Reference: <strong>${escapeHtml(o.ref ?? '')}</strong></p>`,
+          `<p>You receive <strong>${escapeHtml(formatUsdc(net))}</strong> USDC for it: 1 USDC ≈ <strong>${escapeHtml(formatFiat(effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount)))}</strong> ${escapeHtml(o.fiatCurrency)} on the <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC escrowed, minus a fee of <strong>${escapeHtml(formatUsdc(platformFee + lpFee))}</strong> USDC (${(o.platformFeeBps + o.lpFeeBps) / 100}%), all fixed for this order.</p>`,
           due
             ? `<p><strong>Send it before ${escapeHtml(due)}.</strong> After that a new transfer cannot be matched; one already sent can still be confirmed until <strong>${escapeHtml(new Date(Number(refundOpensAt(o)) * 1000).toISOString())}</strong>, when the escrow returns the USDC to the provider.</p>`
             : '',
