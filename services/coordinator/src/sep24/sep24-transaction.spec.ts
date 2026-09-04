@@ -206,6 +206,18 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       expect(dep.message).not.toMatch(/^send the rupiah/i);
     });
 
+    it('at the refund instant itself, to the millisecond after the second boundary, still says a sent transfer can be confirmed, because the contract compares whole seconds and refuses refund at ts <= opens_at', () => {
+      const refundAt = 1_000_003_600;
+      jest.useFakeTimers().setSystemTime(refundAt * 1000 + 500);
+      try {
+        const dep = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', payDeadline: 1_000_000_000n, confirmDeadline: BigInt(refundAt) }) }), BASE);
+        expect(dep.message).toMatch(/can still be confirmed/i);
+        expect(dep.message).not.toMatch(/can now return/i);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it('between the send-by instant and the refund instant a deposit is told not to start a transfer, but that one already sent can still be confirmed, because the attestor has an hour of grace', () => {
       const now = Math.floor(Date.now() / 1000);
       const dep = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', payDeadline: BigInt(now - 600), confirmDeadline: BigInt(now + 1200) }) }), BASE);

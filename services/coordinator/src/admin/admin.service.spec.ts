@@ -961,7 +961,7 @@ describe('AdminService.getMetricsOverview', () => {
 
 describe('AdminService.attestFiatPaid — the row follows the chain, and one attestation at a time', () => {
   afterEach(() => jest.restoreAllMocks());
-  const ORDER = { id: 'ord-1', flow: 'TOP_UP', status: 'FUNDED', tradeId: 'a'.repeat(64), contractId: 'CESCROW', userAddress: 'GUSER', lpWallet: 'GLP', payDeadline: 4_000_000_000n, confirmDeadline: 4_000_001_800n };
+  const ORDER = { id: 'ord-1', flow: 'TOP_UP', status: 'FUNDED', tradeId: 'a'.repeat(64), contractId: 'CESCROW', userAddress: 'GUSER', lpWallet: 'GLP', payDeadline: 4_000_000_000n, confirmDeadline: 4_000_007_200n };
 
   function build(attestResult: { status: string; hash: string } = { status: 'SUCCESS', hash: 'b'.repeat(64) }) {
     const prisma = {
@@ -988,7 +988,7 @@ describe('AdminService.attestFiatPaid — the row follows the chain, and one att
     release();
     const out = await pending;
     expect(out.submission).toBe('SUCCESS');
-    expect(attest).toHaveBeenCalledWith('CESCROW', 'a'.repeat(64), 4_000_001_800);
+    expect(attest).toHaveBeenCalledWith('CESCROW', 'a'.repeat(64), 4_000_003_600);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', status: 'FUNDED' },
       data: { status: 'FIAT_PAID' },
@@ -1036,7 +1036,7 @@ describe('AdminService.attestFiatPaid — the row follows the chain, and one att
     const pending = svc.attestFiatPaid('ord-1', 'GADMIN', 'BCA 12345');
     release();
     await pending;
-    expect(attest).toHaveBeenCalledWith('CESCROW', 'a'.repeat(64), 4_000_001_800);
+    expect(attest).toHaveBeenCalledWith('CESCROW', 'a'.repeat(64), 4_000_003_600);
   });
 
   it('refuses a second attestation while the first is still in flight, signing once', async () => {

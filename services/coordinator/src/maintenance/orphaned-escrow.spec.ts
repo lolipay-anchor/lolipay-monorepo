@@ -120,3 +120,20 @@ describe('MaintenanceService.reconcileOrphanedEscrows (X3)', () => {
     expect(where.status.in).toEqual(['CANCELLED', 'EXPIRED']);
   });
 });
+
+describe('the reconciler reads the freshest orphans first and lets a recovered one leave the pool without resurrecting it', () => {
+  it('orders candidates newest first and skips rows already carrying a settlement hash', async () => {
+    const { svc, prisma } = make();
+    await svc.reconcileOrphanedEscrows();
+    const args = prisma.order.findMany.mock.calls[0][0];
+    expect(args.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }]);
+    expect(args.where.settlementTxHash).toBeNull();
+  });
+
+  it('records the refund hash on the row after a recovery, leaving the status as it was', async () => {
+    const { svc, prisma } = make({ orders: [cancelledOrder()], onChain: { status: 'FUNDED', settledAt: 0 } });
+    await svc.reconcileOrphanedEscrows();
+    const writes = prisma.order.updateMany.mock.calls.map((c: any[]) => c[0]);
+    expect(writes.some((w: any) => w.data.settlementTxHash === 'h1' && w.data.status === undefined)).toBe(true);
+  });
+});

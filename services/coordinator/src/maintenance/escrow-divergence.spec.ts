@@ -37,6 +37,9 @@ const order = (over: any = {}) => ({
   contractId: 'CESCROW',
   status: 'CANCELLED',
   createdAt: new Date(),
+  flow: 'TOP_UP',
+  payDeadline: BigInt(Math.floor(Date.now() / 1000) + 1800),
+  confirmDeadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
   ...over,
 });
 
@@ -85,6 +88,35 @@ describe('an order the chain disagrees about reaches a human', () => {
     expect(found).toHaveLength(1);
     expect(found[0].urgency).toBe('routine');
     expect(found[0].text).toMatch(/FUNDED on chain/);
+    expect(found[0].fingerprint).toMatch(/^FUNDED:/);
+  });
+
+  it('turns urgent once the refund instant plus one reconciler period has passed with the escrow still funded, because that is proof the reconciler did not act, whatever the switches say', async () => {
+    const past = Math.floor(Date.now() / 1000) - 3600;
+    const { svc, raise } = make({
+      orders: [order({ status: 'EXPIRED', payDeadline: BigInt(past - 7200), confirmDeadline: BigInt(past) })],
+      onChain: { status: 'FUNDED', settledAt: 0 },
+      autoRefund: true,
+      refundConfigured: true,
+    });
+    await svc.alertOnEscrowDivergence();
+    const found = (raise.mock.calls[0] as any[])[1];
+    expect(found[0].urgency).toBe('urgent');
+    expect(found[0].text).toMatch(/reconciler did not act/i);
+    expect(found[0].fingerprint).not.toBe('FUNDED');
+  });
+
+  it('names the instant the refund opens and who the USDC returns to, so the operator knows when refund\(\) will be accepted', async () => {
+    const { svc, raise } = make({
+      orders: [order({ status: 'EXPIRED', flow: 'WITHDRAW' })],
+      onChain: { status: 'FUNDED', settledAt: 0 },
+      autoRefund: false,
+      refundConfigured: false,
+    });
+    await svc.alertOnEscrowDivergence();
+    const found = (raise.mock.calls[0] as any[])[1];
+    expect(found[0].text).toMatch(/opens at \d{4}-\d{2}-\d{2}T/);
+    expect(found[0].text).toMatch(/usdc_provider/);
   });
 
   it('names an order the escrow holds as funded when no reconciler will act, as urgent, with the permissionless refund and the switch that is off', async () => {
@@ -138,6 +170,8 @@ describe('an order the chain disagrees about reaches a human', () => {
     await svc.alertOnEscrowDivergence();
     const found = (raise.mock.calls[0] as any[])[1];
     expect(found[0].urgency).toBe('urgent');
+    expect(found[0].text).toMatch(/config row could not be read/i);
+    expect(found[0].text).not.toMatch(/autoRefund is off/);
   });
 
   it('says nothing about an order the chain never heard of', async () => {

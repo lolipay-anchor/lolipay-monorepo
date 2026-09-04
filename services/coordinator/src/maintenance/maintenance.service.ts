@@ -17,6 +17,7 @@ const AUTO_REFUND_BATCH_SIZE = 20;
 const DIVERGENCE_SCAN_LIMIT = 500;
 
 const ORPHAN_LOOKBACK_MS = 45 * 24 * 60 * 60 * 1000;
+const RECONCILER_PERIOD_SECS = 600;
 
 
 @Injectable()
@@ -57,18 +58,29 @@ export class MaintenanceService {
 
   private async run_alertOnEscrowDivergence(): Promise<void> {
     let autoRefund = false;
+    let configReadable = true;
     try {
       autoRefund = Boolean((await this.prisma.config.findUnique({ where: { id: 1 } }))?.autoRefund);
     } catch (err) {
+      configReadable = false;
       this.log.warn(`alertOnEscrowDivergence: config read failed, assuming the refund reconciler will not act: ${errMsg(err)}`);
     }
-    const reconcilerWillAct = autoRefund && this.refundSigner.isConfigured;
     const orphanCutoff = Date.now() - ORPHAN_LOOKBACK_MS;
-    let candidates: { id: string; tradeId: string; contractId: string | null; status: string; createdAt: Date }[];
+    const nowSecs = Math.floor(Date.now() / 1000);
+    let candidates: {
+      id: string;
+      tradeId: string;
+      contractId: string | null;
+      status: string;
+      createdAt: Date;
+      flow: string;
+      payDeadline: bigint;
+      confirmDeadline: bigint;
+    }[];
     try {
       candidates = await this.prisma.order.findMany({
         where: { status: { in: ['CANCELLED', 'EXPIRED'] } },
-        select: { id: true, tradeId: true, contractId: true, status: true, createdAt: true },
+        select: { id: true, tradeId: true, contractId: true, status: true, createdAt: true, flow: true, payDeadline: true, confirmDeadline: true },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         take: DIVERGENCE_SCAN_LIMIT,
       });
@@ -102,19 +114,23 @@ export class MaintenanceService {
       if (onChain.status === 'REFUNDED') continue;
       if (onChain.status === 'FUNDED') {
         const inLookback = o.createdAt.getTime() > orphanCutoff;
-        const handled = reconcilerWillAct && inLookback;
-        const why = !autoRefund
-          ? 'Config.autoRefund is off'
-          : !this.refundSigner.isConfigured
-            ? 'no refund signer is configured'
-            : inLookback
-              ? 'the refund reconciler will return it on its next pass'
-              : 'it is older than the reconciler lookback, so nothing automatic will ever see it';
+        const refundAt = Number(refundOpensAt(o));
+        const [tag, why] = !configReadable
+          ? ['config-unknown', 'the Config row could not be read, so whether the reconciler will act is unknown']
+          : !autoRefund
+            ? ['off', 'Config.autoRefund is off']
+            : !this.refundSigner.isConfigured
+              ? ['no-signer', 'no refund signer is configured']
+              : !inLookback
+                ? ['old', 'it is older than the reconciler lookback, so nothing automatic will ever see it']
+                : nowSecs > refundAt + RECONCILER_PERIOD_SECS
+                  ? ['missed', 'the refund instant passed more than one reconciler period ago and the escrow is still funded, so the reconciler did not act']
+                  : ['reconciler', 'the refund reconciler will return it on its next pass'];
         found.push({
           key: `escrow_divergence:${o.id}`,
-          fingerprint: onChain.status,
-          urgency: handled ? 'routine' : 'urgent',
-          text: `order ${o.id} (trade ${o.tradeId}) is ${o.status} off chain but FUNDED on chain: ${why}; refund(${o.tradeId}) is permissionless once the refund instant has passed and returns the USDC to the provider`,
+          fingerprint: `FUNDED:${tag}`,
+          urgency: tag === 'reconciler' ? 'routine' : 'urgent',
+          text: `order ${o.id} (trade ${o.tradeId}) is ${o.status} off chain but FUNDED on chain: ${why}; refund(${o.tradeId}) is permissionless once the refund instant has passed (opens at ${new Date(refundAt * 1000).toISOString()}) and returns the USDC to the usdc_provider, ${o.flow === 'WITHDRAW' ? 'the user' : 'the provider'}`,
         });
         continue;
       }
@@ -372,6 +388,7 @@ export class MaintenanceService {
     const candidates = await this.prisma.order.findMany({
       where: {
         status: { in: ['CANCELLED', 'EXPIRED'] },
+        settlementTxHash: null,
         createdAt: { gt: new Date(Date.now() - ORPHAN_LOOKBACK_MS) },
       },
       select: {
@@ -383,6 +400,7 @@ export class MaintenanceService {
         payDeadline: true,
         confirmDeadline: true,
       },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: AUTO_REFUND_BATCH_SIZE,
     });
 
@@ -414,6 +432,10 @@ export class MaintenanceService {
           continue;
         }
         recovered += 1;
+        await this.prisma.order.updateMany({
+          where: { id: o.id, settlementTxHash: null },
+          data: { settlementTxHash: result.hash, settledAt: new Date() },
+        });
         this.log.log(
           `reconcileOrphanedEscrows: recovered a funded escrow orphaned by a ${o.status} order ${o.id} (hash=${result.hash})`,
         );

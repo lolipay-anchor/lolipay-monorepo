@@ -31,12 +31,22 @@ export async function signSendAndPoll(
   opts.log.log(`${opts.noun} tx submitted (hash=${hash}, status=${sendRes.status})`);
 
   if (sendRes.status === 'ERROR') {
-    throw new Error(`${opts.label}: sendTransaction rejected (hash=${hash})`);
+    const code = txResultCode(sendRes.errorResult);
+    const closed = code === 'txTooLate' ? '; the transaction window has closed' : '';
+    throw new Error(`${opts.label}: sendTransaction rejected (hash=${hash}${code ? `, ${code}` : ''}${closed})`);
   }
 
   const finalStatus = await pollTransaction(opts, hash);
   opts.log.log(`${opts.noun} tx finished (hash=${hash}, status=${finalStatus})`);
   return { status: finalStatus, hash };
+}
+
+function txResultCode(result: unknown): string | undefined {
+  try {
+    return (result as { result: () => { switch: () => { name: string } } }).result().switch().name;
+  } catch {
+    return undefined;
+  }
 }
 
 async function pollTransaction(opts: SignSendPollOptions, hash: string): Promise<string> {
