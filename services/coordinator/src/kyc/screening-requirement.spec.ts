@@ -11,20 +11,20 @@ function sourceFiles(dir: string): string[] {
 }
 
 describe('whether a customer may move funds depends on one predicate that reads KYC_REQUIRE_AML', () => {
-  it('demands a completed screening when AML is required, and a provider delivery when it is not, counting a screening as proof of delivery so a row stamped before the delivery column existed is not revoked', () => {
+  it('demands a completed screening when AML is required, and a provider delivery when it is not, and nothing else under either value', () => {
     expect(acceptedForFunds(true)).toEqual({ status: 'ACCEPTED', screenedAt: { not: null } });
-    expect(acceptedForFunds(false)).toEqual({ status: 'ACCEPTED', OR: [{ deliveredAt: { not: null } }, { screenedAt: { not: null } }] });
+    expect(acceptedForFunds(false)).toEqual({ status: 'ACCEPTED', deliveredAt: { not: null } });
   });
 
   it('answers PROCESSING for exactly the accepted rows the gate would refuse on the row alone', () => {
     const delivered = { status: 'ACCEPTED', screenedAt: null, deliveredAt: new Date() };
     const screened = { status: 'ACCEPTED', screenedAt: new Date(), deliveredAt: new Date() };
-    const screenedBeforeTheStamp = { status: 'ACCEPTED', screenedAt: new Date(), deliveredAt: null };
     const stub = { status: 'ACCEPTED', screenedAt: null, deliveredAt: null };
     expect(awaitingProvider(delivered, true)).toBe(true);
     expect(awaitingProvider(delivered, false)).toBe(false);
     expect(awaitingProvider(screened, true)).toBe(false);
-    expect(awaitingProvider(screenedBeforeTheStamp, false)).toBe(false);
+    expect(awaitingProvider(screened, false)).toBe(false);
+    expect(awaitingProvider(stub, true)).toBe(true);
     expect(awaitingProvider(stub, false)).toBe(true);
     expect(awaitingProvider({ ...stub, status: 'REJECTED' }, false)).toBe(false);
   });

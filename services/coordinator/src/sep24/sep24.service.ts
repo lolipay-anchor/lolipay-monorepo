@@ -121,10 +121,11 @@ export class Sep24Service {
   private async screenedPeople(personIds: string[]): Promise<Set<string>> {
     if (personIds.length === 0) return new Set();
     const rows = await this.prisma.kycVerification.findMany({
-      where: { personId: { in: personIds }, ...acceptedForFunds(this.cfg.kycRequireAml) },
-      select: { personId: true },
+      where: { personId: { in: personIds }, OR: [acceptedForFunds(this.cfg.kycRequireAml), { status: 'REJECTED' }] },
+      select: { personId: true, status: true },
     });
-    return new Set(rows.map((r) => r.personId));
+    const refused = new Set(rows.filter((r) => r.status === 'REJECTED').map((r) => r.personId));
+    return new Set(rows.filter((r) => r.status !== 'REJECTED' && !refused.has(r.personId)).map((r) => r.personId));
   }
 
   private async dress(rows: any[]): Promise<Sep24TransactionJson[]> {

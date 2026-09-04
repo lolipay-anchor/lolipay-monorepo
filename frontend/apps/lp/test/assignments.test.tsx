@@ -430,6 +430,19 @@ describe('AssignmentCard — WITHDRAW (LP pays fiat)', () => {
 
     expect(screen.getByText(/Withheld until the customer finishes identity verification/i)).toBeTruthy()
   })
+
+  it('says nothing about withholding on a FUNDED withdrawal whose customer is verified', () => {
+    render(
+      <TestProviders kit={fakeKit}>
+        <AssignmentCard
+          assignment={{ order: makeOrder({ status: 'FUNDED', flow: 'WITHDRAW' }) }}
+          onRefetch={vi.fn()}
+        />
+      </TestProviders>,
+    )
+
+    expect(screen.queryByText(/Withheld until the customer finishes identity verification/i)).toBeNull()
+  })
 })
 
 describe('AssignmentCard — Open dispute (WITHDRAW FIAT_PAID)', () => {

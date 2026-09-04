@@ -211,4 +211,25 @@ describe('GET /customer tells a caller where their verification stands', () => {
       expect(res.status).toBe(200);
     }
   });
+
+  it('answers a refusal recorded against another subject of the same person, because a refusal belongs to the person and not to the memo it arrived under', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const personId = await personFor(kp.publicKey());
+    await prisma.kycVerification.create({
+      data: { customerRef: kp.publicKey(), personId, status: 'NEEDS_INFO' },
+    });
+    await prisma.kycVerification.create({
+      data: { customerRef: `${kp.publicKey()}:4242`, personId, status: 'REJECTED', rejectionReason: 'sanctions or watchlist match' },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/customer')
+      .set('Authorization', `Bearer ${jwt}`)
+      .expect(200);
+
+    expect(res.body.status).toBe('REJECTED');
+    expect(res.body.message).toBe('sanctions or watchlist match');
+    expect(res.body.fields).toBeUndefined();
+  });
 });

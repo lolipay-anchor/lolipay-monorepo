@@ -58,5 +58,9 @@ export class DiditWebhookController {
       );
     }
     await this.sep12.applyDelivery(conclusion, new Date(sent * 1000));
+    if ((payload as any)?.status === 'Approved' && conclusion.status !== 'ACCEPTED') {
+      this.log.warn(`a delivery the vendor approved was not accepted by this anchor: ${conclusion.status}`);
+      this.refusals.overrule(conclusion.rejectionReason ?? 'its screening could not be read as clean');
+    }
   }
 }

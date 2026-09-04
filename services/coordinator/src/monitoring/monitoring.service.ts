@@ -32,6 +32,7 @@ export const MONITORING_ALERT_SCOPE = [
   'cooldown_below_floor',
   'anchor_identity',
   'didit_deliveries_refused',
+  'didit_approval_overruled',
   'didit_provider_unreachable',
   'didit_deliveries_unauthenticated',
   'didit_budget_exhausted',
@@ -177,6 +178,7 @@ export class MonitoringService {
 
     await this.alerts.raise(MONITORING_ALERT_SCOPE, alerts, incomplete);
     this.diditRefusals.seen();
+    this.diditRefusals.overruleSeen();
   }
 
   async buildAlerts(
@@ -304,6 +306,17 @@ export class MonitoringService {
         text:
           `${refusals.count} identity verification deliveries were refused since the last check ` +
           `— the most recent because ${refusals.lastReason}. While this continues no trade can be opened, in either direction.`,
+      });
+    }
+
+    if (refusals.overruled > 0) {
+      alerts.push({
+        key: 'didit_approval_overruled',
+        fingerprint: refusals.overruledReason ?? 'unknown',
+        urgency: 'urgent',
+        text:
+          `${refusals.overruled} identity verification deliveries the vendor approved were not accepted by this anchor ` +
+          `— the most recent because ${refusals.overruledReason}. Those customers cannot trade until someone reads the delivery.`,
       });
     }
 

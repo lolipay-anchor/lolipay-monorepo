@@ -1,5 +1,7 @@
 import { MonitoringService, MONITORING_ALERT_SCOPE } from './monitoring.service';
 import { DiditRefusalsService } from './didit-refusals.service';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 function rows(prefix: string, n: number) {
   return Array.from({ length: n }, (_, i) => ({
@@ -155,6 +157,16 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     expect(alert.urgency).toBe('urgent');
   });
 
+  it('raises an urgent alert when this anchor did not accept a delivery the vendor approved, because a customer the vendor cleared is now stuck', async () => {
+    const { svc, raised, refusals } = quiet();
+    refusals.overrule('sanctions or watchlist match');
+    await svc.checkAndAlert();
+    const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_approval_overruled');
+    expect(alert).toBeDefined();
+    expect(alert.urgency).toBe('urgent');
+    expect(alert.text).toContain('sanctions or watchlist match');
+  });
+
   it('does not page anyone urgently because a stranger posted to the public endpoint', async () => {
     const { svc, raised, refusals } = quiet();
     refusals.couldNotAuthenticate('signature does not match the bytes that arrived');
@@ -188,5 +200,12 @@ describe('a new alert reaches the operator only if its family is in scope', () =
     expect(MONITORING_ALERT_SCOPE).toContain('didit_budget_exhausted');
     expect(MONITORING_ALERT_SCOPE).toContain('didit_provider_unreachable');
     expect(MONITORING_ALERT_SCOPE).toContain('didit_deliveries_unauthenticated');
+  });
+
+  it('every alert family this service pushes is inside the scope it raises with, so none is filtered out on the way to the webhook', () => {
+    const src = readFileSync(join(__dirname, 'monitoring.service.ts'), 'utf8');
+    const families = [...src.matchAll(/key: ['`]([a-z_]+)/g)].map((m) => m[1]);
+    expect(families.length).toBeGreaterThan(5);
+    for (const family of families) expect(MONITORING_ALERT_SCOPE).toContain(family);
   });
 });

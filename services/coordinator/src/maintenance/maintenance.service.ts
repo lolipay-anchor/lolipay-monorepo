@@ -114,7 +114,7 @@ export class MaintenanceService {
         key: 'escrow_divergence:overflow',
         fingerprint: 'at-limit',
         urgency: 'urgent',
-        text: `at least ${DIVERGENCE_SCAN_LIMIT} cancelled or expired orders are within the divergence window — the scan is truncated and nothing in this family will be reported as cleared until it is not`,
+        text: `at least ${DIVERGENCE_SCAN_LIMIT} cancelled or expired orders were found by the divergence scan, which is truncated there, and nothing in this family will be reported as cleared until it is not`,
       });
     }
     let poolSize = candidates.length;
@@ -158,7 +158,7 @@ export class MaintenanceService {
               : !inLookback
                 ? ['old', 'it is older than the reconciler lookback, so nothing automatic will ever see it']
                 : nowSecs > refundAt + walkPeriods * RECONCILER_PERIOD_SECS
-                  ? ['missed', `the refund instant passed more than ${walkPeriods} reconciler periods ago, longer than a full walk of the pool, and the escrow is still funded, so the reconciler did not act`]
+                  ? ['missed', `the refund instant passed more than ${walkPeriods} reconciler periods ago, more than this alert allows for a walk of the pool, and the escrow is still funded, so the reconciler did not act`]
                   : ['reconciler', 'the refund reconciler will return it on its next pass'];
         found.push({
           key: `escrow_divergence:${o.id}`,

@@ -144,9 +144,6 @@ export class Sep12Service {
       }
       return { status: 'NEEDS_INFO', fields: KYC_FIELD_DESCRIPTORS };
     }
-    if (row.status === 'NEEDS_INFO') {
-      return { id: row.customerRef, status: row.status, fields: KYC_FIELD_DESCRIPTORS };
-    }
     if (row.status === 'REJECTED') {
       return {
         id: row.customerRef,
@@ -154,9 +151,15 @@ export class Sep12Service {
         message: row.rejectionReason ?? 'this identity was refused',
       };
     }
-    const refusedElsewhere = await this.standingRefusal(customerRef);
+    const refusedElsewhere = await this.prisma.kycVerification.findFirst({
+      where: { personId: row.personId, status: 'REJECTED' },
+      select: { rejectionReason: true },
+    });
     if (refusedElsewhere) {
       return { id: row.customerRef, status: 'REJECTED', message: refusedElsewhere.rejectionReason ?? 'this identity was refused' };
+    }
+    if (row.status === 'NEEDS_INFO') {
+      return { id: row.customerRef, status: row.status, fields: KYC_FIELD_DESCRIPTORS };
     }
     if (awaitingProvider(row, this.cfg.kycRequireAml)) {
       return {
@@ -164,8 +167,9 @@ export class Sep12Service {
         status: 'PROCESSING',
         provided_fields: PROVIDED,
         message:
-          'identity checks passed, but this anchor has not yet received the verification result it requires, ' +
-          'so no trade can be opened yet',
+          this.cfg.kycRequireAml
+            ? 'identity checks passed, but the sanctions screening this anchor requires has not been completed, so no trade can be opened yet'
+            : 'identity checks passed, but this anchor has not yet received the verification result from its provider, so no trade can be opened yet',
       };
     }
     return { id: row.customerRef, status: row.status, provided_fields: PROVIDED };

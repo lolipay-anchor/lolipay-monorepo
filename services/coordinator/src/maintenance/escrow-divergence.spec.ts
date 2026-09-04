@@ -143,6 +143,28 @@ describe('an order the chain disagrees about reaches a human', () => {
     expect(where.OR[1]).toEqual({ flow: 'TOP_UP', payDeadline: { lt: where.OR[0].confirmDeadline.lt - 3600n } });
   });
 
+  it('caps the walk allowance at twelve periods however large the pool is, so a pool the reconciler cannot walk in two hours still raises missed instead of trusting it for ever', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const missedAt = now - 13 * RECONCILER_PERIOD_SECS - 30;
+    const stillWalkingAt = now - 11 * RECONCILER_PERIOD_SECS - 30;
+    const { svc, raise } = make({
+      orders: [
+        order({ id: 'o-missed', status: 'EXPIRED', payDeadline: BigInt(missedAt - 3600), confirmDeadline: BigInt(missedAt) }),
+        order({ id: 'o-walking', status: 'EXPIRED', payDeadline: BigInt(stillWalkingAt - 3600), confirmDeadline: BigInt(stillWalkingAt) }),
+      ],
+      poolSize: 100000,
+      onChain: { status: 'FUNDED', settledAt: 0 },
+      autoRefund: true,
+      refundConfigured: true,
+    });
+    await svc.alertOnEscrowDivergence();
+    const found = (raise.mock.calls[0] as any[])[1];
+    const byKey = Object.fromEntries(found.map((f: any) => [f.key, f]));
+    expect(byKey['escrow_divergence:o-missed'].fingerprint).toBe('FUNDED:missed');
+    expect(byKey['escrow_divergence:o-missed'].text).toContain('more than 12 reconciler periods ago');
+    expect(byKey['escrow_divergence:o-walking'].fingerprint).toBe('FUNDED:reconciler');
+  });
+
   it('a wide scan over a small reconciler pool does not stretch the allowance: four hundred never-funded rows in the scan and a pool of one still page a four-hour-old orphan', async () => {
     const now = Math.floor(Date.now() / 1000);
     const refundAt = now - 4 * 3600;

@@ -4,6 +4,7 @@ import { createHmac } from 'crypto';
 import { bootAuthApp, sessionToken } from '../auth/auth-test-helpers';
 import { Keypair } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
+import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 
 const PATH = '/webhooks/didit';
 const now = () => Math.floor(Date.now() / 1000);
@@ -161,6 +162,30 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     expect(row!.screenedAt).not.toBeNull();
     expect(row!.environment).toBe('sandbox');
     expect(row!.personId).not.toBeNull();
+  });
+
+  it('refuses an approval whose screening carried a hit, records the refusal against the person, and counts the overrule for the operator', async () => {
+    const kp = Keypair.random();
+    await sessionToken(app, kp);
+    const before = app.get(DiditRefusalsService).state().overruled;
+
+    const raw = JSON.stringify({
+      event_id: 'e-hit',
+      webhook_type: 'status.updated',
+      timestamp: Math.floor(Date.now() / 1000),
+      session_id: 'sess-live-hit',
+      status: 'Approved',
+      vendor_data: kp.publicKey(),
+      environment: 'sandbox',
+      decision: { aml_screenings: [{ status: 'Approved', total_hits: 1, hits: [{ score: 0.4 }], warnings: [] }] },
+    });
+    await post(raw, signed(raw)).expect(200);
+
+    const row = await prisma.kycVerification.findUnique({ where: { customerRef: kp.publicKey() } });
+    expect(row!.status).toBe('REJECTED');
+    expect(row!.rejectionReason).toBe('sanctions or watchlist match');
+    expect(row!.screenedAt).toBeNull();
+    expect(app.get(DiditRefusalsService).state().overruled).toBe(before + 1);
   });
 
   it('writes nothing at all when the delivery came from another environment', async () => {

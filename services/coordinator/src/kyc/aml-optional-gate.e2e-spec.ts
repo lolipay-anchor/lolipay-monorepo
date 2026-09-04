@@ -110,9 +110,4 @@ describe('with AML optional, only a verification the provider delivered opens th
     await request(app.getHttpServer()).post('/orders').set('Authorization', `Bearer ${jwt}`).send({ quoteId }).expect(201);
   });
 
-  it('an acceptance screened before the delivery stamp existed still opens the gate', async () => {
-    const { jwt, quoteId, address } = await quoteFor();
-    await accepted(address, { deliveredAt: null, screenedAt: new Date() });
-    await request(app.getHttpServer()).post('/orders').set('Authorization', `Bearer ${jwt}`).send({ quoteId }).expect(201);
-  });
 });

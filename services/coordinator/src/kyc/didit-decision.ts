@@ -34,6 +34,10 @@ function cleared(entry: any): boolean {
   return true;
 }
 
+function noScreeningDelivered(payload: any): boolean {
+  return emptyOrAbsent(payload?.decision?.aml_screenings);
+}
+
 function ranAndFoundNothing(payload: any): boolean {
   const list = screenings(payload);
   if (list.length === 0) return false;
@@ -93,7 +97,9 @@ export function readDiditDecision(payload: any, requireAml = true): DiditConclus
     if (foundHits(payload)) {
       return { ...base, status: 'REJECTED', rejectionReason: 'sanctions or watchlist match' };
     }
-    return { ...base, status: 'ACCEPTED', screened: ranAndFoundNothing(payload) };
+    if (noScreeningDelivered(payload)) return { ...base, status: 'ACCEPTED' };
+    if (ranAndFoundNothing(payload)) return { ...base, status: 'ACCEPTED', screened: true };
+    return { ...base, status: 'NEEDS_INFO' };
   }
 
   if (status === 'Declined') {

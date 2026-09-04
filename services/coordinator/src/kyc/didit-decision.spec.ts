@@ -37,12 +37,15 @@ describe('what the anchor concludes from a delivery', () => {
   });
 
   it('does not call a customer screened when the screening could not be performed', () => {
-    expect(readDiditDecision(payload({ decision: { aml_screenings: [unperformed] } })).screened).toBe(false);
+    const res = readDiditDecision(payload({ decision: { aml_screenings: [unperformed] } }));
+    expect(res.screened).toBe(false);
+    expect(res.status).toBe('NEEDS_INFO');
   });
 
   it('does not call a customer screened when any one of several screenings found a hit', () => {
     const res = readDiditDecision(payload({ decision: { aml_screenings: [clean, hit] } }));
     expect(res.screened).toBe(false);
+    expect(res.status).toBe('REJECTED');
   });
 
   it('refuses a customer whose screening carried hits however the vendor weighed them, under either flag, because an approval the anchor cannot call clean must never become a delivered acceptance that AML-optional would let move funds', () => {
@@ -54,7 +57,7 @@ describe('what the anchor concludes from a delivery', () => {
     }
   });
 
-  it('does not refuse an approval whose screening shape is merely unfamiliar, with no hit in it: an unknown warning or a missing total is unscreened, never a sanctions match', () => {
+  it('opens nothing on an approval whose screening shape it cannot read: an unknown warning, a missing total or an empty entry asks the customer again, never a sanctions match and never a delivered acceptance', () => {
     const unfamiliar = [
       { status: 'Approved', total_hits: 0, hits: [], warnings: ['SOME_NEW_BENIGN_WARNING'] },
       { status: 'Approved', hits: [] },
@@ -64,7 +67,7 @@ describe('what the anchor concludes from a delivery', () => {
     for (const entry of unfamiliar) {
       for (const requireAml of [true, false]) {
         const res = readDiditDecision(payload({ decision: { aml_screenings: [entry] } }), requireAml);
-        expect(res.status).toBe('ACCEPTED');
+        expect(res.status).toBe('NEEDS_INFO');
         expect(res.screened).toBe(false);
       }
     }
@@ -78,7 +81,9 @@ describe('what the anchor concludes from a delivery', () => {
     ['warnings carrying anything at all', { status: 'Approved', total_hits: 0, hits: [], warnings: [{ code: 'X' }] }],
     ['hits present despite a zero count', { status: 'Approved', total_hits: 0, hits: [{}], warnings: [] }],
   ])('refuses to read %s as a clean screening', (_n, entry) => {
-    expect(readDiditDecision(payload({ decision: { aml_screenings: [entry] } })).screened).toBe(false);
+    const res = readDiditDecision(payload({ decision: { aml_screenings: [entry] } }));
+    expect(res.screened).toBe(false);
+    expect(res.status).not.toBe('ACCEPTED');
   });
 
   it('does not call a customer screened while a screening is still under review', () => {
