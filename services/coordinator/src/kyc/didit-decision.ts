@@ -55,8 +55,17 @@ function adverse(entry: any): boolean {
   return true;
 }
 
+function hitsPresent(entry: any): boolean {
+  if (typeof entry?.total_hits === 'number' && entry.total_hits > 0) return true;
+  return Array.isArray(entry?.hits) && entry.hits.length > 0;
+}
+
 function foundSomething(payload: any): boolean {
   return screenings(payload).some(adverse);
+}
+
+function foundHits(payload: any): boolean {
+  return screenings(payload).some(hitsPresent);
 }
 
 function couldNotScreen(payload: any): boolean {
@@ -81,7 +90,7 @@ export function readDiditDecision(payload: any, requireAml = true): DiditConclus
   const status: unknown = payload?.status;
 
   if (status === 'Approved') {
-    if (foundSomething(payload)) {
+    if (foundHits(payload)) {
       return { ...base, status: 'REJECTED', rejectionReason: 'sanctions or watchlist match' };
     }
     return { ...base, status: 'ACCEPTED', screened: ranAndFoundNothing(payload) };

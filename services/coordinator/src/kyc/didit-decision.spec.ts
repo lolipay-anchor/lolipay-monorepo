@@ -54,6 +54,22 @@ describe('what the anchor concludes from a delivery', () => {
     }
   });
 
+  it('does not refuse an approval whose screening shape is merely unfamiliar, with no hit in it: an unknown warning or a missing total is unscreened, never a sanctions match', () => {
+    const unfamiliar = [
+      { status: 'Approved', total_hits: 0, hits: [], warnings: ['SOME_NEW_BENIGN_WARNING'] },
+      { status: 'Approved', hits: [] },
+      { status: 'Approved', total_hits: '0', hits: [] },
+      {},
+    ];
+    for (const entry of unfamiliar) {
+      for (const requireAml of [true, false]) {
+        const res = readDiditDecision(payload({ decision: { aml_screenings: [entry] } }), requireAml);
+        expect(res.status).toBe('ACCEPTED');
+        expect(res.screened).toBe(false);
+      }
+    }
+  });
+
   it.each([
     ['an entry with nothing in it at all', {}],
     ['a hit count that is not a number', { status: 'Approved', total_hits: '0', hits: [], warnings: [] }],
