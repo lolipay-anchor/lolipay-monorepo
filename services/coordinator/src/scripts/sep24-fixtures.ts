@@ -8,6 +8,7 @@ import { Server } from '@stellar/stellar-sdk/rpc';
 
 export const MAX_DEMO_FEE_STROOPS = 10_000_000n;
 export const MAX_DEMO_USDC_STROOPS = 1_000_000_000n;
+export const MIN_PLAUSIBLE_IDR_PER_USDC = 10_000n;
 export const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015';
 
 export function sep53Signature(kp: Keypair, nonce: string): string {
@@ -82,6 +83,7 @@ const CREATE_TRADE_PINS = Object.keys({
 
 export function createTradeExpectation(order: FundableOrder, lp: string, demo: string, demoIdr: string): Required<EscrowCallExpectation> {
   const fiatAmount = BigInt(demoIdr.replace(/[^0-9]/g, ''));
+  if (fiatAmount <= 0n) throw new Error(`demo amount "${demoIdr}" carries no rupiah digits; refusing to pin a zero fiat amount`);
   if (BigInt(order.fiat_amount) !== fiatAmount) {
     throw new Error(`assignment ${order.id} quotes fiat_amount ${order.fiat_amount}, not the ${demoIdr} the driver asked for`);
   }
@@ -150,6 +152,9 @@ export function assertEscrowCall(
         }
         if (usdcStroops !== pins.usdcStroops) {
           throw new Error(`create_trade escrows ${usdcStroops} stroops, not the ${pins.usdcStroops} the assignment quoted`);
+        }
+        if (usdcStroops * MIN_PLAUSIBLE_IDR_PER_USDC > pins.fiatAmount * 10_000_000n) {
+          throw new Error(`create_trade escrows ${usdcStroops} stroops against ${pins.fiatAmount} IDR, below ${MIN_PLAUSIBLE_IDR_PER_USDC} IDR per USDC`);
         }
         const fiatAmountArg = args[5];
         if (fiatAmountArg.type !== 'scvI128') throw new Error(`create_trade fiat amount is ${fiatAmountArg.type}, not scvI128`);
@@ -259,6 +264,7 @@ export function assembleSepConfig(input: {
 const API = process.env.SEP24_API ?? 'https://api.lolipay.app';
 const HOME_DOMAIN = process.env.SEP24_HOME_DOMAIN ?? 'lolipay.app';
 const DEMO_IDR = process.env.SEP24_DEMO_IDR ?? '200000';
+const DEMO_IDR_DIGITS = DEMO_IDR.replace(/[^0-9]/g, '');
 const RPC_URL = process.env.STELLAR_RPC_URL ?? 'https://soroban-testnet.stellar.org';
 const HEARTBEAT_MS = 30_000;
 const POLL_MS = 5_000;
@@ -505,14 +511,22 @@ async function signAndSubmit(
   throw new Error(`transaction ${sent.hash} not confirmed within ${POLL_LIMIT_MS / 1000}s`);
 }
 
-async function waitForSep24(demoSep10: () => Promise<string>, id: string, status: string): Promise<{ status: string; stellar_transaction_id: string | null }> {
+async function waitForSep24(
+  demoSep10: () => Promise<string>,
+  id: string,
+  status: string,
+  amountIn: string,
+): Promise<{ status: string; stellar_transaction_id: string | null; amount_in: string | null }> {
   const until = Date.now() + POLL_LIMIT_MS;
   while (Date.now() < until) {
-    const { transaction } = await json<{ transaction: { status: string; stellar_transaction_id: string | null } }>(
+    const { transaction } = await json<{ transaction: { status: string; stellar_transaction_id: string | null; amount_in: string | null } }>(
       await fetch(`${API}/sep24/transaction?id=${id}`, { headers: bearer(await demoSep10()) }),
       'sep24/transaction',
     );
-    if (transaction.status === status) return transaction;
+    if (transaction.status === status) {
+      if (transaction.amount_in !== amountIn) throw new Error(`transaction ${id} records amount_in ${transaction.amount_in}, not the ${amountIn} the driver asked for`);
+      return transaction;
+    }
     await new Promise((r) => setTimeout(r, POLL_MS));
   }
   throw new Error(`transaction ${id} did not reach ${status} within ${POLL_LIMIT_MS / 1000}s`);
@@ -542,7 +556,7 @@ async function depositToFunded(a: Actors) {
     createTradeExpectation(order, a.lp.publicKey(), a.demo.publicKey(), DEMO_IDR),
   );
   console.log(`  escrow funded by the provider: ${funded.hash} (trade ${funded.tradeIdHex})`);
-  await waitForSep24(a.demoSep10, id, 'pending_user_transfer_start');
+  await waitForSep24(a.demoSep10, id, 'pending_user_transfer_start', DEMO_IDR_DIGITS);
   const refundsAt = new Date(
     Number(refundOpensAt({ flow: 'TOP_UP', payDeadline: BigInt(order.pay_deadline), confirmDeadline: BigInt(order.confirm_deadline) })) * 1000,
   ).toISOString();
@@ -590,10 +604,10 @@ async function main(): Promise<void> {
       })
     ).hash;
     console.log(`  escrow released by the provider: ${released}`);
-    let done = await waitForSep24(a.demoSep10, first.id, 'completed');
+    let done = await waitForSep24(a.demoSep10, first.id, 'completed', DEMO_IDR_DIGITS);
     for (let i = 0; i < 6 && !done.stellar_transaction_id; i++) {
       await new Promise((r) => setTimeout(r, POLL_MS));
-      done = await waitForSep24(a.demoSep10, first.id, 'completed');
+      done = await waitForSep24(a.demoSep10, first.id, 'completed', DEMO_IDR_DIGITS);
     }
     const hash = done.stellar_transaction_id;
     if (!hash) throw new Error(`deposit ${first.id} is completed but carries no stellar_transaction_id`);

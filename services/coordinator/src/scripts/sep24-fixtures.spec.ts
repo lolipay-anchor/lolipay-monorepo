@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import {
   MAX_DEMO_FEE_STROOPS,
   MAX_DEMO_USDC_STROOPS,
+  MIN_PLAUSIBLE_IDR_PER_USDC,
   TESTNET_PASSPHRASE,
   assembleSepConfig,
   createTradeExpectation,
@@ -151,7 +152,10 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(() => assertEscrowCall(create(other, demo), lp, ESCROW, 'create_trade', want)).toThrow(/provider/);
     expect(() => assertEscrowCall(create(lp, demo, other), lp, ESCROW, 'create_trade', want)).toThrow(/pays the LP fee to/);
     expect(() => assertEscrowCall(create(lp, demo, lp, i128(1_000_000_001n)), lp, ESCROW, 'create_trade', want)).toThrow(/above the demo ceiling/);
-    expect(assertEscrowCall(create(lp, demo, lp, i128(1_000_000_000n)), lp, ESCROW, 'create_trade', { ...want, usdcStroops: 1_000_000_000n })).toBe(TRADE);
+    expect(() => assertEscrowCall(create(lp, demo, lp, i128(1_000_000_000n)), lp, ESCROW, 'create_trade', { ...want, usdcStroops: 1_000_000_000n })).toThrow(/below 10000 IDR per USDC/);
+    expect(
+      assertEscrowCall(create(lp, demo, lp, i128(1_000_000_000n), TRADE, u32(0), u64(PAY), u64(CONFIRM), i128(1_000_000n)), lp, ESCROW, 'create_trade', { ...want, usdcStroops: 1_000_000_000n, fiatAmount: 1_000_000n }),
+    ).toBe(TRADE);
     expect(() => assertEscrowCall(create(lp, demo, lp, i128(124_000_000n)), lp, ESCROW, 'create_trade', want)).toThrow(/the assignment quoted/);
     expect(() => assertEscrowCall(create(lp, demo, lp, i128(-5n)), lp, ESCROW, 'create_trade', want)).toThrow(/not positive/);
     expect(() => assertEscrowCall(create(lp, demo, lp, i128(0n)), lp, ESCROW, 'create_trade', want)).toThrow(/not positive/);
@@ -172,6 +176,10 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, lpWallet: '' })).toThrow(/pays the LP fee to/);
     expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, fiatCurrency: '' })).toThrow(/fiat_currency IDR is not the /);
     expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, lpFeeBps: 0 })).toThrow(/lp_fee_bps 20 is not the 0 /);
+    expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, usdcStroops: 0n })).toThrow(/not the 0 the assignment quoted/);
+    expect(() => assertEscrowCall(create(lp, demo), lp, ESCROW, 'create_trade', { ...want, fiatAmount: 0n })).toThrow(/below 10000 IDR per USDC/);
+    expect(() => assertEscrowCall(create(lp, demo, lp, i128(250_000_000n)), lp, ESCROW, 'create_trade', { ...want, usdcStroops: 250_000_000n })).toThrow(/escrows 250000000 stroops against 200000 IDR, below 10000 IDR per USDC/);
+    expect(assertEscrowCall(create(lp, demo, lp, i128(200_000_000n)), lp, ESCROW, 'create_trade', { ...want, usdcStroops: 200_000_000n })).toBe(TRADE);
     expect(() => assertEscrowCall(create(lp, demo, lp, A, TRADE, u32(0), u64(PAY), u64(CONFIRM), i128(FIAT + 1n)), lp, ESCROW, 'create_trade', want)).toThrow(/fiat_amount .* the assignment quoted/);
     expect(() => assertEscrowCall(create(lp, demo, lp, A, TRADE, u32(0), u64(PAY), u64(CONFIRM), u32(200_000)), lp, ESCROW, 'create_trade', want)).toThrow(/fiat amount is scvU32/);
     expect(() => assertEscrowCall(create(lp, demo, lp, A, TRADE, u32(0), u64(PAY), u64(CONFIRM), i128(FIAT), sym('USD')), lp, ESCROW, 'create_trade', want)).toThrow(/fiat_currency .* the assignment quoted/);
@@ -220,7 +228,7 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(() => pickFreshOrder([{ ...fresh, trade_id: null, confirm_deadline: null }], me, t0)).toThrow(/carries no trade_id, confirm_deadline;/);
   });
 
-  it('builds the create_trade expectation from the assignment with every pin present, so the call site cannot drop one silently', () => {
+  it('builds the create_trade expectation with every pin present and refuses an assignment that quotes a different rupiah amount than the driver asked for', () => {
     const lp = kp.publicKey();
     const demo = Keypair.random().publicKey();
     const order = {
@@ -243,11 +251,13 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     });
     expect(() => createTradeExpectation({ ...order, fiat_amount: '999' }, lp, demo, '200000')).toThrow(/quotes fiat_amount 999, not the 200000/);
     expect(createTradeExpectation({ ...order, fiat_amount: '250000' }, lp, demo, '250,000').fiatAmount).toBe(250_000n);
+    expect(() => createTradeExpectation({ ...order, fiat_amount: '0' }, lp, demo, 'abc')).toThrow(/carries no rupiah digits/);
   });
 
-  it('holds the two ceilings that bound a compromised coordinator at 100 USDC and 1 XLM, so changing either is a decision with a test to edit', () => {
+  it('holds the ceilings that bound a compromised coordinator, 100 USDC, 1 XLM and 10,000 IDR per USDC, so changing any is a decision with a test to edit', () => {
     expect(MAX_DEMO_USDC_STROOPS).toBe(1_000_000_000n);
     expect(MAX_DEMO_FEE_STROOPS).toBe(10_000_000n);
+    expect(MIN_PLAUSIBLE_IDR_PER_USDC).toBe(10_000n);
   });
 
   it('assembles a deposit-only config and places the secret exactly once', () => {
