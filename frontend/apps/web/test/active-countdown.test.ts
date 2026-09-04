@@ -13,9 +13,14 @@ describe('the countdown a user sees never counts to an instant nothing enforces 
     expect(activeCountdown({ ...base, status: 'FIAT_PAID' })).toBeNull()
   })
 
-  it('still counts the lock window at MATCHED, which expires_at now measures exactly', () => {
-    const cd = activeCountdown({ ...base, status: 'MATCHED' })
+  it('counts the lock window at MATCHED to sign_by, the instant the coordinator stops accepting the signature, a minute before expires_at', () => {
+    const cd = activeCountdown({ ...base, status: 'MATCHED', sign_by: 3_999_999_340 })
     expect(cd?.label).toBe('Lock within')
+    expect(cd?.deadline).toBe(3_999_999_340)
+  })
+
+  it('falls back to expires_at for an order the coordinator serialised before sign_by existed', () => {
+    const cd = activeCountdown({ ...base, status: 'MATCHED' })
     expect(cd?.deadline).toBe(Math.floor(new Date(base.expires_at).getTime() / 1000))
   })
 

@@ -17,6 +17,7 @@ export interface Quote {
   platform_fee_bps: number
   lp_fee_bps: number
   expires_at: string
+  sign_by?: number
 }
 
 export interface Order {
@@ -38,6 +39,7 @@ export interface Order {
   confirm_deadline: number
   dispute_deadline: number
   expires_at: string
+  sign_by?: number
   created_at: string
   payment_instructions?: string
   lp_reputation?: LpReputation

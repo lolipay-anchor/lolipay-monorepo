@@ -56,6 +56,7 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
 })
 
 const { BuyForm } = await import('@/components/BuyForm')
+const apiClient = await import('@lolipay/api-client')
 
 describe('BuyForm', () => {
   beforeEach(() => {
@@ -178,6 +179,31 @@ describe('BuyForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(screen.queryByText('Review order')).toBeNull()
     expect(mockCreateOrder).not.toHaveBeenCalled()
+  })
+})
+
+describe('BuyForm — an unreadable rate from the server', () => {
+  beforeEach(() => {
+    queryClient.clear()
+    mockCreateOrder.mockClear()
+    mockGetMyProfile.mockReset()
+    mockGetMyProfile.mockResolvedValue(undefined as unknown as never)
+  })
+
+  it('renders, asks for no quote and keeps Continue disabled when the rate is 0, instead of crashing on BigInt', async () => {
+    vi.mocked(apiClient.getRate).mockResolvedValueOnce({ rate: '0', source: 'test', fetched_at: new Date().toISOString() } as never)
+    render(
+      <TestProviders>
+        <BuyForm />
+      </TestProviders>,
+    )
+
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: '1624000' } })
+
+    await new Promise((r) => setTimeout(r, 600))
+    expect(screen.queryByText(/1 USDC = Rp/)).toBeNull()
+    expect(screen.getByRole('textbox')).toBeTruthy()
   })
 })
 

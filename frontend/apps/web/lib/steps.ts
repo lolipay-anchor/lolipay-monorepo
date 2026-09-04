@@ -86,13 +86,16 @@ export function activeCountdown(order: {
   pay_deadline: number
   confirm_deadline: number
   expires_at: string
+  sign_by?: number
 }): { deadline: number; label: string } | null {
   const lpPaysFiat = order.flow !== 'TOP_UP'
   switch (order.status) {
     case 'MATCHED':
     case 'AWAITING_ONCHAIN':
-
-      return { deadline: Math.floor(new Date(order.expires_at).getTime() / 1000), label: 'Lock within' }
+      return {
+        deadline: order.sign_by ?? Math.floor(new Date(order.expires_at).getTime() / 1000),
+        label: 'Lock within',
+      }
     case 'FUNDED':
 
       return {

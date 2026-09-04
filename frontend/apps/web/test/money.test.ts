@@ -43,8 +43,10 @@ describe('usdcBaseUnitsFor turns a rupiah amount into USDC base units without ev
     expect(usdcBaseUnitsFor(1e18, 1)).toBe('0')
   })
 
-  it('answers 0 for a zero, negative or unreadable rate rather than dividing by it', () => {
+  it('answers 0 for a zero, negative or unreadable rate rather than dividing by it, and for a negative amount', () => {
     expect(usdcBaseUnitsFor(1624000, 0)).toBe('0')
+    expect(usdcBaseUnitsFor(1624000, -16000)).toBe('0')
     expect(usdcBaseUnitsFor(1624000, Number.NaN)).toBe('0')
+    expect(usdcBaseUnitsFor(-5000, 16000)).toBe('0')
   })
 })
