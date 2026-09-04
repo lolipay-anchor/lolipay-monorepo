@@ -79,3 +79,30 @@ export function stepsFor(status: OrderStatus, flow: Flow = 'TOP_UP'): Step[] {
     return { label, state }
   })
 }
+
+export function activeCountdown(order: {
+  status: OrderStatus
+  flow: string
+  pay_deadline: number
+  confirm_deadline: number
+  expires_at: string
+}): { deadline: number; label: string } | null {
+  const lpPaysFiat = order.flow !== 'TOP_UP'
+  switch (order.status) {
+    case 'MATCHED':
+    case 'AWAITING_ONCHAIN':
+
+      return { deadline: Math.floor(new Date(order.expires_at).getTime() / 1000), label: 'Lock within' }
+    case 'FUNDED':
+
+      return {
+        deadline: lpPaysFiat ? order.confirm_deadline : order.pay_deadline,
+        label: lpPaysFiat ? 'Merchant pays within' : 'Pay within',
+      }
+    case 'FIAT_PAID':
+      if (lpPaysFiat) return null
+      return { deadline: order.confirm_deadline, label: 'Merchant releases within' }
+    default:
+      return null
+  }
+}

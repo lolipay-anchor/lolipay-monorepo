@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { Lock, ShieldCheck } from 'lucide-react'
 import type { Quote } from '@lolipay/api-client'
-import { formatIDR, formatUSDC, parseIDRInput } from '@/lib/money'
+import { formatIDR, formatUSDC, parseIDRInput, idrInputAccepted, IDR_INPUT_REFUSAL } from '@/lib/money'
 import { QuoteBreakdown } from '@/components/QuoteBreakdown'
 import { ReviewSheet, formatMMSS } from '@/components/ReviewSheet'
 import { TrustlineNotice } from '@/components/TrustlineNotice'
@@ -131,8 +131,14 @@ export function BuyForm() {
               placeholder="0"
               value={rawIDR}
               onChange={(e) => setRawIDR(e.target.value)}
+              aria-invalid={rawIDR.trim() !== '' && !idrInputAccepted(rawIDR)}
             />
           </div>
+          {rawIDR.trim() !== '' && !idrInputAccepted(rawIDR) && (
+            <p className="mt-1.5 text-xs text-lp-danger" role="alert">
+              {IDR_INPUT_REFUSAL}
+            </p>
+          )}
           {}
           {quote && (
             <p className="mt-1.5 text-xs text-lp-muted">

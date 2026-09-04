@@ -85,6 +85,22 @@ describe('BuyForm', () => {
     expect(screen.getAllByText(/USDC/).length).toBeGreaterThan(0)
   })
 
+  it('refuses an amount with a comma or a fraction, says why beside the field, and asks for no quote', async () => {
+    render(
+      <TestProviders>
+        <BuyForm />
+      </TestProviders>,
+    )
+
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: '200000,50' } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toMatch(/plain digits/i)
+    })
+    expect(screen.queryByText(/1 USDC = Rp/)).toBeNull()
+  })
+
   it('shows only the total — no itemized fee line — while the net still renders', async () => {
     render(
       <TestProviders>
