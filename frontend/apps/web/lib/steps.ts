@@ -82,7 +82,7 @@ export function stepsFor(status: OrderStatus, flow: Flow = 'TOP_UP'): Step[] {
 
 export function activeCountdown(order: {
   status: OrderStatus
-  flow: string
+  flow: Flow
   pay_deadline: number
   confirm_deadline: number
   expires_at: string

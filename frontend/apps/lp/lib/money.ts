@@ -9,10 +9,6 @@ export function formatUSDC(baseUnits: bigint, decimals = 7): string {
   return `${whole}.${frac.toString().padStart(2, '0')}`
 }
 
-export function parseIDRInput(s: string): number {
-  const digits = s.replace(/[^0-9]/g, '')
-  return digits ? parseInt(digits, 10) : 0
-}
 
 export function formatUsdcNumber(n: number): string {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })

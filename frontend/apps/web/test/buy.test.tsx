@@ -93,12 +93,16 @@ describe('BuyForm', () => {
     )
 
     const input = screen.getByRole('textbox')
-    fireEvent.change(input, { target: { value: '200000,50' } })
+    fireEvent.change(input, { target: { value: '1624000' } })
+    await waitFor(() => expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy(), { timeout: 2000 })
+
+    fireEvent.change(input, { target: { value: '1624000,50' } })
 
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toMatch(/plain digits/i)
     })
-    expect(screen.queryByText(/1 USDC = Rp/)).toBeNull()
+    await waitFor(() => expect(screen.queryByText(/1 USDC = Rp/)).toBeNull(), { timeout: 2000 })
+    expect(input.getAttribute('aria-describedby')).toBe(screen.getByRole('alert').id)
   })
 
   it('shows only the total — no itemized fee line — while the net still renders', async () => {

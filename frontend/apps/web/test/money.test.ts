@@ -23,6 +23,12 @@ describe('money', () => {
   it('accepts the two forms an Indonesian types', () => {
     expect(idrInputAccepted('200000')).toBe(true)
     expect(idrInputAccepted('Rp 200.000')).toBe(true)
+  })
+
+  it('refuses an empty field and more than eighteen digits, the bound the anchor applies, so the quote arithmetic never sees a number it cannot hold', () => {
     expect(idrInputAccepted('')).toBe(false)
+    expect(idrInputAccepted('9'.repeat(19))).toBe(false)
+    expect(parseIDRInput('9'.repeat(19))).toBe(0)
+    expect(idrInputAccepted('9'.repeat(18))).toBe(true)
   })
 })

@@ -44,6 +44,7 @@ export function BuyForm() {
   const [reviewed, setReviewed] = React.useState<ReviewedQuote | undefined>(undefined)
 
   const idrAmount = parseIDRInput(rawIDR)
+  const refused = rawIDR.trim() !== '' && !idrInputAccepted(rawIDR)
   const { quote, usdcAmount, secondsLeft, expired } = useQuote(idrAmount)
   const { submit, isPending, error } = useCreateOrder()
 
@@ -131,11 +132,12 @@ export function BuyForm() {
               placeholder="0"
               value={rawIDR}
               onChange={(e) => setRawIDR(e.target.value)}
-              aria-invalid={rawIDR.trim() !== '' && !idrInputAccepted(rawIDR)}
+              aria-invalid={refused}
+              aria-describedby={refused ? 'buy-idr-refusal' : undefined}
             />
           </div>
-          {rawIDR.trim() !== '' && !idrInputAccepted(rawIDR) && (
-            <p className="mt-1.5 text-xs text-lp-danger" role="alert">
+          {refused && (
+            <p id="buy-idr-refusal" className="mt-1.5 text-xs text-lp-danger" role="alert">
               {IDR_INPUT_REFUSAL}
             </p>
           )}

@@ -25,7 +25,7 @@ import { DarkHeroCard, StatusPill, Stepper, Countdown, HoldToRelease, SkeletonLi
 import { client } from '@/lib/client'
 import { formatIDR, formatUSDC } from '@/lib/money'
 import { stepsFor, isTerminal, activeCountdown } from '@/lib/steps'
-import type { OrderStatus as OrderStatusType, Flow } from '@lolipay/api-client'
+import type { Flow } from '@lolipay/api-client'
 import { pillFor } from '@/lib/format'
 import { IvePaidSheet } from '@/components/IvePaidSheet'
 import { EscrowLocked } from '@/components/EscrowLocked'

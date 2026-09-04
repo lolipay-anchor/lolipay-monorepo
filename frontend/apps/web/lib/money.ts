@@ -13,7 +13,8 @@ export const IDR_INPUT_REFUSAL =
   'Write the amount in plain digits, for example 200000, or with dots as thousands separators, for example 200.000. Commas, fractions and other symbols are refused because they could mean two different amounts.'
 
 export function idrInputAccepted(s: string): boolean {
-  return IDR_INPUT_RE.test(s.trim())
+  const t = s.trim()
+  return IDR_INPUT_RE.test(t) && t.replace(/[^0-9]/g, '').length <= 18
 }
 
 export function parseIDRInput(s: string): number {
