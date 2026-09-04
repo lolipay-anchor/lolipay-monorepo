@@ -65,6 +65,9 @@ describe('the interactive error page tells the operator about the failures it hi
     expect(line).toContain('POST /sep24/interactive/abc/amount');
     expect(line).toContain("TypeError: Cannot read properties of undefined (reading 'fiat_amount')");
     expect(line).not.toContain('S_SHOULD_NEVER_BE_LOGGED');
+    const long = new Error('x'.repeat(5000));
+    new InteractiveErrorFilter().catch(long, host);
+    expect(String(told.mock.calls[1][0]).length).toBeLessThanOrEqual(1024);
   });
 
   it('stays quiet for an HTTP refusal, which is the user being told no, not a failure', () => {

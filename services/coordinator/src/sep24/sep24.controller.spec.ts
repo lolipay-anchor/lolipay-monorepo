@@ -16,8 +16,9 @@ describe('the interactive routes survive a request whose body no parser produced
 
   it('hands an absent body to the amount step as absent fields, instead of throwing before any check runs', async () => {
     const { controller, sep24, res } = build();
-    const req: any = { headers: {}, cookies: {}, get: () => undefined };
+    const req: any = { headers: {} };
     await controller.amount(req, 'tx-1', undefined as any, res);
-    expect(sep24.submitAmount).toHaveBeenCalledWith('tx-1', expect.any(String), undefined, undefined);
+    expect(sep24.submitAmount).toHaveBeenCalledWith('tx-1', '', undefined, undefined);
+    expect(res.redirect).toHaveBeenCalledWith(302, '/sep24/interactive/tx-1');
   });
 });

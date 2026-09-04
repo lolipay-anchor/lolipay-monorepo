@@ -12,7 +12,7 @@ export class InteractiveErrorFilter implements ExceptionFilter {
     const req = http.getRequest<Request>();
     if (!(exception instanceof HttpException)) {
       const what = exception instanceof Error ? `${exception.name}: ${exception.message}` : String(exception);
-      this.log.error(`${req.method ?? '?'} ${req.path ?? '?'} could not continue: ${what}`);
+      this.log.error(`${req.method} ${req.path} could not continue: ${what}`.slice(0, 1024));
     }
 
     const status =

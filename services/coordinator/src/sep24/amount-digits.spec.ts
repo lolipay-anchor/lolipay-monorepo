@@ -71,6 +71,7 @@ describe('the amount step reads rupiah the way an Indonesian types it', () => {
     const token = mintInteractiveToken(refused.cfg, 'tx-1', 'GABC');
     await expect(refused.svc.submitAmount('tx-1', token, '200000', { toString: 'x' } as any)).rejects.toThrow(/bank account/);
     await expect(refused.svc.submitAmount('tx-1', token, '200000', ['BCA 1', 'BCA 2'] as any)).rejects.toThrow(/bank account/);
+    await expect(refused.svc.submitAmount('tx-1', token, '200000', undefined)).rejects.toThrow(/bank account/);
     expect(refused.rate.createQuote).not.toHaveBeenCalled();
     const honest = harness('WITHDRAW');
     await honest.svc.submitAmount('tx-1', mintInteractiveToken(honest.cfg, 'tx-1', 'GABC'), '200000', 'BCA 1234567890');

@@ -170,10 +170,10 @@ export class Sep24Service {
   async openInteractive(
     subject: string,
     personId: string,
-    body: Record<string, unknown>,
+    body: Record<string, unknown> = {},
     flow: 'TOP_UP' | 'WITHDRAW' = 'TOP_UP',
   ) {
-    const assetCode = body?.asset_code;
+    const assetCode = body.asset_code;
     if (typeof assetCode !== 'string' || assetCode.length === 0) {
       throw new BadRequestException('asset_code is required');
     }
