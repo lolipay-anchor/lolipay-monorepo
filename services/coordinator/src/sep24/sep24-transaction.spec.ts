@@ -202,8 +202,16 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       expect(wd.message).not.toMatch(/open the withdrawal page and sign/i);
       const dep = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', ...past }) }), BASE);
       expect(dep.user_action_required_by).toBe('2001-09-09T01:46:40.000Z');
-      expect(dep.message).toMatch(/time to send the rupiah has passed/i);
+      expect(dep.message).toMatch(/can now return the escrow to them/i);
       expect(dep.message).not.toMatch(/^send the rupiah/i);
+    });
+
+    it('between the send-by instant and the refund instant a deposit is told not to start a transfer, but that one already sent can still be confirmed, because the attestor has an hour of grace', () => {
+      const now = Math.floor(Date.now() / 1000);
+      const dep = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', payDeadline: BigInt(now - 600), confirmDeadline: BigInt(now + 1200) }) }), BASE);
+      expect(dep.message).toMatch(/time to send the rupiah has passed/i);
+      expect(dep.message).toMatch(/can still be confirmed/i);
+      expect(dep.message).not.toMatch(/can now return/i);
     });
 
     it('on a deposit at FUNDED it is the pay deadline, the user\'s send-by, the same instant the instructions page prints and monitoring calls overdue', () => {

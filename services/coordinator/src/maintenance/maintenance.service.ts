@@ -56,6 +56,8 @@ export class MaintenanceService {
   }
 
   private async run_alertOnEscrowDivergence(): Promise<void> {
+    const config = await this.prisma.config.findUnique({ where: { id: 1 } });
+    const reconcilerWillAct = Boolean(config?.autoRefund) && this.refundSigner.isConfigured;
     let candidates: { id: string; tradeId: string; contractId: string | null; status: string }[];
     try {
       candidates = await this.prisma.order.findMany({
@@ -91,7 +93,8 @@ export class MaintenanceService {
         continue;
       }
       if (!onChain) continue;
-      if (onChain.status === 'FUNDED' || onChain.status === 'REFUNDED') continue;
+      if (onChain.status === 'REFUNDED') continue;
+      if (onChain.status === 'FUNDED' && reconcilerWillAct) continue;
       found.push({
         key: `escrow_divergence:${o.id}`,
         fingerprint: onChain.status,

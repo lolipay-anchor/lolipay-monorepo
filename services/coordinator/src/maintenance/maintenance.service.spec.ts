@@ -98,7 +98,7 @@ describe('MaintenanceService', () => {
     expect(prisma.order.updateMany).not.toHaveBeenCalled();
   });
 
-  it('sweeps a full minute behind the signing cut-off, so a signature the ledger accepted in the last second is never marked EXPIRED before the RPC has seen it', async () => {
+  it('sweeps a full minute behind the order expiry, the contract instant, so a signature the ledger accepted in the last second is never marked EXPIRED before the RPC has seen it', async () => {
     const { svc, prisma, stellar } = make(null);
     const T = 1_800_000_000_000;
     stellar.latestLedgerCloseTime.mockResolvedValue(new Date(T));

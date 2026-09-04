@@ -15,9 +15,10 @@ function restoreEnv() {
 }
 
 describe.each([
-  ['a refund signer configured', Keypair.random().secret(), /does it for you/i, /will not do it for you/i],
-  ['no refund signer', '', /will not do it for you/i, /does it for you/i],
-])('the signing screen promises an automatic refund only when this deployment can deliver one: with %s', (_label, secret, expected, forbidden) => {
+  ['a refund signer configured and auto-refund on', Keypair.random().secret(), true, /does it for you/i, /will not do it for you/i],
+  ['no refund signer', '', true, /will not do it for you/i, /does it for you/i],
+  ['a refund signer configured but auto-refund switched off', Keypair.random().secret(), false, /will not do it for you/i, /does it for you/i],
+])('the signing screen promises an automatic refund only when this deployment can deliver one: with %s', (_label, secret, autoRefund, expected, forbidden) => {
   let app: INestApplication;
   let prisma: PrismaService;
 
@@ -26,9 +27,11 @@ describe.each([
     process.env.REFUND_SIGNER_SECRET = secret;
     app = await bootAuthApp();
     prisma = app.get(PrismaService);
+    await prisma.config.update({ where: { id: 1 }, data: { autoRefund } });
   });
 
   afterAll(async () => {
+    await prisma.config.update({ where: { id: 1 }, data: { autoRefund: true } });
     restoreEnv();
     await app.close();
   });

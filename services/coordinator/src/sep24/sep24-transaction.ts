@@ -3,6 +3,7 @@ import { accountOf } from '../sep10/account-signers.service';
 import { baseUnitsToUsdcString, splitFees } from '../money/money';
 import { sep24Status, Sep24Status } from './sep24-status';
 import { signingCutoffSecs } from '../config/contract-limits';
+import { refundOpensAt } from '../order/dispute.util';
 
 export interface Sep24Order {
   status: OrderStatus;
@@ -128,12 +129,16 @@ function userAction(withdrawing: boolean, order: Sep24Order): { by?: bigint; mes
     return null;
   }
   if (order.status === 'FUNDED') {
+    const now = Date.now();
+    const refundAt = Number(refundOpensAt({ flow: 'TOP_UP', payDeadline: order.payDeadline, confirmDeadline: order.confirmDeadline })) * 1000;
     return {
       by: order.payDeadline,
       message:
-        Number(order.payDeadline) * 1000 > Date.now()
+        Number(order.payDeadline) * 1000 > now
           ? 'Send the rupiah to the provider account shown on the deposit page you opened from your wallet.'
-          : 'The time to send the rupiah has passed. Do not send it now; the escrow will be refunded to the provider.',
+          : refundAt > now
+            ? `The time to send the rupiah has passed. Do not start a transfer now. One you already sent can still be confirmed by the anchor until ${new Date(refundAt).toISOString()}; after that anyone, including the provider, can return the escrow to them.`
+            : 'The time to send the rupiah has passed. Do not send it now; anyone, including the provider, can now return the escrow to them.',
     };
   }
   return null;

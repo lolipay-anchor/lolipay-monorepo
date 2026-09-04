@@ -359,6 +359,8 @@ export class Sep24Service {
       const funding = screen === 'sign_funding';
       const o = row.order as any;
       const signBy = funding ? new Date(signingCutoffSecs(Number(o.payDeadline)) * 1000) : null;
+      const config = funding ? await this.prisma.config.findUnique({ where: { id: 1 } }) : null;
+      const anchorRefunds = Boolean(config?.autoRefund) && this.refundSigner.isConfigured;
       if (signBy && signBy.getTime() <= Date.now()) {
         return page(
           'This signing window has closed',
@@ -371,7 +373,7 @@ export class Sep24Service {
           funding
             ? [
                 `<p>Your wallet will ask you to approve moving <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC into escrow. The provider then pays <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to your bank account, and the escrow releases to them when you confirm it arrived. Nothing leaves your wallet until you approve it.</p>`,
-                `<p>If the provider never marks the rupiah sent, anyone, including you, can take the USDC back out of the escrow after <strong>${escapeHtml(new Date(Number(refundOpensAt(o)) * 1000).toISOString())}</strong>${this.refundSigner.isConfigured ? ', and this anchor\'s refund service does it for you' : '; this anchor will not do it for you, so the route is open on chain to anyone, including you'}. Once they do mark it sent, only your confirmation or a dispute can move it, decided by the resolver, or by the platform if the resolver does not act within ${RESOLVER_WINDOW_SECS / 3600} hours.</p>`,
+                `<p>If the provider never marks the rupiah sent, anyone, including you, can take the USDC back out of the escrow after <strong>${escapeHtml(new Date(Number(refundOpensAt(o)) * 1000).toISOString())}</strong>${anchorRefunds ? ', and this anchor\'s refund service does it for you' : '; this anchor will not do it for you, so the route is open on chain to anyone, including you'}. Once they do mark it sent, only your confirmation or a dispute can move it, decided by the resolver, or by the platform if the resolver does not act within ${RESOLVER_WINDOW_SECS / 3600} hours.</p>`,
                 `<p>Sign before <strong>${escapeHtml(signBy!.toISOString())}</strong>. After that the escrow refuses the signature and this withdrawal expires.</p>`,
               ].join('')
             : [
@@ -395,7 +397,7 @@ export class Sep24Service {
           `<pre>${escapeHtml(o.lpPaymentDetails ?? 'your provider will be shown here')}</pre>`,
           `<p>Reference: <strong>${escapeHtml(o.ref ?? '')}</strong></p>`,
           due
-            ? `<p><strong>Send it before ${escapeHtml(due)}.</strong> After that the escrow returns the USDC to the provider and your transfer cannot be matched.</p>`
+            ? `<p><strong>Send it before ${escapeHtml(due)}.</strong> After that a new transfer cannot be matched; one already sent can still be confirmed until <strong>${escapeHtml(new Date(Number(refundOpensAt(o)) * 1000).toISOString())}</strong>, when the escrow returns the USDC to the provider.</p>`
             : '',
           '<p>You may close this window. Your wallet will show the deposit once it settles.</p>',
         ].join(''),

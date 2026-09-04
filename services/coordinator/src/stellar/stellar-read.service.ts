@@ -36,6 +36,7 @@ export interface BuildCreateTradeTxParams {
 }
 import { Api, Server } from '@stellar/stellar-sdk/rpc';
 import { AppConfigService } from '../config/app-config.service';
+import { signingDeadlineSecs } from '../config/contract-limits';
 import { TradeOnChain } from './stellar-read.types';
 
 export { TradeOnChain } from './stellar-read.types';
@@ -344,7 +345,7 @@ export class StellarReadService {
           ],
         }),
       )
-      .setTimeout(300)
+      .setTimebounds(0, Math.max(1, Math.min(Math.floor(Date.now() / 1000) + 300, signingDeadlineSecs(Number(params.payDeadline)))))
       .build();
 
     let preparedTx;
@@ -717,8 +718,12 @@ export class StellarReadService {
   }
 
   async latestLedgerCloseTime(): Promise<Date> {
-    const latest = await this.createRpcServer().getLatestLedger();
-    return new Date(Number(latest.closeTime) * 1000);
+    const latest = await withRpcRetry(() => this.createRpcServer().getLatestLedger(), 'getLatestLedger');
+    const seconds = Number(latest?.closeTime);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      throw new Error(`getLatestLedger answered without a readable closeTime: ${JSON.stringify(latest?.closeTime)}`);
+    }
+    return new Date(seconds * 1000);
   }
 
   async readEscrowResolver(contractId: string): Promise<string> {

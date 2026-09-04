@@ -72,13 +72,28 @@ describe('an order the chain disagrees about reaches a human', () => {
     expect((raise.mock.calls[0] as any[])[1]).toHaveLength(1);
   });
 
-  it('says nothing about an order the escrow still holds as funded', async () => {
+  it('says nothing about an order the escrow still holds as funded while the refund reconciler will act on it', async () => {
     const { svc, raise } = make({
       orders: [order()],
       onChain: { status: 'FUNDED', settledAt: 0 },
+      autoRefund: true,
+      refundConfigured: true,
     });
     await svc.alertOnEscrowDivergence();
     expect((raise.mock.calls[0] as any[])[1]).toEqual([]);
+  });
+
+  it('names an order the escrow holds as funded when no reconciler will act, because the USDC is locked behind an EXPIRED row and nobody else is told', async () => {
+    const { svc, raise } = make({
+      orders: [order()],
+      onChain: { status: 'FUNDED', settledAt: 0 },
+      autoRefund: false,
+      refundConfigured: false,
+    });
+    await svc.alertOnEscrowDivergence();
+    const found = (raise.mock.calls[0] as any[])[1];
+    expect(found.map((f: any) => f.text).join(' ')).toMatch(/FUNDED on chain/);
+    expect(found[0].urgency).toBe('urgent');
   });
 
   it('says nothing about an order the chain never heard of', async () => {
