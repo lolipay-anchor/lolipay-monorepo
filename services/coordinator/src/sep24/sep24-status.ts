@@ -4,6 +4,8 @@ export type Sep24Status =
   | 'incomplete'
   | 'pending_anchor'
   | 'pending_user_transfer_start'
+  | 'pending_user'
+  | 'pending_stellar'
   | 'completed'
   | 'refunded'
   | 'expired';
@@ -12,6 +14,8 @@ export const SEP24_EMITTED_STATUSES: readonly Sep24Status[] = [
   'incomplete',
   'pending_anchor',
   'pending_user_transfer_start',
+  'pending_user',
+  'pending_stellar',
   'completed',
   'refunded',
   'expired',
@@ -30,13 +34,19 @@ const BY_ORDER_STATUS: Record<OrderStatus, Sep24Status> = {
   CANCELLED: 'expired',
 };
 
+const WITHDRAW_BY_ORDER_STATUS: Partial<Record<OrderStatus, Sep24Status>> = {
+  MATCHED: 'pending_user',
+  AWAITING_ONCHAIN: 'pending_stellar',
+  FUNDED: 'pending_anchor',
+  FIAT_PAID: 'pending_user',
+};
+
 export function sep24Status(
   order: { status: OrderStatus } | null,
   flow: 'TOP_UP' | 'WITHDRAW' = 'TOP_UP',
 ): Sep24Status {
   if (!order) return 'incomplete';
-  if (flow === 'WITHDRAW' && order.status === 'FUNDED') return 'pending_anchor';
-  const mapped = BY_ORDER_STATUS[order.status];
+  const mapped = (flow === 'WITHDRAW' && WITHDRAW_BY_ORDER_STATUS[order.status]) || BY_ORDER_STATUS[order.status];
   if (!mapped) {
     throw new Error(`sep24Status: no SEP-24 status is mapped for order status ${order.status}`);
   }

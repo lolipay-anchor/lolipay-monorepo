@@ -166,6 +166,32 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
     });
   });
 
+  describe('user_action_required_by tells a wallet how long the user has, at exactly the two states where it is the user who must act', () => {
+    const deadlines = { payDeadline: 1_790_000_000n, confirmDeadline: 1_790_003_600n };
+
+    it('at MATCHED on a withdrawal it is the pay deadline, by which the user must sign the escrow lock', () => {
+      const out = serializeSep24(tx({ flow: 'WITHDRAW', order: order({ status: 'MATCHED', ...deadlines }) }), BASE);
+      expect(out.status).toBe('pending_user');
+      expect(out.user_action_required_by).toBe('2026-09-21T14:13:20.000Z');
+    });
+
+    it('at FIAT_PAID on a withdrawal it is the confirm deadline, by which the user should confirm the rupiah', () => {
+      const out = serializeSep24(tx({ flow: 'WITHDRAW', order: order({ status: 'FIAT_PAID', ...deadlines }) }), BASE);
+      expect(out.status).toBe('pending_user');
+      expect(out.user_action_required_by).toBe('2026-09-21T15:13:20.000Z');
+    });
+
+    it.each(['CREATED', 'AWAITING_ONCHAIN', 'FUNDED', 'DISPUTED', 'RELEASED'])('is absent on a withdrawal at %s, where the user is not the one waited on', (status) => {
+      const out = serializeSep24(tx({ flow: 'WITHDRAW', order: order({ status, ...deadlines }) }), BASE);
+      expect(out).not.toHaveProperty('user_action_required_by');
+    });
+
+    it('is absent on a deposit, whose user-side deadline is spoken by the instructions page instead', () => {
+      const out = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', ...deadlines }) }), BASE);
+      expect(out).not.toHaveProperty('user_action_required_by');
+    });
+  });
+
   it('adds the settlement hash and completion time only once released', () => {
     const done = serializeSep24(
       tx({ order: order({ status: 'RELEASED', settlementTxHash: 'abc123', settledAt: new Date('2026-08-28T11:00:00.000Z') }) }),

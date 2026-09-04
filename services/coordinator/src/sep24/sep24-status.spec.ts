@@ -40,6 +40,36 @@ describe('what an escrow trade looks like to a wallet that only speaks SEP-24', 
     },
   );
 
+  describe('a withdrawal, where the user is the one who funds the escrow', () => {
+    const wd = (status: string) => sep24Status({ status } as any, 'WITHDRAW');
+
+    it.each([
+      ['CREATED', 'pending_anchor'],
+      ['MATCHED', 'pending_user'],
+      ['AWAITING_ONCHAIN', 'pending_stellar'],
+      ['FUNDED', 'pending_anchor'],
+      ['FIAT_PAID', 'pending_user'],
+      ['DISPUTED', 'pending_anchor'],
+      ['RELEASED', 'completed'],
+      ['REFUNDED', 'refunded'],
+      ['EXPIRED', 'expired'],
+      ['CANCELLED', 'expired'],
+    ])('reports %s as %s', (order, sep) => {
+      expect(wd(order)).toBe(sep);
+    });
+
+    it('never tells a wallet to send funds to withdraw_anchor_account, which this anchor does not have', () => {
+      for (const status of ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'RELEASED', 'REFUNDED', 'EXPIRED', 'CANCELLED']) {
+        expect(wd(status)).not.toBe('pending_user_transfer_start');
+      }
+    });
+
+    it('never reports on_hold, which the acceptance suite does not know', () => {
+      expect(wd('DISPUTED')).not.toBe('on_hold');
+      expect(SEP24_EMITTED_STATUSES).not.toContain('on_hold');
+    });
+  });
+
   it('never invents a status the acceptance suite does not accept', () => {
     const accepted = [
       'incomplete', 'pending_anchor', 'pending_external', 'pending_stellar',

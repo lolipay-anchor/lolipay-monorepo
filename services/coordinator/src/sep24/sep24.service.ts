@@ -48,6 +48,8 @@ const ORDER_FIELDS = {
   settledAt: true,
   personId: true,
   ref: true,
+  payDeadline: true,
+  confirmDeadline: true,
 } as const;
 
 @Injectable()
@@ -229,8 +231,6 @@ export class Sep24Service {
           lpPaymentDetails: true,
           userPaymentDetails: true,
           expiresAt: true,
-          payDeadline: true,
-          confirmDeadline: true,
         },
         },
       },
