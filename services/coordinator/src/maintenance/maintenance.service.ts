@@ -12,6 +12,7 @@ import { OutboxService } from '../outbox/outbox.service';
 import { verifyTradeMatchesOrder } from '../order/trade-binding';
 import { settlementFieldsFrom } from '../order/order-status.service';
 
+const STALE_ORDER_SWEEP_GRACE_MS = 60_000;
 const AUTO_REFUND_BATCH_SIZE = 20;
 const DIVERGENCE_SCAN_LIMIT = 500;
 
@@ -111,7 +112,7 @@ export class MaintenanceService {
     const candidates = await this.prisma.order.findMany({
       where: {
         status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN'] },
-        expiresAt: { lt: new Date() },
+        expiresAt: { lt: new Date(Date.now() - STALE_ORDER_SWEEP_GRACE_MS) },
       },
       select: {
         id: true,

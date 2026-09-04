@@ -15,6 +15,7 @@ import {
   sep53Signature,
   signSep10Challenge,
 } from './sep24-fixtures';
+import { FIAT_INPUT_REFUSAL } from '../money/money';
 
 const kp = Keypair.random();
 const ESCROW = 'CDKJ5OX2WY424DXPMYRGI2TCMTI5LFGLSLHSBKA5AODIGTS4R2TIDK3Z';
@@ -254,19 +255,21 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
       disputeDeadline: 1_700_090_000n,
     });
     expect(() => createTradeExpectation({ ...order, fiat_amount: '999' }, lp, demo, '200000')).toThrow(/quotes fiat_amount 999, not the 200000/);
-    expect(() => createTradeExpectation({ ...order, fiat_amount: '250000' }, lp, demo, '250,000')).toThrow(/plain digits|dots as thousands/);
-    expect(() => createTradeExpectation({ ...order, fiat_amount: '25000000' }, lp, demo, '250000.00')).toThrow(/plain digits|dots as thousands/);
+    expect(() => createTradeExpectation({ ...order, fiat_amount: '250000' }, lp, demo, '250,000')).toThrow(FIAT_INPUT_REFUSAL);
+    expect(() => createTradeExpectation({ ...order, fiat_amount: '25000000' }, lp, demo, '250000.00')).toThrow(FIAT_INPUT_REFUSAL);
     expect(createTradeExpectation({ ...order, fiat_amount: '250000' }, lp, demo, '250.000').fiatAmount).toBe(250_000n);
-    expect(() => createTradeExpectation({ ...order, fiat_amount: '0' }, lp, demo, 'abc')).toThrow(/plain digits|dots as thousands/);
+    expect(() => createTradeExpectation({ ...order, fiat_amount: '0' }, lp, demo, 'abc')).toThrow(FIAT_INPUT_REFUSAL);
+    expect(() => createTradeExpectation({ ...order, fiat_amount: '0' }, lp, demo, '0')).toThrow(/carries no rupiah digits/);
     expect(() => createTradeExpectation({ ...order, fiat_currency: 'USD' }, lp, demo, '200000')).toThrow(/quotes fiat_currency USD, not the IDR/);
   });
 
   it('refuses an ambiguous demo amount before anything is opened, with the same words the anchor would answer', () => {
-    expect(() => demoIdrDigits('200,000')).toThrow(/plain digits|dots as thousands/);
-    expect(() => demoIdrDigits('150000.00')).toThrow(/plain digits|dots as thousands/);
-    expect(() => demoIdrDigits('abc')).toThrow(/plain digits|dots as thousands/);
-    expect(() => demoIdrDigits('')).toThrow(/plain digits|dots as thousands/);
-    expect(() => demoIdrDigits('9'.repeat(19))).toThrow(/plain digits|dots as thousands/);
+    expect(() => demoIdrDigits('200,000')).toThrow(FIAT_INPUT_REFUSAL);
+    expect(() => demoIdrDigits('150000.00')).toThrow(FIAT_INPUT_REFUSAL);
+    expect(() => demoIdrDigits('abc')).toThrow(FIAT_INPUT_REFUSAL);
+    expect(() => demoIdrDigits('')).toThrow(FIAT_INPUT_REFUSAL);
+    expect(() => demoIdrDigits('9'.repeat(19))).toThrow(FIAT_INPUT_REFUSAL);
+    expect(demoIdrDigits('rp 200.000')).toBe('200000');
     expect(demoIdrDigits('9'.repeat(18))).toBe('9'.repeat(18));
     expect(demoIdrDigits('200.000')).toBe('200000');
   });
@@ -284,7 +287,7 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     }
   });
 
-  it('canonicalises the demo amount the way the record will echo it, so a leading zero cannot refuse an honest run', () => {
+  it('canonicalises a plain-digit demo amount the way the record will echo it, so a leading zero cannot refuse an honest run', () => {
     expect(demoIdrDigits('0200000')).toBe('200000');
     expect(demoIdrDigits('Rp 200.000')).toBe('200000');
     const previous = process.env.SEP24_DEMO_IDR;

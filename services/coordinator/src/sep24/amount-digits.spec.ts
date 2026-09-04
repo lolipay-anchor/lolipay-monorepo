@@ -1,4 +1,5 @@
 import { Sep24Service } from './sep24.service';
+import { FIAT_INPUT_REFUSAL } from '../money/money';
 
 function harness(flow: 'TOP_UP' | 'WITHDRAW' = 'TOP_UP') {
   const prisma: any = {
@@ -63,7 +64,7 @@ describe('the amount step reads rupiah the way an Indonesian types it', () => {
     const { svc, cfg, rate } = harness();
     const { mintInteractiveToken } = await import('./interactive-token');
     const token = mintInteractiveToken(cfg, 'tx-1', 'GABC');
-    await expect(svc.submitAmount('tx-1', token, raw)).rejects.toThrow(/plain digits|dots as thousands/);
+    await expect(svc.submitAmount('tx-1', token, raw)).rejects.toThrow(FIAT_INPUT_REFUSAL);
     expect(rate.createQuote).not.toHaveBeenCalled();
   });
 
@@ -71,6 +72,7 @@ describe('the amount step reads rupiah the way an Indonesian types it', () => {
     ['1.500.000', 1500000n],
     ['Rp 200.000', 200000n],
     ['Rp. 200.000', 200000n],
+    ['rp 200.000', 200000n],
     ['0200000', 200000n],
     [' 200000 ', 200000n],
   ])('still takes "%s", a form an Indonesian keyboard produces, as %s rupiah', async (raw, fiatAmount) => {
@@ -127,7 +129,7 @@ describe('the amount step reads rupiah the way an Indonesian types it', () => {
     const { svc, cfg, rate } = harness();
     const { mintInteractiveToken } = await import('./interactive-token');
     const token = mintInteractiveToken(cfg, 'tx-1', 'GABC');
-    await expect(svc.submitAmount('tx-1', token, 'Rp')).rejects.toThrow(/plain digits|dots as thousands/);
+    await expect(svc.submitAmount('tx-1', token, 'Rp')).rejects.toThrow(FIAT_INPUT_REFUSAL);
     expect(rate.createQuote).not.toHaveBeenCalled();
   });
 });

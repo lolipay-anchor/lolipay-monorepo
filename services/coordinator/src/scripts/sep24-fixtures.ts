@@ -587,7 +587,13 @@ function writeConfig(cfg: unknown): void {
 }
 
 async function main(): Promise<void> {
-  if (DEMO_IDR_DIGITS === '0') throw new Error(`SEP24_DEMO_IDR "${DEMO_IDR}" is refused: ${FIAT_INPUT_REFUSAL}`);
+  if (DEMO_IDR_DIGITS === '0') {
+    throw new Error(
+      fiatInputAccepted(DEMO_IDR) && fiatDigits(DEMO_IDR).length <= 18
+        ? `SEP24_DEMO_IDR "${DEMO_IDR}" is zero rupiah; name a positive amount`
+        : `SEP24_DEMO_IDR "${DEMO_IDR}" is refused: ${FIAT_INPUT_REFUSAL}`,
+    );
+  }
   const escrow = process.env.ESCROW_CONTRACT_ID;
   if (!escrow) throw new Error('ESCROW_CONTRACT_ID is not set; the driver refuses to sign a call to an unnamed contract');
   const demo = identity(process.env.SEP24_DEMO_IDENTITY ?? 'sep24-demo');

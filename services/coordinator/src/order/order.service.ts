@@ -9,7 +9,7 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { MIN_PAY_WINDOW_SECS } from '../config/contract-limits';
+import { signingDeadlineSecs } from '../config/contract-limits';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
@@ -543,7 +543,7 @@ export function computeWindows(config: {
   const payDeadline = now + config.payWindowSecs;
   const confirmDeadline = payDeadline + config.confirmWindowSecs;
   const disputeDeadline = confirmDeadline + config.disputeWindowSecs;
-  const expiresAt = new Date((payDeadline - MIN_PAY_WINDOW_SECS) * 1000);
+  const expiresAt = new Date(signingDeadlineSecs(payDeadline) * 1000);
   return { payDeadline, confirmDeadline, disputeDeadline, expiresAt };
 }
 

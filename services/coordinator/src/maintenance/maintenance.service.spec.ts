@@ -97,6 +97,15 @@ describe('MaintenanceService', () => {
     expect(prisma.order.updateMany).not.toHaveBeenCalled();
   });
 
+  it('sweeps a full minute behind the signing cut-off, so a signature the ledger accepted in the last second is never marked EXPIRED before the RPC has seen it', async () => {
+    const { svc, prisma } = make(null);
+    const before = Date.now();
+    await svc.expireStaleOrders();
+    const lt: Date = prisma.order.findMany.mock.calls[0][0].where.expiresAt.lt;
+    expect(before - lt.getTime()).toBeGreaterThanOrEqual(60_000);
+    expect(before - lt.getTime()).toBeLessThan(120_000);
+  });
+
   it('expires a pre-chain order that is NOT on-chain', async () => {
     const { svc, prisma } = make(null);
     await svc.expireStaleOrders();

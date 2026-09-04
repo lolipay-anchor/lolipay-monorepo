@@ -89,6 +89,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     address: string,
     flow: 'TOP_UP' | 'WITHDRAW',
     status: 'CREATED' | 'MATCHED' | 'AWAITING_ONCHAIN' | 'FUNDED' | 'FIAT_PAID' = 'FUNDED',
+    payDeadline = 9_999_999_999n,
   ) {
     const link = await prisma.walletLink.findUnique({ where: { stellarAddress: address } });
     const order = await prisma.order.create({
@@ -107,8 +108,8 @@ describe('a withdrawal is never described to the user as a deposit', () => {
         lpPaymentDetails: 'BCA 999888777 THE PROVIDER',
         userPaymentDetails: 'BNI 111222333 THE USER',
         status,
-        payDeadline: 9_999_999_999n,
-        confirmDeadline: 9_999_999_999n,
+        payDeadline,
+        confirmDeadline: 10_000_003_599n,
         disputeDeadline: 9_999_999_999n,
         expiresAt: new Date(Date.now() + 86_400_000),
       },
@@ -146,6 +147,25 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     expect(res.text).toMatch(/dispute/i);
   });
 
+  it('tells the user their own remedy before they lock: the refund route opens if the provider never pays', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await linkOrder(id, address, 'WITHDRAW', 'MATCHED');
+
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/take the usdc back/i);
+    expect(res.text).toContain('2286-11-20T18:46:39.000Z');
+  });
+
+  it('offers no button once the signing window has closed, and says so, instead of a contract error after the click', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await linkOrder(id, address, 'WITHDRAW', 'MATCHED', BigInt(Math.floor(Date.now() / 1000) + 300));
+
+    const res = await screen(id, token);
+    expect(res.text).toMatch(/signing window .* closed/i);
+    expect(res.text).not.toMatch(/sign in my wallet/i);
+    expect(res.text).not.toContain('/fund.js');
+  });
+
   it('shows the same signing screen and figures at AWAITING_ONCHAIN, which the popup treats as still waiting for the signature', async () => {
     const { id, token, address } = await openedWithdrawal(true);
     await linkOrder(id, address, 'WITHDRAW', 'AWAITING_ONCHAIN');
@@ -153,6 +173,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     const res = await screen(id, token);
     expect(res.text).toMatch(/sign to lock your usdc/i);
     expect(res.text).toContain('<strong>1000</strong> USDC');
+    expect(res.text).toContain('<strong>16.000.000</strong> IDR');
   });
 
   it('while a provider is still being matched, says so, rather than claiming USDC is already moving', async () => {

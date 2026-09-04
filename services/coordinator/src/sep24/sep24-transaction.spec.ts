@@ -194,7 +194,17 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       expect(out).not.toHaveProperty('user_action_required_by');
     });
 
-    it('on a deposit at FUNDED it is the pay deadline, the instant the contract stops accepting the rupiah as paid, and the same one the instructions page prints', () => {
+    it('is omitted once the instant has passed, on both flows, the way the post-settlement deadline already is: a dead countdown is not published', () => {
+      const past = { payDeadline: 1_000_000_000n, confirmDeadline: 1_000_003_600n };
+      const wd = serializeSep24(tx({ flow: 'WITHDRAW', order: order({ status: 'MATCHED', ...past }) }), BASE);
+      expect(wd).not.toHaveProperty('user_action_required_by');
+      expect(wd.message).toMatch(/sign/i);
+      const dep = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', ...past }) }), BASE);
+      expect(dep).not.toHaveProperty('user_action_required_by');
+      expect(dep.message).toMatch(/send the rupiah/i);
+    });
+
+    it('on a deposit at FUNDED it is the pay deadline, the user\'s send-by, the same instant the instructions page prints and monitoring calls overdue', () => {
       const out = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', ...deadlines }) }), BASE);
       expect(out.status).toBe('pending_user_transfer_start');
       expect(out.user_action_required_by).toBe('2026-09-21T14:13:20.000Z');

@@ -1,5 +1,6 @@
 export const MIN_PAY_WINDOW_SECS = 600;
 export const MIN_USABLE_PAY_WINDOW_SECS = MIN_PAY_WINDOW_SECS * 2;
+export const signingDeadlineSecs = (payDeadline: number): number => payDeadline - MIN_PAY_WINDOW_SECS;
 export const MAX_PAY_WINDOW_SECS = 86_400;
 export const MAX_TOTAL_WINDOW_SECS = 2_592_000;
 

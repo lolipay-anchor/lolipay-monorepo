@@ -2,7 +2,7 @@ import type { Flow, OrderStatus } from '../generated/prisma/client';
 import { accountOf } from '../sep10/account-signers.service';
 import { baseUnitsToUsdcString, splitFees } from '../money/money';
 import { sep24Status, Sep24Status } from './sep24-status';
-import { MIN_PAY_WINDOW_SECS } from '../config/contract-limits';
+import { signingDeadlineSecs } from '../config/contract-limits';
 
 export interface Sep24Order {
   status: OrderStatus;
@@ -96,7 +96,9 @@ export function serializeSep24(record: Sep24Record, assets: Sep24Assets): Sep24T
 
   const awaited = userAction(withdrawing, order);
   if (awaited) {
-    if (awaited.by !== undefined) json.user_action_required_by = new Date(Number(awaited.by) * 1000).toISOString();
+    if (awaited.by !== undefined && Number(awaited.by) * 1000 > Date.now()) {
+      json.user_action_required_by = new Date(Number(awaited.by) * 1000).toISOString();
+    }
     json.message = awaited.message;
   }
   if (order.ref) json.external_transaction_id = order.ref;
@@ -111,7 +113,7 @@ function userAction(withdrawing: boolean, order: Sep24Order): { by?: bigint; mes
   if (withdrawing) {
     if (order.status === 'MATCHED' || order.status === 'AWAITING_ONCHAIN') {
       return {
-        by: order.payDeadline - BigInt(MIN_PAY_WINDOW_SECS),
+        by: BigInt(signingDeadlineSecs(Number(order.payDeadline))),
         message: 'Open the withdrawal page and sign in your wallet to lock your USDC in escrow.',
       };
     }

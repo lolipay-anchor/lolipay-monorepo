@@ -1,4 +1,5 @@
 import { Networks } from '@stellar/stellar-sdk';
+import { windowsFitTheContract } from './contract-limits';
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from './app-config.service';
@@ -92,6 +93,10 @@ export class ConfigBootService implements OnModuleInit {
     const problem = spreadCoversPriceDeviation(row.spreadBps, this.cfg.priceDeviationMaxBps);
     if (problem) {
       throw new Error(`refusing to start: ${problem}`);
+    }
+    const windowProblem = windowsFitTheContract(row.payWindowSecs, row.confirmWindowSecs, row.disputeWindowSecs);
+    if (windowProblem) {
+      throw new Error(`refusing to start: ${windowProblem}`);
     }
 
     if (!row.platformWallet) {

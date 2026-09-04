@@ -31,7 +31,7 @@ describe('OrderService — masked build-catch server-side logging (Fix 2)', () =
       confirmDeadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
       disputeDeadline: BigInt(Math.floor(Date.now() / 1000) + 7200),
       rail: 'QRIS',
-      expiresAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
       createdAt: new Date(),
       ...overrides,
     };

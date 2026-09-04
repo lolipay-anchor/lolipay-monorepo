@@ -50,6 +50,11 @@ describe('ConfigBootService', () => {
     ).rejects.toThrow(/USDC_ASSET_CODE/);
   });
 
+  it('refuses to start when the persisted pay window leaves nobody time to sign inside the contract floor', async () => {
+    const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformWallet: WALLET, payWindowSecs: 900, confirmWindowSecs: 1800, disputeWindowSecs: 7200 });
+    await expect(new ConfigBootService(prisma, makeCfg()).onModuleInit()).rejects.toThrow(/at least 1200/);
+  });
+
   it('refuses to start when the spread does not cover the deviation allowance', async () => {
     const { prisma } = makePrisma({ id: 1, spreadBps: 100, platformWallet: WALLET });
     await expect(new ConfigBootService(prisma, makeCfg()).onModuleInit()).rejects.toThrow(/INV-30\.1/);
