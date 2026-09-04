@@ -56,6 +56,19 @@ describe('the funding build refuses once the signing window has closed, so the u
     expect(stellar.buildCreateTradeTx).not.toHaveBeenCalled();
   });
 
+  it('refuses inside the last minute before the contract instant too, the margin a wallet prompt and a submission need, and says nothing about what left the wallet', async () => {
+    const { svc, stellar } = svcWith(Math.floor(Date.now() / 1000) + 650);
+    await expect(svc.buildCreateTradeTx('order-1', USER)).rejects.toThrow(/signing window/i);
+    await expect(svc.buildCreateTradeTx('order-1', USER)).rejects.not.toThrow(/nothing was taken/i);
+    expect(stellar.buildCreateTradeTx).not.toHaveBeenCalled();
+  });
+
+  it('builds with more than the margin left', async () => {
+    const { svc, stellar } = svcWith(Math.floor(Date.now() / 1000) + 700);
+    await expect(svc.buildCreateTradeTx('order-1', USER)).resolves.toEqual({ xdr: 'x', networkPassphrase: 'p' });
+    expect(stellar.buildCreateTradeTx).toHaveBeenCalledTimes(1);
+  });
+
   it('builds while the window is open', async () => {
     const { svc, stellar } = svcWith(Math.floor(Date.now() / 1000) + 1800);
     await expect(svc.buildCreateTradeTx('order-1', USER)).resolves.toEqual({ xdr: 'x', networkPassphrase: 'p' });

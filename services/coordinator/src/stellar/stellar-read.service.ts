@@ -716,6 +716,11 @@ export class StellarReadService {
     return new Server(this.cfg.rpcUrl);
   }
 
+  async latestLedgerCloseTime(): Promise<Date> {
+    const latest = await this.createRpcServer().getLatestLedger();
+    return new Date(Number(latest.closeTime) * 1000);
+  }
+
   async readEscrowResolver(contractId: string): Promise<string> {
     const cfg = await this.simulateCall(contractId, 'get_config', []);
     const resolver = cfg?.resolver;

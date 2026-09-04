@@ -12,7 +12,7 @@ function service() {
   };
   const cfg: any = { usdcAssetCode: 'USDC', anchorBaseUrl: 'https://api.test', jwtSecret: 'x', jwtIssuer: 'y' };
   const people: any = { lookupPerson: async () => ({ id: 'person-1' }) };
-  return new Sep24Service(prisma, cfg, {} as any, {} as any, {} as any, people, {} as any, {} as any);
+  return new Sep24Service(prisma, cfg, {} as any, {} as any, {} as any, people, {} as any, {} as any, { isConfigured: false } as any);
 }
 
 const opens = async (subject: string, account: string) => {

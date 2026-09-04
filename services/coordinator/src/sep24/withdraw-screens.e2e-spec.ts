@@ -134,7 +134,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     await linkOrder(id, address, 'WITHDRAW', 'MATCHED');
 
     const res = await screen(id, token);
-    expect(res.text).toContain('2286-11-20T17:36:39.000Z');
+    expect(res.text).toContain('2286-11-20T17:35:39.000Z');
     expect(res.text).not.toContain('2286-11-20T17:46:39.000Z');
   });
 
@@ -164,7 +164,10 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     expect(res.text).toMatch(/signing window .* closed/i);
     expect(res.text).not.toMatch(/sign in my wallet/i);
     expect(res.text).not.toContain('/fund.js');
+    expect(res.text).not.toMatch(/nothing was taken/i);
+    expect(res.text).toMatch(/if you did not sign/i);
   });
+
 
   it('shows the same signing screen and figures at AWAITING_ONCHAIN, which the popup treats as still waiting for the signature', async () => {
     const { id, token, address } = await openedWithdrawal(true);

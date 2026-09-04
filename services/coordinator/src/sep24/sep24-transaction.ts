@@ -2,7 +2,7 @@ import type { Flow, OrderStatus } from '../generated/prisma/client';
 import { accountOf } from '../sep10/account-signers.service';
 import { baseUnitsToUsdcString, splitFees } from '../money/money';
 import { sep24Status, Sep24Status } from './sep24-status';
-import { signingDeadlineSecs } from '../config/contract-limits';
+import { signingCutoffSecs } from '../config/contract-limits';
 
 export interface Sep24Order {
   status: OrderStatus;
@@ -96,9 +96,7 @@ export function serializeSep24(record: Sep24Record, assets: Sep24Assets): Sep24T
 
   const awaited = userAction(withdrawing, order);
   if (awaited) {
-    if (awaited.by !== undefined && Number(awaited.by) * 1000 > Date.now()) {
-      json.user_action_required_by = new Date(Number(awaited.by) * 1000).toISOString();
-    }
+    if (awaited.by !== undefined) json.user_action_required_by = new Date(Number(awaited.by) * 1000).toISOString();
     json.message = awaited.message;
   }
   if (order.ref) json.external_transaction_id = order.ref;
@@ -112,9 +110,13 @@ export function serializeSep24(record: Sep24Record, assets: Sep24Assets): Sep24T
 function userAction(withdrawing: boolean, order: Sep24Order): { by?: bigint; message: string } | null {
   if (withdrawing) {
     if (order.status === 'MATCHED' || order.status === 'AWAITING_ONCHAIN') {
+      const cutoff = signingCutoffSecs(Number(order.payDeadline));
       return {
-        by: BigInt(signingDeadlineSecs(Number(order.payDeadline))),
-        message: 'Open the withdrawal page and sign in your wallet to lock your USDC in escrow.',
+        by: BigInt(cutoff),
+        message:
+          cutoff * 1000 > Date.now()
+            ? 'Open the withdrawal page and sign in your wallet to lock your USDC in escrow.'
+            : 'The signing window for this withdrawal has closed; it will expire on its own. Start a new one from your wallet when you are ready.',
       };
     }
     if (order.status === 'FIAT_PAID') {
@@ -126,7 +128,13 @@ function userAction(withdrawing: boolean, order: Sep24Order): { by?: bigint; mes
     return null;
   }
   if (order.status === 'FUNDED') {
-    return { by: order.payDeadline, message: 'Send the rupiah to the provider account shown on the deposit page you opened from your wallet.' };
+    return {
+      by: order.payDeadline,
+      message:
+        Number(order.payDeadline) * 1000 > Date.now()
+          ? 'Send the rupiah to the provider account shown on the deposit page you opened from your wallet.'
+          : 'The time to send the rupiah has passed. Do not send it now; the escrow will be refunded to the provider.',
+    };
   }
   return null;
 }

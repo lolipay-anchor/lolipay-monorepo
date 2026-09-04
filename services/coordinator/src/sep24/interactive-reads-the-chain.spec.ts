@@ -46,6 +46,7 @@ function serviceWith(orderStatus: string, refreshed: any) {
     people,
     {} as any,
     orderStatusService,
+    { isConfigured: false } as any,
   );
   return { service, seen };
 }

@@ -26,7 +26,7 @@ function makeSvc(delayMs: number) {
 
   const svc = new MaintenanceService(
     prisma,
-    { getTradeStatusStrict: jest.fn(async () => null) } as any,
+    { getTradeStatusStrict: jest.fn(async () => null), latestLedgerCloseTime: jest.fn(async () => new Date()) } as any,
     { isConfigured: false } as any,
     { escrowContractId: 'CESCROW' } as any,
     { notifyOrderStatus: jest.fn() } as any,

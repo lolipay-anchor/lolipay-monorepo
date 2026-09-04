@@ -19,6 +19,7 @@ describe('MaintenanceService', () => {
           ? () => Promise.reject(new Error('rpc down'))
           : () => Promise.resolve(onChain),
       ),
+      latestLedgerCloseTime: jest.fn(async () => new Date()),
     } as any;
     const refundSigner = {
       isConfigured: false,
@@ -98,12 +99,39 @@ describe('MaintenanceService', () => {
   });
 
   it('sweeps a full minute behind the signing cut-off, so a signature the ledger accepted in the last second is never marked EXPIRED before the RPC has seen it', async () => {
-    const { svc, prisma } = make(null);
-    const before = Date.now();
-    await svc.expireStaleOrders();
+    const { svc, prisma, stellar } = make(null);
+    const T = 1_800_000_000_000;
+    stellar.latestLedgerCloseTime.mockResolvedValue(new Date(T));
+    const now = jest.spyOn(Date, 'now').mockReturnValue(T);
+    try {
+      await svc.expireStaleOrders();
+    } finally {
+      now.mockRestore();
+    }
     const lt: Date = prisma.order.findMany.mock.calls[0][0].where.expiresAt.lt;
-    expect(before - lt.getTime()).toBeGreaterThanOrEqual(60_000);
-    expect(before - lt.getTime()).toBeLessThan(120_000);
+    expect(lt.getTime()).toBe(T - 60_000);
+  });
+
+  it('measures the minute from the ledger the RPC has actually ingested, not from the wall clock, so a lagging RPC cannot make an accepted signature look absent', async () => {
+    const { svc, prisma, stellar } = make(null);
+    const T = 1_800_000_000_000;
+    stellar.latestLedgerCloseTime.mockResolvedValue(new Date(T - 5 * 60_000));
+    const now = jest.spyOn(Date, 'now').mockReturnValue(T);
+    try {
+      await svc.expireStaleOrders();
+    } finally {
+      now.mockRestore();
+    }
+    const lt: Date = prisma.order.findMany.mock.calls[0][0].where.expiresAt.lt;
+    expect(lt.getTime()).toBe(T - 5 * 60_000 - 60_000);
+  });
+
+  it('expires nothing when the RPC cannot say which ledger it has seen, because absence cannot be told from lag', async () => {
+    const { svc, prisma, stellar } = make(null);
+    stellar.latestLedgerCloseTime.mockRejectedValue(new Error('rpc down'));
+    await svc.expireStaleOrders();
+    expect(prisma.order.findMany).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
   });
 
   it('expires a pre-chain order that is NOT on-chain', async () => {
@@ -143,7 +171,7 @@ describe('MaintenanceService', () => {
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
     } as any;
 
-    const stellar = { getTradeStatusStrict: jest.fn().mockResolvedValue(null) } as any;
+    const stellar = { getTradeStatusStrict: jest.fn().mockResolvedValue(null), latestLedgerCloseTime: jest.fn(async () => new Date()) } as any;
     const refundSigner = { isConfigured: false, publicKey: null, submitRefund: jest.fn() } as any;
     const cfg = { escrowContractId: 'CESCROW' } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
@@ -176,7 +204,7 @@ describe('MaintenanceService', () => {
       consumedChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
     } as any;
-    const stellar = { getTradeStatusStrict: jest.fn().mockResolvedValue(null) } as any;
+    const stellar = { getTradeStatusStrict: jest.fn().mockResolvedValue(null), latestLedgerCloseTime: jest.fn(async () => new Date()) } as any;
     const refundSigner = { isConfigured: false, publicKey: null, submitRefund: jest.fn() } as any;
     const cfg = { escrowContractId: 'CESCROW' } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
@@ -205,7 +233,7 @@ describe('MaintenanceService', () => {
       consumedChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
     } as any;
-    const stellar = { getTradeStatusStrict: jest.fn().mockResolvedValue(null) } as any;
+    const stellar = { getTradeStatusStrict: jest.fn().mockResolvedValue(null), latestLedgerCloseTime: jest.fn(async () => new Date()) } as any;
     const refundSigner = { isConfigured: false, publicKey: null, submitRefund: jest.fn() } as any;
     const cfg = { escrowContractId: 'CESCROW' } as any;
     let call = 0;
@@ -251,7 +279,7 @@ describe('MaintenanceService', () => {
       consumedChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
     } as any;
-    const stellar = { getTradeStatusStrict: jest.fn().mockResolvedValue(null) } as any;
+    const stellar = { getTradeStatusStrict: jest.fn().mockResolvedValue(null), latestLedgerCloseTime: jest.fn(async () => new Date()) } as any;
     const refundSigner = { isConfigured: false, publicKey: null, submitRefund: jest.fn() } as any;
     const cfg = { escrowContractId: 'CESCROW' } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
@@ -317,6 +345,7 @@ describe('MaintenanceService.autoRefundExpired', () => {
     } as any;
 
     const stellar = {
+      latestLedgerCloseTime: jest.fn(async () => new Date()),
       getTradeStatusStrict: jest.fn(async () => {
         if (onChainThrows) throw new Error('rpc down');
         return onChainStatus ? { status: onChainStatus } : null;

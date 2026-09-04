@@ -174,7 +174,7 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
     it('at MATCHED on a withdrawal it is the pay deadline less the ten minutes create_trade refuses inside, the last moment a signature is accepted', () => {
       const out = serializeSep24(tx({ flow: 'WITHDRAW', order: order({ status: 'MATCHED', ...deadlines }) }), BASE);
       expect(out.status).toBe('pending_user');
-      expect(out.user_action_required_by).toBe('2096-10-02T06:56:40.000Z');
+      expect(out.user_action_required_by).toBe('2096-10-02T06:55:40.000Z');
     });
 
     it('at FIAT_PAID on a withdrawal it is absent, because confirm_and_release has no deadline and the refund is already closed, so a countdown would be a lie the provider could size', () => {
@@ -186,7 +186,7 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
     it('at AWAITING_ONCHAIN on a withdrawal it is the same signing instant, because the popup still offers the signature there', () => {
       const out = serializeSep24(tx({ flow: 'WITHDRAW', order: order({ status: 'AWAITING_ONCHAIN', ...deadlines }) }), BASE);
       expect(out.status).toBe('pending_user');
-      expect(out.user_action_required_by).toBe('2096-10-02T06:56:40.000Z');
+      expect(out.user_action_required_by).toBe('2096-10-02T06:55:40.000Z');
     });
 
     it.each(['CREATED', 'FUNDED', 'DISPUTED', 'RELEASED'])('is absent on a withdrawal at %s, where the user is not the one waited on', (status) => {
@@ -194,14 +194,16 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       expect(out).not.toHaveProperty('user_action_required_by');
     });
 
-    it('is omitted once the instant has passed, on both flows, the way the post-settlement deadline already is: a dead countdown is not published', () => {
+    it('is still published once the instant has passed, because the spec ties it to the status and the order has not moved yet, and the message then says the window closed', () => {
       const past = { payDeadline: 1_000_000_000n, confirmDeadline: 1_000_003_600n };
       const wd = serializeSep24(tx({ flow: 'WITHDRAW', order: order({ status: 'MATCHED', ...past }) }), BASE);
-      expect(wd).not.toHaveProperty('user_action_required_by');
-      expect(wd.message).toMatch(/sign/i);
+      expect(wd.user_action_required_by).toBe('2001-09-09T01:35:40.000Z');
+      expect(wd.message).toMatch(/signing window .* closed/i);
+      expect(wd.message).not.toMatch(/open the withdrawal page and sign/i);
       const dep = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', ...past }) }), BASE);
-      expect(dep).not.toHaveProperty('user_action_required_by');
-      expect(dep.message).toMatch(/send the rupiah/i);
+      expect(dep.user_action_required_by).toBe('2001-09-09T01:46:40.000Z');
+      expect(dep.message).toMatch(/time to send the rupiah has passed/i);
+      expect(dep.message).not.toMatch(/^send the rupiah/i);
     });
 
     it('on a deposit at FUNDED it is the pay deadline, the user\'s send-by, the same instant the instructions page prints and monitoring calls overdue', () => {

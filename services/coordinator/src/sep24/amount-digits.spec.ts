@@ -32,7 +32,7 @@ function harness(flow: 'TOP_UP' | 'WITHDRAW' = 'TOP_UP') {
   const rate = { createQuote: jest.fn(async () => ({ id: 'quote-1' })) } as any;
   const orders = { createFromQuote: jest.fn(async () => ({ order: { id: 'order-2' } })) } as any;
   const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
-  const svc = new Sep24Service(prisma, cfg, {} as any, rate, orders, people, {} as any, {} as any);
+  const svc = new Sep24Service(prisma, cfg, {} as any, rate, orders, people, {} as any, {} as any, { isConfigured: false } as any);
   return { svc, cfg, rate };
 }
 

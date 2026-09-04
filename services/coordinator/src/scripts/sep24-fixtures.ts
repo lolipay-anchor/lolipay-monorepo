@@ -275,7 +275,8 @@ export const demoIdrDigits = (raw: string) => {
   if (!fiatInputAccepted(raw) || fiatDigits(raw).length > 18) throw new Error(`"${raw}" is refused: ${FIAT_INPUT_REFUSAL}`);
   return String(BigInt(fiatDigits(raw)));
 };
-export const DEMO_IDR_DIGITS = fiatInputAccepted(DEMO_IDR) && fiatDigits(DEMO_IDR).length <= 18 ? demoIdrDigits(DEMO_IDR) : '0';
+const demoIdrReadable = (raw: string) => fiatInputAccepted(raw) && fiatDigits(raw).length <= 18;
+export const DEMO_IDR_DIGITS = demoIdrReadable(DEMO_IDR) ? demoIdrDigits(DEMO_IDR) : '0';
 const RPC_URL = process.env.STELLAR_RPC_URL ?? 'https://soroban-testnet.stellar.org';
 const HEARTBEAT_MS = 30_000;
 const POLL_MS = 5_000;
@@ -589,7 +590,7 @@ function writeConfig(cfg: unknown): void {
 async function main(): Promise<void> {
   if (DEMO_IDR_DIGITS === '0') {
     throw new Error(
-      fiatInputAccepted(DEMO_IDR) && fiatDigits(DEMO_IDR).length <= 18
+      demoIdrReadable(DEMO_IDR)
         ? `SEP24_DEMO_IDR "${DEMO_IDR}" is zero rupiah; name a positive amount`
         : `SEP24_DEMO_IDR "${DEMO_IDR}" is refused: ${FIAT_INPUT_REFUSAL}`,
     );

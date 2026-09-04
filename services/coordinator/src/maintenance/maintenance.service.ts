@@ -109,10 +109,17 @@ export class MaintenanceService {
   }
 
   private async run_expireStaleOrders() {
+    let ledgerSeenAt: Date;
+    try {
+      ledgerSeenAt = await this.stellar.latestLedgerCloseTime();
+    } catch (err) {
+      this.log.warn(`expireStaleOrders: cannot tell which ledger the RPC has seen, expiring nothing: ${String(err)}`);
+      return;
+    }
     const candidates = await this.prisma.order.findMany({
       where: {
         status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN'] },
-        expiresAt: { lt: new Date(Date.now() - STALE_ORDER_SWEEP_GRACE_MS) },
+        expiresAt: { lt: new Date(Math.min(Date.now(), ledgerSeenAt.getTime()) - STALE_ORDER_SWEEP_GRACE_MS) },
       },
       select: {
         id: true,

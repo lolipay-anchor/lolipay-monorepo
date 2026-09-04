@@ -7,7 +7,9 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { signingDeadlineSecs } from '../config/contract-limits';
+import { RESOLVER_WINDOW_SECS, signingCutoffSecs } from '../config/contract-limits';
+import { refundOpensAt } from '../order/dispute.util';
+import { RefundSignerService } from '../stellar/refund-signer.service';
 import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { Sep12Service } from '../kyc/sep12.service';
@@ -66,6 +68,7 @@ export class Sep24Service {
     private people: PersonService,
     private orderTx: OrderTxService,
     private orderStatus: OrderStatusService,
+    private refundSigner: RefundSignerService,
   ) {}
 
   private assets() {
@@ -355,11 +358,11 @@ export class Sep24Service {
     if (screen === 'sign_funding' || screen === 'sign_release') {
       const funding = screen === 'sign_funding';
       const o = row.order as any;
-      const signBy = funding ? new Date(signingDeadlineSecs(Number(o.payDeadline)) * 1000) : null;
+      const signBy = funding ? new Date(signingCutoffSecs(Number(o.payDeadline)) * 1000) : null;
       if (signBy && signBy.getTime() <= Date.now()) {
         return page(
           'This signing window has closed',
-          `<p>The signing window for this withdrawal closed at <strong>${escapeHtml(signBy.toISOString())}</strong>. Nothing was taken from your wallet, and this withdrawal will expire on its own. Start a new one from your wallet when you are ready.</p>`,
+          `<p>The signing window for this withdrawal closed at <strong>${escapeHtml(signBy.toISOString())}</strong>. If you did not sign, nothing left your wallet and this withdrawal will expire on its own. If you did sign and it went through, this page will show your escrow once the network confirms it. Start a new withdrawal from your wallet when you are ready.</p>`,
         );
       }
       return page(
@@ -368,12 +371,12 @@ export class Sep24Service {
           funding
             ? [
                 `<p>Your wallet will ask you to approve moving <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC into escrow. The provider then pays <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to your bank account, and the escrow releases to them when you confirm it arrived. Nothing leaves your wallet until you approve it.</p>`,
-                `<p>If the provider never marks the rupiah sent, anyone, including you, can take the USDC back out of the escrow after <strong>${escapeHtml(new Date(Number(o.confirmDeadline) * 1000).toISOString())}</strong>. Once they do mark it sent, only your confirmation or a dispute can move it, decided by the resolver, or by the platform if the resolver does not act within 24 hours.</p>`,
+                `<p>If the provider never marks the rupiah sent, anyone, including you, can take the USDC back out of the escrow after <strong>${escapeHtml(new Date(Number(refundOpensAt(o)) * 1000).toISOString())}</strong>${this.refundSigner.isConfigured ? ', and this anchor\'s refund service does it for you' : '; this anchor will not do it for you, so the route is open on chain to anyone, including you'}. Once they do mark it sent, only your confirmation or a dispute can move it, decided by the resolver, or by the platform if the resolver does not act within ${RESOLVER_WINDOW_SECS / 3600} hours.</p>`,
                 `<p>Sign before <strong>${escapeHtml(signBy!.toISOString())}</strong>. After that the escrow refuses the signature and this withdrawal expires.</p>`,
               ].join('')
             : [
-                `<p>The provider says they sent <strong>${escapeHtml(formatFiat((row.order as any).fiatAmount))}</strong> ${escapeHtml((row.order as any).fiatCurrency)} to:</p>`,
-                `<pre>${escapeHtml((row.order as any).userPaymentDetails ?? 'the account you gave this anchor')}</pre>`,
+                `<p>The provider says they sent <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to:</p>`,
+                `<pre>${escapeHtml(o.userPaymentDetails ?? 'the account you gave this anchor')}</pre>`,
                 '<p><strong>Only press this if that money is actually in that account.</strong> Pressing it releases your USDC to the provider and cannot be undone. If it has not arrived, do not press it — the escrow still holds your USDC, and you can raise a dispute.</p>',
               ].join(''),
           `<div id="out"><p>Preparing…</p></div>`,

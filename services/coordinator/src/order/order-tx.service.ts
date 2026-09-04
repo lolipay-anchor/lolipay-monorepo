@@ -6,7 +6,7 @@ import {
   ConflictException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { signingDeadlineSecs } from '../config/contract-limits';
+import { signingCutoffSecs } from '../config/contract-limits';
 import { PrismaService } from '../prisma/prisma.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { AppConfigService } from '../config/app-config.service';
@@ -98,10 +98,8 @@ export class OrderTxService {
         `order must be in ${preChainCreateStatuses.join(' or ')} status to build create_trade`,
       );
     }
-    if (signingDeadlineSecs(Number(currentOrder.payDeadline)) * 1000 <= Date.now()) {
-      throw new ConflictException(
-        'the signing window for this order has closed; it will expire on its own and nothing was taken from your wallet',
-      );
+    if (signingCutoffSecs(Number(currentOrder.payDeadline)) * 1000 <= Date.now()) {
+      throw new ConflictException('the signing window for this order has closed; it will expire on its own');
     }
 
     try {
