@@ -31,6 +31,7 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
     getCreateTradeTx: vi.fn(),
     getConfirmReleaseTx: vi.fn(),
     getMarkPaidTx: vi.fn(),
+    getRaiseDisputeTx: vi.fn(),
 
     uploadProof: vi.fn(),
   }
@@ -387,6 +388,48 @@ describe('AssignmentCard — WITHDRAW (LP pays fiat)', () => {
 
     expect(screen.getByText(/Waiting for seller to lock USDC/i)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Lock USDC/i })).toBeNull()
+  })
+})
+
+describe('AssignmentCard — Open dispute (WITHDRAW FIAT_PAID)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    queryClient.clear()
+  })
+
+  function mountFiatPaidWithdrawal() {
+    return render(
+      <TestProviders kit={fakeKit}>
+        <AssignmentCard
+          assignment={{ order: makeOrder({ flow: 'WITHDRAW', status: 'FIAT_PAID' }) }}
+          onRefetch={vi.fn()}
+        />
+      </TestProviders>,
+    )
+  }
+
+  it('shows the coordinator refusal when the dispute transaction cannot be built, instead of looking like success', async () => {
+    vi.mocked(apiClient.getRaiseDisputeTx).mockRejectedValueOnce(new Error('disputes are closed on this order'))
+    mountFiatPaidWithdrawal()
+
+    fireEvent.click(screen.getByTestId('lp-open-dispute'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toMatch(/disputes are closed on this order/)
+    })
+    expect((screen.getByTestId('lp-open-dispute') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('shows the wallet rejection when the LP declines to sign the dispute', async () => {
+    vi.mocked(apiClient.getRaiseDisputeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+    vi.mocked(fakeKit.signTransaction).mockRejectedValueOnce(new Error('User rejected transaction'))
+    mountFiatPaidWithdrawal()
+
+    fireEvent.click(screen.getByTestId('lp-open-dispute'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toMatch(/User rejected transaction/)
+    })
   })
 })
 

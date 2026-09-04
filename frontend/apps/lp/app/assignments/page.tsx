@@ -263,27 +263,37 @@ export function AssignmentCard({
   }
 
   const [disputeBusy, setDisputeBusy] = React.useState(false)
+  const [disputeError, setDisputeError] = React.useState<string | null>(null)
   async function handleDispute() {
     setDisputeBusy(true)
+    setDisputeError(null)
     try {
       const { xdr, networkPassphrase } = await getRaiseDisputeTx(client, order.id)
       const signedXdr = await wallet.signTransaction(xdr, networkPassphrase)
       await submitFn(signedXdr, networkPassphrase)
       onRefetch()
-    } catch {
+    } catch (err) {
+      setDisputeError(err instanceof Error ? err.message : 'Opening the dispute failed')
     } finally {
       setDisputeBusy(false)
     }
   }
   const DisputeLink = (
-    <button
-      className="w-full py-1 text-center text-xs text-lp-danger underline disabled:opacity-50"
-      data-testid="lp-open-dispute"
-      disabled={disputeBusy}
-      onClick={handleDispute}
-    >
-      {disputeBusy ? 'Opening dispute…' : 'Open dispute'}
-    </button>
+    <div>
+      <button
+        className="w-full py-1 text-center text-xs text-lp-danger underline disabled:opacity-50"
+        data-testid="lp-open-dispute"
+        disabled={disputeBusy}
+        onClick={handleDispute}
+      >
+        {disputeBusy ? 'Opening dispute…' : 'Open dispute'}
+      </button>
+      {disputeError && (
+        <p className="mt-1 text-xs text-lp-danger" role="alert">
+          {disputeError}
+        </p>
+      )}
+    </div>
   )
 
   return (
