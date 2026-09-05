@@ -373,7 +373,7 @@ export class MonitoringService {
         urgency: 'routine',
         text:
           `${refusals.outOfSession} deliveries since this coordinator started, within the last 24 hours, named a session an accepted or processing row is not following and were dropped ` +
-          `— the most recent because ${refusals.outOfSessionReason}. A late result for a session a customer abandoned and re-registered after is normal and stays dropped while the newer session still holds the row; a steady stream means session ids no longer match what this anchor opened.`,
+          `— the most recent because ${refusals.outOfSessionReason}. A late approval for a session a customer abandoned and re-registered after is normal and stays dropped while the newer session still holds the row, though a late refusal lands; a steady stream means session ids no longer match what this anchor opened.`,
       });
     }
 

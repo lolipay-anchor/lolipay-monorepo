@@ -244,13 +244,17 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     expect(list.find((a: any) => a.key === 'didit_deliveries_refused')).toBeUndefined();
   });
 
-  it('re-pages the dropped-delivery alert when the count grows by an order of magnitude, so a steady stream is not one post and a six-hour reminder', async () => {
+  it.each([
+    [3, '1+'],
+    [9, '1+'],
+    [12, '10+'],
+  ])('re-pages the dropped-delivery alert by order of magnitude, so %s drops carry fingerprint %s and a steady stream is not one post and a six-hour reminder', async (n, fingerprint) => {
     const { svc, raised, refusals } = quiet();
-    for (let i = 0; i < 12; i++) refusals.droppedOutOfSession('a delivery named a session this customer is not following');
+    for (let i = 0; i < n; i++) refusals.droppedOutOfSession('a delivery named a session this customer is not following');
     await svc.checkAndAlert();
     const dropped = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_out_of_session_deliveries');
-    expect(dropped.fingerprint).toBe('10+');
-    expect(dropped.text).toContain('12 deliveries');
+    expect(dropped.fingerprint).toBe(fingerprint);
+    expect(dropped.text).toContain(`${n} deliveries`);
   });
 
   it('stays quiet for a single late delivery from an abandoned session, because one is normal and a post plus a clear five minutes later is noise', async () => {

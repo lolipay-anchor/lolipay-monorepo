@@ -105,6 +105,7 @@ export class Sep12Service {
           standing.providerRef &&
           standing.providerRef !== conclusion.providerRef
         ) {
+          this.log.warn('a delivery named a session this customer is not following and was dropped');
           this.refusals.droppedOutOfSession('a delivery named a session this customer is not following');
           return;
         }
