@@ -321,7 +321,7 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     expect(refusals.state().count).toBe(before);
   });
 
-  it('still applies a session status delivery, and one with no event name at all, so a real verdict is never dropped by the event filter', async () => {
+  it('still applies a delivery with no event name at all, so a real verdict is never dropped by the event filter', async () => {
     const kp = Keypair.random();
     await sessionToken(app, kp);
     const raw = JSON.stringify({

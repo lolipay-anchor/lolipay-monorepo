@@ -54,7 +54,7 @@ describe('whether a customer may move funds depends on one predicate that reads 
       'deliveredAt,',
       'screenedAt: screened ? deliveredAt : null,',
       "verifiedAt: conclusion.status === 'ACCEPTED' ? deliveredAt : null,",
-      'data: { rejectionReason: null, screenedAt: null, verifiedAt: null },',
+      'data: { rejectionReason: null, screenedAt: null, verifiedAt: null, verificationUrl: null },',
       'screenedAt: null,',
       'deliveredAt: null,',
     ]);

@@ -87,4 +87,14 @@ describe('each kind of failure clears on its own terms, and never on somebody el
     s.droppedOutOfSession('again');
     expect(s.state()).toMatchObject({ count: 0, outOfSession: 1, outOfSessionReason: 'again' });
   });
+
+  it('lets a probe and a dropped delivery fade without touching the refusal count, which clears only when a delivery is acted on', () => {
+    const s = new DiditRefusalsService();
+    s.record('a delivery came from an environment this deployment is not configured for');
+    s.couldNotAuthenticate('signature does not match');
+    s.droppedOutOfSession('a delivery named a session this customer is not following');
+    s.seen();
+    s.seen();
+    expect(s.state()).toMatchObject({ count: 1, unauthenticated: 0, outOfSession: 0 });
+  });
 });

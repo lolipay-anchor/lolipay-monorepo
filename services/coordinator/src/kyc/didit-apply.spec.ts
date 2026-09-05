@@ -378,6 +378,9 @@ describe('registering a customer does not spend on every attempt', () => {
     await svc.put(REF, { first_name: 'Budi' });
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    const lock = prisma.$executeRaw.mock.calls[0];
+    expect(lock[0].join('?')).toContain('pg_advisory_xact_lock(hashtext(');
+    expect(lock[1]).toBe('person-1');
     expect(prisma.kycVerification.upsert).toHaveBeenCalledTimes(1);
   });
 
@@ -517,7 +520,7 @@ describe('forgetting a customer reaches every refusal that person carries, and n
     const { svc, updates } = forgetSvc(null, [{ customerRef: 'GONE' }]);
     await svc.forget(REF);
     expect(Object.keys(updates[0].data).sort()).toEqual(
-      ['rejectionReason', 'screenedAt', 'verifiedAt'],
+      ['rejectionReason', 'screenedAt', 'verificationUrl', 'verifiedAt'],
     );
     expect(updates[0].data).not.toHaveProperty('status');
     expect(updates[0].data).not.toHaveProperty('personId');

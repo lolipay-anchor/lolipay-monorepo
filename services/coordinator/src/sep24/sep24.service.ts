@@ -13,7 +13,7 @@ import { refundOpensAt } from '../order/dispute.util';
 import { RefundSignerService } from '../stellar/refund-signer.service';
 import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
-import { Sep12Service } from '../kyc/sep12.service';
+import { Sep12Service, stillInFlight } from '../kyc/sep12.service';
 import { RateService } from '../rate/rate.service';
 import { OrderService } from '../order/order.service';
 import { OrderTxService } from '../order/order-tx.service';
@@ -450,7 +450,7 @@ export class Sep24Service {
     }
     const screened = Boolean(state?.screenedElsewhere);
     return interactiveScreen({
-      kycStatus: screened ? 'ACCEPTED' : (kyc?.status ?? null),
+      kycStatus: screened ? 'ACCEPTED' : kyc?.status === 'PROCESSING' && !stillInFlight(kyc) ? 'NEEDS_INFO' : (kyc?.status ?? null),
       screened,
       orderStatus: (row.order?.status as any) ?? null,
       flow: row.flow,

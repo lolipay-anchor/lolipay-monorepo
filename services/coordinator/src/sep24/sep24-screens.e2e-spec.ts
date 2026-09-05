@@ -379,6 +379,48 @@ describe('handing the depositor to the vendor, and finding the way back', () => 
     expect(res.text).toContain('https://verify.didit.me/session/abc123');
     expect(res.text).toContain('http-equiv="refresh"');
   });
+
+  it('asks for identity again when the session it was waiting on is older than a day, so a dead vendor link is not the end of the deposit', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    const link = await prisma.walletLink.findUnique({
+      where: { stellarAddress: kp.publicKey() },
+    });
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: kp.publicKey(),
+        personId: link!.personId,
+        status: 'PROCESSING',
+        providerRef: 'sess-stale',
+        verificationUrl: 'https://verify.didit.me/session/stale',
+      },
+    });
+    await prisma.kycVerification.update({
+      where: { customerRef: kp.publicKey() },
+      data: { updatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) },
+    });
+    const opened = await http()
+      .post('/sep24/transactions/deposit/interactive')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+    const id = opened.body.id;
+    const token = new URL(opened.body.url).searchParams.get('token')!;
+
+    const session = await follow(app, id, token);
+    const res = await session.page().expect(200);
+    expect(res.text).toContain('name="first_name"');
+    expect(res.text).not.toContain('https://verify.didit.me/session/stale');
+
+    await http()
+      .post(`/sep24/interactive/${id}/identity`)
+      .set('Cookie', session.cookie)
+      .type('form')
+      .send({ first_name: 'Budi', last_name: 'Santoso', email_address: 'budi@example.com', id_type: 'id_card', id_country_code: 'IDN' })
+      .expect(302);
+    const row = await prisma.kycVerification.findUniqueOrThrow({ where: { customerRef: kp.publicKey() } });
+    expect(row.providerRef).not.toBe('sess-stale');
+  });
 });
 
 describe('the screen that actually asks for money', () => {

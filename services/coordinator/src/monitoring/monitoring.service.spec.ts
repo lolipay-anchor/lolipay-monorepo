@@ -232,13 +232,22 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
   it('reports deliveries dropped for naming a session the row is not following on their own routine key, never as the urgent refusal that says no trade can be opened', async () => {
     const { svc, raised, refusals } = quiet();
     refusals.droppedOutOfSession('a delivery named a session this customer is not following');
+    refusals.droppedOutOfSession('a delivery named a session this customer is not following');
+    refusals.droppedOutOfSession('a delivery named a session this customer is not following');
     await svc.checkAndAlert();
     const list = raised.flatMap((r) => r.list);
     const dropped = list.find((a: any) => a.key === 'didit_out_of_session_deliveries');
     expect(dropped).toBeDefined();
     expect(dropped.urgency).toBe('routine');
-    expect(dropped.text).toContain('1 deliveries');
+    expect(dropped.text).toContain('3 deliveries');
     expect(list.find((a: any) => a.key === 'didit_deliveries_refused')).toBeUndefined();
+  });
+
+  it('stays quiet for a single late delivery from an abandoned session, because one is normal and a post plus a clear five minutes later is noise', async () => {
+    const { svc, raised, refusals } = quiet();
+    refusals.droppedOutOfSession('a delivery named a session this customer is not following');
+    await svc.checkAndAlert();
+    expect(raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_out_of_session_deliveries')).toBeUndefined();
   });
 
   it('reports acceptances delivered in the last day with no screening while the bound workflow performs AML, because that is what a dropped or moved aml_screenings field looks like', async () => {
@@ -290,7 +299,6 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     expect(alert.urgency).toBe('routine');
     expect(alert.fingerprint).toBe('unknown');
     expect(alert.text).toMatch(/could not read/);
-    expect(raised[0].incomplete.has('didit_unscreened_acceptances_last_day')).toBe(true);
     expect(prisma.kycVerification.count.mock.calls.map((c: any) => c[0].where).find((w: any) => w.status === 'ACCEPTED')).toBeUndefined();
   });
 

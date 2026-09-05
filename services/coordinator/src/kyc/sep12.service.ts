@@ -15,7 +15,7 @@ import {
 
 const SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
-function stillInFlight(
+export function stillInFlight(
   row: { status?: string; providerRef?: string | null; updatedAt?: Date | null } | null | undefined,
 ): boolean {
   if (row?.status !== 'PROCESSING' || !row.providerRef) return false;
@@ -195,7 +195,7 @@ export class Sep12Service {
         id: row.customerRef,
         status: row.status,
         provided_fields: PROVIDED,
-        message: 'finish the verification you started; if it has expired, submit your details again after a day and a new one will be opened',
+        message: 'this verification is still open at the provider; if it has expired, submit your details again after a day and a new one will be opened',
       };
     }
     return { id: row.customerRef, status: row.status, provided_fields: PROVIDED };
@@ -222,7 +222,7 @@ export class Sep12Service {
       if (refusals.length === 0) return 0;
       await tx.kycVerification.updateMany({
         where: { customerRef: { in: refusals.map((r) => r.customerRef) } },
-        data: { rejectionReason: null, screenedAt: null, verifiedAt: null },
+        data: { rejectionReason: null, screenedAt: null, verifiedAt: null, verificationUrl: null },
       });
       return 1;
     });

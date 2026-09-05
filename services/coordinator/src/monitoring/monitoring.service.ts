@@ -366,7 +366,7 @@ export class MonitoringService {
       this.log.warn(`could not count the refusals of the last day: ${e instanceof Error ? e.message : String(e)}`);
     }
 
-    if (refusals.outOfSession > 0) {
+    if (refusals.outOfSession >= 3) {
       alerts.push({
         key: 'didit_out_of_session_deliveries',
         fingerprint: refusals.outOfSessionReason ?? 'unknown',
@@ -378,7 +378,6 @@ export class MonitoringService {
     }
 
     if (refusals.performsAml === undefined) {
-      incomplete.add('didit_unscreened_acceptances_last_day');
       alerts.push({
         key: 'didit_unscreened_acceptances_last_day',
         fingerprint: 'unknown',

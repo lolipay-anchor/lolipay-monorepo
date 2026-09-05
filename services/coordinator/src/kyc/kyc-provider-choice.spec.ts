@@ -19,4 +19,16 @@ describe('which provider the anchor talks to is decided by configuration alone',
   ])('falls back to the stub when there is %s, rather than half configuring itself', (_n, over) => {
     expect(chooseKycProvider(cfg(over), counter())).toBeInstanceOf(StubKycProvider);
   });
+
+  it('tells the refusal counter that the stub performs no AML, so a stub deployment is never read as an unknown workflow', () => {
+    const refusals = counter();
+    chooseKycProvider(cfg({ diditApiKey: '' }), refusals);
+    expect(refusals.state().performsAml).toBe(false);
+  });
+
+  it('leaves the vendor workflow unknown until boot has read it', () => {
+    const refusals = counter();
+    chooseKycProvider(cfg(), refusals);
+    expect(refusals.state().performsAml).toBeUndefined();
+  });
 });

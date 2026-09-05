@@ -18,6 +18,7 @@ export function chooseKycProvider(cfg: AppConfigService, refusals: DiditRefusals
   new Logger('Kyc').warn(
     'identity verification runs through the stub: no provider is configured, so no screening will ever happen',
   );
+  refusals.workflowPerformsAml(false);
   return new StubKycProvider();
 }
 
