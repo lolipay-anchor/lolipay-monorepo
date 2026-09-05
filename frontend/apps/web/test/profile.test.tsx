@@ -22,6 +22,7 @@ vi.mock('@/hooks/useUsdcBalance', () => ({
 const toastMock = vi.hoisted(() => vi.fn())
 vi.mock('@/components/Toast', () => ({
   useToast: () => toastMock,
+  ToastProvider: ({ children }: { children: React.ReactNode }) => children,
 }))
 
 const mockGetMyProfile = vi.hoisted(() => vi.fn())

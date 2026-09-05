@@ -15,7 +15,7 @@ import { useCreateOrder } from '@/hooks/useCreateOrder'
 import { DailyLimitRow } from '@/components/DailyLimitRow'
 
 const QUICK_AMOUNTS = [250_000, 500_000, 1_000_000]
-const TABS = ['Buy', 'Sell', 'Pay bill'] as const
+const TABS = ['Buy', 'Sell'] as const
 
 function computeBreakdown(quote: Quote | undefined, usdcAmount: string) {
   const gross = quote && BigInt(usdcAmount) >= 1n ? BigInt(usdcAmount) : 0n
@@ -46,16 +46,19 @@ export function BuyForm() {
   const idrAmount = parseIDRInput(rawIDR)
   const refused = rawIDR.trim() !== '' && !idrInputAccepted(rawIDR)
   const { quote, usdcAmount, secondsLeft, expired } = useQuote(idrAmount)
-  const { submit, isPending, error } = useCreateOrder()
-
-  const { gross, net, rateText } = computeBreakdown(quote, usdcAmount)
-
-  const canContinue = !!quote && !expired && !isPending
-
   const closeReview = React.useCallback(() => {
     setReviewOpen(false)
     setReviewed(undefined)
   }, [])
+
+  const { submit, isPending } = useCreateOrder((message) => {
+    closeReview()
+    toast(message, 'error')
+  })
+
+  const { gross, net, rateText } = computeBreakdown(quote, usdcAmount)
+
+  const canContinue = !!quote && !expired && !isPending
 
   const [reviewedSecondsLeft, setReviewedSecondsLeft] = React.useState(0)
   React.useEffect(() => {
@@ -96,7 +99,6 @@ export function BuyForm() {
             type="button"
             onClick={() => {
               if (tab === 'Sell') router.push('/sell')
-              else if (tab === 'Pay bill') router.push('/pay-qris')
             }}
             className={
               'flex-1 rounded-[10px] py-2.5 transition ' +
@@ -196,9 +198,6 @@ export function BuyForm() {
           Your USDC lands straight in <b>your</b> Stellar wallet. lolipay never holds your funds.
         </span>
       </div>
-
-      {}
-      {error && <p className="text-center text-xs text-lp-danger">{error.message}</p>}
 
       {}
       <button

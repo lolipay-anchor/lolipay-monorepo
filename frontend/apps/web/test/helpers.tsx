@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { ToastProvider } from '@/components/Toast'
 import { vi } from 'vitest'
 import { Providers } from '@/app/providers'
 
@@ -19,5 +20,9 @@ export function TestProviders({
   children: React.ReactNode
   kit?: typeof fakeKit
 }) {
-  return <Providers kit={kit}>{children}</Providers>
+  return (
+    <ToastProvider>
+      <Providers kit={kit}>{children}</Providers>
+    </ToastProvider>
+  )
 }

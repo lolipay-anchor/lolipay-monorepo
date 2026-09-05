@@ -67,7 +67,7 @@ describe('AppGate', () => {
 
     expect(
       screen.getByText(
-        "Spend crypto like it's nothing. Pay any local bill, buy & sell USDC — non-custodial.",
+        'Buy & sell USDC for rupiah with people near you — non-custodial.',
       ),
     ).toBeTruthy()
 

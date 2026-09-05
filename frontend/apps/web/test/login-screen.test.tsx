@@ -52,9 +52,19 @@ describe('LoginScreen', () => {
     )
     expect(
       screen.getByText(
-        "Spend crypto like it's nothing. Pay any local bill, buy & sell USDC — non-custodial.",
+        'Buy & sell USDC for rupiah with people near you — non-custodial.',
       ),
     ).toBeTruthy()
+  })
+
+  it('promises no bill payment, and says settlement is by bank transfer, because that is what the product does', () => {
+    render(
+      <TestProviders kit={fakeKit}>
+        <LoginScreen />
+      </TestProviders>,
+    )
+    expect(screen.queryByText(/bill/i)).toBeNull()
+    expect(screen.getByText(/settles via bank transfer/i)).toBeTruthy()
   })
 
   it('renders 6 country chips from getMarkets, only IDR enabled — the other 5 disabled with "Coming soon"', async () => {

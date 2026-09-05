@@ -13,6 +13,7 @@ import { formatUsdcBalance } from '@/lib/balance'
 import { useUsdcBalance } from '@/hooks/useUsdcBalance'
 import { QuoteBreakdown } from '@/components/QuoteBreakdown'
 import { ReviewSheet } from '@/components/ReviewSheet'
+import { explainOrderRefusal } from '@/lib/order-refusal'
 import { useToast } from '@/components/Toast'
 import { DailyLimitRow } from '@/components/DailyLimitRow'
 
@@ -114,14 +115,22 @@ export function SellForm() {
   const exceedsBalance =
     usdcValid && balanceBaseUnits != null && BigInt(usdcBaseUnits) > balanceBaseUnits
 
+  const closeReview = React.useCallback(() => {
+    setReviewOpen(false)
+    setReviewed(undefined)
+  }, [])
+
   const {
     mutate: submit,
     isPending,
-    error,
   } = useMutation({
     mutationFn: (quoteId: string) =>
       createOrder(client, { quoteId, userPaymentMethod: payDetails.trim() }),
     onSuccess: (res) => router.push('/orders/' + res.order.id),
+    onError: (e) => {
+      closeReview()
+      toast(explainOrderRefusal((e as Error).message), 'error')
+    },
   })
 
   const canContinue = !!quote && !expired && !isPending
@@ -152,10 +161,6 @@ export function SellForm() {
     setReviewOpen(true)
   }
 
-  const closeReview = React.useCallback(() => {
-    setReviewOpen(false)
-    setReviewed(undefined)
-  }, [])
 
   React.useEffect(() => {
     if (reviewOpen && reviewedExpired) {
@@ -169,13 +174,12 @@ export function SellForm() {
     <div className="flex flex-col gap-3.5">
       {}
       <div className="flex rounded-[14px] bg-lp-line-2 p-1 text-[13px] font-semibold">
-        {(['Buy', 'Sell', 'Pay bill'] as const).map((tab) => (
+        {(['Buy', 'Sell'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
             onClick={() => {
               if (tab === 'Buy') router.push('/buy')
-              else if (tab === 'Pay bill') router.push('/pay-qris')
             }}
             className={
               'flex-1 rounded-[10px] py-2.5 transition ' +
@@ -263,11 +267,7 @@ export function SellForm() {
         </div>
       </div>
 
-      {(inputError || error) && (
-        <p className="text-center text-xs text-lp-danger">
-          {inputError ?? (error as Error)?.message}
-        </p>
-      )}
+      {inputError && <p className="text-center text-xs text-lp-danger">{inputError}</p>}
 
       <button
         type="button"

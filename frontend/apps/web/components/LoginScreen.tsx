@@ -6,13 +6,13 @@ import { getRate, getMarkets } from '@lolipay/api-client'
 import type { Market } from '@lolipay/api-client'
 import { useWallet } from '@lolipay/wallet'
 import { DarkHeroCard } from '@lolipay/ui'
-import { ScanLine, ShieldCheck, Zap } from 'lucide-react'
+import { ShieldCheck, Zap } from 'lucide-react'
 import { useAuth } from '@/app/providers'
 import { client } from '@/lib/client'
 import { formatIDR } from '@/lib/money'
 
 const FALLBACK_COUNTRIES: Market[] = [
-  { code: 'IDR', country: 'Indonesia', currency_symbol: 'Rp', locale: 'id-ID', rail_name: 'QRIS', enabled: true },
+  { code: 'IDR', country: 'Indonesia', currency_symbol: 'Rp', locale: 'id-ID', rail_name: 'bank transfer', enabled: true },
   { code: 'PHP', country: 'Philippines', currency_symbol: '₱', locale: 'en-PH', rail_name: 'InstaPay', enabled: false },
   { code: 'VND', country: 'Vietnam', currency_symbol: '₫', locale: 'vi-VN', rail_name: 'VietQR', enabled: false },
   { code: 'INR', country: 'India', currency_symbol: '₹', locale: 'en-IN', rail_name: 'UPI', enabled: false },
@@ -21,17 +21,11 @@ const FALLBACK_COUNTRIES: Market[] = [
 ]
 
 const FEATURES: Array<{
-  Icon: typeof ScanLine
+  Icon: typeof ShieldCheck
   iconBg: string
   iconColor: string
   label: string
 }> = [
-  {
-    Icon: ScanLine,
-    iconBg: 'bg-lp-accent-soft',
-    iconColor: 'text-lp-accent-ink',
-    label: 'Pay any local bill straight from USDC',
-  },
   {
     Icon: ShieldCheck,
     iconBg: 'bg-lp-green-soft',
@@ -95,8 +89,7 @@ export function LoginScreen() {
               lolipay
             </h1>
             <p className="mx-auto mt-2 max-w-[270px] text-[15px] leading-relaxed text-lp-ink-soft">
-              Spend crypto like it&apos;s nothing. Pay any local bill, buy &amp; sell USDC —
-              non-custodial.
+              Buy &amp; sell USDC for rupiah with people near you — non-custodial.
             </p>
           </div>
         </div>
@@ -208,7 +201,7 @@ export function LoginScreen() {
         )}
 
         <p className="mt-1.5 text-center text-[11.5px] leading-relaxed text-lp-muted">
-          Settles via QRIS in Indonesia · your keys never leave your device.
+          Settles via bank transfer in Indonesia · your keys never leave your device.
         </p>
       </div>
     </div>

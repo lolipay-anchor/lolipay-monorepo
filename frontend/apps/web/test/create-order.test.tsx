@@ -120,4 +120,37 @@ describe('create-order', () => {
 
     expect(push).not.toHaveBeenCalled()
   })
+
+  it('closes the review sheet and tells a first-time user what the anchor requires when the order is refused for identity, instead of hiding the reason behind the sheet', async () => {
+    mockCreateOrder.mockRejectedValueOnce(new Error('identity verification is required before a trade can be opened'))
+
+    render(
+      <TestProviders>
+        <BuyForm />
+      </TestProviders>,
+    )
+
+    await driveValidQuote()
+    fireEvent.click(screen.getByRole('button', { name: /continue to pay/i }))
+    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Review order')).toBeNull()
+      expect(screen.getByText(/verify your identity before your first trade/i)).toBeTruthy()
+    })
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('offers only buying and selling, because bill payment was removed from the product', () => {
+    render(
+      <TestProviders>
+        <BuyForm />
+      </TestProviders>,
+    )
+    expect(screen.getByRole('button', { name: 'Buy' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Sell' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /pay bill/i })).toBeNull()
+  })
 })
