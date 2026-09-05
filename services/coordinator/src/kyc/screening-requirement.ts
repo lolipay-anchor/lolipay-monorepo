@@ -1,4 +1,7 @@
 export const UNREADABLE_SCREENING = 'the screening could not be read';
+export const SCREENING_DID_NOT_RUN = 'the screening did not run';
+export const HIT_REFUSAL = 'sanctions or watchlist match';
+export const UNREADABLE_REFUSAL = 'the refusal carried a screening this anchor could not read';
 
 export function acceptedForFunds(requireAml: boolean) {
   return requireAml
@@ -16,4 +19,8 @@ export function awaitingProvider(
 
 export function deliveredButUnreadable() {
   return { status: 'NEEDS_INFO' as const, rejectionReason: UNREADABLE_SCREENING };
+}
+
+export function screeningDidNotRun() {
+  return { status: 'NEEDS_INFO' as const, rejectionReason: SCREENING_DID_NOT_RUN };
 }

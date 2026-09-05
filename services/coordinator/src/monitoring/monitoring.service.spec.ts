@@ -167,7 +167,7 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     expect(alert.text).toContain('3 customers');
     expect(alert.fingerprint).toBe('1+');
     expect(alert.urgency).toBe('routine');
-    expect(prisma.kycVerification.count.mock.calls[0][0].where).toEqual({ status: 'NEEDS_INFO', rejectionReason: 'the screening could not be read' });
+    expect(prisma.kycVerification.count.mock.calls.map((c: any) => c[0].where)).toContainEqual({ status: 'NEEDS_INFO', rejectionReason: 'the screening could not be read' });
   });
 
   it('says the unreadable-delivery family is incomplete rather than cleared when the count itself fails', async () => {
@@ -175,6 +175,20 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     prisma.kycVerification.count.mockRejectedValue(new Error('connection reset'));
     await svc.checkAndAlert();
     expect(raised[0].incomplete.has('didit_approval_overruled')).toBe(true);
+    expect(raised[0].incomplete.has('didit_screening_unavailable')).toBe(true);
+  });
+
+  it('reports customers whose screening the vendor could not run under its own key, apart from unreadable deliveries, so an outage at the vendor is never read as payload drift', async () => {
+    const { svc, raised, prisma } = quiet();
+    prisma.kycVerification.count.mockImplementation(async (args: any) => (args.where.rejectionReason === 'the screening did not run' ? 3 : 0));
+    await svc.checkAndAlert();
+    const list = raised.flatMap((r) => r.list);
+    const outage = list.find((a: any) => a.key === 'didit_screening_unavailable');
+    expect(outage).toBeDefined();
+    expect(outage.urgency).toBe('routine');
+    expect(outage.fingerprint).toBe('1+');
+    expect(outage.text).toContain('3 customers');
+    expect(list.find((a: any) => a.key === 'didit_approval_overruled')).toBeUndefined();
   });
 
   it('pages urgently and re-sends when the unreadable count crosses an order of magnitude, because that is what vendor payload drift looks like', async () => {

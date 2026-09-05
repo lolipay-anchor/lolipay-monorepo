@@ -5,6 +5,7 @@ import { bootAuthApp, sessionToken } from '../auth/auth-test-helpers';
 import { Keypair } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 
+import { deliveredButUnreadable, screeningDidNotRun } from './screening-requirement';
 const PATH = '/webhooks/didit';
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -207,6 +208,30 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     expect(row!.deliveredAt).not.toBeNull();
     expect(row!.screenedAt).toBeNull();
     expect(await prisma.kycVerification.count({ where: { status: 'NEEDS_INFO', rejectionReason: 'the screening could not be read', customerRef: kp.publicKey() } })).toBe(1);
+  });
+
+  it('asks a customer again with the did-not-run marker when the vendor approved them but could not run the screening, so a vendor outage is counted apart from an unreadable payload', async () => {
+    const kp = Keypair.random();
+    await sessionToken(app, kp);
+
+    const raw = JSON.stringify({
+      event_id: 'e-didnotrun',
+      webhook_type: 'status.updated',
+      timestamp: Math.floor(Date.now() / 1000),
+      session_id: 'sess-live-didnotrun',
+      status: 'Approved',
+      vendor_data: kp.publicKey(),
+      environment: 'sandbox',
+      decision: { aml_screenings: [{ status: 'Approved', total_hits: 0, hits: [], warnings: ['COULD_NOT_PERFORM_AML_SCREENING'] }] },
+    });
+    await post(raw, signed(raw)).expect(200);
+
+    const row = await prisma.kycVerification.findUnique({ where: { customerRef: kp.publicKey() } });
+    expect(row!.status).toBe('NEEDS_INFO');
+    expect(row!.rejectionReason).toBe('the screening did not run');
+    expect(row!.screenedAt).toBeNull();
+    expect(await prisma.kycVerification.count({ where: { ...screeningDidNotRun(), customerRef: kp.publicKey() } })).toBe(1);
+    expect(await prisma.kycVerification.count({ where: { ...deliveredButUnreadable(), customerRef: kp.publicKey() } })).toBe(0);
   });
 
   it('writes nothing at all when the delivery came from another environment', async () => {

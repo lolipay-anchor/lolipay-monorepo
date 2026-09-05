@@ -1,4 +1,4 @@
-import { UNREADABLE_SCREENING } from './screening-requirement';
+import { HIT_REFUSAL, SCREENING_DID_NOT_RUN, UNREADABLE_REFUSAL, UNREADABLE_SCREENING } from './screening-requirement';
 import { readDiditDecision } from './didit-decision';
 
 const clean = { status: 'Approved', total_hits: 0, hits: [], warnings: [] };
@@ -286,5 +286,51 @@ describe('a warning never outranks a hit that is sitting right beside it', () =>
       expect(res.status).toBe('NEEDS_INFO');
       expect(res.rejectionReason).toBeUndefined();
     }
+  });
+
+  it('marks a screening the vendor could not run with its own marker on an approval under both flags, and on a decline when AML is optional, so an outage at the vendor is counted apart from an unreadable payload', () => {
+    const approved = payload({ decision: { aml_screenings: [unperformed] } });
+    for (const requireAml of [true, false]) {
+      const res = readDiditDecision(approved, requireAml);
+      expect(res.status).toBe('NEEDS_INFO');
+      expect(res.rejectionReason).toBe(SCREENING_DID_NOT_RUN);
+      expect(res.screened).toBe(false);
+    }
+    const declined = payload({ status: 'Declined', decision: { aml_screenings: [unperformed], id_verifications: [{ status: 'Approved' }] } });
+    expect(readDiditDecision(declined, false).rejectionReason).toBe(SCREENING_DID_NOT_RUN);
+    expect(readDiditDecision(declined, true).rejectionReason).toBe('the required screening could not be carried out');
+  });
+
+  it('files a delivery that carries both a not-performed entry and an unreadable one as unreadable, not as a vendor outage, because the drift alert must see it', () => {
+    const mixed = [unperformed, { status: 'Approved', total_hits: '0', hits: [] }];
+    for (const requireAml of [true, false]) {
+      const res = readDiditDecision(payload({ decision: { aml_screenings: mixed } }), requireAml);
+      expect(res.status).toBe('NEEDS_INFO');
+      expect(res.rejectionReason).toBe(UNREADABLE_SCREENING);
+    }
+  });
+
+  it('still refuses a screening that could not run when the same delivery also carries a hit, because a hit outranks every other reading', () => {
+    const both = { status: 'Approved', total_hits: 1, hits: [{}], warnings: ['COULD_NOT_PERFORM_AML_SCREENING'] };
+    for (const requireAml of [true, false]) {
+      const res = readDiditDecision(payload({ decision: { aml_screenings: [both] } }), requireAml);
+      expect(res.status).toBe('REJECTED');
+      expect(res.rejectionReason).toBe(HIT_REFUSAL);
+    }
+  });
+
+  it('refuses a decline whose screening it cannot read without calling it a sanctions match, so the customer is never told of a hit that was not there', () => {
+    const odd = [
+      { status: 'Something', total_hits: 0, hits: [], warnings: [] },
+      {},
+      { status: 'Approved', total_hits: '0', hits: [] },
+      { status: 'Approved', total_hits: 0, hits: [], warnings: ['NEW_WARNING'] },
+    ];
+    for (const entry of odd) {
+      const res = readDiditDecision(payload({ status: 'Declined', decision: { aml_screenings: [entry] } }));
+      expect(res.status).toBe('REJECTED');
+      expect(res.rejectionReason).toBe(UNREADABLE_REFUSAL);
+    }
+    expect(readDiditDecision(payload({ status: 'Declined', decision: { aml_screenings: [hit] } })).rejectionReason).toBe(HIT_REFUSAL);
   });
 });

@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../generated/prisma/client';
 import { Alert, AlertsService, Urgency } from './alerts.service';
 import { DiditRefusalsService } from './didit-refusals.service';
-import { deliveredButUnreadable } from '../kyc/screening-requirement';
+import { deliveredButUnreadable, screeningDidNotRun } from '../kyc/screening-requirement';
 import { OutboxService } from '../outbox/outbox.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { AppConfigService } from '../config/app-config.service';
@@ -34,6 +34,7 @@ export const MONITORING_ALERT_SCOPE = [
   'anchor_identity',
   'didit_deliveries_refused',
   'didit_approval_overruled',
+  'didit_screening_unavailable',
   'didit_provider_unreachable',
   'didit_deliveries_unauthenticated',
   'didit_budget_exhausted',
@@ -324,6 +325,23 @@ export class MonitoringService {
     } catch (e) {
       incomplete.add('didit_approval_overruled');
       this.log.warn(`could not count the deliveries this anchor could not read: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    try {
+      const unscreened = await this.prisma.kycVerification.count({ where: screeningDidNotRun() });
+      if (unscreened > 0) {
+        alerts.push({
+          key: 'didit_screening_unavailable',
+          fingerprint: `${10 ** Math.floor(Math.log10(unscreened))}+`,
+          urgency: unscreened >= 10 ? 'urgent' : 'routine',
+          text:
+            `${unscreened} customers were asked to verify again because the vendor could not run the sanctions screening ` +
+            `— ten or more means the vendor's screening provider is down, and nothing in this anchor fixes that`,
+        });
+      }
+    } catch (e) {
+      incomplete.add('didit_screening_unavailable');
+      this.log.warn(`could not count the screenings the vendor could not run: ${e instanceof Error ? e.message : String(e)}`);
     }
 
     if (refusals.unauthenticated > 0) {

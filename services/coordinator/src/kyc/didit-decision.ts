@@ -1,5 +1,5 @@
 import { KycStatus } from '../generated/prisma/client';
-import { UNREADABLE_SCREENING } from './screening-requirement';
+import { HIT_REFUSAL, SCREENING_DID_NOT_RUN, UNREADABLE_REFUSAL, UNREADABLE_SCREENING } from './screening-requirement';
 
 const PROCESSING_STATUSES = ['Not Started', 'In Progress', 'In Review'];
 const RETRYABLE_STATUSES = ['Awaiting User', 'Resubmitted', 'Abandoned', 'Expired', 'Kyc Expired'];
@@ -35,6 +35,12 @@ function cleared(entry: any): boolean {
   return true;
 }
 
+function purelyNotPerformed(entry: any): boolean {
+  if (!entry?.warnings || emptyOrAbsent(entry.warnings)) return false;
+  const list = Array.isArray(entry.warnings) ? entry.warnings : [entry.warnings];
+  return list.every((w: unknown) => w === NOT_PERFORMED) && entry.total_hits === 0 && emptyOrAbsent(entry.hits);
+}
+
 function noScreeningDelivered(payload: any): boolean {
   return emptyOrAbsent(payload?.decision?.aml_screenings);
 }
@@ -45,18 +51,15 @@ function ranAndFoundNothing(payload: any): boolean {
   return list.every(cleared);
 }
 
+function onlyCouldNotScreen(payload: any): boolean {
+  const list = screenings(payload);
+  if (list.length === 0) return false;
+  return list.every((s) => cleared(s) || purelyNotPerformed(s)) && list.some(purelyNotPerformed);
+}
+
 function adverse(entry: any): boolean {
   if (cleared(entry)) return false;
-  if (entry?.warnings && !emptyOrAbsent(entry.warnings)) {
-    const list = Array.isArray(entry.warnings) ? entry.warnings : [entry.warnings];
-    if (
-      list.every((w: unknown) => w === NOT_PERFORMED) &&
-      entry.total_hits === 0 &&
-      emptyOrAbsent(entry.hits)
-    ) {
-      return false;
-    }
-  }
+  if (purelyNotPerformed(entry)) return false;
   return true;
 }
 
@@ -96,22 +99,26 @@ export function readDiditDecision(payload: any, requireAml = true): DiditConclus
 
   if (status === 'Approved') {
     if (foundHits(payload)) {
-      return { ...base, status: 'REJECTED', rejectionReason: 'sanctions or watchlist match' };
+      return { ...base, status: 'REJECTED', rejectionReason: HIT_REFUSAL };
     }
     if (noScreeningDelivered(payload)) return { ...base, status: 'ACCEPTED' };
     if (ranAndFoundNothing(payload)) return { ...base, status: 'ACCEPTED', screened: true };
+    if (onlyCouldNotScreen(payload)) return { ...base, status: 'NEEDS_INFO', rejectionReason: SCREENING_DID_NOT_RUN };
     return { ...base, status: 'NEEDS_INFO', rejectionReason: UNREADABLE_SCREENING };
   }
 
   if (status === 'Declined') {
+    if (foundHits(payload)) {
+      return { ...base, status: 'REJECTED', rejectionReason: HIT_REFUSAL };
+    }
     if (foundSomething(payload)) {
-      return { ...base, status: 'REJECTED', rejectionReason: 'sanctions or watchlist match' };
+      return { ...base, status: 'REJECTED', rejectionReason: UNREADABLE_REFUSAL };
     }
     if (documentFailed(payload)) return { ...base, status: 'NEEDS_INFO' };
     if (couldNotScreen(payload)) {
       return requireAml
         ? { ...base, status: 'REJECTED', rejectionReason: 'the required screening could not be carried out' }
-        : { ...base, status: 'NEEDS_INFO' };
+        : { ...base, status: 'NEEDS_INFO', rejectionReason: SCREENING_DID_NOT_RUN };
     }
     return { ...base, status: 'REJECTED', rejectionReason: 'the refusal carried no readable cause' };
   }
