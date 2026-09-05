@@ -615,12 +615,16 @@ async function assertScreened(session: Session): Promise<void> {
   }
 }
 
-async function freshOrderFor(lpJwt: () => Promise<string>, userPub: string, notBeforeMs: number): Promise<FundableOrder> {
+async function assignmentsOf(lpJwt: () => Promise<string>): Promise<AssignmentOrder[]> {
   const rows = await json<Array<{ order: AssignmentOrder }>>(
     await fetch(`${API}/lp/assignments`, { headers: bearer(await lpJwt()) }),
     'lp/assignments',
   );
-  return pickFreshOrder(rows.map((r) => r.order), userPub, notBeforeMs);
+  return rows.map((r) => r.order);
+}
+
+async function freshOrderFor(lpJwt: () => Promise<string>, userPub: string, notBeforeMs: number): Promise<FundableOrder> {
+  return pickFreshOrder(await assignmentsOf(lpJwt), userPub, notBeforeMs);
 }
 
 async function xdrFor(jwt: () => Promise<string>, orderId: string, leg: string): Promise<{ xdr: string; networkPassphrase: string }> {
@@ -674,8 +678,9 @@ async function waitForSep24(
   id: string,
   status: string,
   record: { amountIn: string; asset: string },
+  limitMs = POLL_LIMIT_MS,
 ): Promise<{ status: string; stellar_transaction_id: string | null; amount_in: string | null; amount_in_asset: string | null }> {
-  const until = Date.now() + POLL_LIMIT_MS;
+  const until = Date.now() + limitMs;
   while (Date.now() < until) {
     const { transaction } = await json<{
       transaction: { status: string; stellar_transaction_id: string | null; amount_in: string | null; amount_in_asset: string | null };
@@ -690,7 +695,7 @@ async function waitForSep24(
     }
     await new Promise((r) => setTimeout(r, POLL_MS));
   }
-  throw new Error(`transaction ${id} did not reach ${status} within ${POLL_LIMIT_MS / 1000}s`);
+  throw new Error(`transaction ${id} did not reach ${status} within ${limitMs / 1000}s`);
 }
 
 interface Actors {
@@ -793,6 +798,106 @@ function writeConfig(cfg: unknown): void {
   renameSync(tmp, CONFIG_PATH);
 }
 
+const EXPLORER = 'https://stellar.expert/explorer/testnet/tx';
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function runAsProvider(
+  lp: Keypair,
+  lpJwt: () => Promise<string>,
+  escrow: string,
+  target: { userPub: string; orderId: string | null; waitMs: number },
+): Promise<void> {
+  const stop = await readyLp(lpJwt, lp.publicKey());
+  try {
+    let orderId = target.orderId;
+    let tradeIdHex: string | undefined;
+    if (orderId) {
+      const resumed = (await assignmentsOf(lpJwt)).find((o) => o.id === orderId);
+      if (!resumed?.trade_id) throw new Error(`order ${orderId} is not among this provider's assignments with a trade id; nothing to resume`);
+      if (resumed.user_address !== target.userPub) throw new Error(`order ${orderId} belongs to ${resumed.user_address}, not the wallet this run was told to serve`);
+      tradeIdHex = resumed.trade_id;
+      console.log(`melanjutkan order ${orderId} (${resumed.status}), trade ${tradeIdHex}`);
+    } else {
+      const t0 = Date.now() - 5_000;
+      console.log(`LP siap: provider ${lp.publicKey()} menunggu order dari ${target.userPub} sebesar ${DEMO_IDR} IDR (maks ${target.waitMs / 60_000} menit)`);
+      const untilMatched = Date.now() + target.waitMs;
+      let last = '';
+      while (!tradeIdHex && Date.now() < untilMatched) {
+        try {
+          const order = newestMatchedOrder(await assignmentsOf(lpJwt), target.userPub, t0);
+          if (!order) {
+            await sleep(POLL_MS);
+            continue;
+          }
+          const funded = await signAndSubmit(
+            lp,
+            await xdrFor(lpJwt, order.id, 'create-trade'),
+            escrow,
+            'create_trade',
+            createTradeExpectation(order, lp.publicKey(), target.userPub, DEMO_IDR),
+          );
+          orderId = order.id;
+          tradeIdHex = funded.tradeIdHex;
+          console.log(`escrow terdanai: ${funded.hash}\n  ${EXPLORER}/${funded.hash}\n  order ${order.id}, trade ${tradeIdHex}`);
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err);
+          if (m !== last) {
+            console.log(`menunggu: ${m}`);
+            last = m;
+          }
+          const adopted = fundedByMe(await assignmentsOf(lpJwt), target.userPub, t0);
+          if (adopted) {
+            orderId = adopted.id;
+            tradeIdHex = adopted.tradeIdHex;
+            console.log(`escrow sudah terdanai untuk order ${orderId} (konfirmasi sebelumnya terlewat); melanjutkan, trade ${tradeIdHex}`);
+            break;
+          }
+          await sleep(POLL_MS);
+        }
+      }
+      if (!orderId || !tradeIdHex) {
+        throw new Error(`no fundable order for ${target.userPub} within ${target.waitMs / 60_000} minutes; if the escrow was funded, rerun with SEP24_ORDER_ID=<order id>`);
+      }
+    }
+    const untilPaid = Date.now() + target.waitMs;
+    let paid: AssignmentOrder | null = null;
+    while (!paid && Date.now() < untilPaid) {
+      paid = orderAwaitingRelease(await assignmentsOf(lpJwt), orderId);
+      if (!paid) await sleep(POLL_MS);
+    }
+    if (!paid) {
+      throw new Error(`order ${orderId} was not attested within ${target.waitMs / 60_000} minutes; rerun with SEP24_ORDER_ID=${orderId} to resume, the escrow stays funded meanwhile`);
+    }
+    const released = await signAndSubmit(lp, await xdrFor(lpJwt, orderId, 'confirm-release'), escrow, 'confirm_and_release', { tradeIdHex });
+    console.log(`rilis: ${released.hash}\n  ${EXPLORER}/${released.hash}`);
+  } finally {
+    stop();
+  }
+}
+
+async function runAsUser(a: Actors, target: { waitMs: number; waitsForAttest: boolean }): Promise<void> {
+  const session = await openInteractive('deposit', a.demoSep10);
+  await assertScreened(session);
+  await postForm(session, 'amount', { fiat_amount: DEMO_IDR });
+  console.log(`deposit ${session.id} dibuka oleh ${a.demo.publicKey()} sebesar ${DEMO_IDR} IDR; menunggu provider mendanai`);
+  await waitForSep24(a.demoSep10, session.id, 'pending_user_transfer_start', DEPOSIT_RECORD, target.waitMs);
+  const mine = await json<Array<{ id: string; status: string; flow?: string | null; trade_id?: string | null; user_address?: string | null; created_at: string }>>(
+    await fetch(`${API}/orders?limit=20`, { headers: bearer(await a.demoJwt()) }),
+    'orders',
+  );
+  const order = fundedOrderOf(mine, a.demo.publicKey());
+  if (!order) throw new Error('the deposit is funded but no FUNDED TOP_UP order of mine is listed');
+  if (target.waitsForAttest) {
+    console.log(`escrow terdanai untuk order ${order.id}; menunggu admin menekan Attest (maks ${target.waitMs / 60_000} menit)`);
+  } else {
+    const paid = await signAndSubmit(a.demo, await xdrFor(a.demoJwt, order.id, 'mark-paid'), a.escrow, 'mark_fiat_paid', { tradeIdHex: order.tradeIdHex });
+    console.log(`rupiah ditandai terbayar oleh pengguna: ${paid.hash}`);
+  }
+  await waitForSep24(a.demoSep10, session.id, 'completed', DEPOSIT_RECORD, target.waitMs);
+  const hash = await settledHash(a, session.id, DEPOSIT_RECORD);
+  console.log(`selesai: ${hash}\n  ${EXPLORER}/${hash}`);
+}
+
 async function main(): Promise<void> {
   if (DEMO_IDR_DIGITS === '0') {
     throw new Error(
@@ -812,11 +917,17 @@ async function main(): Promise<void> {
   if (!escrow) throw new Error('ESCROW_CONTRACT_ID is not set; the driver refuses to sign a call to an unnamed contract');
   const usdcIssuer = process.env.USDC_ASSET_ISSUER;
   if (!usdcIssuer || !/^G[A-Z2-7]{55}$/.test(usdcIssuer)) throw new Error('USDC_ASSET_ISSUER is not set to a G address; the driver cannot name the asset a withdrawal records');
-  const demo = identity(process.env.SEP24_DEMO_IDENTITY ?? 'sep24-demo');
+  const target = roleTarget(process.env);
   const lp = identity(process.env.SEP24_LP_IDENTITY ?? 'e2e-provider');
-  console.log(`demo account ${demo.publicKey()}`);
+  const lpJwt = tokenSource(() => sessionJwt(lp));
   console.log(`provider     ${lp.publicKey()}`);
   console.log(`escrow       ${escrow}`);
+  if (target?.role === 'lp') {
+    await runAsProvider(lp, lpJwt, escrow, { userPub: target.userPub as string, orderId: target.orderId, waitMs: target.waitMs });
+    return;
+  }
+  const demo = identity(process.env.SEP24_DEMO_IDENTITY ?? 'sep24-demo');
+  console.log(`demo account ${demo.publicKey()}`);
 
   const anchor = await anchorIdentity();
   const a: Actors = {
@@ -825,9 +936,13 @@ async function main(): Promise<void> {
     escrow,
     usdcIssuer,
     demoJwt: tokenSource(() => sessionJwt(demo)),
-    lpJwt: tokenSource(() => sessionJwt(lp)),
+    lpJwt,
     demoSep10: tokenSource(() => sep10Jwt(demo, anchor)),
   };
+  if (target?.role === 'user') {
+    await runAsUser(a, { waitMs: target.waitMs, waitsForAttest: target.waitsForAttest });
+    return;
+  }
 
   const stop = await readyLp(a.lpJwt, lp.publicKey());
   try {
