@@ -13,6 +13,10 @@ import {
   REQUIRED_KYC_FIELDS,
 } from './kyc-provider';
 
+function stillInFlight(row: { status?: string; providerRef?: string | null } | null | undefined): boolean {
+  return row?.status === 'PROCESSING' && Boolean(row.providerRef);
+}
+
 const PROVIDED = Object.fromEntries(
   REQUIRED_KYC_FIELDS.map((f) => [f, KYC_FIELD_DESCRIPTORS[f]]),
 );
@@ -31,17 +35,26 @@ export class Sep12Service {
   private readonly opening = new Set<string>();
 
   private async recordIncomplete(customerRef: string, personId: string) {
-    await this.prisma.kycVerification.upsert({
-      where: { customerRef },
-      create: { customerRef, personId, status: 'NEEDS_INFO' },
-      update: {
-        personId,
-        status: 'NEEDS_INFO',
-        providerRef: null,
-        verificationUrl: null,
-        rejectionReason: null,
-        verifiedAt: null,
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${personId}))`;
+      const refused = await tx.kycVerification.findFirst({
+        where: { status: 'REJECTED', OR: [{ customerRef }, { personId }] },
+      });
+      if (refused) throw new ForbiddenException('this identity was refused and cannot be resubmitted here');
+      const settled = await tx.kycVerification.findUnique({ where: { customerRef } });
+      if (settled?.status === 'ACCEPTED' || stillInFlight(settled)) return;
+      await tx.kycVerification.upsert({
+        where: { customerRef },
+        create: { customerRef, personId, status: 'NEEDS_INFO' },
+        update: {
+          personId,
+          status: 'NEEDS_INFO',
+          providerRef: null,
+          verificationUrl: null,
+          rejectionReason: null,
+          verifiedAt: null,
+        },
+      });
     });
     return { id: customerRef };
   }
@@ -181,14 +194,13 @@ export class Sep12Service {
     const { count } = await this.prisma.kycVerification.deleteMany({
       where: { OR: scope, status: { not: 'REJECTED' } },
     });
-    if (count > 0) return count;
-
     if (!person) {
+      if (count > 0) return count;
       const standing = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
       return standing ? 1 : 0;
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const redacted = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${person.id}))`;
       const refusals = await tx.kycVerification.findMany({
         where: { status: 'REJECTED', OR: [{ customerRef }, { personId: person.id }] },
@@ -201,6 +213,7 @@ export class Sep12Service {
       });
       return 1;
     });
+    return count > 0 ? count : redacted;
   }
 
   async put(customerRef: string, fields: Record<string, string>) {
@@ -218,7 +231,7 @@ export class Sep12Service {
     if (inFlight?.status === 'ACCEPTED') {
       return { id: customerRef };
     }
-    if (inFlight?.status === 'PROCESSING' && inFlight.providerRef) {
+    if (stillInFlight(inFlight)) {
       return { id: customerRef };
     }
 

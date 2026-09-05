@@ -316,6 +316,34 @@ describe('registering a customer does not spend on every attempt', () => {
     await svc.put(REF, complete);
     expect(provider.start).toHaveBeenCalledWith(REF, complete);
   });
+
+  it('refuses an incomplete submission that races a refusal, instead of writing NEEDS_INFO over the refusal that landed between the check and the write', async () => {
+    const { svc, prisma, store } = putSvc({ customerRef: REF, status: 'NEEDS_INFO', providerRef: null });
+    prisma.kycVerification.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ customerRef: REF, status: 'REJECTED', rejectionReason: 'sanctions or watchlist match' });
+    await expect(svc.put(REF, { first_name: 'Budi' })).rejects.toThrow(/refused/);
+    expect(prisma.kycVerification.upsert).not.toHaveBeenCalled();
+    expect(store.row.status).toBe('NEEDS_INFO');
+  });
+
+  it('leaves an acceptance that landed between the check and the write untouched, instead of demoting a customer the provider just accepted', async () => {
+    const { svc, prisma, store } = putSvc(null);
+    const accepted = { customerRef: REF, status: 'ACCEPTED', providerRef: 'sess-1', screenedAt: new Date('2026-09-05'), deliveredAt: new Date('2026-09-05') };
+    prisma.kycVerification.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(accepted);
+    const res = await svc.put(REF, { first_name: 'Budi' });
+    expect(res).toEqual({ id: REF });
+    expect(prisma.kycVerification.upsert).not.toHaveBeenCalled();
+    expect(store.row).toBeNull();
+  });
+
+  it('writes an incomplete submission under the person lock the delivery path takes', async () => {
+    const { svc, prisma } = putSvc(null);
+    await svc.put(REF, { first_name: 'Budi' });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.kycVerification.upsert).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('two requests arriving together buy one session, not two', () => {

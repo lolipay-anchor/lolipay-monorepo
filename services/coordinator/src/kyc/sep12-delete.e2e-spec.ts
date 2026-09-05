@@ -195,4 +195,27 @@ describe('erasure reaches every refusal a person carries, against the real datab
       expect(row.personId).toBe(personId);
     }
   });
+
+  it('erases the reason on a refused row of the same person even when it also has a row to delete, so one DELETE is enough', async () => {
+    const kp = Keypair.random();
+    const one = await anchorToken(app, kp, 7001);
+    const two = await anchorToken(app, kp, 7002);
+    await request(app.getHttpServer())
+      .put('/customer').set('Authorization', `Bearer ${one}`).send({ first_name: 'Budi' }).expect(202);
+    const personId = (await prisma.kycVerification.findUniqueOrThrow({ where: { customerRef: `${kp.publicKey()}:7001` } })).personId;
+    await prisma.kycVerification.create({
+      data: { customerRef: `${kp.publicKey()}:7002`, personId, status: 'REJECTED', rejectionReason: 'sanctions or watchlist match', deliveredAt: new Date() },
+    });
+
+    await request(app.getHttpServer())
+      .delete(`/customer/${kp.publicKey()}`)
+      .set('Authorization', `Bearer ${two}`)
+      .expect(200);
+
+    expect(await prisma.kycVerification.findUnique({ where: { customerRef: `${kp.publicKey()}:7001` } })).toBeNull();
+    const refused = await prisma.kycVerification.findUniqueOrThrow({ where: { customerRef: `${kp.publicKey()}:7002` } });
+    expect(refused.status).toBe('REJECTED');
+    expect(refused.rejectionReason).toBeNull();
+    expect(refused.deliveredAt).not.toBeNull();
+  });
 });
