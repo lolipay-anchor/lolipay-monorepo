@@ -96,8 +96,14 @@ export class Sep12Service {
       const standing = await tx.kycVerification.findUnique({ where: { customerRef } });
       if (standing) {
         if (standing.status === 'REJECTED') return;
+        const genuineLateApproval =
+          conclusion.status === 'ACCEPTED' &&
+          standing.status === 'PROCESSING' &&
+          standing.updatedAt instanceof Date &&
+          deliveredAt > standing.updatedAt;
         if (
           !refusing &&
+          !genuineLateApproval &&
           (standing.status === 'ACCEPTED' || standing.status === 'PROCESSING') &&
           standing.providerRef &&
           standing.providerRef !== conclusion.providerRef
@@ -222,7 +228,7 @@ export class Sep12Service {
       if (refusals.length === 0) return 0;
       await tx.kycVerification.updateMany({
         where: { customerRef: { in: refusals.map((r) => r.customerRef) } },
-        data: { rejectionReason: null, screenedAt: null, verifiedAt: null, verificationUrl: null },
+        data: { rejectionReason: null, screenedAt: null, verifiedAt: null, verificationUrl: null, providerRef: null, environment: null },
       });
       return 1;
     });

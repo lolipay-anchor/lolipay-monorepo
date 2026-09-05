@@ -74,19 +74,6 @@ describe('each kind of failure clears on its own terms, and never on somebody el
     expect(s.state().budgetReason).toBeUndefined();
   });
 
-  it('lets a delivery for a session the row is not following fade like a probe, apart from refusals, because a late result for an abandoned session is normal', () => {
-    const s = new DiditRefusalsService();
-    s.droppedOutOfSession('a delivery named a session this customer is not following');
-    s.droppedOutOfSession('a delivery named a session this customer is not following');
-    expect(s.state()).toMatchObject({ count: 0, outOfSession: 2 });
-    s.seen();
-    expect(s.state().outOfSession).toBe(1);
-    s.seen();
-    expect(s.state()).toMatchObject({ outOfSession: 0, outOfSessionReason: undefined });
-    s.applied();
-    s.droppedOutOfSession('again');
-    expect(s.state()).toMatchObject({ count: 0, outOfSession: 1, outOfSessionReason: 'again' });
-  });
 
   it('lets a probe and a dropped delivery fade without touching the refusal count, which clears only when a delivery is acted on', () => {
     const s = new DiditRefusalsService();
@@ -95,6 +82,28 @@ describe('each kind of failure clears on its own terms, and never on somebody el
     s.droppedOutOfSession('a delivery named a session this customer is not following');
     s.seen();
     s.seen();
-    expect(s.state()).toMatchObject({ count: 1, unauthenticated: 0, outOfSession: 0 });
+    expect(s.state()).toMatchObject({ count: 1, unauthenticated: 0, outOfSession: 1 });
+  });
+
+  it('counts dropped out-of-session deliveries over the last day, so a slow steady drift is never below a threshold that a per-tick decay would keep it under', () => {
+    const start = 1_800_000_000_000;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(start);
+    try {
+      const s = new DiditRefusalsService();
+      s.droppedOutOfSession('a delivery named a session this customer is not following');
+      clock.mockReturnValue(start + 10 * 60 * 60 * 1000);
+      s.droppedOutOfSession('a delivery named a session this customer is not following');
+      clock.mockReturnValue(start + 20 * 60 * 60 * 1000);
+      s.droppedOutOfSession('a delivery named a session this customer is not following');
+      s.seen();
+      s.seen();
+      expect(s.state().outOfSession).toBe(3);
+      clock.mockReturnValue(start + 25 * 60 * 60 * 1000);
+      expect(s.state().outOfSession).toBe(2);
+      clock.mockReturnValue(start + 45 * 60 * 60 * 1000);
+      expect(s.state()).toMatchObject({ outOfSession: 0, outOfSessionReason: undefined });
+    } finally {
+      clock.mockRestore();
+    }
   });
 });

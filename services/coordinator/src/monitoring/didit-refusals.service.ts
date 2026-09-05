@@ -1,10 +1,12 @@
 import { Injectable } from '@nestjs/common';
 
+const OUT_OF_SESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 @Injectable()
 export class DiditRefusalsService {
   private count = 0;
   private lastReason?: string;
-  private outOfSession = 0;
+  private outOfSessionAt: number[] = [];
   private outOfSessionReason?: string;
   private providerFailures = 0;
   private providerReason?: string;
@@ -25,7 +27,7 @@ export class DiditRefusalsService {
   }
 
   droppedOutOfSession(reason: string): void {
-    this.outOfSession += 1;
+    this.outOfSessionAt.push(Date.now());
     this.outOfSessionReason = reason;
   }
 
@@ -57,12 +59,17 @@ export class DiditRefusalsService {
   seen(): void {
     if (this.unauthenticated > 0) this.unauthenticated -= 1;
     if (this.unauthenticated === 0) this.unauthenticatedReason = undefined;
-    if (this.outOfSession > 0) this.outOfSession -= 1;
-    if (this.outOfSession === 0) this.outOfSessionReason = undefined;
   }
 
   workflowPerformsAml(performs: boolean | undefined): void {
     this.performsAml = performs;
+  }
+
+  private outOfSessionInWindow(): number {
+    const since = Date.now() - OUT_OF_SESSION_WINDOW_MS;
+    this.outOfSessionAt = this.outOfSessionAt.filter((t) => t > since);
+    if (this.outOfSessionAt.length === 0) this.outOfSessionReason = undefined;
+    return this.outOfSessionAt.length;
   }
 
   state(): {
@@ -78,10 +85,11 @@ export class DiditRefusalsService {
     budgetReason?: string;
     performsAml?: boolean;
   } {
+    const outOfSession = this.outOfSessionInWindow();
     return {
       count: this.count,
       lastReason: this.lastReason,
-      outOfSession: this.outOfSession,
+      outOfSession,
       outOfSessionReason: this.outOfSessionReason,
       providerFailures: this.providerFailures,
       providerReason: this.providerReason,

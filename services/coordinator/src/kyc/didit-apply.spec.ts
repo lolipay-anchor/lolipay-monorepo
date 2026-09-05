@@ -242,6 +242,37 @@ describe('applying what a delivery concluded', () => {
     await s.applyDelivery(accepted({ providerRef: 'sess-9' }), AT);
     expect(refusals.state()).toMatchObject({ count: 0, outOfSession: 1 });
   });
+
+  it('lets a genuine approval for the session the customer abandoned land on the row that moved on, when it was delivered after the move, because the vendor approved the person', async () => {
+    const reopenedAt = new Date('2026-08-28T04:30:00.000Z');
+    const { s, store, refusals } = svc({
+      customerRef: REF, status: 'PROCESSING', providerRef: 'sess-2', deliveredAt: null, screenedAt: null, updatedAt: reopenedAt,
+    });
+    await s.applyDelivery(accepted({ providerRef: 'sess-1' }), AT);
+    expect(store.row.status).toBe('ACCEPTED');
+    expect(store.row.providerRef).toBe('sess-1');
+    expect(refusals.state().outOfSession).toBe(0);
+  });
+
+  it('still drops an approval for the abandoned session that was delivered before the row moved on, so a replayed old verdict cannot overtake a newer session', async () => {
+    const reopenedAt = new Date('2026-08-28T05:30:00.000Z');
+    const { s, store, refusals } = svc({
+      customerRef: REF, status: 'PROCESSING', providerRef: 'sess-2', deliveredAt: null, screenedAt: null, updatedAt: reopenedAt,
+    });
+    await s.applyDelivery(accepted({ providerRef: 'sess-1' }), AT);
+    expect(store.row.status).toBe('PROCESSING');
+    expect(refusals.state().outOfSession).toBe(1);
+  });
+
+  it('never lets an approval from another session overwrite a row that is already accepted', async () => {
+    const { s, store, refusals } = svc({
+      customerRef: REF, status: 'ACCEPTED', providerRef: 'sess-1', deliveredAt: EARLIER, screenedAt: EARLIER, updatedAt: EARLIER,
+    });
+    await s.applyDelivery(accepted({ providerRef: 'sess-9', screened: false }), AT);
+    expect(store.row.screenedAt).toBe(EARLIER);
+    expect(store.row.providerRef).toBe('sess-1');
+    expect(refusals.state().outOfSession).toBe(1);
+  });
 });
 
 describe('registering a customer does not spend on every attempt', () => {
@@ -520,7 +551,7 @@ describe('forgetting a customer reaches every refusal that person carries, and n
     const { svc, updates } = forgetSvc(null, [{ customerRef: 'GONE' }]);
     await svc.forget(REF);
     expect(Object.keys(updates[0].data).sort()).toEqual(
-      ['rejectionReason', 'screenedAt', 'verificationUrl', 'verifiedAt'],
+      ['environment', 'providerRef', 'rejectionReason', 'screenedAt', 'verificationUrl', 'verifiedAt'],
     );
     expect(updates[0].data).not.toHaveProperty('status');
     expect(updates[0].data).not.toHaveProperty('personId');

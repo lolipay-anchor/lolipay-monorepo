@@ -449,8 +449,9 @@ export class Sep24Service {
       return interactiveScreen({ kycStatus: 'REJECTED', screened: false, orderStatus: null });
     }
     const screened = Boolean(state?.screenedElsewhere);
+    const sessionWentStale = kyc?.status === 'PROCESSING' && !stillInFlight(kyc);
     return interactiveScreen({
-      kycStatus: screened ? 'ACCEPTED' : kyc?.status === 'PROCESSING' && !stillInFlight(kyc) ? 'NEEDS_INFO' : (kyc?.status ?? null),
+      kycStatus: screened ? 'ACCEPTED' : sessionWentStale ? 'NEEDS_INFO' : (kyc?.status ?? null),
       screened,
       orderStatus: (row.order?.status as any) ?? null,
       flow: row.flow,

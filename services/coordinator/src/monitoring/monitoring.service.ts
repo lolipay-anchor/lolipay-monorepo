@@ -372,7 +372,7 @@ export class MonitoringService {
         fingerprint: refusals.outOfSessionReason ?? 'unknown',
         urgency: 'routine',
         text:
-          `${refusals.outOfSession} deliveries named a session the customer's row is no longer following and were left unapplied ` +
+          `${refusals.outOfSession} deliveries in the last 24 hours named a session the customer's row is no longer following and were left unapplied ` +
           `— the most recent because ${refusals.outOfSessionReason}. A late result for an abandoned session is normal; a steady stream means session ids no longer match what this anchor opened.`,
       });
     }

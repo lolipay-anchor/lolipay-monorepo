@@ -204,7 +204,7 @@ describe('erasure reaches every refusal a person carries, against the real datab
       .put('/customer').set('Authorization', `Bearer ${one}`).send({ first_name: 'Budi' }).expect(202);
     const personId = (await prisma.kycVerification.findUniqueOrThrow({ where: { customerRef: `${kp.publicKey()}:7001` } })).personId;
     await prisma.kycVerification.create({
-      data: { customerRef: `${kp.publicKey()}:7002`, personId, status: 'REJECTED', rejectionReason: 'sanctions or watchlist match', deliveredAt: new Date(), verificationUrl: 'https://verify.didit.me/session/refused' },
+      data: { customerRef: `${kp.publicKey()}:7002`, personId, status: 'REJECTED', rejectionReason: 'sanctions or watchlist match', deliveredAt: new Date(), verificationUrl: 'https://verify.didit.me/session/refused', providerRef: 'sess-refused', environment: 'sandbox' },
     });
 
     await request(app.getHttpServer())
@@ -218,5 +218,7 @@ describe('erasure reaches every refusal a person carries, against the real datab
     expect(refused.rejectionReason).toBeNull();
     expect(refused.deliveredAt).not.toBeNull();
     expect(refused.verificationUrl).toBeNull();
+    expect(refused.providerRef).toBeNull();
+    expect(refused.environment).toBeNull();
   });
 });
