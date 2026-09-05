@@ -267,7 +267,8 @@ describe('a refusal inside the popup is a page, not a json blob', () => {
     expect(res.status).toBe(400);
     expect(res.headers['content-type']).toMatch(/text\/html/);
     expect(res.text).not.toMatch(/statusCode/);
-    expect(res.text).toMatch(/rupiah/i);
+    expect(res.text).toMatch(/plain digits/);
+    expect(res.text).toMatch(/200\.000/);
   });
 
   it('offers a way back into the flow rather than ending it', async () => {
