@@ -319,7 +319,7 @@ export class MonitoringService {
           fingerprint: `${10 ** Math.floor(Math.log10(unreadable))}+`,
           urgency: unreadable >= 10 ? 'urgent' : 'routine',
           text:
-            `${unreadable} customers were approved by the vendor with a screening this anchor could not read, so they were asked to verify again ` +
+            `${unreadable} customers had a delivery whose screening this anchor could not read, whatever the vendor decided, so they were asked to verify again ` +
             `— one is a stray payload; ten or more means the vendor's payload shape has changed and every new customer will loop until the reader is updated`,
         });
       }

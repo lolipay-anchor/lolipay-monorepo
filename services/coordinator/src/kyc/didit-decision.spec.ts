@@ -61,6 +61,7 @@ describe('what the anchor concludes from a delivery', () => {
   it('opens nothing on an approval whose screening shape it cannot read: an unknown warning, a missing total or an empty entry asks the customer again, never a sanctions match and never a delivered acceptance', () => {
     const unfamiliar = [
       { status: 'Approved', total_hits: 0, hits: [], warnings: ['SOME_NEW_BENIGN_WARNING'] },
+      { status: 'Approved', total_hits: 0, hits: [], warnings: 'SOME_NEW_BENIGN_WARNING' },
       { status: 'Approved', hits: [] },
       { status: 'Approved', total_hits: '0', hits: [] },
       {},
@@ -326,6 +327,7 @@ describe('a warning never outranks a hit that is sitting right beside it', () =>
       {},
       { status: 'Approved', total_hits: '0', hits: [] },
       { status: 'Approved', total_hits: 0, hits: [], warnings: ['NEW_WARNING'] },
+      { status: 'Approved', total_hits: 0, hits: [], warnings: 'SOME_NEW_WARNING' },
     ];
     for (const entry of odd) {
       for (const requireAml of [true, false]) {

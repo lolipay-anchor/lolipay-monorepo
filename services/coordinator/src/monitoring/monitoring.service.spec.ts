@@ -165,6 +165,7 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_approval_overruled');
     expect(alert).toBeDefined();
     expect(alert.text).toContain('3 customers');
+    expect(alert.text).not.toMatch(/approved by the vendor/);
     expect(alert.fingerprint).toBe('1+');
     expect(alert.urgency).toBe('routine');
     expect(prisma.kycVerification.count.mock.calls.map((c: any) => c[0].where)).toContainEqual({ status: 'NEEDS_INFO', rejectionReason: 'the screening could not be read' });
@@ -194,7 +195,7 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
 
   it('reports every refusal written after a provider delivery in the last day, from status and delivery time alone so a customer erasing their reason does not erase the count, and pages urgently at ten', async () => {
     const { svc, raised, prisma } = quiet();
-    const frozen = 1_800_000_000_000;
+    const frozen = Date.now();
     const clock = jest.spyOn(Date, 'now').mockReturnValue(frozen);
     try {
       prisma.kycVerification.count.mockImplementation(async (args: any) => (args.where.status === 'REJECTED' ? 12 : 0));
@@ -209,6 +210,19 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     } finally {
       clock.mockRestore();
     }
+  });
+
+  it.each([
+    [1, 'routine', '1+'],
+    [9, 'routine', '1+'],
+    [10, 'urgent', '10+'],
+  ])('with %s refusals in the day the alert is %s with fingerprint %s', async (n, urgency, fingerprint) => {
+    const { svc, raised, prisma } = quiet();
+    prisma.kycVerification.count.mockImplementation(async (args: any) => (args.where.status === 'REJECTED' ? n : 0));
+    await svc.checkAndAlert();
+    const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_refused_last_day');
+    expect(alert.urgency).toBe(urgency);
+    expect(alert.fingerprint).toBe(fingerprint);
   });
 
   it('pages urgently and re-sends when the unreadable count crosses an order of magnitude, because that is what vendor payload drift looks like', async () => {
