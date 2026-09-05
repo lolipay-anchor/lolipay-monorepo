@@ -91,7 +91,10 @@ export class Sep12Service {
       const elsewhere = await tx.kycVerification.findFirst({
         where: { status: 'REJECTED', personId: person.id, NOT: { customerRef } },
       });
-      if (elsewhere && !refusing) return;
+      if (elsewhere && !refusing) {
+        this.log.warn('a delivery for a wallet whose person stands refused under another wallet was left unapplied');
+        return;
+      }
 
       const standing = await tx.kycVerification.findUnique({ where: { customerRef } });
       if (standing) {

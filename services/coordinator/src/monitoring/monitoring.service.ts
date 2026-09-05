@@ -369,11 +369,11 @@ export class MonitoringService {
     if (refusals.outOfSession >= 3) {
       alerts.push({
         key: 'didit_out_of_session_deliveries',
-        fingerprint: refusals.outOfSessionReason ?? 'unknown',
+        fingerprint: `${10 ** Math.floor(Math.log10(refusals.outOfSession))}+`,
         urgency: 'routine',
         text:
-          `${refusals.outOfSession} deliveries since this coordinator started, within the last 24 hours, named a session the customer's row is no longer following and were left unapplied ` +
-          `— the most recent because ${refusals.outOfSessionReason}. A late result for a session a customer abandoned and re-registered after is normal and stays dropped; a steady stream means session ids no longer match what this anchor opened.`,
+          `${refusals.outOfSession} deliveries since this coordinator started, within the last 24 hours, named a session an accepted or in-flight row is not following and were dropped ` +
+          `— the most recent because ${refusals.outOfSessionReason}. A late result for a session a customer abandoned and re-registered after is normal and stays dropped while the newer session is in flight; a steady stream means session ids no longer match what this anchor opened.`,
       });
     }
 

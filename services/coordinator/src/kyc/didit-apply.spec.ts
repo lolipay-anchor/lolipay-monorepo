@@ -258,6 +258,7 @@ describe('applying what a delivery concluded', () => {
     );
     expect(store.row.status).toBe('NEEDS_INFO');
     expect(store.row.providerRef).toBe('sess-2');
+    expect(refusals.state().outOfSession).toBe(1);
   });
 
   it('never lets an approval from another session overwrite a row that is already accepted', async () => {
