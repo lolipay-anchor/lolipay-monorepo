@@ -120,22 +120,21 @@ export function SellForm() {
     setReviewed(undefined)
   }, [])
 
-  const [refusal, setRefusal] = React.useState<string | null>(null)
+  const [orderRefusal, setOrderRefusal] = React.useState<string | null>(null)
   const { mutate: submit, isPending } = useMutation({
     mutationFn: (quoteId: string) =>
       createOrder(client, { quoteId, userPaymentMethod: payDetails.trim() }),
     onSuccess: (res) => router.push('/orders/' + res.order.id),
     onError: (e) => {
-      const message = explainOrderRefusal(e.message)
       closeReview()
-      setRefusal(message)
-      toast(message, 'error')
+      setOrderRefusal(explainOrderRefusal(e.message))
     },
   })
 
   const canContinue = !!quote && !expired && !isPending
 
   const handleContinue = () => {
+    setOrderRefusal(null)
     if (!usdcValid) {
       setInputError('Enter a valid USDC amount')
       return
@@ -153,7 +152,6 @@ export function SellForm() {
       return
     }
     setInputError(null)
-    setRefusal(null)
 
     setReviewed({ quote, usdcBaseUnits })
     setReviewedSecondsLeft(
@@ -268,9 +266,9 @@ export function SellForm() {
       </div>
 
       {inputError && <p className="text-center text-xs text-lp-danger">{inputError}</p>}
-      {refusal && (
+      {orderRefusal && (
         <p role="alert" data-testid="order-refusal" className="text-center text-xs text-lp-danger">
-          {refusal}
+          {orderRefusal}
         </p>
       )}
 

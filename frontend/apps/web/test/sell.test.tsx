@@ -125,6 +125,17 @@ describe('SellForm (WITHDRAW)', () => {
     })
     expect(pushMock).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: /pay bill/i })).toBeNull()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+
+    fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
+    await waitFor(() => expect(screen.getByText(/bank account details/i)).toBeTruthy())
+    expect(screen.queryByTestId('order-refusal')).toBeNull()
+
+    fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA 123 a/n Me' } })
+    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
+    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    expect(screen.queryByTestId('order-refusal')).toBeNull()
   })
 
   it('rejects continuing without bank details', async () => {

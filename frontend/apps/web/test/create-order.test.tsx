@@ -140,7 +140,7 @@ describe('create-order', () => {
       expect(screen.queryByText('Review order')).toBeNull()
       expect(screen.getByTestId('order-refusal').textContent).toMatch(/verify your identity before your first trade/i)
     })
-    expect(screen.getAllByRole('alert')).toHaveLength(2)
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
     expect(push).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: /continue to pay/i }))
