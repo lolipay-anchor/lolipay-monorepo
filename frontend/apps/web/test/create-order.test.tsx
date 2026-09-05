@@ -115,7 +115,7 @@ describe('create-order', () => {
     fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
 
     await waitFor(() => {
-      expect(screen.getByText(/409: quote expired or used/i)).toBeTruthy()
+      expect(screen.getByTestId('order-refusal').textContent).toMatch(/409: quote expired or used/i)
     })
 
     expect(push).not.toHaveBeenCalled()
@@ -138,9 +138,14 @@ describe('create-order', () => {
 
     await waitFor(() => {
       expect(screen.queryByText('Review order')).toBeNull()
-      expect(screen.getByText(/verify your identity before your first trade/i)).toBeTruthy()
+      expect(screen.getByTestId('order-refusal').textContent).toMatch(/verify your identity before your first trade/i)
     })
+    expect(screen.getAllByRole('alert')).toHaveLength(2)
     expect(push).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: /continue to pay/i }))
+    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    expect(screen.queryByTestId('order-refusal')).toBeNull()
   })
 
   it('offers only buying and selling, because bill payment was removed from the product', () => {

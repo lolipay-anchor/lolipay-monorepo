@@ -12,4 +12,10 @@ describe('what a refused order tells the person', () => {
     )
     expect(explainOrderRefusal('')).toBe('The order could not be opened. Please try again.')
   })
+
+  it('never shows a person a transport failure verbatim, because "POST /orders → 502" is not a sentence the anchor wrote', () => {
+    expect(explainOrderRefusal('POST /orders → 502')).toBe('The order could not be opened. Please try again.')
+    expect(explainOrderRefusal('Failed to fetch')).toBe('The order could not be opened. Please try again.')
+    expect(explainOrderRefusal('NetworkError when attempting to fetch resource.')).toBe('The order could not be opened. Please try again.')
+  })
 })

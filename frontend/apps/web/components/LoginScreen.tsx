@@ -12,7 +12,7 @@ import { client } from '@/lib/client'
 import { formatIDR } from '@/lib/money'
 
 const FALLBACK_COUNTRIES: Market[] = [
-  { code: 'IDR', country: 'Indonesia', currency_symbol: 'Rp', locale: 'id-ID', rail_name: 'bank transfer', enabled: true },
+  { code: 'IDR', country: 'Indonesia', currency_symbol: 'Rp', locale: 'id-ID', rail_name: 'QRIS', enabled: true },
   { code: 'PHP', country: 'Philippines', currency_symbol: '₱', locale: 'en-PH', rail_name: 'InstaPay', enabled: false },
   { code: 'VND', country: 'Vietnam', currency_symbol: '₫', locale: 'vi-VN', rail_name: 'VietQR', enabled: false },
   { code: 'INR', country: 'India', currency_symbol: '₹', locale: 'en-IN', rail_name: 'UPI', enabled: false },
@@ -89,7 +89,7 @@ export function LoginScreen() {
               lolipay
             </h1>
             <p className="mx-auto mt-2 max-w-[270px] text-[15px] leading-relaxed text-lp-ink-soft">
-              Buy &amp; sell USDC for rupiah with people near you — non-custodial.
+              Buy &amp; sell USDC for rupiah, peer-to-peer — non-custodial.
             </p>
           </div>
         </div>

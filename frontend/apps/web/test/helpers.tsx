@@ -21,8 +21,8 @@ export function TestProviders({
   kit?: typeof fakeKit
 }) {
   return (
-    <ToastProvider>
-      <Providers kit={kit}>{children}</Providers>
-    </ToastProvider>
+    <Providers kit={kit}>
+      <ToastProvider>{children}</ToastProvider>
+    </Providers>
   )
 }

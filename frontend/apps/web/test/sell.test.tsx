@@ -104,6 +104,29 @@ describe('SellForm (WITHDRAW)', () => {
     })
   })
 
+  it('closes the review sheet and keeps the anchor refusal in view when a withdrawal is refused for identity', async () => {
+    mockCreateOrder.mockRejectedValueOnce(new Error('identity verification is required before a trade can be opened'))
+    render(
+      <TestProviders>
+        <SellForm />
+      </TestProviders>,
+    )
+    fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
+    fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA 123 a/n Me' } })
+    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
+    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Review order')).toBeNull()
+      expect(screen.getByTestId('order-refusal').textContent).toMatch(/verify your identity before your first trade/i)
+    })
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: /pay bill/i })).toBeNull()
+  })
+
   it('rejects continuing without bank details', async () => {
     render(
       <TestProviders>

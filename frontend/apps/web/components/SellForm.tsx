@@ -120,16 +120,16 @@ export function SellForm() {
     setReviewed(undefined)
   }, [])
 
-  const {
-    mutate: submit,
-    isPending,
-  } = useMutation({
+  const [refusal, setRefusal] = React.useState<string | null>(null)
+  const { mutate: submit, isPending } = useMutation({
     mutationFn: (quoteId: string) =>
       createOrder(client, { quoteId, userPaymentMethod: payDetails.trim() }),
     onSuccess: (res) => router.push('/orders/' + res.order.id),
     onError: (e) => {
+      const message = explainOrderRefusal(e.message)
       closeReview()
-      toast(explainOrderRefusal((e as Error).message), 'error')
+      setRefusal(message)
+      toast(message, 'error')
     },
   })
 
@@ -153,6 +153,7 @@ export function SellForm() {
       return
     }
     setInputError(null)
+    setRefusal(null)
 
     setReviewed({ quote, usdcBaseUnits })
     setReviewedSecondsLeft(
@@ -160,7 +161,6 @@ export function SellForm() {
     )
     setReviewOpen(true)
   }
-
 
   React.useEffect(() => {
     if (reviewOpen && reviewedExpired) {
@@ -268,6 +268,11 @@ export function SellForm() {
       </div>
 
       {inputError && <p className="text-center text-xs text-lp-danger">{inputError}</p>}
+      {refusal && (
+        <p role="alert" data-testid="order-refusal" className="text-center text-xs text-lp-danger">
+          {refusal}
+        </p>
+      )}
 
       <button
         type="button"

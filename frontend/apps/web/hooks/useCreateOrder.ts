@@ -9,7 +9,7 @@ import { explainOrderRefusal } from '@/lib/order-refusal'
 export function useCreateOrder(onRefused?: (message: string) => void) {
   const router = useRouter()
 
-  const { mutate, isPending, error } = useMutation({
+  const { mutate, isPending } = useMutation({
     mutationFn: (quoteId: string) => createOrder(client, { quoteId }),
     onSuccess: (res) => {
       router.push('/orders/' + res.order.id)
@@ -20,7 +20,5 @@ export function useCreateOrder(onRefused?: (message: string) => void) {
   return {
     submit: mutate,
     isPending,
-
-    error: error as Error | null,
   }
 }

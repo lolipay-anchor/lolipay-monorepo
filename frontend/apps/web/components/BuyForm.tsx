@@ -51,8 +51,10 @@ export function BuyForm() {
     setReviewed(undefined)
   }, [])
 
+  const [refusal, setRefusal] = React.useState<string | null>(null)
   const { submit, isPending } = useCreateOrder((message) => {
     closeReview()
+    setRefusal(message)
     toast(message, 'error')
   })
 
@@ -199,13 +201,19 @@ export function BuyForm() {
         </span>
       </div>
 
-      {}
+      {refusal && (
+        <p role="alert" data-testid="order-refusal" className="text-center text-xs text-lp-danger">
+          {refusal}
+        </p>
+      )}
+
       <button
         type="button"
         disabled={!canContinue}
         onClick={() => {
           if (!canContinue || !quote) return
 
+          setRefusal(null)
           setReviewed({ quote, usdcAmount })
           setReviewedSecondsLeft(
             Math.max(0, Math.floor((Date.parse(quote.expires_at) - Date.now()) / 1000)),

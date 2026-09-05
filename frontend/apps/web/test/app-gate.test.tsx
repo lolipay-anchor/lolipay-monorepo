@@ -67,7 +67,7 @@ describe('AppGate', () => {
 
     expect(
       screen.getByText(
-        'Buy & sell USDC for rupiah with people near you — non-custodial.',
+        'Buy & sell USDC for rupiah, peer-to-peer — non-custodial.',
       ),
     ).toBeTruthy()
 

@@ -27,24 +27,24 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastCtx.Provider value={toast}>
       {children}
       {toasts.length > 0 && (
-      <div className="fixed top-3 inset-x-0 z-[60] flex flex-col items-center gap-2 px-4 pointer-events-none">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            role="status"
-            className={
-              'pointer-events-auto w-full max-w-sm rounded-xl px-4 py-2.5 text-sm font-medium text-white shadow-lg ' +
-              (t.type === 'error'
-                ? 'bg-lp-danger'
-                : t.type === 'success'
-                  ? 'bg-lp-green'
-                  : 'bg-lp-ink')
-            }
-          >
-            {t.message}
-          </div>
-        ))}
-      </div>
+        <div className="fixed top-3 inset-x-0 z-[60] flex flex-col items-center gap-2 px-4 pointer-events-none">
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              role={t.type === 'error' ? 'alert' : 'status'}
+              className={
+                'pointer-events-auto w-full max-w-sm rounded-xl px-4 py-2.5 text-sm font-medium text-white shadow-lg ' +
+                (t.type === 'error'
+                  ? 'bg-lp-danger'
+                  : t.type === 'success'
+                    ? 'bg-lp-green'
+                    : 'bg-lp-ink')
+              }
+            >
+              {t.message}
+            </div>
+          ))}
+        </div>
       )}
     </ToastCtx.Provider>
   )
