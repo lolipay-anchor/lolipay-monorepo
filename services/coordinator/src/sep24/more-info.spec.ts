@@ -45,6 +45,7 @@ describe('where a settlement can be seen', () => {
     expect(explorerTxUrl(TESTNET, 'abc')).toBe('https://stellar.expert/explorer/testnet/tx/abc');
     expect(explorerTxUrl('Public Global Stellar Network ; September 2015', 'abc')).toBe('https://stellar.expert/explorer/public/tx/abc');
     expect(explorerTxUrl(TESTNET, '<x>')).toBe('https://stellar.expert/explorer/testnet/tx/%3Cx%3E');
+    expect(explorerTxUrl('Some Other Network ; 2030', 'abc')).toBeNull();
   });
 });
 
@@ -60,6 +61,12 @@ describe('the more-info page of a deposit', () => {
     const html = await service({ ...baseOrder, status: 'FUNDED', settlementTxHash: null, settledAt: null }).moreInfo('tx-1');
     expect(html).not.toContain('Settled on Stellar');
     expect(html).not.toContain('stellar.expert');
+  });
+
+  it('calls a refund what it is', async () => {
+    const html = await service({ ...baseOrder, status: 'REFUNDED', settlementTxHash: HASH, settledAt: new Date('2026-09-05T17:30:00.000Z') }).moreInfo('tx-1');
+    expect(html).toContain('Refunded on Stellar');
+    expect(html).not.toContain('Settled on Stellar');
   });
 
   it('never lets a hash reach the page unescaped', async () => {

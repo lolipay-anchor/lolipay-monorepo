@@ -23,6 +23,7 @@ import {
   orderAwaitingRelease,
   fundedOrderOf,
   fundedByMe,
+  resumeNeedsFunding,
 } from './sep24-fixtures';
 import { FIAT_INPUT_REFUSAL } from '../money/money';
 
@@ -422,6 +423,17 @@ describe('the SEP-24 fixture driver, its two roles', () => {
   it('as the user, needs no counterparty address and can be told to wait for the admin attestation instead of signing', () => {
     expect(roleTarget({ SEP24_ROLE: 'user' })).toEqual({ role: 'user', userPub: null, orderId: null, waitMs: 65 * 60_000, waitsForAttest: false });
     expect(roleTarget({ SEP24_ROLE: 'user', SEP24_USER_WAITS_FOR_ATTEST: '1' })!.waitsForAttest).toBe(true);
+    expect(() => roleTarget({ SEP24_ROLE: 'user', SEP24_ORDER_ID: 'o-1' })).toThrow('SEP24_ORDER_ID applies only to the provider role');
+    expect(() => roleTarget({ SEP24_ROLE: 'user', SEP24_ROLE_WAIT_MINUTES: 'abc' })).toThrow('positive number of minutes');
+  });
+
+  it('as the provider resuming an order, funds one that is still matched, continues one already funded, and refuses any other', () => {
+    expect(resumeNeedsFunding('MATCHED')).toBe(true);
+    expect(resumeNeedsFunding('FUNDED')).toBe(false);
+    expect(resumeNeedsFunding('FIAT_PAID')).toBe(false);
+    for (const status of ['AWAITING_ONCHAIN', 'RELEASED', 'REFUNDED', 'CANCELLED', 'EXPIRED', 'DISPUTED']) {
+      expect(() => resumeNeedsFunding(status)).toThrow(`an order that is ${status} cannot be resumed by the provider`);
+    }
   });
 
   it('funds the newest fresh MATCHED order for the wallet when the customer retried, and none when there is none', () => {
@@ -440,7 +452,7 @@ describe('the SEP-24 fixture driver, its two roles', () => {
     const paid = { id: 'o1', status: 'FIAT_PAID', ...base };
     expect(orderAwaitingRelease([{ id: 'o0', status: 'FIAT_PAID', ...base }, paid], 'o1')).toBe(paid);
     for (const status of ['MATCHED', 'AWAITING_ONCHAIN', 'FUNDED']) expect(orderAwaitingRelease([{ id: 'o1', status, ...base }], 'o1')).toBeNull();
-    expect(() => orderAwaitingRelease([], 'o1')).toThrow("order o1 is no longer among this provider's assignments");
+    expect(() => orderAwaitingRelease([], 'o1')).toThrow("order o1 is no longer among this provider's assignments, which list only MATCHED, AWAITING_ONCHAIN, FUNDED and FIAT_PAID");
     for (const status of ['CANCELLED', 'EXPIRED', 'REFUNDED', 'RELEASED', 'DISPUTED']) {
       expect(() => orderAwaitingRelease([{ id: 'o1', status, ...base }], 'o1')).toThrow(`order o1 is ${status}; the provider will not release it`);
     }
@@ -463,6 +475,7 @@ describe('the SEP-24 fixture driver, its two roles', () => {
     const rows = [
       { id: 'a', status: 'FUNDED', flow: 'TOP_UP', user_address: pub, trade_id: '11'.repeat(32), created_at: '2026-09-05T12:00:00.000Z' },
       { id: 'b', status: 'MATCHED', flow: 'TOP_UP', user_address: pub, trade_id: '22'.repeat(32), created_at: '2026-09-05T12:09:00.000Z' },
+      { id: 'u', status: 'AWAITING_ONCHAIN', flow: 'TOP_UP', user_address: pub, trade_id: '55'.repeat(32), created_at: '2026-09-05T12:11:00.000Z' },
       { id: 'old', status: 'FUNDED', flow: 'TOP_UP', user_address: pub, trade_id: '33'.repeat(32), created_at: '2026-09-05T11:00:00.000Z' },
       { id: 'w', status: 'FUNDED', flow: 'WITHDRAW', user_address: pub, trade_id: '44'.repeat(32), created_at: '2026-09-05T12:10:00.000Z' },
     ];

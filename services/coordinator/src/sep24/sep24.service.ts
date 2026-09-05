@@ -553,6 +553,14 @@ export class Sep24Service {
     }
   }
 
+  private settlementLine(status: string, hash: string | null | undefined): string {
+    if (!hash) return '';
+    const label = status === 'refunded' ? 'Refunded on Stellar' : 'Settled on Stellar';
+    const url = explorerTxUrl(this.cfg.networkPassphrase, hash);
+    const shown = url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(hash)}</a>` : escapeHtml(hash);
+    return `<p>${label}: ${shown}</p>`;
+  }
+
   async moreInfo(id: string): Promise<string> {
     const row = await this.prisma.sep24Transaction.findUnique({
       where: { id },
@@ -567,9 +575,7 @@ export class Sep24Service {
       `<h1>lolipay ${noun}</h1>`,
       `<p>Status: <strong>${tx.status}</strong></p>`,
       `<p>Started: ${tx.started_at}</p>`,
-      tx.stellar_transaction_id
-        ? `<p>Settled on Stellar: <a href="${escapeHtml(explorerTxUrl(this.cfg.networkPassphrase, tx.stellar_transaction_id))}">${escapeHtml(tx.stellar_transaction_id)}</a></p>`
-        : '',
+      this.settlementLine(tx.status, tx.stellar_transaction_id),
       `<p>If something is wrong with this ${noun}, sign in with the same wallet at <a href="https://app.lolipay.app">app.lolipay.app</a>: the order appears there with its evidence, and it shows whether a dispute can still be opened and until when.</p>`,
       '</body></html>',
     ].join('');

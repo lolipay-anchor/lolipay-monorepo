@@ -4,6 +4,7 @@ import { chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } from 'fs
 import { resolve } from 'path';
 import { Address, Keypair, StellarToml, StrKey, Transaction, WebAuth, scValToNative } from '@stellar/stellar-sdk';
 import { refundOpensAt } from '../order/dispute.util';
+import { explorerTxUrl } from '../sep24/explorer-url';
 import { baseUnitsToUsdcString, fiatDigits, fiatInputAccepted, FIAT_INPUT_REFUSAL, quoteUsdcForFiat } from '../money/money';
 import { Server } from '@stellar/stellar-sdk/rpc';
 
@@ -290,7 +291,7 @@ export function pickFreshOrder(orders: AssignmentOrder[], userPub: string, notBe
 }
 
 const RELEASE_WAIT_STATUSES = ['MATCHED', 'AWAITING_ONCHAIN', 'FUNDED'];
-const FUNDED_BY_ME = ['AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID'];
+const FUNDED_BY_ME = ['FUNDED', 'FIAT_PAID'];
 
 export function roleTarget(env: {
   SEP24_ROLE?: string;
@@ -306,7 +307,10 @@ export function roleTarget(env: {
   if (!Number.isFinite(minutes) || minutes <= 0) throw new Error('SEP24_ROLE_WAIT_MINUTES must be a positive number of minutes');
   const orderId = (env.SEP24_ORDER_ID ?? '').trim() || null;
   const waitsForAttest = env.SEP24_USER_WAITS_FOR_ATTEST === '1';
-  if (role === 'user') return { role, userPub: null, orderId, waitMs: minutes * 60_000, waitsForAttest };
+  if (role === 'user') {
+    if (orderId) throw new Error('SEP24_ORDER_ID applies only to the provider role');
+    return { role, userPub: null, orderId: null, waitMs: minutes * 60_000, waitsForAttest };
+  }
   const userPub = env.SEP24_USER_PUB ?? '';
   if (!StrKey.isValidEd25519PublicKey(userPub)) throw new Error('SEP24_USER_PUB must be the G address of the wallet the provider will fund for');
   return { role, userPub, orderId, waitMs: minutes * 60_000, waitsForAttest };
@@ -322,7 +326,7 @@ export function newestMatchedOrder(orders: AssignmentOrder[], userPub: string, n
 
 export function orderAwaitingRelease(orders: AssignmentOrder[], orderId: string): AssignmentOrder | null {
   const order = orders.find((o) => o.id === orderId);
-  if (!order) throw new Error(`order ${orderId} is no longer among this provider's assignments; it was released, refunded or cancelled`);
+  if (!order) throw new Error(`order ${orderId} is no longer among this provider's assignments, which list only MATCHED, AWAITING_ONCHAIN, FUNDED and FIAT_PAID; check its status before doing anything else`);
   if (order.status === 'FIAT_PAID') return order;
   if (RELEASE_WAIT_STATUSES.includes(order.status)) return null;
   throw new Error(`order ${orderId} is ${order.status}; the provider will not release it`);
@@ -336,6 +340,12 @@ export function fundedOrderOf(
     .filter((o) => o.flow === 'TOP_UP' && o.status === 'FUNDED' && o.user_address === userPub && o.trade_id)
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   return mine.length ? { id: mine[0].id, tradeIdHex: mine[0].trade_id as string } : null;
+}
+
+export function resumeNeedsFunding(status: string): boolean {
+  if (status === 'MATCHED') return true;
+  if (FUNDED_BY_ME.includes(status)) return false;
+  throw new Error(`an order that is ${status} cannot be resumed by the provider`);
 }
 
 export function fundedByMe(orders: AssignmentOrder[], userPub: string, notBeforeMs: number): { id: string; tradeIdHex: string } | null {
@@ -798,15 +808,29 @@ function writeConfig(cfg: unknown): void {
   renameSync(tmp, CONFIG_PATH);
 }
 
-const EXPLORER = 'https://stellar.expert/explorer/testnet/tx';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const explorer = (hash: string) => explorerTxUrl(TESTNET_PASSPHRASE, hash) ?? hash;
+
+async function fundOrder(lp: Keypair, lpJwt: () => Promise<string>, escrow: string, order: FundableOrder, userPub: string): Promise<string> {
+  const funded = await signAndSubmit(
+    lp,
+    await xdrFor(lpJwt, order.id, 'create-trade'),
+    escrow,
+    'create_trade',
+    createTradeExpectation(order, lp.publicKey(), userPub, DEMO_IDR),
+  );
+  console.log(`escrow terdanai: ${funded.hash}\n  ${explorer(funded.hash)}\n  order ${order.id}, trade ${funded.tradeIdHex}`);
+  return funded.tradeIdHex;
+}
 
 async function runAsProvider(
   lp: Keypair,
   lpJwt: () => Promise<string>,
   escrow: string,
+  usdcIssuer: string,
   target: { userPub: string; orderId: string | null; waitMs: number },
 ): Promise<void> {
+  const t0 = Date.now() - 5_000;
   const stop = await readyLp(lpJwt, lp.publicKey());
   try {
     let orderId = target.orderId;
@@ -815,11 +839,16 @@ async function runAsProvider(
       const resumed = (await assignmentsOf(lpJwt)).find((o) => o.id === orderId);
       if (!resumed?.trade_id) throw new Error(`order ${orderId} is not among this provider's assignments with a trade id; nothing to resume`);
       if (resumed.user_address !== target.userPub) throw new Error(`order ${orderId} belongs to ${resumed.user_address}, not the wallet this run was told to serve`);
-      tradeIdHex = resumed.trade_id;
-      console.log(`melanjutkan order ${orderId} (${resumed.status}), trade ${tradeIdHex}`);
+      if (resumeNeedsFunding(resumed.status)) {
+        console.log(`melanjutkan order ${orderId} (${resumed.status}): escrow belum terdanai, mendanai sekarang`);
+        tradeIdHex = await fundOrder(lp, lpJwt, escrow, pickFreshOrder([resumed], target.userPub, 0), target.userPub);
+      } else {
+        tradeIdHex = resumed.trade_id;
+        console.log(`melanjutkan order ${orderId} (${resumed.status}), trade ${tradeIdHex}`);
+      }
     } else {
-      const t0 = Date.now() - 5_000;
-      console.log(`LP siap: provider ${lp.publicKey()} menunggu order dari ${target.userPub} sebesar ${DEMO_IDR} IDR (maks ${target.waitMs / 60_000} menit)`);
+      const held = await usdcHeldBy(lp.publicKey(), usdcIssuer);
+      console.log(`LP siap: provider ${lp.publicKey()} memegang ${Number(held) / 1e7} USDC, menunggu order dari ${target.userPub} sebesar ${DEMO_IDR} IDR (maks ${target.waitMs / 60_000} menit)`);
       const untilMatched = Date.now() + target.waitMs;
       let last = '';
       while (!tradeIdHex && Date.now() < untilMatched) {
@@ -829,23 +858,20 @@ async function runAsProvider(
             await sleep(POLL_MS);
             continue;
           }
-          const funded = await signAndSubmit(
-            lp,
-            await xdrFor(lpJwt, order.id, 'create-trade'),
-            escrow,
-            'create_trade',
-            createTradeExpectation(order, lp.publicKey(), target.userPub, DEMO_IDR),
-          );
           orderId = order.id;
-          tradeIdHex = funded.tradeIdHex;
-          console.log(`escrow terdanai: ${funded.hash}\n  ${EXPLORER}/${funded.hash}\n  order ${order.id}, trade ${tradeIdHex}`);
+          tradeIdHex = await fundOrder(lp, lpJwt, escrow, order, target.userPub);
         } catch (err) {
           const m = err instanceof Error ? err.message : String(err);
           if (m !== last) {
             console.log(`menunggu: ${m}`);
             last = m;
           }
-          const adopted = fundedByMe(await assignmentsOf(lpJwt), target.userPub, t0);
+          let adopted: { id: string; tradeIdHex: string } | null = null;
+          try {
+            adopted = fundedByMe(await assignmentsOf(lpJwt), target.userPub, t0);
+          } catch {
+            adopted = null;
+          }
           if (adopted) {
             orderId = adopted.id;
             tradeIdHex = adopted.tradeIdHex;
@@ -861,15 +887,28 @@ async function runAsProvider(
     }
     const untilPaid = Date.now() + target.waitMs;
     let paid: AssignmentOrder | null = null;
+    let lastWait = '';
     while (!paid && Date.now() < untilPaid) {
-      paid = orderAwaitingRelease(await assignmentsOf(lpJwt), orderId);
+      let rows: AssignmentOrder[];
+      try {
+        rows = await assignmentsOf(lpJwt);
+      } catch (err) {
+        const m = err instanceof Error ? err.message : String(err);
+        if (m !== lastWait) {
+          console.log(`menunggu: ${m}`);
+          lastWait = m;
+        }
+        await sleep(POLL_MS);
+        continue;
+      }
+      paid = orderAwaitingRelease(rows, orderId);
       if (!paid) await sleep(POLL_MS);
     }
     if (!paid) {
       throw new Error(`order ${orderId} was not attested within ${target.waitMs / 60_000} minutes; rerun with SEP24_ORDER_ID=${orderId} to resume, the escrow stays funded meanwhile`);
     }
     const released = await signAndSubmit(lp, await xdrFor(lpJwt, orderId, 'confirm-release'), escrow, 'confirm_and_release', { tradeIdHex });
-    console.log(`rilis: ${released.hash}\n  ${EXPLORER}/${released.hash}`);
+    console.log(`rilis: ${released.hash}\n  ${explorer(released.hash)}`);
   } finally {
     stop();
   }
@@ -895,7 +934,7 @@ async function runAsUser(a: Actors, target: { waitMs: number; waitsForAttest: bo
   }
   await waitForSep24(a.demoSep10, session.id, 'completed', DEPOSIT_RECORD, target.waitMs);
   const hash = await settledHash(a, session.id, DEPOSIT_RECORD);
-  console.log(`selesai: ${hash}\n  ${EXPLORER}/${hash}`);
+  console.log(`selesai: ${hash}\n  ${explorer(hash)}`);
 }
 
 async function main(): Promise<void> {
@@ -923,7 +962,7 @@ async function main(): Promise<void> {
   console.log(`provider     ${lp.publicKey()}`);
   console.log(`escrow       ${escrow}`);
   if (target?.role === 'lp') {
-    await runAsProvider(lp, lpJwt, escrow, { userPub: target.userPub as string, orderId: target.orderId, waitMs: target.waitMs });
+    await runAsProvider(lp, lpJwt, escrow, usdcIssuer, { userPub: target.userPub as string, orderId: target.orderId, waitMs: target.waitMs });
     return;
   }
   const demo = identity(process.env.SEP24_DEMO_IDENTITY ?? 'sep24-demo');
