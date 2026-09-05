@@ -46,6 +46,7 @@ describe('where a settlement can be seen', () => {
     expect(explorerTxUrl('Public Global Stellar Network ; September 2015', 'abc')).toBe('https://stellar.expert/explorer/public/tx/abc');
     expect(explorerTxUrl(TESTNET, '<x>')).toBe('https://stellar.expert/explorer/testnet/tx/%3Cx%3E');
     expect(explorerTxUrl('Some Other Network ; 2030', 'abc')).toBeNull();
+    expect(explorerTxUrl('toString', 'abc')).toBeNull();
   });
 });
 
@@ -60,6 +61,15 @@ describe('the more-info page of a deposit', () => {
   it('shows no settlement while the deposit is still funded', async () => {
     const html = await service({ ...baseOrder, status: 'FUNDED', settlementTxHash: null, settledAt: null }).moreInfo('tx-1');
     expect(html).not.toContain('Settled on Stellar');
+    expect(html).not.toContain('stellar.expert');
+  });
+
+  it('shows the hash without a link on a network it does not know', async () => {
+    const svc = service({ ...baseOrder, status: 'RELEASED', settlementTxHash: HASH, settledAt: new Date() });
+    (svc as any).cfg.networkPassphrase = 'Standalone Network ; February 2017';
+    const html = await svc.moreInfo('tx-1');
+    expect(html).toContain('Settled on Stellar');
+    expect(html).toContain(HASH);
     expect(html).not.toContain('stellar.expert');
   });
 

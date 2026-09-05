@@ -24,6 +24,9 @@ import {
   fundedOrderOf,
   fundedByMe,
   resumeNeedsFunding,
+  RefusedToSign,
+  assertTradeParties,
+  staleMatchedFor,
 } from './sep24-fixtures';
 import { FIAT_INPUT_REFUSAL } from '../money/money';
 
@@ -429,9 +432,10 @@ describe('the SEP-24 fixture driver, its two roles', () => {
 
   it('as the provider resuming an order, funds one that is still matched, continues one already funded, and refuses any other', () => {
     expect(resumeNeedsFunding('MATCHED')).toBe(true);
+    expect(resumeNeedsFunding('AWAITING_ONCHAIN')).toBe(true);
     expect(resumeNeedsFunding('FUNDED')).toBe(false);
     expect(resumeNeedsFunding('FIAT_PAID')).toBe(false);
-    for (const status of ['AWAITING_ONCHAIN', 'RELEASED', 'REFUNDED', 'CANCELLED', 'EXPIRED', 'DISPUTED']) {
+    for (const status of ['RELEASED', 'REFUNDED', 'CANCELLED', 'EXPIRED', 'DISPUTED']) {
       expect(() => resumeNeedsFunding(status)).toThrow(`an order that is ${status} cannot be resumed by the provider`);
     }
   });
@@ -481,5 +485,44 @@ describe('the SEP-24 fixture driver, its two roles', () => {
     ];
     expect(fundedByMe(rows, pub, t0)).toEqual({ id: 'a', tradeIdHex: '11'.repeat(32) });
     expect(fundedByMe(rows, Keypair.random().publicKey(), t0)).toBeNull();
+  });
+});
+
+describe('what the provider refuses for good and what it merely waits out', () => {
+  it('refuses to sign for good when the network or the call is not what it was told, but a mistyped amount is only waited out', () => {
+    expect(() => assertTestnet('Public Global Stellar Network ; September 2015')).toThrow(RefusedToSign);
+    const lp = Keypair.random().publicKey();
+    const order = {
+      id: 'o1', status: 'MATCHED', created_at: '2026-09-05T12:00:00.000Z', trade_id: 'ab'.repeat(32), flow: 'TOP_UP', usdc_amount: '111700000',
+      fiat_amount: '150000', fiat_currency: 'IDR', lp_fee_bps: 120, pay_deadline: 1, confirm_deadline: 2, dispute_deadline: 3, user_address: Keypair.random().publicKey(),
+    };
+    let caught: unknown;
+    try {
+      createTradeExpectation(order as any, lp, order.user_address, '200000');
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).not.toBeInstanceOf(RefusedToSign);
+  });
+
+  it('releases only a trade the chain says this provider funded for the wallet it serves', () => {
+    const lp = Keypair.random().publicKey();
+    const user = Keypair.random().publicKey();
+    expect(() => assertTradeParties({ usdcProvider: lp, usdcRecipient: user }, lp, user)).not.toThrow();
+    expect(() => assertTradeParties({ usdcProvider: Keypair.random().publicKey(), usdcRecipient: user }, lp, user)).toThrow(RefusedToSign);
+    expect(() => assertTradeParties({ usdcProvider: lp, usdcRecipient: Keypair.random().publicKey() }, lp, user)).toThrow(RefusedToSign);
+  });
+
+  it('names a matched order that predates this run instead of waiting on it in silence', () => {
+    const pub = Keypair.random().publicKey();
+    const t0 = Date.parse('2026-09-05T12:00:00.000Z');
+    const rows = [
+      { id: 'old', status: 'MATCHED', flow: 'TOP_UP', user_address: pub, created_at: '2026-09-05T11:50:00.000Z' },
+      { id: 'other', status: 'MATCHED', flow: 'TOP_UP', user_address: Keypair.random().publicKey(), created_at: '2026-09-05T11:55:00.000Z' },
+    ];
+    expect(staleMatchedFor(rows, pub, t0)).toEqual({ id: 'old', createdAt: '2026-09-05T11:50:00.000Z' });
+    expect(staleMatchedFor([{ ...rows[0], created_at: '2026-09-05T12:01:00.000Z' }], pub, t0)).toBeNull();
+    expect(staleMatchedFor([], pub, t0)).toBeNull();
   });
 });

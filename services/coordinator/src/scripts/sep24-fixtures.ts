@@ -2,11 +2,11 @@ import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
-import { Address, Keypair, StellarToml, StrKey, Transaction, WebAuth, scValToNative } from '@stellar/stellar-sdk';
+import { Address, BASE_FEE, Keypair, Operation, StellarToml, StrKey, Transaction, TransactionBuilder, WebAuth, nativeToScVal, scValToNative } from '@stellar/stellar-sdk';
 import { refundOpensAt } from '../order/dispute.util';
 import { explorerTxUrl } from '../sep24/explorer-url';
 import { baseUnitsToUsdcString, fiatDigits, fiatInputAccepted, FIAT_INPUT_REFUSAL, quoteUsdcForFiat } from '../money/money';
-import { Server } from '@stellar/stellar-sdk/rpc';
+import { Api, Server } from '@stellar/stellar-sdk/rpc';
 
 export const MAX_DEMO_FEE_STROOPS = 10_000_000n;
 export const MAX_DEMO_USDC_STROOPS = 1_000_000_000n;
@@ -21,9 +21,11 @@ export function sep53Signature(kp: Keypair, nonce: string): string {
   return Buffer.from(kp.sign(createHash('sha256').update(payload).digest())).toString('base64');
 }
 
+export class RefusedToSign extends Error {}
+
 export function assertTestnet(passphrase: string): void {
   if (passphrase !== TESTNET_PASSPHRASE) {
-    throw new Error(`refusing to sign for network "${passphrase}"; this driver signs only for testnet`);
+    throw new RefusedToSign(`refusing to sign for network "${passphrase}"; this driver signs only for testnet`);
   }
 }
 
@@ -140,7 +142,7 @@ export function createTradeExpectation(order: FundableOrder, lp: string, demo: s
   };
 }
 
-export function assertEscrowCall(
+function checkEscrowCall(
   tx: Transaction,
   signer: string,
   contractId: string,
@@ -245,6 +247,36 @@ export function assertEscrowCall(
   return tradeIdHex;
 }
 
+export function assertEscrowCall(
+  tx: Transaction,
+  signer: string,
+  contractId: string,
+  fn: string,
+  expect: EscrowCallExpectation & { tradeIdHex?: string } = {},
+): string {
+  try {
+    return checkEscrowCall(tx, signer, contractId, fn, expect);
+  } catch (err) {
+    throw new RefusedToSign(err instanceof Error ? err.message : String(err));
+  }
+}
+
+export function assertTradeParties(trade: { usdcProvider: string; usdcRecipient: string }, lp: string, userPub: string): void {
+  if (trade.usdcProvider !== lp) throw new RefusedToSign(`the chain says trade was funded by ${trade.usdcProvider}, not this provider`);
+  if (trade.usdcRecipient !== userPub) throw new RefusedToSign(`the chain says the trade pays ${trade.usdcRecipient}, not the wallet this run serves`);
+}
+
+export function staleMatchedFor(
+  orders: Array<{ id: string; status: string; flow?: string | null; user_address?: string | null; created_at: string }>,
+  userPub: string,
+  notBeforeMs: number,
+): { id: string; createdAt: string } | null {
+  const mine = orders
+    .filter((o) => o.user_address === userPub && o.flow === 'TOP_UP' && o.status === 'MATCHED' && Date.parse(o.created_at) < notBeforeMs)
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  return mine.length ? { id: mine[0].id, createdAt: mine[0].created_at } : null;
+}
+
 export interface AssignmentOrder {
   id: string;
   status: string;
@@ -343,7 +375,7 @@ export function fundedOrderOf(
 }
 
 export function resumeNeedsFunding(status: string): boolean {
-  if (status === 'MATCHED') return true;
+  if (status === 'MATCHED' || status === 'AWAITING_ONCHAIN') return true;
   if (FUNDED_BY_ME.includes(status)) return false;
   throw new Error(`an order that is ${status} cannot be resumed by the provider`);
 }
@@ -811,6 +843,20 @@ function writeConfig(cfg: unknown): void {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const explorer = (hash: string) => explorerTxUrl(TESTNET_PASSPHRASE, hash) ?? hash;
 
+async function tradeOnChain(escrow: string, tradeIdHex: string, sourcePub: string): Promise<{ usdcProvider: string; usdcRecipient: string }> {
+  const server = new Server(RPC_URL);
+  const source = await server.getAccount(sourcePub);
+  const tx = new TransactionBuilder(source, { fee: BASE_FEE, networkPassphrase: TESTNET_PASSPHRASE })
+    .addOperation(Operation.invokeContractFunction({ contract: escrow, function: 'get_trade', args: [nativeToScVal(Buffer.from(tradeIdHex, 'hex'))] }))
+    .setTimeout(30)
+    .build();
+  const sim = await server.simulateTransaction(tx);
+  if (Api.isSimulationError(sim)) throw new Error(`get_trade: ${sim.error}`);
+  if (!sim.result) throw new Error('get_trade returned nothing');
+  const ret = scValToNative(sim.result.retval);
+  return { usdcProvider: String(ret.usdc_provider), usdcRecipient: String(ret.usdc_recipient) };
+}
+
 async function fundOrder(lp: Keypair, lpJwt: () => Promise<string>, escrow: string, order: FundableOrder, userPub: string): Promise<string> {
   const funded = await signAndSubmit(
     lp,
@@ -841,26 +887,41 @@ async function runAsProvider(
       if (resumed.user_address !== target.userPub) throw new Error(`order ${orderId} belongs to ${resumed.user_address}, not the wallet this run was told to serve`);
       if (resumeNeedsFunding(resumed.status)) {
         console.log(`melanjutkan order ${orderId} (${resumed.status}): escrow belum terdanai, mendanai sekarang`);
-        tradeIdHex = await fundOrder(lp, lpJwt, escrow, pickFreshOrder([resumed], target.userPub, 0), target.userPub);
+        try {
+          tradeIdHex = await fundOrder(lp, lpJwt, escrow, pickFreshOrder([resumed], target.userPub, 0), target.userPub);
+        } catch (err) {
+          const again = (await assignmentsOf(lpJwt)).find((o) => o.id === orderId);
+          if (!again?.trade_id || resumeNeedsFunding(again.status)) throw err;
+          tradeIdHex = again.trade_id;
+          console.log(`order ${orderId} ternyata sudah ${again.status}; melanjutkan dengan trade ${tradeIdHex}`);
+        }
       } else {
         tradeIdHex = resumed.trade_id;
         console.log(`melanjutkan order ${orderId} (${resumed.status}), trade ${tradeIdHex}`);
       }
     } else {
-      const held = await usdcHeldBy(lp.publicKey(), usdcIssuer);
-      console.log(`LP siap: provider ${lp.publicKey()} memegang ${Number(held) / 1e7} USDC, menunggu order dari ${target.userPub} sebesar ${DEMO_IDR} IDR (maks ${target.waitMs / 60_000} menit)`);
+      const held = await usdcHeldBy(lp.publicKey(), usdcIssuer).catch(() => null);
+      console.log(`LP siap: provider ${lp.publicKey()} memegang ${held === null ? 'USDC yang tidak terbaca' : `${baseUnitsToUsdcString(held)} USDC`}, menunggu order dari ${target.userPub} sebesar ${DEMO_IDR} IDR (maks ${target.waitMs / 60_000} menit)`);
       const untilMatched = Date.now() + target.waitMs;
       let last = '';
       while (!tradeIdHex && Date.now() < untilMatched) {
         try {
-          const order = newestMatchedOrder(await assignmentsOf(lpJwt), target.userPub, t0);
+          const rows = await assignmentsOf(lpJwt);
+          const order = newestMatchedOrder(rows, target.userPub, t0);
           if (!order) {
+            const stale = staleMatchedFor(rows, target.userPub, t0);
+            const note = stale ? `order ${stale.id} (MATCHED, dibuat ${stale.createdAt}) lebih tua dari proses ini; jalankan ulang dengan SEP24_ORDER_ID=${stale.id} untuk mengambilnya` : '';
+            if (note && note !== last) {
+              console.log(note);
+              last = note;
+            }
             await sleep(POLL_MS);
             continue;
           }
           orderId = order.id;
           tradeIdHex = await fundOrder(lp, lpJwt, escrow, order, target.userPub);
         } catch (err) {
+          if (err instanceof RefusedToSign) throw err;
           const m = err instanceof Error ? err.message : String(err);
           if (m !== last) {
             console.log(`menunggu: ${m}`);
@@ -869,7 +930,12 @@ async function runAsProvider(
           let adopted: { id: string; tradeIdHex: string } | null = null;
           try {
             adopted = fundedByMe(await assignmentsOf(lpJwt), target.userPub, t0);
-          } catch {
+          } catch (probe) {
+            const pm = probe instanceof Error ? probe.message : String(probe);
+            if (pm !== last) {
+              console.log(`menunggu: ${pm}`);
+              last = pm;
+            }
             adopted = null;
           }
           if (adopted) {
@@ -882,7 +948,7 @@ async function runAsProvider(
         }
       }
       if (!orderId || !tradeIdHex) {
-        throw new Error(`no fundable order for ${target.userPub} within ${target.waitMs / 60_000} minutes; if the escrow was funded, rerun with SEP24_ORDER_ID=<order id>`);
+        throw new Error(`no fundable order for ${target.userPub} within ${target.waitMs / 60_000} minutes; if the escrow was funded, rerun with SEP24_ORDER_ID=${orderId ?? '<order id>'}`);
       }
     }
     const untilPaid = Date.now() + target.waitMs;
@@ -907,6 +973,7 @@ async function runAsProvider(
     if (!paid) {
       throw new Error(`order ${orderId} was not attested within ${target.waitMs / 60_000} minutes; rerun with SEP24_ORDER_ID=${orderId} to resume, the escrow stays funded meanwhile`);
     }
+    assertTradeParties(await tradeOnChain(escrow, tradeIdHex, lp.publicKey()), lp.publicKey(), target.userPub);
     const released = await signAndSubmit(lp, await xdrFor(lpJwt, orderId, 'confirm-release'), escrow, 'confirm_and_release', { tradeIdHex });
     console.log(`rilis: ${released.hash}\n  ${explorer(released.hash)}`);
   } finally {
