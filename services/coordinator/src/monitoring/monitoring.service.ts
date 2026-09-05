@@ -335,8 +335,8 @@ export class MonitoringService {
           fingerprint: `${10 ** Math.floor(Math.log10(unscreened))}+`,
           urgency: unscreened >= 10 ? 'urgent' : 'routine',
           text:
-            `${unscreened} customers were asked to verify again because the vendor could not run the sanctions screening ` +
-            `— ten or more means the vendor's screening provider is down, and nothing in this anchor fixes that`,
+            `${unscreened} customers are waiting on a screening the vendor could not run and have been asked to verify again ` +
+            `— ten or more marked at once means the vendor's screening provider was down for them, a number that keeps growing means it still is, and nothing in this anchor fixes that`,
         });
       }
     } catch (e) {

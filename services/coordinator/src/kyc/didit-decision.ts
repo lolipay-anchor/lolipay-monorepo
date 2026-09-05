@@ -1,5 +1,11 @@
 import { KycStatus } from '../generated/prisma/client';
-import { HIT_REFUSAL, SCREENING_DID_NOT_RUN, UNREADABLE_REFUSAL, UNREADABLE_SCREENING } from './screening-requirement';
+import {
+  HIT_REFUSAL,
+  SCREENING_DID_NOT_RUN,
+  SCREENING_REQUIRED_FAILED,
+  UNREADABLE_DECLINE,
+  UNREADABLE_SCREENING,
+} from './screening-requirement';
 
 const PROCESSING_STATUSES = ['Not Started', 'In Progress', 'In Review'];
 const RETRYABLE_STATUSES = ['Awaiting User', 'Resubmitted', 'Abandoned', 'Expired', 'Kyc Expired'];
@@ -76,13 +82,6 @@ function foundHits(payload: any): boolean {
   return screenings(payload).some(hitsPresent);
 }
 
-function couldNotScreen(payload: any): boolean {
-  return screenings(payload).some((s) => {
-    const list = Array.isArray(s?.warnings) ? s.warnings : [];
-    return list.includes(NOT_PERFORMED);
-  });
-}
-
 function documentFailed(payload: any): boolean {
   const list = payload?.decision?.id_verifications;
   return Array.isArray(list) && list.some((d) => d?.status !== PASSED_DOCUMENT);
@@ -112,15 +111,15 @@ export function readDiditDecision(payload: any, requireAml = true): DiditConclus
       return { ...base, status: 'REJECTED', rejectionReason: HIT_REFUSAL };
     }
     if (foundSomething(payload)) {
-      return { ...base, status: 'REJECTED', rejectionReason: UNREADABLE_REFUSAL };
+      return { ...base, status: 'NEEDS_INFO', rejectionReason: UNREADABLE_SCREENING };
     }
     if (documentFailed(payload)) return { ...base, status: 'NEEDS_INFO' };
-    if (couldNotScreen(payload)) {
+    if (onlyCouldNotScreen(payload)) {
       return requireAml
-        ? { ...base, status: 'REJECTED', rejectionReason: 'the required screening could not be carried out' }
+        ? { ...base, status: 'REJECTED', rejectionReason: SCREENING_REQUIRED_FAILED }
         : { ...base, status: 'NEEDS_INFO', rejectionReason: SCREENING_DID_NOT_RUN };
     }
-    return { ...base, status: 'REJECTED', rejectionReason: 'the refusal carried no readable cause' };
+    return { ...base, status: 'REJECTED', rejectionReason: UNREADABLE_DECLINE };
   }
 
   if (typeof status === 'string' && PROCESSING_STATUSES.includes(status)) {

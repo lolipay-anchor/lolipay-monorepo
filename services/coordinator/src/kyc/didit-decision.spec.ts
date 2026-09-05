@@ -1,4 +1,4 @@
-import { HIT_REFUSAL, SCREENING_DID_NOT_RUN, UNREADABLE_REFUSAL, UNREADABLE_SCREENING } from './screening-requirement';
+import { HIT_REFUSAL, SCREENING_DID_NOT_RUN, SCREENING_REQUIRED_FAILED, UNREADABLE_DECLINE, UNREADABLE_SCREENING } from './screening-requirement';
 import { readDiditDecision } from './didit-decision';
 
 const clean = { status: 'Approved', total_hits: 0, hits: [], warnings: [] };
@@ -319,7 +319,8 @@ describe('a warning never outranks a hit that is sitting right beside it', () =>
     }
   });
 
-  it('refuses a decline whose screening it cannot read without calling it a sanctions match, so the customer is never told of a hit that was not there', () => {
+
+  it('asks a declined customer again when the screening it carries cannot be read and shows no hit, with the unreadable marker so the drift alert sees it, instead of banning them for good on a payload shape', () => {
     const odd = [
       { status: 'Something', total_hits: 0, hits: [], warnings: [] },
       {},
@@ -327,10 +328,33 @@ describe('a warning never outranks a hit that is sitting right beside it', () =>
       { status: 'Approved', total_hits: 0, hits: [], warnings: ['NEW_WARNING'] },
     ];
     for (const entry of odd) {
-      const res = readDiditDecision(payload({ status: 'Declined', decision: { aml_screenings: [entry] } }));
-      expect(res.status).toBe('REJECTED');
-      expect(res.rejectionReason).toBe(UNREADABLE_REFUSAL);
+      for (const requireAml of [true, false]) {
+        const res = readDiditDecision(payload({ status: 'Declined', decision: { aml_screenings: [entry] } }), requireAml);
+        expect(res.status).toBe('NEEDS_INFO');
+        expect(res.rejectionReason).toBe(UNREADABLE_SCREENING);
+      }
     }
-    expect(readDiditDecision(payload({ status: 'Declined', decision: { aml_screenings: [hit] } })).rejectionReason).toBe(HIT_REFUSAL);
+    const withHit = readDiditDecision(payload({ status: 'Declined', decision: { aml_screenings: [hit] } }));
+    expect(withHit.status).toBe('REJECTED');
+    expect(withHit.rejectionReason).toBe(HIT_REFUSAL);
+  });
+
+  it('reads a not-performed warning written as a string the same way on a decline as on an approval, so the shape of one field cannot turn a retry into a lifetime refusal', () => {
+    const stringy = { status: 'Declined', total_hits: 0, hits: [], warnings: 'COULD_NOT_PERFORM_AML_SCREENING' };
+    const declined = payload({ status: 'Declined', decision: { aml_screenings: [stringy], id_verifications: [{ status: 'Approved' }] } });
+    expect(readDiditDecision(declined, false)).toMatchObject({ status: 'NEEDS_INFO', rejectionReason: SCREENING_DID_NOT_RUN });
+    expect(readDiditDecision(declined, true)).toMatchObject({ status: 'REJECTED', rejectionReason: SCREENING_REQUIRED_FAILED });
+    for (const requireAml of [true, false]) {
+      expect(readDiditDecision(payload({ decision: { aml_screenings: [stringy] } }), requireAml)).toMatchObject({ status: 'NEEDS_INFO', rejectionReason: SCREENING_DID_NOT_RUN });
+    }
+  });
+
+  it('does not call a decline whose screening is clean a vendor outage, because the did-not-run marker needs at least one entry that did not run', () => {
+    const declined = payload({ status: 'Declined', decision: { aml_screenings: [clean], id_verifications: [{ status: 'Approved' }] } });
+    for (const requireAml of [true, false]) {
+      const res = readDiditDecision(declined, requireAml);
+      expect(res.status).toBe('REJECTED');
+      expect(res.rejectionReason).toBe(UNREADABLE_DECLINE);
+    }
   });
 });

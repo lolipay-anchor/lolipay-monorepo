@@ -57,4 +57,14 @@ describe('the refusal page composes its sentence and never copies an internal ma
     const html = await svc.renderInteractive('tx-1', mintInteractiveToken(cfg, 'tx-1', 'GABC'));
     expect(html).toContain('sanctions or watchlist match');
   });
+
+  it('keeps the reason a refused wallet row carries itself when the sibling refusal the query happens to return has had its reason erased', async () => {
+    const { svc, cfg } = harness(
+      { status: 'REJECTED', rejectionReason: 'sanctions or watchlist match', screenedAt: null, deliveredAt: new Date() },
+      { rejectionReason: null },
+    );
+    const { mintInteractiveToken } = await import('./interactive-token');
+    const html = await svc.renderInteractive('tx-1', mintInteractiveToken(cfg, 'tx-1', 'GABC'));
+    expect(html).toContain('sanctions or watchlist match');
+  });
 });

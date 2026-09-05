@@ -1,7 +1,8 @@
 export const UNREADABLE_SCREENING = 'the screening could not be read';
 export const SCREENING_DID_NOT_RUN = 'the screening did not run';
 export const HIT_REFUSAL = 'sanctions or watchlist match';
-export const UNREADABLE_REFUSAL = 'the refusal carried a screening this anchor could not read';
+export const SCREENING_REQUIRED_FAILED = 'the required screening could not be carried out';
+export const UNREADABLE_DECLINE = 'the refusal carried no readable cause';
 
 export function acceptedForFunds(requireAml: boolean) {
   return requireAml

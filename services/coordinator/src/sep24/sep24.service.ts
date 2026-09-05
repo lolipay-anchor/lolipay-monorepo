@@ -316,7 +316,7 @@ export class Sep24Service {
       : `<p>This deposit credits <code>${escapeHtml(row.stellarAccount)}</code>. If that is not your wallet, close this page.</p>`;
 
     if (screen === 'refused') {
-      return page('Verification refused', `<p>${escapeHtml((state.refusedAnywhere as any)?.rejectionReason ?? 'This identity was refused.')}</p>`);
+      return page('Verification refused', `<p>${escapeHtml((state.refusedAnywhere as any)?.rejectionReason ?? (kyc?.status === 'REJECTED' ? kyc.rejectionReason : undefined) ?? 'This identity was refused.')}</p>`);
     }
     if (screen === 'identity') {
       const fields = REQUIRED_KYC_FIELDS.map(

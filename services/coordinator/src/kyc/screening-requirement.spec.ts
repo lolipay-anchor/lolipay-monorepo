@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
-import { acceptedForFunds, awaitingProvider, deliveredButUnreadable, screeningDidNotRun, HIT_REFUSAL, SCREENING_DID_NOT_RUN, UNREADABLE_REFUSAL, UNREADABLE_SCREENING } from './screening-requirement';
+import { acceptedForFunds, awaitingProvider, deliveredButUnreadable, screeningDidNotRun, HIT_REFUSAL, SCREENING_DID_NOT_RUN, SCREENING_REQUIRED_FAILED, UNREADABLE_DECLINE, UNREADABLE_SCREENING } from './screening-requirement';
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -62,6 +62,6 @@ describe('whether a customer may move funds depends on one predicate that reads 
 
   it('names a screening the vendor could not run by its own marker, apart from the unreadable one, so a vendor outage and a payload drift are never one number', () => {
     expect(screeningDidNotRun()).toEqual({ status: 'NEEDS_INFO', rejectionReason: SCREENING_DID_NOT_RUN });
-    expect(new Set([SCREENING_DID_NOT_RUN, UNREADABLE_SCREENING, HIT_REFUSAL, UNREADABLE_REFUSAL]).size).toBe(4);
+    expect(new Set([SCREENING_DID_NOT_RUN, UNREADABLE_SCREENING, HIT_REFUSAL, SCREENING_REQUIRED_FAILED, UNREADABLE_DECLINE]).size).toBe(5);
   });
 });
