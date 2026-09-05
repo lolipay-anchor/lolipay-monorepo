@@ -12,6 +12,7 @@ import { StubKycProvider } from '../kyc/stub-kyc-provider';
 import { AttestorService } from '../stellar/attestor.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { sessionToken } from '../auth/auth-test-helpers';
+import { refundOpensAt } from '../order/dispute.util';
 
 const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
@@ -113,6 +114,7 @@ describe('the one door through which a deposit is declared paid', () => {
     expect(attest).toHaveBeenCalledWith(
       'CDKJ5OX2WY424DXPMYRGI2TCMTI5LFGLSLHSBKA5AODIGTS4R2TIDK3Z',
       order.tradeId,
+      Number(refundOpensAt(order)),
     );
   });
 

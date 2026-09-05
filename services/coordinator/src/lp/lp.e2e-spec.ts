@@ -61,6 +61,7 @@ describe('LP registry + admin actions (e2e)', () => {
     prisma = mod.get(PrismaService);
 
     jest.spyOn(mod.get(StellarReadService), 'hasUsdcTrustline').mockResolvedValue(true);
+    jest.spyOn(mod.get(StellarReadService), 'readEscrowPlatformDefaults').mockResolvedValue({ platformFeeBps: 30, platformWallet: Keypair.random().publicKey() });
 
     await prisma.config.upsert({
       where: { id: 1 },
