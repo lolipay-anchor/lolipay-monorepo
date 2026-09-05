@@ -36,6 +36,7 @@ export const MONITORING_ALERT_SCOPE = [
   'didit_approval_overruled',
   'didit_screening_unavailable',
   'didit_refused_last_day',
+  'didit_out_of_session_deliveries',
   'didit_provider_unreachable',
   'didit_deliveries_unauthenticated',
   'didit_budget_exhausted',
@@ -362,6 +363,17 @@ export class MonitoringService {
     } catch (e) {
       incomplete.add('didit_refused_last_day');
       this.log.warn(`could not count the refusals of the last day: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    if (refusals.outOfSession > 0) {
+      alerts.push({
+        key: 'didit_out_of_session_deliveries',
+        fingerprint: refusals.outOfSessionReason ?? 'unknown',
+        urgency: 'routine',
+        text:
+          `${refusals.outOfSession} deliveries named a session the customer's row is no longer following and were left unapplied ` +
+          `— the most recent because ${refusals.outOfSessionReason}. A late result for an abandoned session is normal; a steady stream means session ids no longer match what this anchor opened.`,
+      });
     }
 
     if (refusals.unauthenticated > 0) {

@@ -232,4 +232,25 @@ describe('GET /customer tells a caller where their verification stands', () => {
     expect(res.body.message).toBe('sanctions or watchlist match');
     expect(res.body.fields).toBeUndefined();
   });
+
+  it('tells a customer whose session is still in flight what to do, including the way out after a day', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: kp.publicKey(),
+        personId: await personFor(kp.publicKey()),
+        status: 'PROCESSING',
+        providerRef: 'sess-in-flight',
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/customer')
+      .set('Authorization', `Bearer ${jwt}`)
+      .expect(200);
+
+    expect(res.body.status).toBe('PROCESSING');
+    expect(String(res.body.message)).toMatch(/submit your details again after a day/);
+  });
 });

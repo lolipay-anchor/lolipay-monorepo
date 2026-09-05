@@ -13,8 +13,13 @@ import {
   REQUIRED_KYC_FIELDS,
 } from './kyc-provider';
 
-function stillInFlight(row: { status?: string; providerRef?: string | null } | null | undefined): boolean {
-  return row?.status === 'PROCESSING' && Boolean(row.providerRef);
+const SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
+
+function stillInFlight(
+  row: { status?: string; providerRef?: string | null; updatedAt?: Date | null } | null | undefined,
+): boolean {
+  if (row?.status !== 'PROCESSING' || !row.providerRef) return false;
+  return row.updatedAt == null || row.updatedAt.getTime() > Date.now() - SESSION_LIFETIME_MS;
 }
 
 const PROVIDED = Object.fromEntries(
@@ -93,11 +98,11 @@ export class Sep12Service {
         if (standing.status === 'REJECTED') return;
         if (
           !refusing &&
-          standing.status === 'ACCEPTED' &&
+          (standing.status === 'ACCEPTED' || standing.status === 'PROCESSING') &&
           standing.providerRef &&
           standing.providerRef !== conclusion.providerRef
         ) {
-          this.refusals.record('a delivery named a session this customer is not following');
+          this.refusals.droppedOutOfSession('a delivery named a session this customer is not following');
           return;
         }
         if (!refusing && standing.deliveredAt && standing.deliveredAt > deliveredAt) return;
@@ -185,6 +190,14 @@ export class Sep12Service {
             : 'identity checks passed, but this anchor has not yet received the verification result from its provider, so no trade can be opened yet',
       };
     }
+    if (row.status === 'PROCESSING') {
+      return {
+        id: row.customerRef,
+        status: row.status,
+        provided_fields: PROVIDED,
+        message: 'finish the verification you started; if it has expired, submit your details again after a day and a new one will be opened',
+      };
+    }
     return { id: row.customerRef, status: row.status, provided_fields: PROVIDED };
   }
 
@@ -259,9 +272,7 @@ export class Sep12Service {
         const settledMeanwhile = await tx.kycVerification.findUnique({ where: { customerRef } });
         if (
           settledMeanwhile?.status === 'ACCEPTED' ||
-          (settledMeanwhile?.status === 'PROCESSING' &&
-            settledMeanwhile.providerRef &&
-            settledMeanwhile.providerRef !== decision.providerRef)
+          (stillInFlight(settledMeanwhile) && settledMeanwhile!.providerRef !== decision.providerRef)
         ) {
           this.log.warn(
             'a verification session was opened and discarded because the customer was settled while it was being created',

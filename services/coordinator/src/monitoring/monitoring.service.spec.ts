@@ -227,6 +227,18 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     expect(alert.fingerprint).toBe(fingerprint);
   });
 
+  it('reports deliveries dropped for naming a session the row is not following on their own routine key, never as the urgent refusal that says no trade can be opened', async () => {
+    const { svc, raised, refusals } = quiet();
+    refusals.droppedOutOfSession('a delivery named a session this customer is not following');
+    await svc.checkAndAlert();
+    const list = raised.flatMap((r) => r.list);
+    const dropped = list.find((a: any) => a.key === 'didit_out_of_session_deliveries');
+    expect(dropped).toBeDefined();
+    expect(dropped.urgency).toBe('routine');
+    expect(dropped.text).toContain('1 deliveries');
+    expect(list.find((a: any) => a.key === 'didit_deliveries_refused')).toBeUndefined();
+  });
+
   it('pages urgently and re-sends when the unreadable count crosses an order of magnitude, because that is what vendor payload drift looks like', async () => {
     const { svc, raised, prisma } = quiet();
     prisma.kycVerification.count.mockResolvedValue(40);

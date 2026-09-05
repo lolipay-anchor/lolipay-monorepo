@@ -206,6 +206,42 @@ describe('applying what a delivery concluded', () => {
     expect(store.row.status).toBe('ACCEPTED');
     expect(store.row.screenedAt).toBeNull();
   });
+
+  it('drops a late approval for a session the customer has already left, because the row now follows the session opened afterwards, and counts it apart from a refusal', async () => {
+    const { s, store, prisma, refusals } = svc({
+      customerRef: REF, status: 'PROCESSING', providerRef: 'sess-2', deliveredAt: null, screenedAt: null,
+    });
+    await s.applyDelivery(accepted({ providerRef: 'sess-1' }), AT);
+    expect(store.row.status).toBe('PROCESSING');
+    expect(store.row.providerRef).toBe('sess-2');
+    expect(prisma.kycVerification.update).not.toHaveBeenCalled();
+    expect(refusals.state()).toMatchObject({ count: 0, outOfSession: 1, outOfSessionReason: expect.stringMatching(/not following/) });
+  });
+
+  it('still lets a refusal land whatever session it names, because a refusal follows the person', async () => {
+    const { s, store } = svc({
+      customerRef: REF, status: 'PROCESSING', providerRef: 'sess-2', deliveredAt: null, screenedAt: null,
+    });
+    await s.applyDelivery(accepted({ providerRef: 'sess-1', status: 'REJECTED', screened: false, rejectionReason: 'sanctions or watchlist match' }), AT);
+    expect(store.row.status).toBe('REJECTED');
+  });
+
+  it('follows the session it opened for the delivery that moves the row forward', async () => {
+    const { s, store } = svc({
+      customerRef: REF, status: 'PROCESSING', providerRef: 'sess-2', deliveredAt: null, screenedAt: null,
+    });
+    await s.applyDelivery(accepted({ providerRef: 'sess-2' }), AT);
+    expect(store.row.status).toBe('ACCEPTED');
+    expect(store.row.providerRef).toBe('sess-2');
+  });
+
+  it('counts a delivery for a session an accepted row is not following apart from a refusal too', async () => {
+    const { s, refusals } = svc({
+      customerRef: REF, status: 'ACCEPTED', providerRef: 'sess-1', deliveredAt: EARLIER, screenedAt: EARLIER,
+    });
+    await s.applyDelivery(accepted({ providerRef: 'sess-9' }), AT);
+    expect(refusals.state()).toMatchObject({ count: 0, outOfSession: 1 });
+  });
 });
 
 describe('registering a customer does not spend on every attempt', () => {
@@ -343,6 +379,24 @@ describe('registering a customer does not spend on every attempt', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
     expect(prisma.kycVerification.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens a new session for a customer whose in-flight session is older than a day, so a row pinned to a session the vendor never finished is not a dead end', async () => {
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    const { svc, provider, store } = putSvc({
+      customerRef: REF, status: 'PROCESSING', providerRef: 'sess-stale', updatedAt: twoDaysAgo,
+    });
+    await svc.put(REF, complete);
+    expect(provider.start).toHaveBeenCalledTimes(1);
+    expect(store.row.providerRef).toBe('sess-new');
+  });
+
+  it('keeps reusing an in-flight session that is younger than a day', async () => {
+    const { svc, provider } = putSvc({
+      customerRef: REF, status: 'PROCESSING', providerRef: 'sess-open', updatedAt: new Date(),
+    });
+    await svc.put(REF, complete);
+    expect(provider.start).not.toHaveBeenCalled();
   });
 });
 

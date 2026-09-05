@@ -73,4 +73,18 @@ describe('each kind of failure clears on its own terms, and never on somebody el
     expect(s.state().overBudget).toBe(0);
     expect(s.state().budgetReason).toBeUndefined();
   });
+
+  it('lets a delivery for a session the row is not following fade like a probe, apart from refusals, because a late result for an abandoned session is normal', () => {
+    const s = new DiditRefusalsService();
+    s.droppedOutOfSession('a delivery named a session this customer is not following');
+    s.droppedOutOfSession('a delivery named a session this customer is not following');
+    expect(s.state()).toMatchObject({ count: 0, outOfSession: 2 });
+    s.seen();
+    expect(s.state().outOfSession).toBe(1);
+    s.seen();
+    expect(s.state()).toMatchObject({ outOfSession: 0, outOfSessionReason: undefined });
+    s.applied();
+    s.droppedOutOfSession('again');
+    expect(s.state()).toMatchObject({ count: 0, outOfSession: 1, outOfSessionReason: 'again' });
+  });
 });
