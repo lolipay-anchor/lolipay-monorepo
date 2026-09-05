@@ -260,7 +260,7 @@ describe('LP registry + admin actions (e2e)', () => {
     await request(app.getHttpServer())
       .patch('/admin/config')
       .set('Authorization', `Bearer ${adminJwt}`)
-      .send({ platformFeeBps: 5000, lpFeeBps: 5000 })
+      .send({ platformFeeBps: 30, lpFeeBps: 9970 })
       .expect(400);
   });
 

@@ -166,6 +166,7 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     expect(alert).toBeDefined();
     expect(alert.text).toContain('3 customers');
     expect(alert.text).not.toMatch(/approved by the vendor/);
+    expect(alert.text).toContain('whatever the vendor decided');
     expect(alert.fingerprint).toBe('1+');
     expect(alert.urgency).toBe('routine');
     expect(prisma.kycVerification.count.mock.calls.map((c: any) => c[0].where)).toContainEqual({ status: 'NEEDS_INFO', rejectionReason: 'the screening could not be read' });
@@ -221,6 +222,7 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     prisma.kycVerification.count.mockImplementation(async (args: any) => (args.where.status === 'REJECTED' ? n : 0));
     await svc.checkAndAlert();
     const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_refused_last_day');
+    expect(alert).toBeDefined();
     expect(alert.urgency).toBe(urgency);
     expect(alert.fingerprint).toBe(fingerprint);
   });

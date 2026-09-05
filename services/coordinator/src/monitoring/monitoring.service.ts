@@ -320,7 +320,7 @@ export class MonitoringService {
           urgency: unreadable >= 10 ? 'urgent' : 'routine',
           text:
             `${unreadable} customers had a delivery whose screening this anchor could not read, whatever the vendor decided, so they were asked to verify again ` +
-            `— one is a stray payload; ten or more means the vendor's payload shape has changed and every new customer will loop until the reader is updated`,
+            `— one is a stray payload; ten or more marked at once, or a number that keeps growing, means the vendor's payload shape has changed and every new customer will loop until the reader is updated`,
         });
       }
     } catch (e) {
