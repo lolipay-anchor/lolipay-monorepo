@@ -18,6 +18,11 @@ import {
   readChallenge,
   sep53Signature,
   signSep10Challenge,
+  roleTarget,
+  newestMatchedOrder,
+  orderAwaitingRelease,
+  fundedOrderOf,
+  fundedByMe,
 } from './sep24-fixtures';
 import { FIAT_INPUT_REFUSAL } from '../money/money';
 
@@ -395,5 +400,73 @@ describe('the SEP-24 fixture driver, its pure parts', () => {
     expect(cfg['24'].withdrawCompletedTransaction).toEqual({ id: 'w1', status: 'completed', stellar_transaction_id: 'h3' });
     expect(cfg['24']).not.toHaveProperty('withdrawPendingUserTransferStartTransaction');
     expect(JSON.stringify(cfg).split(secret).length - 1).toBe(1);
+  });
+});
+
+describe('the SEP-24 fixture driver, its two roles', () => {
+  it('runs as today when no role is named, and refuses a role it does not know', () => {
+    expect(roleTarget({})).toBeNull();
+    expect(roleTarget({ SEP24_ROLE: '' })).toBeNull();
+    expect(() => roleTarget({ SEP24_ROLE: 'attestor' })).toThrow('SEP24_ROLE must be "lp" or "user"');
+  });
+
+  it('as the provider, funds only for the wallet it was told, and refuses a malformed or checksum-invalid one', () => {
+    const pub = Keypair.random().publicKey();
+    expect(roleTarget({ SEP24_ROLE: 'lp', SEP24_USER_PUB: pub })).toEqual({ role: 'lp', userPub: pub, orderId: null, waitMs: 65 * 60_000, waitsForAttest: false });
+    expect(() => roleTarget({ SEP24_ROLE: 'lp' })).toThrow('SEP24_USER_PUB must be the G address');
+    expect(() => roleTarget({ SEP24_ROLE: 'lp', SEP24_USER_PUB: pub.slice(0, 55) + (pub[55] === 'A' ? 'B' : 'A') })).toThrow('SEP24_USER_PUB must be the G address');
+    expect(() => roleTarget({ SEP24_ROLE: 'lp', SEP24_USER_PUB: pub, SEP24_ROLE_WAIT_MINUTES: '0' })).toThrow('positive number of minutes');
+    expect(roleTarget({ SEP24_ROLE: 'lp', SEP24_USER_PUB: pub, SEP24_ROLE_WAIT_MINUTES: '10', SEP24_ORDER_ID: ' o-9 ' })).toMatchObject({ waitMs: 600_000, orderId: 'o-9' });
+  });
+
+  it('as the user, needs no counterparty address and can be told to wait for the admin attestation instead of signing', () => {
+    expect(roleTarget({ SEP24_ROLE: 'user' })).toEqual({ role: 'user', userPub: null, orderId: null, waitMs: 65 * 60_000, waitsForAttest: false });
+    expect(roleTarget({ SEP24_ROLE: 'user', SEP24_USER_WAITS_FOR_ATTEST: '1' })!.waitsForAttest).toBe(true);
+  });
+
+  it('funds the newest fresh MATCHED order for the wallet when the customer retried, and none when there is none', () => {
+    const pub = Keypair.random().publicKey();
+    const full = { trade_id: 'ab'.repeat(32), flow: 'TOP_UP', usdc_amount: '111700000', fiat_amount: '200000', fiat_currency: 'IDR', lp_fee_bps: 120, pay_deadline: 1, confirm_deadline: 2, dispute_deadline: 3 };
+    const older = { id: 'o1', status: 'MATCHED', user_address: pub, created_at: '2026-09-05T12:00:00.000Z', ...full };
+    const newer = { id: 'o2', status: 'MATCHED', user_address: pub, created_at: '2026-09-05T12:05:00.000Z', ...full };
+    const t0 = Date.parse('2026-09-05T11:59:00.000Z');
+    expect(newestMatchedOrder([older, newer], pub, t0)!.id).toBe('o2');
+    expect(newestMatchedOrder([{ ...older, status: 'FUNDED' }], pub, t0)).toBeNull();
+    expect(newestMatchedOrder([], pub, t0)).toBeNull();
+  });
+
+  it('releases only an order the rupiah was attested for, keeps waiting while it is funded, and refuses one that went elsewhere', () => {
+    const base = { created_at: '2026-09-05T12:00:00.000Z' };
+    const paid = { id: 'o1', status: 'FIAT_PAID', ...base };
+    expect(orderAwaitingRelease([{ id: 'o0', status: 'FIAT_PAID', ...base }, paid], 'o1')).toBe(paid);
+    for (const status of ['MATCHED', 'AWAITING_ONCHAIN', 'FUNDED']) expect(orderAwaitingRelease([{ id: 'o1', status, ...base }], 'o1')).toBeNull();
+    expect(() => orderAwaitingRelease([], 'o1')).toThrow("order o1 is no longer among this provider's assignments");
+    for (const status of ['CANCELLED', 'EXPIRED', 'REFUNDED', 'RELEASED', 'DISPUTED']) {
+      expect(() => orderAwaitingRelease([{ id: 'o1', status, ...base }], 'o1')).toThrow(`order o1 is ${status}; the provider will not release it`);
+    }
+  });
+
+  it('as the user, finds its own newest funded deposit and its trade id, and nothing when none is funded', () => {
+    const pub = Keypair.random().publicKey();
+    const rows = [
+      { id: 'a', status: 'FUNDED', flow: 'TOP_UP', trade_id: 'cd'.repeat(32), user_address: pub, created_at: '2026-09-05T12:00:00.000Z' },
+      { id: 'b', status: 'FUNDED', flow: 'TOP_UP', trade_id: 'ef'.repeat(32), user_address: pub, created_at: '2026-09-05T12:09:00.000Z' },
+      { id: 'c', status: 'FUNDED', flow: 'WITHDRAW', trade_id: '01'.repeat(32), user_address: pub, created_at: '2026-09-05T12:10:00.000Z' },
+    ];
+    expect(fundedOrderOf(rows, pub)).toEqual({ id: 'b', tradeIdHex: 'ef'.repeat(32) });
+    expect(fundedOrderOf(rows.map((r) => ({ ...r, status: 'MATCHED' })), pub)).toBeNull();
+  });
+
+  it('as the provider, adopts an escrow it funded but never saw confirmed, so a lost confirmation does not strand the money', () => {
+    const pub = Keypair.random().publicKey();
+    const t0 = Date.parse('2026-09-05T11:59:00.000Z');
+    const rows = [
+      { id: 'a', status: 'FUNDED', flow: 'TOP_UP', user_address: pub, trade_id: '11'.repeat(32), created_at: '2026-09-05T12:00:00.000Z' },
+      { id: 'b', status: 'MATCHED', flow: 'TOP_UP', user_address: pub, trade_id: '22'.repeat(32), created_at: '2026-09-05T12:09:00.000Z' },
+      { id: 'old', status: 'FUNDED', flow: 'TOP_UP', user_address: pub, trade_id: '33'.repeat(32), created_at: '2026-09-05T11:00:00.000Z' },
+      { id: 'w', status: 'FUNDED', flow: 'WITHDRAW', user_address: pub, trade_id: '44'.repeat(32), created_at: '2026-09-05T12:10:00.000Z' },
+    ];
+    expect(fundedByMe(rows, pub, t0)).toEqual({ id: 'a', tradeIdHex: '11'.repeat(32) });
+    expect(fundedByMe(rows, Keypair.random().publicKey(), t0)).toBeNull();
   });
 });

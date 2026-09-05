@@ -2,7 +2,7 @@ import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
-import { Address, Keypair, StellarToml, Transaction, WebAuth, scValToNative } from '@stellar/stellar-sdk';
+import { Address, Keypair, StellarToml, StrKey, Transaction, WebAuth, scValToNative } from '@stellar/stellar-sdk';
 import { refundOpensAt } from '../order/dispute.util';
 import { baseUnitsToUsdcString, fiatDigits, fiatInputAccepted, FIAT_INPUT_REFUSAL, quoteUsdcForFiat } from '../money/money';
 import { Server } from '@stellar/stellar-sdk/rpc';
@@ -287,6 +287,69 @@ export function pickFreshOrder(orders: AssignmentOrder[], userPub: string, notBe
     throw new Error(`assignment ${fresh.id} carries no ${missing.join(', ')}; refusing to sign a create_trade the driver cannot check`);
   }
   return fresh as FundableOrder;
+}
+
+const RELEASE_WAIT_STATUSES = ['MATCHED', 'AWAITING_ONCHAIN', 'FUNDED'];
+const FUNDED_BY_ME = ['AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID'];
+
+export function roleTarget(env: {
+  SEP24_ROLE?: string;
+  SEP24_USER_PUB?: string;
+  SEP24_ORDER_ID?: string;
+  SEP24_ROLE_WAIT_MINUTES?: string;
+  SEP24_USER_WAITS_FOR_ATTEST?: string;
+}): { role: 'lp' | 'user'; userPub: string | null; orderId: string | null; waitMs: number; waitsForAttest: boolean } | null {
+  const role = (env.SEP24_ROLE ?? '').trim();
+  if (role === '') return null;
+  if (role !== 'lp' && role !== 'user') throw new Error('SEP24_ROLE must be "lp" or "user"');
+  const minutes = Number(env.SEP24_ROLE_WAIT_MINUTES ?? '65');
+  if (!Number.isFinite(minutes) || minutes <= 0) throw new Error('SEP24_ROLE_WAIT_MINUTES must be a positive number of minutes');
+  const orderId = (env.SEP24_ORDER_ID ?? '').trim() || null;
+  const waitsForAttest = env.SEP24_USER_WAITS_FOR_ATTEST === '1';
+  if (role === 'user') return { role, userPub: null, orderId, waitMs: minutes * 60_000, waitsForAttest };
+  const userPub = env.SEP24_USER_PUB ?? '';
+  if (!StrKey.isValidEd25519PublicKey(userPub)) throw new Error('SEP24_USER_PUB must be the G address of the wallet the provider will fund for');
+  return { role, userPub, orderId, waitMs: minutes * 60_000, waitsForAttest };
+}
+
+export function newestMatchedOrder(orders: AssignmentOrder[], userPub: string, notBeforeMs: number): FundableOrder | null {
+  const mine = orders
+    .filter((o) => o.user_address === userPub && o.status === 'MATCHED' && Date.parse(o.created_at) >= notBeforeMs)
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  if (mine.length === 0) return null;
+  return pickFreshOrder([mine[0]], userPub, notBeforeMs);
+}
+
+export function orderAwaitingRelease(orders: AssignmentOrder[], orderId: string): AssignmentOrder | null {
+  const order = orders.find((o) => o.id === orderId);
+  if (!order) throw new Error(`order ${orderId} is no longer among this provider's assignments; it was released, refunded or cancelled`);
+  if (order.status === 'FIAT_PAID') return order;
+  if (RELEASE_WAIT_STATUSES.includes(order.status)) return null;
+  throw new Error(`order ${orderId} is ${order.status}; the provider will not release it`);
+}
+
+export function fundedOrderOf(
+  orders: Array<{ id: string; status: string; flow?: string | null; trade_id?: string | null; user_address?: string | null; created_at: string }>,
+  userPub: string,
+): { id: string; tradeIdHex: string } | null {
+  const mine = orders
+    .filter((o) => o.flow === 'TOP_UP' && o.status === 'FUNDED' && o.user_address === userPub && o.trade_id)
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  return mine.length ? { id: mine[0].id, tradeIdHex: mine[0].trade_id as string } : null;
+}
+
+export function fundedByMe(orders: AssignmentOrder[], userPub: string, notBeforeMs: number): { id: string; tradeIdHex: string } | null {
+  const mine = orders
+    .filter(
+      (o) =>
+        o.user_address === userPub &&
+        o.flow === 'TOP_UP' &&
+        FUNDED_BY_ME.includes(o.status) &&
+        !!o.trade_id &&
+        Date.parse(o.created_at) >= notBeforeMs,
+    )
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  return mine.length ? { id: mine[0].id, tradeIdHex: mine[0].trade_id as string } : null;
 }
 
 export function assembleSepConfig(input: {
