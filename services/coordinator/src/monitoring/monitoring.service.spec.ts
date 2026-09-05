@@ -176,6 +176,7 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     await svc.checkAndAlert();
     expect(raised[0].incomplete.has('didit_approval_overruled')).toBe(true);
     expect(raised[0].incomplete.has('didit_screening_unavailable')).toBe(true);
+    expect(raised[0].incomplete.has('didit_refused_last_day')).toBe(true);
   });
 
   it('reports customers whose screening the vendor could not run under its own key, apart from unreadable deliveries, so an outage at the vendor is never read as payload drift', async () => {
@@ -189,6 +190,25 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     expect(outage.fingerprint).toBe('1+');
     expect(outage.text).toContain('3 customers');
     expect(list.find((a: any) => a.key === 'didit_approval_overruled')).toBeUndefined();
+  });
+
+  it('reports every refusal written after a provider delivery in the last day, from status and delivery time alone so a customer erasing their reason does not erase the count, and pages urgently at ten', async () => {
+    const { svc, raised, prisma } = quiet();
+    const frozen = 1_800_000_000_000;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(frozen);
+    try {
+      prisma.kycVerification.count.mockImplementation(async (args: any) => (args.where.status === 'REJECTED' ? 12 : 0));
+      await svc.checkAndAlert();
+      const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_refused_last_day');
+      expect(alert).toBeDefined();
+      expect(alert.urgency).toBe('urgent');
+      expect(alert.fingerprint).toBe('10+');
+      expect(alert.text).toContain('12 refusals');
+      const where = prisma.kycVerification.count.mock.calls.map((c: any) => c[0].where).find((w: any) => w.status === 'REJECTED');
+      expect(where).toEqual({ status: 'REJECTED', deliveredAt: { gte: new Date(frozen - 24 * 60 * 60 * 1000) } });
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it('pages urgently and re-sends when the unreadable count crosses an order of magnitude, because that is what vendor payload drift looks like', async () => {

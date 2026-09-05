@@ -25,3 +25,7 @@ export function deliveredButUnreadable() {
 export function screeningDidNotRun() {
   return { status: 'NEEDS_INFO' as const, rejectionReason: SCREENING_DID_NOT_RUN };
 }
+
+export function refusedAfterDelivery(since: Date) {
+  return { status: 'REJECTED' as const, deliveredAt: { gte: since } };
+}

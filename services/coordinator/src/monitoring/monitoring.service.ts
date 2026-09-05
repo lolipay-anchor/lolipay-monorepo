@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../generated/prisma/client';
 import { Alert, AlertsService, Urgency } from './alerts.service';
 import { DiditRefusalsService } from './didit-refusals.service';
-import { deliveredButUnreadable, screeningDidNotRun } from '../kyc/screening-requirement';
+import { deliveredButUnreadable, refusedAfterDelivery, screeningDidNotRun } from '../kyc/screening-requirement';
 import { OutboxService } from '../outbox/outbox.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { AppConfigService } from '../config/app-config.service';
@@ -35,6 +35,7 @@ export const MONITORING_ALERT_SCOPE = [
   'didit_deliveries_refused',
   'didit_approval_overruled',
   'didit_screening_unavailable',
+  'didit_refused_last_day',
   'didit_provider_unreachable',
   'didit_deliveries_unauthenticated',
   'didit_budget_exhausted',
@@ -342,6 +343,25 @@ export class MonitoringService {
     } catch (e) {
       incomplete.add('didit_screening_unavailable');
       this.log.warn(`could not count the screenings the vendor could not run: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    try {
+      const refused = await this.prisma.kycVerification.count({
+        where: refusedAfterDelivery(new Date(Date.now() - 24 * 60 * 60 * 1000)),
+      });
+      if (refused > 0) {
+        alerts.push({
+          key: 'didit_refused_last_day',
+          fingerprint: `${10 ** Math.floor(Math.log10(refused))}+`,
+          urgency: refused >= 10 ? 'urgent' : 'routine',
+          text:
+            `${refused} refusals were written after a provider delivery in the last 24 hours — each is permanent and this anchor has no way to lift it; ` +
+            `the row keeps its reason until the customer erases it; ten or more in a day is either a real wave or a vendor field this anchor misreads, so read one delivery before trusting the number`,
+        });
+      }
+    } catch (e) {
+      incomplete.add('didit_refused_last_day');
+      this.log.warn(`could not count the refusals of the last day: ${e instanceof Error ? e.message : String(e)}`);
     }
 
     if (refusals.unauthenticated > 0) {

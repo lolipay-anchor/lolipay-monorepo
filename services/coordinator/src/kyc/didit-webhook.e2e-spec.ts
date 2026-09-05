@@ -5,7 +5,7 @@ import { bootAuthApp, sessionToken } from '../auth/auth-test-helpers';
 import { Keypair } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 
-import { deliveredButUnreadable, screeningDidNotRun } from './screening-requirement';
+import { deliveredButUnreadable, refusedAfterDelivery, screeningDidNotRun } from './screening-requirement';
 const PATH = '/webhooks/didit';
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -183,6 +183,8 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     const row = await prisma.kycVerification.findUnique({ where: { customerRef: kp.publicKey() } });
     expect(row!.status).toBe('REJECTED');
     expect(row!.rejectionReason).toBe('sanctions or watchlist match');
+    expect(await prisma.kycVerification.count({ where: { ...refusedAfterDelivery(new Date(Date.now() - 24 * 60 * 60 * 1000)), customerRef: kp.publicKey() } })).toBe(1);
+    expect(await prisma.kycVerification.count({ where: { ...refusedAfterDelivery(new Date(Date.now() + 60 * 1000)), customerRef: kp.publicKey() } })).toBe(0);
     expect(row!.screenedAt).toBeNull();
   });
 
