@@ -48,12 +48,13 @@ export class DiditKycProvider implements KycProvider {
       features = undefined;
     }
 
-    if (features === undefined) {
+    if (typeof features !== 'string') {
       log.warn(
         'could not read which checks the configured verification workflow performs, so whether this deployment can screen is unknown; starting anyway',
       );
       return;
     }
+    this.refusals.workflowPerformsAml(/\bAML\b/i.test(features));
     if (!/\bAML\b/i.test(features)) {
       if (this.cfg.kycRequireAml) {
         log.warn(

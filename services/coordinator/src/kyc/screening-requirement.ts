@@ -29,3 +29,7 @@ export function screeningDidNotRun() {
 export function refusedAfterDelivery(since: Date) {
   return { status: 'REJECTED' as const, deliveredAt: { gte: since } };
 }
+
+export function acceptedUnscreenedSince(since: Date) {
+  return { status: 'ACCEPTED' as const, screenedAt: null, deliveredAt: { gte: since } };
+}

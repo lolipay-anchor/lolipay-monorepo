@@ -18,6 +18,7 @@ function make(opts: {
   fiatOverdue: number;
   indexerAgeMs: number | null;
   webhook?: string;
+  kycRequireAml?: boolean;
 }) {
   const prisma = {
     order: {
@@ -53,7 +54,8 @@ function make(opts: {
     }),
   } as any;
   const refusals = new DiditRefusalsService();
-  return { refusals, svc: new MonitoringService(prisma, alerts, refusals, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any, { escrowContractId: 'CESCROW' } as any), prisma, alerts, raised };
+  refusals.workflowPerformsAml(false);
+  return { refusals, svc: new MonitoringService(prisma, alerts, refusals, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any, { escrowContractId: 'CESCROW', kycRequireAml: opts.kycRequireAml ?? true } as any), prisma, alerts, raised };
 }
 
 describe('MonitoringService', () => {
@@ -140,8 +142,8 @@ describe('MonitoringService', () => {
 
 describe('an operator can tell an outage, a probe and a spending ceiling apart', () => {
   const keyOf = (raised: any[]) => raised.flatMap((r) => r.list.map((a: any) => a.key));
-  const quiet = () =>
-    make({ disputes: 0, releaseOverdue: 0, fiatOverdue: 0, indexerAgeMs: 1000 });
+  const quiet = (over: { kycRequireAml?: boolean } = {}) =>
+    make({ disputes: 0, releaseOverdue: 0, fiatOverdue: 0, indexerAgeMs: 1000, ...over });
 
   it('raises nothing about identity verification while nothing has gone wrong', async () => {
     const { svc, raised } = quiet();
@@ -237,6 +239,59 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     expect(dropped.urgency).toBe('routine');
     expect(dropped.text).toContain('1 deliveries');
     expect(list.find((a: any) => a.key === 'didit_deliveries_refused')).toBeUndefined();
+  });
+
+  it('reports acceptances delivered in the last day with no screening while the bound workflow performs AML, because that is what a dropped or moved aml_screenings field looks like', async () => {
+    const { svc, raised, prisma, refusals } = quiet();
+    refusals.workflowPerformsAml(true);
+    const frozen = Date.now();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(frozen);
+    try {
+      prisma.kycVerification.count.mockImplementation(async (args: any) => (args.where.status === 'ACCEPTED' ? 4 : 0));
+      await svc.checkAndAlert();
+      const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_unscreened_acceptances_last_day');
+      expect(alert).toBeDefined();
+      expect(alert.urgency).toBe('routine');
+      expect(alert.fingerprint).toBe('1+');
+      expect(alert.text).toContain('4 acceptances');
+      expect(alert.text).toMatch(/last 24 hours/);
+      const where = prisma.kycVerification.count.mock.calls.map((c: any) => c[0].where).find((w: any) => w.status === 'ACCEPTED');
+      expect(where).toEqual({ status: 'ACCEPTED', screenedAt: null, deliveredAt: { gte: new Date(frozen - 24 * 60 * 60 * 1000) } });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('pages urgently at the first unscreened acceptance when AML is optional, because the gate is already open for it', async () => {
+    const { svc, raised, prisma, refusals } = quiet({ kycRequireAml: false });
+    refusals.workflowPerformsAml(true);
+    prisma.kycVerification.count.mockImplementation(async (args: any) => (args.where.status === 'ACCEPTED' ? 1 : 0));
+    await svc.checkAndAlert();
+    const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_unscreened_acceptances_last_day');
+    expect(alert.urgency).toBe('urgent');
+  });
+
+  it('asks nothing about unscreened acceptances while the bound workflow performs no AML, because then an unscreened acceptance is the expected shape', async () => {
+    const { svc, raised, prisma, refusals } = quiet();
+    refusals.workflowPerformsAml(false);
+    prisma.kycVerification.count.mockImplementation(async (args: any) => (args.where.status === 'ACCEPTED' ? 4 : 0));
+    await svc.checkAndAlert();
+    expect(raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_unscreened_acceptances_last_day')).toBeUndefined();
+    expect(prisma.kycVerification.count.mock.calls.map((c: any) => c[0].where).find((w: any) => w.status === 'ACCEPTED')).toBeUndefined();
+  });
+
+  it('says so, and marks the family incomplete, when boot could not read what the workflow performs, so the detector is never silently off', async () => {
+    const { svc, raised, prisma, refusals } = quiet();
+    refusals.workflowPerformsAml(undefined);
+    prisma.kycVerification.count.mockImplementation(async (args: any) => (args.where.status === 'ACCEPTED' ? 4 : 0));
+    await svc.checkAndAlert();
+    const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_unscreened_acceptances_last_day');
+    expect(alert).toBeDefined();
+    expect(alert.urgency).toBe('routine');
+    expect(alert.fingerprint).toBe('unknown');
+    expect(alert.text).toMatch(/could not read/);
+    expect(raised[0].incomplete.has('didit_unscreened_acceptances_last_day')).toBe(true);
+    expect(prisma.kycVerification.count.mock.calls.map((c: any) => c[0].where).find((w: any) => w.status === 'ACCEPTED')).toBeUndefined();
   });
 
   it('pages urgently and re-sends when the unreadable count crosses an order of magnitude, because that is what vendor payload drift looks like', async () => {

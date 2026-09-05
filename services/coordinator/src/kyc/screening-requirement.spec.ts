@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
-import { acceptedForFunds, awaitingProvider, deliveredButUnreadable, refusedAfterDelivery, screeningDidNotRun, HIT_REFUSAL, SCREENING_DID_NOT_RUN, SCREENING_REQUIRED_FAILED, UNREADABLE_DECLINE, UNREADABLE_SCREENING } from './screening-requirement';
+import { acceptedForFunds, acceptedUnscreenedSince, awaitingProvider, deliveredButUnreadable, refusedAfterDelivery, screeningDidNotRun, HIT_REFUSAL, SCREENING_DID_NOT_RUN, SCREENING_REQUIRED_FAILED, UNREADABLE_DECLINE, UNREADABLE_SCREENING } from './screening-requirement';
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -68,5 +68,10 @@ describe('whether a customer may move funds depends on one predicate that reads 
   it('names a refusal written after a provider delivery inside a window by status and time alone, so a customer erasing their reason under SEP-12 DELETE does not erase it from the count', () => {
     const since = new Date('2026-09-04T00:00:00Z');
     expect(refusedAfterDelivery(since)).toEqual({ status: 'REJECTED', deliveredAt: { gte: since } });
+  });
+
+  it('names an acceptance delivered inside a window with no screening, which is drift only when the bound workflow performs AML', () => {
+    const since = new Date('2026-09-04T00:00:00Z');
+    expect(acceptedUnscreenedSince(since)).toEqual({ status: 'ACCEPTED', screenedAt: null, deliveredAt: { gte: since } });
   });
 });

@@ -4,6 +4,7 @@ import { createHmac } from 'crypto';
 import { bootAuthApp, sessionToken } from '../auth/auth-test-helpers';
 import { Keypair } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
+import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 
 import { deliveredButUnreadable, refusedAfterDelivery, screeningDidNotRun } from './screening-requirement';
 const PATH = '/webhooks/didit';
@@ -297,5 +298,43 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     const res = await post(raw, signed(raw));
     expect(JSON.stringify(res.body ?? '')).not.toContain('Budi Santoso');
     expect(res.text ?? '').not.toContain('Budi Santoso');
+  });
+
+  it('ignores a vendor-user event without counting it as a refusal, because ACTIVE is a user status and not a session verdict', async () => {
+    const kp = Keypair.random();
+    await sessionToken(app, kp);
+    const refusals = app.get(DiditRefusalsService);
+    const before = refusals.state().count;
+
+    const raw = JSON.stringify({
+      event_id: 'e-user',
+      webhook_type: 'user.status.updated',
+      timestamp: Math.floor(Date.now() / 1000),
+      user_id: 'usr-1',
+      status: 'ACTIVE',
+      vendor_data: kp.publicKey(),
+      environment: 'sandbox',
+    });
+    await post(raw, signed(raw)).expect(200);
+
+    expect(await prisma.kycVerification.findUnique({ where: { customerRef: kp.publicKey() } })).toBeNull();
+    expect(refusals.state().count).toBe(before);
+  });
+
+  it('still applies a session status delivery, and one with no event name at all, so a real verdict is never dropped by the event filter', async () => {
+    const kp = Keypair.random();
+    await sessionToken(app, kp);
+    const raw = JSON.stringify({
+      event_id: 'e-noname',
+      timestamp: Math.floor(Date.now() / 1000),
+      session_id: 'sess-live-noname',
+      status: 'Approved',
+      vendor_data: kp.publicKey(),
+      environment: 'sandbox',
+      decision: { aml_screenings: [{ status: 'Approved', total_hits: 0, hits: [], warnings: [] }] },
+    });
+    await post(raw, signed(raw)).expect(200);
+    const row = await prisma.kycVerification.findUnique({ where: { customerRef: kp.publicKey() } });
+    expect(row!.status).toBe('ACCEPTED');
   });
 });

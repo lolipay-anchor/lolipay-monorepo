@@ -5,6 +5,9 @@ import { readDiditDecision } from './didit-decision';
 import { Sep12Service } from './sep12.service';
 import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 
+const NON_SESSION_EVENT_FAMILIES = ['user.', 'business.', 'activity.', 'transaction.', 'travel_rule.', 'workflow.'];
+const ADVERSE_USER_STATUSES = ['FLAGGED', 'BLOCKED', 'IN_REVIEW'];
+
 @Controller('webhooks')
 export class DiditWebhookController {
   private readonly log = new Logger(DiditWebhookController.name);
@@ -38,6 +41,14 @@ export class DiditWebhookController {
     } catch {
       this.log.warn('a signed delivery on /webhooks/didit did not carry readable json');
       this.refusals.record('a signed delivery did not carry readable json');
+      return;
+    }
+    const eventName = (payload as any)?.webhook_type;
+    if (typeof eventName === 'string' && NON_SESSION_EVENT_FAMILIES.some((family) => eventName.startsWith(family))) {
+      const status = String((payload as any)?.status ?? '').slice(0, 40);
+      const line = `ignored a ${JSON.stringify(eventName.slice(0, 40))} delivery reporting ${JSON.stringify(status)}: it describes something other than a verification session`;
+      if (ADVERSE_USER_STATUSES.includes(status)) this.log.warn(line);
+      else this.log.log(line);
       return;
     }
 

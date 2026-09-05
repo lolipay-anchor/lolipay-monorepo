@@ -204,4 +204,22 @@ describe('what boot says about a workflow with no AML step depends on whether AM
       warn.mockRestore();
     }
   });
+
+  it('tells the refusal counter whether the bound workflow performs AML, so the monitor knows whether an unscreened acceptance is drift or the expected shape', async () => {
+    const withAml = { status: 200, body: [{ workflow_id: 'wf-1', features: 'OCR + LIVENESS + FACE_MATCH + AML + IP_ANALYSIS' }] };
+    const noAml = { status: 200, body: [{ workflow_id: 'wf-1', features: 'OCR + LIVENESS + FACE_MATCH + IP_ANALYSIS' }] };
+    const unreadable = { status: 502, body: { detail: 'nope' } };
+    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    try {
+      for (const [reply, expected] of [[withAml, true], [noAml, false], [unreadable, undefined]] as const) {
+        const { p, refusals } = provider(reply as any, { kycRequireAml: true });
+        await p.onModuleInit();
+        expect(refusals.state().performsAml).toBe(expected);
+      }
+    } finally {
+      log.mockRestore();
+      warn.mockRestore();
+    }
+  });
 });

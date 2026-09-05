@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../generated/prisma/client';
 import { Alert, AlertsService, Urgency } from './alerts.service';
 import { DiditRefusalsService } from './didit-refusals.service';
-import { deliveredButUnreadable, refusedAfterDelivery, screeningDidNotRun } from '../kyc/screening-requirement';
+import { acceptedUnscreenedSince, deliveredButUnreadable, refusedAfterDelivery, screeningDidNotRun } from '../kyc/screening-requirement';
 import { OutboxService } from '../outbox/outbox.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { AppConfigService } from '../config/app-config.service';
@@ -37,6 +37,7 @@ export const MONITORING_ALERT_SCOPE = [
   'didit_screening_unavailable',
   'didit_refused_last_day',
   'didit_out_of_session_deliveries',
+  'didit_unscreened_acceptances_last_day',
   'didit_provider_unreachable',
   'didit_deliveries_unauthenticated',
   'didit_budget_exhausted',
@@ -374,6 +375,38 @@ export class MonitoringService {
           `${refusals.outOfSession} deliveries named a session the customer's row is no longer following and were left unapplied ` +
           `— the most recent because ${refusals.outOfSessionReason}. A late result for an abandoned session is normal; a steady stream means session ids no longer match what this anchor opened.`,
       });
+    }
+
+    if (refusals.performsAml === undefined) {
+      incomplete.add('didit_unscreened_acceptances_last_day');
+      alerts.push({
+        key: 'didit_unscreened_acceptances_last_day',
+        fingerprint: 'unknown',
+        urgency: 'routine',
+        text:
+          'boot could not read which checks the bound verification workflow performs, so whether an unscreened acceptance is drift is unknown ' +
+          '— restart the coordinator once the vendor answers, or read the workflow in the Didit console',
+      });
+    } else if (refusals.performsAml) {
+      try {
+        const unscreened = await this.prisma.kycVerification.count({
+          where: acceptedUnscreenedSince(new Date(Date.now() - 24 * 60 * 60 * 1000)),
+        });
+        if (unscreened > 0) {
+          alerts.push({
+            key: 'didit_unscreened_acceptances_last_day',
+            fingerprint: `${10 ** Math.floor(Math.log10(unscreened))}+`,
+            urgency: !this.cfg.kycRequireAml || unscreened >= 10 ? 'urgent' : 'routine',
+            text:
+              `${unscreened} acceptances delivered in the last 24 hours carried no screening although the bound workflow performs AML ` +
+              `— under KYC_REQUIRE_AML=false those customers can already move funds unscreened; the vendor's payload has probably dropped or moved aml_screenings, so read one delivery. ` +
+              `A clear means no such delivery landed in the window, not that the reader is fixed`,
+          });
+        }
+      } catch (e) {
+        incomplete.add('didit_unscreened_acceptances_last_day');
+        this.log.warn(`could not count the unscreened acceptances of the last day: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
 
     if (refusals.unauthenticated > 0) {

@@ -61,7 +61,7 @@ export class DiditRefusalsService {
     if (this.outOfSession === 0) this.outOfSessionReason = undefined;
   }
 
-  workflowPerformsAml(performs: boolean): void {
+  workflowPerformsAml(performs: boolean | undefined): void {
     this.performsAml = performs;
   }
 
