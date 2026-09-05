@@ -48,7 +48,6 @@ describe('whether a customer may move funds depends on one predicate that reads 
       .filter((l) => /\b(screenedAt|deliveredAt)\b/.test(l));
     expect(lines).toEqual([
       'async applyDelivery(conclusion: DiditConclusion, deliveredAt: Date): Promise<void> {',
-      'deliveredAt > standing.updatedAt;',
       'if (!refusing && standing.deliveredAt && standing.deliveredAt > deliveredAt) return;',
       'await this.writeDelivery(tx, customerRef, person.id, conclusion, deliveredAt, standing);',
       'deliveredAt: Date,',

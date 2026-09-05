@@ -372,8 +372,8 @@ export class MonitoringService {
         fingerprint: refusals.outOfSessionReason ?? 'unknown',
         urgency: 'routine',
         text:
-          `${refusals.outOfSession} deliveries in the last 24 hours named a session the customer's row is no longer following and were left unapplied ` +
-          `— the most recent because ${refusals.outOfSessionReason}. A late result for an abandoned session is normal; a steady stream means session ids no longer match what this anchor opened.`,
+          `${refusals.outOfSession} deliveries since this coordinator started, within the last 24 hours, named a session the customer's row is no longer following and were left unapplied ` +
+          `— the most recent because ${refusals.outOfSessionReason}. A late result for a session a customer abandoned and re-registered after is normal and stays dropped; a steady stream means session ids no longer match what this anchor opened.`,
       });
     }
 

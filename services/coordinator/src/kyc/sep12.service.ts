@@ -96,14 +96,8 @@ export class Sep12Service {
       const standing = await tx.kycVerification.findUnique({ where: { customerRef } });
       if (standing) {
         if (standing.status === 'REJECTED') return;
-        const genuineLateApproval =
-          conclusion.status === 'ACCEPTED' &&
-          standing.status === 'PROCESSING' &&
-          standing.updatedAt instanceof Date &&
-          deliveredAt > standing.updatedAt;
         if (
           !refusing &&
-          !genuineLateApproval &&
           (standing.status === 'ACCEPTED' || standing.status === 'PROCESSING') &&
           standing.providerRef &&
           standing.providerRef !== conclusion.providerRef

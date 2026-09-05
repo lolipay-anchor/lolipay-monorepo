@@ -57,10 +57,12 @@ describe('each kind of failure clears on its own terms, and never on somebody el
     s.providerFailed('identity verification could not be started');
     s.couldNotAuthenticate('signature does not match the bytes that arrived');
     s.budgetExhausted('this anchor has spent its whole budget');
+    s.droppedOutOfSession('a delivery named a session this customer is not following');
     s.applied();
     expect(s.state().providerFailures).toBe(1);
     expect(s.state().unauthenticated).toBe(1);
     expect(s.state().overBudget).toBe(1);
+    expect(s.state().outOfSession).toBe(1);
   });
 
   it('clears the ceiling only when spending is possible again', () => {

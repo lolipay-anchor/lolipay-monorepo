@@ -243,25 +243,21 @@ describe('applying what a delivery concluded', () => {
     expect(refusals.state()).toMatchObject({ count: 0, outOfSession: 1 });
   });
 
-  it('lets a genuine approval for the session the customer abandoned land on the row that moved on, when it was delivered after the move, because the vendor approved the person', async () => {
+  it('drops even a screened approval for the session the customer left, so the live session can still lower the row afterwards', async () => {
     const reopenedAt = new Date('2026-08-28T04:30:00.000Z');
     const { s, store, refusals } = svc({
       customerRef: REF, status: 'PROCESSING', providerRef: 'sess-2', deliveredAt: null, screenedAt: null, updatedAt: reopenedAt,
     });
-    await s.applyDelivery(accepted({ providerRef: 'sess-1' }), AT);
-    expect(store.row.status).toBe('ACCEPTED');
-    expect(store.row.providerRef).toBe('sess-1');
-    expect(refusals.state().outOfSession).toBe(0);
-  });
-
-  it('still drops an approval for the abandoned session that was delivered before the row moved on, so a replayed old verdict cannot overtake a newer session', async () => {
-    const reopenedAt = new Date('2026-08-28T05:30:00.000Z');
-    const { s, store, refusals } = svc({
-      customerRef: REF, status: 'PROCESSING', providerRef: 'sess-2', deliveredAt: null, screenedAt: null, updatedAt: reopenedAt,
-    });
-    await s.applyDelivery(accepted({ providerRef: 'sess-1' }), AT);
+    await s.applyDelivery(accepted({ providerRef: 'sess-1', screened: true }), AT);
     expect(store.row.status).toBe('PROCESSING');
+    expect(store.row.providerRef).toBe('sess-2');
     expect(refusals.state().outOfSession).toBe(1);
+    await s.applyDelivery(
+      accepted({ providerRef: 'sess-2', status: 'NEEDS_INFO', screened: false, rejectionReason: 'the screening could not be read' }),
+      new Date('2026-08-28T05:10:00.000Z'),
+    );
+    expect(store.row.status).toBe('NEEDS_INFO');
+    expect(store.row.providerRef).toBe('sess-2');
   });
 
   it('never lets an approval from another session overwrite a row that is already accepted', async () => {
