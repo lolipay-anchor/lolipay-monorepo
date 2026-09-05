@@ -240,7 +240,17 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     expect(dropped).toBeDefined();
     expect(dropped.urgency).toBe('routine');
     expect(dropped.text).toContain('3 deliveries');
+    expect(dropped.fingerprint).toBe('1+');
     expect(list.find((a: any) => a.key === 'didit_deliveries_refused')).toBeUndefined();
+  });
+
+  it('re-pages the dropped-delivery alert when the count grows by an order of magnitude, so a steady stream is not one post and a six-hour reminder', async () => {
+    const { svc, raised, refusals } = quiet();
+    for (let i = 0; i < 12; i++) refusals.droppedOutOfSession('a delivery named a session this customer is not following');
+    await svc.checkAndAlert();
+    const dropped = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_out_of_session_deliveries');
+    expect(dropped.fingerprint).toBe('10+');
+    expect(dropped.text).toContain('12 deliveries');
   });
 
   it('stays quiet for a single late delivery from an abandoned session, because one is normal and a post plus a clear five minutes later is noise', async () => {

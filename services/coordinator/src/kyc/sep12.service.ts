@@ -92,7 +92,7 @@ export class Sep12Service {
         where: { status: 'REJECTED', personId: person.id, NOT: { customerRef } },
       });
       if (elsewhere && !refusing) {
-        this.log.warn('a delivery for a wallet whose person stands refused under another wallet was left unapplied');
+        this.log.warn('a delivery for a wallet whose person stands refused under another wallet was dropped');
         return;
       }
 
