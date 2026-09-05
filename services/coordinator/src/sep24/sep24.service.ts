@@ -27,7 +27,8 @@ import {
   mintInteractiveToken,
   readInteractiveToken,
 } from './interactive-token';
-import { effectiveIdrPerUsdc, escapeHtml, formatFiat, formatUsdc, interactiveScreen, page } from './interactive-page';
+import { effectiveIdrPerUsdc, escapeHtml, formatFiat, formatUsdc, interactiveScreen, page, settledRefreshSecs } from './interactive-page';
+import { explorerTxUrl } from './explorer-url';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
 import { PersonService } from '../person/person.service';
 import { sep24Status } from './sep24-status';
@@ -425,9 +426,11 @@ export class Sep24Service {
         30,
       );
     }
+    const status = sep24Status(row.order as any, row.flow);
     return page(
       withdrawing ? 'Withdrawal status' : 'Deposit status',
-      `<p>Status: <strong>${escapeHtml(sep24Status(row.order as any, row.flow))}</strong></p>`,
+      `<p>Status: <strong>${escapeHtml(status)}</strong></p>`,
+      settledRefreshSecs(status),
     );
   }
 
@@ -564,6 +567,9 @@ export class Sep24Service {
       `<h1>lolipay ${noun}</h1>`,
       `<p>Status: <strong>${tx.status}</strong></p>`,
       `<p>Started: ${tx.started_at}</p>`,
+      tx.stellar_transaction_id
+        ? `<p>Settled on Stellar: <a href="${escapeHtml(explorerTxUrl(this.cfg.networkPassphrase, tx.stellar_transaction_id))}">${escapeHtml(tx.stellar_transaction_id)}</a></p>`
+        : '',
       `<p>If something is wrong with this ${noun}, sign in with the same wallet at <a href="https://app.lolipay.app">app.lolipay.app</a>: the order appears there with its evidence, and it shows whether a dispute can still be opened and until when.</p>`,
       '</body></html>',
     ].join('');

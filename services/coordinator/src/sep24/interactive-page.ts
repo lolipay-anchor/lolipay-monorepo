@@ -1,4 +1,5 @@
 import { KycStatus, OrderStatus } from '../generated/prisma/client';
+import type { Sep24Status } from './sep24-status';
 import { baseUnitsToUsdcString, fiatDigits } from '../money/money';
 
 export type InteractiveScreen =
@@ -66,4 +67,8 @@ export function formatUsdc(units: bigint): string {
 export function effectiveIdrPerUsdc(fiatAmount: bigint, usdcAmount: bigint): bigint {
   if (usdcAmount <= 0n) return 0n;
   return (fiatAmount * 10_000_000n + usdcAmount / 2n) / usdcAmount;
+}
+
+export function settledRefreshSecs(status: Sep24Status): number | undefined {
+  return status === 'completed' || status === 'refunded' || status === 'expired' ? undefined : 15;
 }

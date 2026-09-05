@@ -1,4 +1,4 @@
-import { interactiveScreen, escapeHtml, page, formatFiat, formatUsdc, effectiveIdrPerUsdc } from './interactive-page';
+import { interactiveScreen, escapeHtml, page, formatFiat, formatUsdc, effectiveIdrPerUsdc, settledRefreshSecs } from './interactive-page';
 
 const at = (kycStatus: any, screened: boolean, orderStatus: any) =>
   interactiveScreen({ kycStatus, screened, orderStatus });
@@ -127,5 +127,15 @@ describe('effectiveIdrPerUsdc', () => {
     [1n, 0n, 0n],
   ])('turns %s IDR for %s base units into %s IDR per USDC, rounded to the nearest rupiah, never dividing by zero', (fiat, usdc, expected) => {
     expect(effectiveIdrPerUsdc(fiat, usdc)).toBe(expected);
+  });
+});
+
+describe('how often the settled screen asks the browser to look again', () => {
+  it('keeps refreshing while the anchor still has work to do, and stops once the deposit is over', () => {
+    expect(settledRefreshSecs('pending_anchor')).toBe(15);
+    expect(settledRefreshSecs('pending_user')).toBe(15);
+    expect(settledRefreshSecs('completed')).toBeUndefined();
+    expect(settledRefreshSecs('refunded')).toBeUndefined();
+    expect(settledRefreshSecs('expired')).toBeUndefined();
   });
 });
