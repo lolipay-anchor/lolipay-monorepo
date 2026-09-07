@@ -1,6 +1,8 @@
 const CONTRACT_ERROR_RE = /Error\(Contract,\s*#(\d+)\)/i;
 
 const ESCROW_ERRORS: Record<number, string> = {
+  1: 'the escrow contract is already initialised',
+  2: 'the escrow contract at this address is not initialised — check the contract id this order is bound to',
   3: 'the escrow contract is paused on-chain',
   4: 'a trade already exists for this id on-chain',
   5: 'no trade exists for this id on-chain',
@@ -18,7 +20,7 @@ const ESCROW_ERRORS: Record<number, string> = {
   17: 'the configuration is not accepted by the escrow contract',
   18: 'the window to raise a dispute on this trade has closed',
   19: 'this dispute has already been resolved',
-  20: 'this provider is not allowed to release early',
+  20: 'this trade cannot be released early — early release applies only to top-up trades from a provider on the escrow allowlist',
   21: 'a dispute cannot be raised on this trade at this stage',
 };
 

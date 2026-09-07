@@ -28,17 +28,18 @@ describe('every escrow error the contract can raise has a sentence', () => {
   it('maps each code declared in contracts/escrow/src/types.rs, so a new contract error never reaches a user as a bare number', () => {
     const rust = readFileSync(join(__dirname, '../../../../contracts/escrow/src/types.rs'), 'utf8');
     const enumBody = rust.slice(rust.indexOf('pub enum Error {'));
-    const codes = [...enumBody.matchAll(/^\s+(\w+) = (\d+),/gm)].map((m) => ({ name: m[1], code: Number(m[2]) }));
+    const codes = [...enumBody.matchAll(/^\s+(\w+) = (\d+),?\s*$/gm)].map((m) => ({ name: m[1], code: Number(m[2]) }));
     expect(codes.length).toBeGreaterThanOrEqual(21);
-    const unmapped = codes
-      .filter(({ name }) => !['AlreadyInitialized', 'NotInitialized'].includes(name))
-      .filter(({ code }) => describeContractError(new Error(`Error(Contract, #${code})`))?.startsWith('the escrow contract rejected this call'));
+    const unmapped = codes.filter(({ code }) =>
+      describeContractError(new Error(`Error(Contract, #${code})`))?.startsWith('the escrow contract rejected this call'),
+    );
     expect(unmapped).toEqual([]);
   });
 
   it.each([
     [18, /window to (raise|open) a dispute/i],
     [19, /already been resolved/i],
+    [20, /early release applies only to top-up trades/i],
     [21, /dispute (cannot|can no longer) be raised/i],
   ])('says in words what code %i means at the moment a user meets it', (code, sentence) => {
     expect(describeContractError(new Error(`HostError: Error(Contract, #${code})`))).toMatch(sentence);
