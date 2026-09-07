@@ -58,6 +58,7 @@ export default function DashboardPage() {
     queryKey: ['lpMe'],
     queryFn: () => getLpMe(client),
     staleTime: 30_000,
+    refetchInterval: 30_000,
   })
 
   const { data: assignments } = useQuery({

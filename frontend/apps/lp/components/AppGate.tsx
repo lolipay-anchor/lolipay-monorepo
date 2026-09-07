@@ -188,7 +188,7 @@ export function AppGate({ children }: { children: React.ReactNode }) {
     queryFn: () => getLpMe(client),
     enabled: !!token,
     retry: false,
-
+    refetchInterval: (q) => (q.state.data?.status === 'PENDING' ? 20_000 : false),
     staleTime: 0,
   })
 

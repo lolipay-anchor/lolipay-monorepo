@@ -205,3 +205,27 @@ describe('DashboardPage — Availability', () => {
     })
   })
 })
+
+describe('the dashboard keeps its own picture of the provider fresh', () => {
+  it('re-reads the provider every thirty seconds while the page is open', async () => {
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true))
+    vi.useFakeTimers()
+    try {
+      render(
+        <TestProviders kit={fakeKit}>
+          <DashboardPage />
+        </TestProviders>,
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100)
+      })
+      expect(apiClient.getLpMe).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000)
+      })
+      expect(apiClient.getLpMe).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

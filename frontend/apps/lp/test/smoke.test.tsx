@@ -120,7 +120,7 @@ describe('AppGate (LP)', () => {
   it('shows the pending review screen when getLpMe returns status PENDING', async () => {
     sessionStorage.setItem('lp_jwt', 'pending-jwt')
 
-    vi.mocked(apiClient.getLpMe).mockResolvedValueOnce(makeLpMe('PENDING'))
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe('PENDING'))
 
     render(
       <TestProviders kit={fakeKit}>
@@ -290,6 +290,52 @@ describe('AppGate (LP)', () => {
         await vi.advanceTimersByTimeAsync(60_000)
       })
       expect(apiClient.heartbeat).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('asks again every twenty seconds while the application is pending', async () => {
+    sessionStorage.setItem('lp_jwt', 'pending-jwt')
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe('PENDING'))
+    vi.useFakeTimers()
+    try {
+      render(
+        <TestProviders kit={fakeKit}>
+          <AppGate>
+            <div data-testid="lp-shell">LP SHELL</div>
+          </AppGate>
+        </TestProviders>,
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100)
+      })
+      expect(apiClient.getLpMe).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000)
+      })
+      expect(apiClient.getLpMe).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops asking once the application is decided', async () => {
+    sessionStorage.setItem('lp_jwt', 'approved-jwt')
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe('APPROVED'))
+    vi.useFakeTimers()
+    try {
+      render(
+        <TestProviders kit={fakeKit}>
+          <AppGate>
+            <div data-testid="lp-shell">LP SHELL</div>
+          </AppGate>
+        </TestProviders>,
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_100)
+      })
+      expect(apiClient.getLpMe).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
     }
