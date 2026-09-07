@@ -507,7 +507,7 @@ describe('what the provider refuses for good and what it merely waits out', () =
     }
     expect(caught).toBeInstanceOf(Error);
     expect(caught).not.toBeInstanceOf(RefusedToSign);
-    expect((caught as Error).message).toMatch(/fiat_amount 150000 .*200000|quotes a different rupiah|150000/);
+    expect((caught as Error).message).toBe('assignment o1 quotes fiat_amount 150000, not the 200000 the driver asked for');
   });
 
   it('after a failed resume funding, gives up on a refusal it was right to make, and otherwise continues only with an order the feed now says is funded', () => {
@@ -525,7 +525,7 @@ describe('what the provider refuses for good and what it merely waits out', () =
     const lp = Keypair.random().publicKey();
     const user = Keypair.random().publicKey();
     expect(partiesOf({ usdc_provider: lp, usdc_recipient: user, status: 1 })).toEqual({ usdcProvider: lp, usdcRecipient: user });
-    for (const bad of [undefined, null, 7, 'x', [], { usdc_provider: lp }]) {
+    for (const bad of [undefined, null, 7, 'x', [], { usdc_provider: lp }, { usdc_recipient: user }]) {
       expect(() => partiesOf(bad)).toThrow('get_trade returned something that is not a trade');
     }
   });

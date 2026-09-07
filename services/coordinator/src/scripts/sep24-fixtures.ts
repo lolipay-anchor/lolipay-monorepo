@@ -381,7 +381,7 @@ export function resumeNeedsFunding(status: string): boolean {
 }
 
 export function partiesOf(ret: unknown): { usdcProvider: string; usdcRecipient: string } {
-  if (!ret || typeof ret !== 'object' || Array.isArray(ret) || !('usdc_provider' in ret) || !('usdc_recipient' in ret)) {
+  if (!ret || typeof ret !== 'object' || !('usdc_provider' in ret) || !('usdc_recipient' in ret)) {
     throw new Error('get_trade returned something that is not a trade');
   }
   const trade = ret as { usdc_provider: unknown; usdc_recipient: unknown };
@@ -914,7 +914,8 @@ async function runAsProvider(
           let again: AssignmentOrder | undefined;
           try {
             again = (await assignmentsOf(lpJwt)).find((o) => o.id === orderId);
-          } catch {
+          } catch (probe) {
+            console.log(`gagal membaca ulang assignments: ${probe instanceof Error ? probe.message : String(probe)}`);
             again = undefined;
           }
           tradeIdHex = resumeAfterFailedFunding(err, again);
