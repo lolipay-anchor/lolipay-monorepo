@@ -331,7 +331,7 @@ describe('the currencies section', () => {
 
   it('tells a custodian how a deposit settles, so nobody waits for a memo the escrow cannot carry', async () => {
     const t = await body()
-    expect(t).toMatch(/A deposit settles as a Soroban release of USDC to the base account with no memo attached; reconcile it by the SEP-24 transaction id and its stellar_transaction_id\./)
+    expect(t).toMatch(/conditions="[^"]*A deposit settles as a Soroban release of the net USDC to the base account the SEP-10 token speaks for, with no memo attached; reconcile it by the SEP-24 transaction id and its stellar_transaction_id\."/)
   })
 
   it('discloses that a memo does not buy a separately verified identity, which SEP-10 asks for and this anchor does not provide', async () => {
