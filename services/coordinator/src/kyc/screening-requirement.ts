@@ -33,3 +33,8 @@ export function refusedAfterDelivery(since: Date) {
 export function acceptedUnscreenedSince(since: Date) {
   return { status: 'ACCEPTED' as const, screenedAt: null, deliveredAt: { gte: since } };
 }
+
+export function vendorHasSpoken(row: { status: string; deliveredAt: Date | null } | null | undefined): boolean {
+  if (!row) return false;
+  return row.status === 'ACCEPTED' || (row.status === 'PROCESSING' && row.deliveredAt !== null);
+}

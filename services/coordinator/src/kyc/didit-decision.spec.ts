@@ -360,3 +360,13 @@ describe('a warning never outranks a hit that is sitting right beside it', () =>
     }
   });
 });
+
+describe('a session the vendor has only created is not a vendor that has spoken', () => {
+  it('marks Not Started so the anchor can keep the door to the vendor open', () => {
+    expect(readDiditDecision(payload({ status: 'Not Started' }))).toMatchObject({ status: 'PROCESSING', notStarted: true });
+  });
+
+  it.each(['In Progress', 'In Review'])('does not mark %s, which means the person is inside or past the session', (status) => {
+    expect(readDiditDecision(payload({ status }))).not.toHaveProperty('notStarted');
+  });
+});

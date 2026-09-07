@@ -679,3 +679,23 @@ describe('the guards this anchor relies on are the ones it actually takes', () =
     expect(provider.start).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('a Not Started delivery keeps the door to the vendor open', () => {
+  it('records the session without a delivery time, so the popup keeps offering the vendor', async () => {
+    const { s, store } = svc(null);
+    await s.applyDelivery(accepted({ status: 'PROCESSING', screened: false, notStarted: true }), AT);
+    expect(store.row).toMatchObject({ status: 'PROCESSING', providerRef: 'sess-1', deliveredAt: null, screenedAt: null });
+  });
+
+  it('stamps the delivery time once the person is inside the session', async () => {
+    const { s, store } = svc({ customerRef: REF, status: 'PROCESSING', providerRef: 'sess-1', deliveredAt: null, screenedAt: null });
+    await s.applyDelivery(accepted({ status: 'PROCESSING', screened: false }), AT);
+    expect(store.row.deliveredAt).toEqual(AT);
+  });
+
+  it('never moves a delivery time backwards for a Not Started that arrives after progress', async () => {
+    const { s, store } = svc({ customerRef: REF, status: 'PROCESSING', providerRef: 'sess-1', deliveredAt: EARLIER, screenedAt: null });
+    await s.applyDelivery(accepted({ status: 'PROCESSING', screened: false, notStarted: true }), AT);
+    expect(store.row.deliveredAt).toEqual(EARLIER);
+  });
+});

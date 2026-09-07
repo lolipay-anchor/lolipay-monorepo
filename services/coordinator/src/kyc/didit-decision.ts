@@ -18,6 +18,7 @@ export interface DiditConclusion {
   customerRef?: string;
   rejectionReason?: string;
   unrecognisedStatus?: string;
+  notStarted?: true;
 }
 
 function screenings(payload: any): any[] {
@@ -122,6 +123,9 @@ export function readDiditDecision(payload: any, requireAml = true): DiditConclus
     return { ...base, status: 'REJECTED', rejectionReason: UNREADABLE_DECLINE };
   }
 
+  if (status === 'Not Started') {
+    return { ...base, status: 'PROCESSING', notStarted: true };
+  }
   if (typeof status === 'string' && PROCESSING_STATUSES.includes(status)) {
     return { ...base, status: 'PROCESSING' };
   }

@@ -123,7 +123,7 @@ export class Sep12Service {
     personId: string,
     conclusion: DiditConclusion,
     deliveredAt: Date,
-    standing: unknown,
+    standing: { deliveredAt?: Date | null } | null,
   ): Promise<void> {
     const person = { id: personId };
     const screened = conclusion.screened;
@@ -133,7 +133,7 @@ export class Sep12Service {
       providerRef: conclusion.providerRef ?? null,
       environment: conclusion.environment ?? null,
       rejectionReason: conclusion.rejectionReason ?? null,
-      deliveredAt,
+      deliveredAt: conclusion.notStarted ? (standing?.deliveredAt ?? null) : deliveredAt,
       screenedAt: screened ? deliveredAt : null,
       verifiedAt: conclusion.status === 'ACCEPTED' ? deliveredAt : null,
     };
