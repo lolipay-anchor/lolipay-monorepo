@@ -571,3 +571,42 @@ describe('hasUsdcTrustline never fails open', () => {
   });
 });
 
+describe('a getAccount read is retried whatever the SDK calls the failure, because the SDK relabels every transport error as "Account not found"', () => {
+  const SDK_RELABEL = 'Account not found: GD3FQ5S4JZ7QVJ2R6M6RZ2K2XHPQK7WJQ2ZLJ2XG3Q7KXK6FL5Z4QUWT';
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('classifies the relabelled message as retryable only under the getAccount label', () => {
+    expect(isRetryableRpcError(new Error(SDK_RELABEL), 'getAccount')).toBe(true);
+    expect(isRetryableRpcError(new Error(SDK_RELABEL))).toBe(false);
+    expect(isRetryableRpcError(new Error('HostError: Error(Storage, MissingValue)'), 'get_trade')).toBe(false);
+  });
+
+  it('loads the account on the attempt after a blip the SDK reported as not found', async () => {
+    let calls = 0;
+    const fn = jest.fn(async () => {
+      calls++;
+      if (calls < 2) throw new Error(SDK_RELABEL);
+      return { sequence: '12345' };
+    });
+    const promise = withRpcRetry(fn, 'getAccount');
+    await jest.runAllTimersAsync();
+    await expect(promise).resolves.toEqual({ sequence: '12345' });
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('still surfaces the original message for an account that is not found on every attempt', async () => {
+    const fn = jest.fn().mockRejectedValue(new Error(SDK_RELABEL));
+    const promise = withRpcRetry(fn, 'getAccount');
+    const assertion = expect(promise).rejects.toThrow(SDK_RELABEL);
+    await jest.runAllTimersAsync();
+    await assertion;
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+});

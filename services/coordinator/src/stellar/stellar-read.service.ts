@@ -825,7 +825,8 @@ const RETRYABLE_ERROR_SUBSTRINGS = [
 
 const RETRYABLE_STATUS_RE = /\b(429|500|502|503|504)\b/;
 
-export function isRetryableRpcError(err: unknown): boolean {
+export function isRetryableRpcError(err: unknown, label?: string): boolean {
+  if (label === 'getAccount') return true;
   if (isNotFound(err)) return false;
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
   if (RETRYABLE_ERROR_SUBSTRINGS.some((p) => msg.includes(p))) return true;
@@ -845,7 +846,7 @@ export async function withRpcRetry<T>(
       return await withRpcTimeout(fn(), label, timeoutMs);
     } catch (err) {
       lastErr = err;
-      if (attempt === attempts || !isRetryableRpcError(err)) throw err;
+      if (attempt === attempts || !isRetryableRpcError(err, label)) throw err;
       const delay = RPC_RETRY_BACKOFF_MS[Math.min(attempt - 1, RPC_RETRY_BACKOFF_MS.length - 1)];
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
