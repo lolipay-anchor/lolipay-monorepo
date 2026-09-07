@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TestProviders, fakeKit } from './helpers'
 import { queryClient } from '@/app/providers'
@@ -72,5 +72,52 @@ describe('a dead session returns the app to its login screen', () => {
       expect(sessionStorage.getItem('lp_jwt')).toBe('fresh-jwt')
     })
     expect(sessionStorage.getItem('lp_expired')).toBeNull()
+  })
+
+  it('a pending applicant whose session dies mid-poll lands on the login screen with the sentence, not on a frozen pending screen', async () => {
+    sessionStorage.setItem('lp_jwt', 'pending-jwt')
+    const pending = {
+      id: 'lp-1',
+      stellarAddress: 'GDCPLKM7CKTQSH7VM4BV3XXTYJB9SC6X',
+      status: 'PENDING',
+      contact: 'lp@example.com',
+      liquidityProof: 'https://example.com/proof',
+      approvalNote: null,
+      online: false,
+      lastHeartbeatAt: null,
+      createdAt: '2026-09-07T00:00:00.000Z',
+      approvedAt: null,
+      paymentMethods: [],
+    }
+    let profileReads = 0
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/lp/me') && profileReads === 0) {
+        profileReads += 1
+        return { ok: true, status: 200, json: async () => pending }
+      }
+      return { ok: false, status: 401, json: async () => ({ message: 'Unauthorized' }) }
+    }))
+    vi.useFakeTimers()
+    try {
+      render(
+        <TestProviders kit={fakeKit}>
+          <AppGate>
+            <div data-testid="shell">SHELL</div>
+          </AppGate>
+        </TestProviders>,
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100)
+      })
+      expect(screen.getByText(/Application under review/i)).toBeTruthy()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000)
+      })
+      expect(screen.getByTestId('session-expired').textContent).toBe('Your session expired. Reconnect your wallet to continue.')
+      expect(screen.queryByText(/Application under review/i)).toBeNull()
+      expect(sessionStorage.getItem('lp_jwt') || null).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

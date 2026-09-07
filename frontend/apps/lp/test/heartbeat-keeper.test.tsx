@@ -73,6 +73,35 @@ describe('HeartbeatKeeper — the provider stays matchable on every page, not on
     expect(apiClient.heartbeat).toHaveBeenCalledTimes(3)
   })
 
+  it('records the time of its own successful beat under its own key and leaves the provider row alone', async () => {
+    vi.useFakeTimers()
+    const t0 = Date.parse('2026-09-07T16:00:00Z')
+    vi.setSystemTime(t0)
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true))
+    mount()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+    const recorded = queryClient.getQueryData<number>(['lpLastBeat'])
+    expect(recorded).toBeGreaterThanOrEqual(t0)
+    expect(recorded).toBeLessThanOrEqual(t0 + 100)
+    expect(queryClient.getQueryData<{ lastHeartbeatAt: string | null }>(['lpMe'])?.lastHeartbeatAt).toBeNull()
+  })
+
+  it('records nothing when the beat is refused', async () => {
+    vi.useFakeTimers()
+    vi.mocked(apiClient.heartbeat).mockRejectedValue(new Error('offline'))
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true))
+    mount()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+    expect(apiClient.heartbeat).toHaveBeenCalledTimes(1)
+    expect(queryClient.getQueryData(['lpLastBeat'])).toBeUndefined()
+  })
+
   it('does NOT call heartbeat when offline, having read the profile', async () => {
     vi.useFakeTimers()
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(false))

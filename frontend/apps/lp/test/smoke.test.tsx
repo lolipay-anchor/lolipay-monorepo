@@ -135,6 +135,8 @@ describe('AppGate (LP)', () => {
     })
 
     expect(screen.getByText(/test@example.com/)).toBeTruthy()
+    expect(screen.getByText(/Liquidity Proof:/)).toBeTruthy()
+    expect(screen.getByText('https://example.com/proof')).toBeTruthy()
     expect(screen.getByText(/Refresh/i)).toBeTruthy()
     expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
       '1. The lolipay team reviews your application.',
@@ -301,9 +303,9 @@ describe('AppGate (LP)', () => {
     }
   })
 
-  it('asks again every twenty seconds while the application is pending', async () => {
+  it('shows the applicant the decision without a refresh: it asks again after twenty seconds, then stops once decided', async () => {
     sessionStorage.setItem('lp_jwt', 'pending-jwt')
-    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe('PENDING'))
+    vi.mocked(apiClient.getLpMe).mockResolvedValueOnce(makeLpMe('PENDING')).mockResolvedValue(makeLpMe('APPROVED'))
     vi.useFakeTimers()
     try {
       render(
@@ -316,32 +318,17 @@ describe('AppGate (LP)', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(100)
       })
+      expect(screen.getByText(/Application under review/i)).toBeTruthy()
       expect(apiClient.getLpMe).toHaveBeenCalledTimes(1)
       await act(async () => {
         await vi.advanceTimersByTimeAsync(20_000)
       })
+      expect(screen.getByTestId('lp-shell')).toBeTruthy()
       expect(apiClient.getLpMe).toHaveBeenCalledTimes(2)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('stops asking once the application is decided', async () => {
-    sessionStorage.setItem('lp_jwt', 'approved-jwt')
-    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe('APPROVED'))
-    vi.useFakeTimers()
-    try {
-      render(
-        <TestProviders kit={fakeKit}>
-          <AppGate>
-            <div data-testid="lp-shell">LP SHELL</div>
-          </AppGate>
-        </TestProviders>,
-      )
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(20_100)
+        await vi.advanceTimersByTimeAsync(120_000)
       })
-      expect(apiClient.getLpMe).toHaveBeenCalledTimes(1)
+      expect(apiClient.getLpMe).toHaveBeenCalledTimes(2)
     } finally {
       vi.useRealTimers()
     }

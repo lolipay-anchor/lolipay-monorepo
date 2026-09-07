@@ -13,6 +13,7 @@ import {
 import type { LpEarningsDayBar, LpMe } from '@lolipay/api-client'
 import { DarkHeroCard, StatCard, StatusPill, Skeleton, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
 import { AppHeader } from '@/components/AppHeader'
+import { PrereqCard } from '@/components/PrereqCard'
 import { client } from '@/lib/client'
 import { formatUSDC, formatUsdcNumber } from '@/lib/money'
 
@@ -70,6 +71,7 @@ export default function DashboardPage() {
     queryKey: ['lpEligibility'],
     queryFn: () => getLpEligibility(client),
     staleTime: 30_000,
+    refetchInterval: 30_000,
   })
 
   const {
@@ -163,6 +165,8 @@ export default function DashboardPage() {
               )}
 
             </DarkHeroCard>
+
+            <PrereqCard me={me} eligibility={eligibility} />
 
             {}
             {earningsLoading && (
