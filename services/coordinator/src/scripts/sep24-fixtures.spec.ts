@@ -29,6 +29,7 @@ import {
   staleMatchedFor,
   resumeAfterFailedFunding,
   partiesOf,
+  withAttempts,
 } from './sep24-fixtures';
 import { FIAT_INPUT_REFUSAL } from '../money/money';
 
@@ -550,5 +551,27 @@ describe('what the provider refuses for good and what it merely waits out', () =
     expect(staleMatchedFor([{ ...rows[0], status: 'FUNDED' }], pub, t0)).toBeNull();
     expect(staleMatchedFor([{ ...rows[0], flow: 'WITHDRAW' }], pub, t0)).toBeNull();
     expect(staleMatchedFor([], pub, t0)).toBeNull();
+  });
+});
+
+describe('a chain read that sits between a human and the money tries again before giving up', () => {
+  it('returns the first success, retries a transient failure, and surfaces the last error after the final attempt', async () => {
+    let calls = 0;
+    const flaky = async () => {
+      calls += 1;
+      if (calls < 3) throw new Error(`Account not found (attempt ${calls})`);
+      return 'ok';
+    };
+    await expect(withAttempts(flaky, 3, 0)).resolves.toBe('ok');
+    expect(calls).toBe(3);
+    let always = 0;
+    await expect(withAttempts(async () => { always += 1; throw new Error(`down ${always}`); }, 3, 0)).rejects.toThrow('down 3');
+    expect(always).toBe(3);
+  });
+
+  it('does not retry a refusal the driver made on purpose', async () => {
+    let calls = 0;
+    await expect(withAttempts(async () => { calls += 1; throw new RefusedToSign('no'); }, 3, 0)).rejects.toThrow(RefusedToSign);
+    expect(calls).toBe(1);
   });
 });

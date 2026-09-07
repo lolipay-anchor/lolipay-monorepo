@@ -380,6 +380,20 @@ export function resumeNeedsFunding(status: string): boolean {
   throw new Error(`an order that is ${status} cannot be resumed by the provider`);
 }
 
+export async function withAttempts<T>(read: () => Promise<T>, attempts: number, sleepMs: number): Promise<T> {
+  let last: unknown;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await read();
+    } catch (err) {
+      if (err instanceof RefusedToSign) throw err;
+      last = err;
+      if (i < attempts) await new Promise((r) => setTimeout(r, sleepMs));
+    }
+  }
+  throw last;
+}
+
 export function partiesOf(ret: unknown): { usdcProvider: string; usdcRecipient: string } {
   if (!ret || typeof ret !== 'object' || !('usdc_provider' in ret) || !('usdc_recipient' in ret)) {
     throw new Error('get_trade returned something that is not a trade');
@@ -865,16 +879,22 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const explorer = (hash: string) => explorerTxUrl(TESTNET_PASSPHRASE, hash) ?? hash;
 
 async function tradeOnChain(escrow: string, tradeIdHex: string, sourcePub: string): Promise<{ usdcProvider: string; usdcRecipient: string }> {
-  const server = new Server(RPC_URL);
-  const source = await server.getAccount(sourcePub);
-  const tx = new TransactionBuilder(source, { fee: BASE_FEE, networkPassphrase: TESTNET_PASSPHRASE })
-    .addOperation(Operation.invokeContractFunction({ contract: escrow, function: 'get_trade', args: [nativeToScVal(Buffer.from(tradeIdHex, 'hex'))] }))
-    .setTimeout(30)
-    .build();
-  const sim = await server.simulateTransaction(tx);
-  if (Api.isSimulationError(sim)) throw new Error(`get_trade: ${sim.error}`);
-  if (!sim.result) throw new Error('get_trade returned nothing');
-  return partiesOf(scValToNative(sim.result.retval));
+  return withAttempts(
+    async () => {
+      const server = new Server(RPC_URL);
+      const source = await server.getAccount(sourcePub);
+      const tx = new TransactionBuilder(source, { fee: BASE_FEE, networkPassphrase: TESTNET_PASSPHRASE })
+        .addOperation(Operation.invokeContractFunction({ contract: escrow, function: 'get_trade', args: [nativeToScVal(Buffer.from(tradeIdHex, 'hex'))] }))
+        .setTimeout(30)
+        .build();
+      const sim = await server.simulateTransaction(tx);
+      if (Api.isSimulationError(sim)) throw new Error(`get_trade: ${sim.error}`);
+      if (!sim.result) throw new Error('get_trade returned nothing');
+      return partiesOf(scValToNative(sim.result.retval));
+    },
+    4,
+    3_000,
+  );
 }
 
 async function fundOrder(lp: Keypair, lpJwt: () => Promise<string>, escrow: string, order: FundableOrder, userPub: string): Promise<string> {
