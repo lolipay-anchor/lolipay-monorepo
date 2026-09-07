@@ -213,6 +213,33 @@ describe('BuyForm — an unusable rate from the server', () => {
   })
 })
 
+describe('BuyForm — the quote door refuses in plain words too', () => {
+  beforeEach(() => {
+    queryClient.clear()
+    mockCreateOrder.mockClear()
+  })
+
+  afterEach(() => {
+    vi.mocked(apiClient.createQuote).mockReset()
+  })
+
+  it('shows the 24-hour sentence when the quote itself is refused for the daily limit, which is the door most users hit first', async () => {
+    vi.mocked(apiClient.createQuote).mockRejectedValue(new Error('daily limit exceeded'))
+    render(
+      <TestProviders>
+        <BuyForm />
+      </TestProviders>,
+    )
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '1624000' } })
+    await waitFor(() => {
+      expect(screen.getByTestId('order-refusal').textContent).toBe(
+        'This order would go past your 24-hour limit. Try a smaller amount, or try again later.',
+      )
+    })
+    expect((screen.getByRole('button', { name: /Continue to pay/ }) as HTMLButtonElement).disabled).toBe(true)
+  })
+})
+
 describe('BuyForm — quote expires while the review sheet is open', () => {
   beforeEach(() => {
     queryClient.clear()

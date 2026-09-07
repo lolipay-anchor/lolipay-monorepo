@@ -4,9 +4,11 @@ import { useQuery } from '@tanstack/react-query'
 import { getRate, createQuote } from '@lolipay/api-client'
 import { client } from '@/lib/client'
 import type { Quote } from '@lolipay/api-client'
+import { explainOrderRefusal } from '@/lib/order-refusal'
 
 export interface UseQuoteResult {
   quote: Quote | undefined
+  refusal: string | undefined
 
   usdcAmount: string
   secondsLeft: number
@@ -31,7 +33,7 @@ export function useQuote(idrAmount: number): UseQuoteResult {
 
   const enabled = rateData != null && BigInt(usdcAmount) >= 1n
 
-  const { data: quote, isLoading: quoteLoading } = useQuery({
+  const { data: quote, isLoading: quoteLoading, error: quoteError } = useQuery({
     queryKey: ['quote', usdcAmount],
     queryFn: () =>
       createQuote(client, { flow: 'TOP_UP', rail: 'BANK', usdcAmount }),
@@ -61,6 +63,7 @@ export function useQuote(idrAmount: number): UseQuoteResult {
 
   return {
     quote,
+    refusal: quoteError ? explainOrderRefusal(quoteError.message) : undefined,
     usdcAmount,
     secondsLeft,
     expired,

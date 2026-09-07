@@ -313,7 +313,6 @@ describe('Orders page', () => {
         ...DISPUTED_ORDER,
         flow: 'WITHDRAW' as const,
         fiat_amount: '25000',
-        merchant: 'Warung Kopi',
         proof_rrn: 'REF12345',
         proof_amount: '20000',
         proof_paid_at: '2026-07-09T10:00:00.000Z',

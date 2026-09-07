@@ -45,7 +45,7 @@ export function BuyForm() {
 
   const idrAmount = parseIDRInput(rawIDR)
   const refused = rawIDR.trim() !== '' && !idrInputAccepted(rawIDR)
-  const { quote, usdcAmount, secondsLeft, expired } = useQuote(idrAmount)
+  const { quote, usdcAmount, secondsLeft, expired, refusal: quoteRefusal } = useQuote(idrAmount)
   const closeReview = React.useCallback(() => {
     setReviewOpen(false)
     setReviewed(undefined)
@@ -200,9 +200,9 @@ export function BuyForm() {
         </span>
       </div>
 
-      {orderRefusal && (
+      {(orderRefusal ?? quoteRefusal) && (
         <p role="alert" data-testid="order-refusal" className="text-center text-xs text-lp-danger">
-          {orderRefusal}
+          {orderRefusal ?? quoteRefusal}
         </p>
       )}
 
