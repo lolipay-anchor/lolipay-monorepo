@@ -123,6 +123,13 @@ function PendingScreen({
           Your application has been submitted and is being reviewed by the admin team.
         </p>
 
+        <ol className="w-full text-sm text-lp-muted space-y-1">
+          <li>1. The lolipay team reviews your application.</li>
+          <li>2. Once approved, stake at least the minimum USDC on the Stake tab.</li>
+          <li>3. Add a payment method on the Rails tab.</li>
+          <li>4. Go online on the Dashboard to start receiving orders.</li>
+        </ol>
+
         <div className="w-full bg-lp-surface border border-lp-line rounded-lp-card p-4 text-sm space-y-2">
           <p>
             <span className="font-semibold text-lp-ink">Contact: </span>
@@ -149,16 +156,17 @@ function NoticeScreen({
   me: LpMe
   onDisconnect: () => void
 }) {
-  const label = me.status === 'SUSPENDED' ? 'suspended' : 'revoked'
+  const notice =
+    me.status === 'SUSPENDED'
+      ? 'Your provider account is suspended. Orders are not assigned to you while it is.'
+      : 'Your provider account was revoked. It cannot be reopened from this app.'
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-lp-paper px-6">
       <div className="w-full max-w-xs flex flex-col items-center gap-6">
         <h1 className="font-geist text-5xl font-bold tracking-[-0.03em] text-lp-ink">lolipay LP</h1>
 
-        <p className="text-sm text-lp-danger text-center font-semibold">
-          Your LP access is {label}.
-        </p>
+        <p className="text-sm text-lp-danger text-center font-semibold">{notice}</p>
 
         <p className="text-xs text-lp-muted text-center">
           Contact support if you believe this is a mistake.

@@ -63,6 +63,19 @@ describe('StakePage — StakeForm', () => {
     expect(screen.getByText(/loading eligibility/i)).toBeTruthy()
   })
 
+  it('says what the stake is for, and that a lost dispute can draw on it', async () => {
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm />
+      </TestProviders>,
+    )
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Your staked USDC is the bond behind your trades\. If a dispute is resolved against you, the amount owed can be taken from it\./),
+      ).toBeTruthy()
+    })
+  })
+
   it('shows staked and min_stake values with correct USDC formatting', async () => {
     render(
       <TestProviders kit={fakeKit}>

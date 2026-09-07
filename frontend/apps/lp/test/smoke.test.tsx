@@ -136,6 +136,12 @@ describe('AppGate (LP)', () => {
 
     expect(screen.getByText(/test@example.com/)).toBeTruthy()
     expect(screen.getByText(/Refresh/i)).toBeTruthy()
+    expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      '1. The lolipay team reviews your application.',
+      '2. Once approved, stake at least the minimum USDC on the Stake tab.',
+      '3. Add a payment method on the Rails tab.',
+      '4. Go online on the Dashboard to start receiving orders.',
+    ])
 
     expect(screen.queryByTestId('lp-shell')).toBeNull()
     expect(screen.queryByText('Dashboard')).toBeNull()
@@ -157,8 +163,9 @@ describe('AppGate (LP)', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByText(/suspended/i)).toBeTruthy()
+      expect(screen.getByText(/Your provider account is suspended/)).toBeTruthy()
     })
+    expect(screen.getByText(/Orders are not assigned to you while it is\./)).toBeTruthy()
 
     expect(screen.queryByText(/Insufficient stake/)).toBeNull()
     expect(screen.getByText(/Contact support/i)).toBeTruthy()
@@ -166,6 +173,23 @@ describe('AppGate (LP)', () => {
 
     expect(screen.queryByTestId('lp-shell')).toBeNull()
     expect(screen.queryByText('Dashboard')).toBeNull()
+  })
+
+  it('tells a revoked account it cannot be reopened from this app', async () => {
+    sessionStorage.setItem('lp_jwt', 'revoked-jwt')
+    vi.mocked(apiClient.getLpMe).mockResolvedValueOnce(makeLpMe('REVOKED', { approvalNote: 'fraud' }))
+    render(
+      <TestProviders kit={fakeKit}>
+        <AppGate>
+          <div data-testid="lp-shell">LP SHELL</div>
+        </AppGate>
+      </TestProviders>,
+    )
+    await waitFor(() => {
+      expect(screen.getByText(/Your provider account was revoked\. It cannot be reopened from this app\./)).toBeTruthy()
+    })
+    expect(screen.queryByText(/fraud/)).toBeNull()
+    expect(screen.queryByTestId('lp-shell')).toBeNull()
   })
 
   it('shows a Reconnect recovery screen (NOT blank) when getLpMe 401s (dead JWT)', async () => {

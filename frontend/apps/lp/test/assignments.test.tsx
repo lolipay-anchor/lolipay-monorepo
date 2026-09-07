@@ -711,6 +711,7 @@ describe('AssignmentsPage — full page', () => {
     await waitFor(() => {
       expect(screen.getByText(/No assignments yet/i)).toBeTruthy()
     })
+    expect(screen.getByText(/stake the minimum, add a payment method for your rail, and go online/i)).toBeTruthy()
   })
 
   it('renders assignment cards when data is available', async () => {

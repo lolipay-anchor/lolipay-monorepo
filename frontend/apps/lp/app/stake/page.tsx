@@ -178,6 +178,9 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
       {}
       <Card>
         <p className="mb-3 font-geist text-sm font-semibold text-lp-ink">Stake USDC</p>
+        <p className="mb-3 text-xs text-lp-muted">
+          Your staked USDC is the bond behind your trades. If a dispute is resolved against you, the amount owed can be taken from it.
+        </p>
         <form onSubmit={handleStake} className="flex flex-col gap-3">
           <div>
             <label className="mb-1 block text-xs text-lp-muted" htmlFor="stake-amount">

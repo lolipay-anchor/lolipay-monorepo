@@ -580,7 +580,7 @@ export default function AssignmentsPage() {
 
         {assignments && assignments.length === 0 && (
           <p className="py-8 text-center text-sm text-lp-muted">
-            No assignments yet — go online and stake to receive orders.
+            No assignments yet — stake the minimum, add a payment method for your rail, and go online to receive orders.
           </p>
         )}
 
