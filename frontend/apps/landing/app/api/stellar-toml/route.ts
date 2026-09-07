@@ -144,7 +144,9 @@ const CORRIDOR =
   'than to a SEP-10 subject string: a completed verification authorises deposits for any Stellar ' +
   'account this anchor currently accepts for that person, an erasure request under any ' +
   'of them erases it for all, and a memo or muxed subaccount does not create a ' +
-  'separately verified identity.'
+  'separately verified identity. A deposit settles as a Soroban release of USDC to the ' +
+  'base account with no memo attached; reconcile it by the SEP-24 transaction id and its ' +
+  'stellar_transaction_id.'
 
 const ORG_DESCRIPTION =
   'A non-custodial peer-to-peer on and off ramp between Indonesian rupiah and USDC on ' +
