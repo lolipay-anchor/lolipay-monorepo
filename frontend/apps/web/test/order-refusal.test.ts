@@ -19,3 +19,19 @@ describe('what a refused order tells the person', () => {
     expect(explainOrderRefusal('NetworkError when attempting to fetch resource.')).toBe('The order could not be opened. Please try again.')
   })
 })
+
+describe('the refusals the anchor sends most often are said in plain words', () => {
+  it.each([
+    ['platform is paused', 'Trading is paused right now. Please try again later.'],
+    ['no eligible LP available', 'No provider can take this order right now. Try again in a few minutes.'],
+    ['quote amount is outside current limits', 'This amount is outside today\'s limits. Try a different amount.'],
+    ['quote already used', 'That price expired. Get a new quote and try again.'],
+    ['quote expired', 'That price expired. Get a new quote and try again.'],
+  ])('"%s" becomes "%s"', (backend, sentence) => {
+    expect(explainOrderRefusal(backend)).toBe(sentence)
+  })
+
+  it('leaves a sentence it has no words for as the anchor wrote it', () => {
+    expect(explainOrderRefusal('the escrow contract is paused on-chain')).toBe('the escrow contract is paused on-chain')
+  })
+})

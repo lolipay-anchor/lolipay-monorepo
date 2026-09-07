@@ -115,7 +115,7 @@ describe('create-order', () => {
     fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
 
     await waitFor(() => {
-      expect(screen.getByTestId('order-refusal').textContent).toMatch(/409: quote expired or used/i)
+      expect(screen.getByTestId('order-refusal').textContent).toBe('That price expired. Get a new quote and try again.')
     })
 
     expect(push).not.toHaveBeenCalled()

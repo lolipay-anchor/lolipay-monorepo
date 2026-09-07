@@ -5,8 +5,16 @@ const FALLBACK = 'The order could not be opened. Please try again.'
 
 const TRANSPORT = /→ \d{3}$|failed to fetch|networkerror|load failed/i
 
+const PLAIN_WORDS: Array<[RegExp, string]> = [
+  [/platform is paused/i, 'Trading is paused right now. Please try again later.'],
+  [/no eligible LP available/i, 'No provider can take this order right now. Try again in a few minutes.'],
+  [/outside current limits/i, "This amount is outside today's limits. Try a different amount."],
+  [/quote already used|quote.*expired/i, 'That price expired. Get a new quote and try again.'],
+]
+
 export function explainOrderRefusal(message: string): string {
   if (/identity verification is required/i.test(message)) return IDENTITY_REQUIRED
   if (message.trim() === '' || TRANSPORT.test(message)) return FALLBACK
-  return message
+  const known = PLAIN_WORDS.find(([pattern]) => pattern.test(message))
+  return known ? known[1] : message
 }
