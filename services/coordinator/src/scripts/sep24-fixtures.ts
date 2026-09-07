@@ -380,6 +380,14 @@ export function resumeNeedsFunding(status: string): boolean {
   throw new Error(`an order that is ${status} cannot be resumed by the provider`);
 }
 
+export function partiesOf(ret: unknown): { usdcProvider: string; usdcRecipient: string } {
+  if (!ret || typeof ret !== 'object' || Array.isArray(ret) || !('usdc_provider' in ret) || !('usdc_recipient' in ret)) {
+    throw new Error('get_trade returned something that is not a trade');
+  }
+  const trade = ret as { usdc_provider: unknown; usdc_recipient: unknown };
+  return { usdcProvider: String(trade.usdc_provider), usdcRecipient: String(trade.usdc_recipient) };
+}
+
 export function resumeAfterFailedFunding(err: unknown, again: { status: string; trade_id?: string | null } | undefined): string {
   if (err instanceof RefusedToSign) throw err;
   if (!again?.trade_id) throw err;
@@ -866,9 +874,7 @@ async function tradeOnChain(escrow: string, tradeIdHex: string, sourcePub: strin
   const sim = await server.simulateTransaction(tx);
   if (Api.isSimulationError(sim)) throw new Error(`get_trade: ${sim.error}`);
   if (!sim.result) throw new Error('get_trade returned nothing');
-  const ret = scValToNative(sim.result.retval);
-  if (!ret || typeof ret !== 'object' || !('usdc_provider' in ret) || !('usdc_recipient' in ret)) throw new Error('get_trade returned something that is not a trade');
-  return { usdcProvider: String(ret.usdc_provider), usdcRecipient: String(ret.usdc_recipient) };
+  return partiesOf(scValToNative(sim.result.retval));
 }
 
 async function fundOrder(lp: Keypair, lpJwt: () => Promise<string>, escrow: string, order: FundableOrder, userPub: string): Promise<string> {
@@ -905,7 +911,12 @@ async function runAsProvider(
           tradeIdHex = await fundOrder(lp, lpJwt, escrow, pickFreshOrder([resumed], target.userPub, 0), target.userPub);
         } catch (err) {
           if (err instanceof RefusedToSign) throw err;
-          const again = (await assignmentsOf(lpJwt)).find((o) => o.id === orderId);
+          let again: AssignmentOrder | undefined;
+          try {
+            again = (await assignmentsOf(lpJwt)).find((o) => o.id === orderId);
+          } catch {
+            again = undefined;
+          }
           tradeIdHex = resumeAfterFailedFunding(err, again);
           console.log(`order ${orderId} ternyata sudah ${again?.status}; melanjutkan dengan trade ${tradeIdHex}`);
         }

@@ -28,6 +28,7 @@ import {
   assertTradeParties,
   staleMatchedFor,
   resumeAfterFailedFunding,
+  partiesOf,
 } from './sep24-fixtures';
 import { FIAT_INPUT_REFUSAL } from '../money/money';
 
@@ -506,7 +507,7 @@ describe('what the provider refuses for good and what it merely waits out', () =
     }
     expect(caught).toBeInstanceOf(Error);
     expect(caught).not.toBeInstanceOf(RefusedToSign);
-    expect((caught as Error).message).toMatch(/fiat|rupiah|IDR/i);
+    expect((caught as Error).message).toMatch(/fiat_amount 150000 .*200000|quotes a different rupiah|150000/);
   });
 
   it('after a failed resume funding, gives up on a refusal it was right to make, and otherwise continues only with an order the feed now says is funded', () => {
@@ -518,6 +519,15 @@ describe('what the provider refuses for good and what it merely waits out', () =
     expect(() => resumeAfterFailedFunding(blip, { ...funded, status: 'MATCHED' })).toThrow(blip);
     expect(() => resumeAfterFailedFunding(blip, { ...funded, status: 'RELEASED' })).toThrow(blip);
     expect(() => resumeAfterFailedFunding(blip, undefined)).toThrow(blip);
+  });
+
+  it('reads the two parties out of a decoded trade, and refuses anything that is not a trade', () => {
+    const lp = Keypair.random().publicKey();
+    const user = Keypair.random().publicKey();
+    expect(partiesOf({ usdc_provider: lp, usdc_recipient: user, status: 1 })).toEqual({ usdcProvider: lp, usdcRecipient: user });
+    for (const bad of [undefined, null, 7, 'x', [], { usdc_provider: lp }]) {
+      expect(() => partiesOf(bad)).toThrow('get_trade returned something that is not a trade');
+    }
   });
 
   it('releases only a trade the chain says this provider funded for the wallet it serves', () => {
