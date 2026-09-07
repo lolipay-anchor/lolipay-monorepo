@@ -48,7 +48,7 @@ describe('OrderTxService — the slash caller', () => {
       }),
       ...stellarOverrides,
     } as any;
-    const cfg = { platformWallet: 'GPLATFORM', escrowContractId: 'CENV' } as any;
+    const cfg = { platformWallet: 'GPLATFORM', escrowContractId: 'CENV', stakingContractId: 'CSTAKING' } as any;
     return { svc: orderTxFor(prisma, stellar, cfg), stellar };
   }
 
@@ -299,7 +299,7 @@ describe('OrderTxService — recovery already taken on chain', () => {
       }),
       ...stellarOverrides,
     } as any;
-    const cfg = { platformWallet: 'GPLATFORM', escrowContractId: 'CENV' } as any;
+    const cfg = { platformWallet: 'GPLATFORM', escrowContractId: 'CENV', stakingContractId: 'CSTAKING' } as any;
     return { svc: orderTxFor(prisma, stellar, cfg), stellar };
   }
 

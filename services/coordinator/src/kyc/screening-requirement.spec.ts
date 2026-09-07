@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
-import { acceptedForFunds, acceptedUnscreenedSince, awaitingProvider, vendorHasSpoken, deliveredButUnreadable, refusedAfterDelivery, screeningDidNotRun, HIT_REFUSAL, SCREENING_DID_NOT_RUN, SCREENING_REQUIRED_FAILED, UNREADABLE_DECLINE, UNREADABLE_SCREENING } from './screening-requirement';
+import { acceptedForFunds, acceptedUnscreenedSince, awaitingProvider, popupMayOfferVendor, deliveredButUnreadable, refusedAfterDelivery, screeningDidNotRun, HIT_REFUSAL, SCREENING_DID_NOT_RUN, SCREENING_REQUIRED_FAILED, UNREADABLE_DECLINE, UNREADABLE_SCREENING } from './screening-requirement';
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -61,6 +61,23 @@ describe('whether a customer may move funds depends on one predicate that reads 
     ]);
   });
 
+  it('screening-requirement touches screenedAt and deliveredAt only in the predicates listed here, so a new reader there fails until it is consciously listed', () => {
+    const lines = readFileSync(join(__dirname, 'screening-requirement.ts'), 'utf8')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => /\b(screenedAt|deliveredAt)\b/.test(l));
+    expect(lines).toEqual([
+      "? { status: 'ACCEPTED' as const, screenedAt: { not: null } }",
+      ": { status: 'ACCEPTED' as const, deliveredAt: { not: null } };",
+      'row: { status: string; screenedAt: Date | null; deliveredAt: Date | null },',
+      'return requireAml ? row.screenedAt === null : row.deliveredAt === null;',
+      "return { status: 'REJECTED' as const, deliveredAt: { gte: since } };",
+      "return { status: 'ACCEPTED' as const, screenedAt: null, deliveredAt: { gte: since } };",
+      'export function popupMayOfferVendor(row: { status: string; deliveredAt: Date | null } | null | undefined): boolean {',
+      "return row.status !== 'ACCEPTED' && !(row.status === 'PROCESSING' && row.deliveredAt !== null);",
+    ]);
+  });
+
   it('names a screening the vendor could not run by its own marker, apart from the unreadable one, so a vendor outage and a payload drift are never one number', () => {
     expect(screeningDidNotRun()).toEqual({ status: 'NEEDS_INFO', rejectionReason: SCREENING_DID_NOT_RUN });
     expect(new Set([SCREENING_DID_NOT_RUN, UNREADABLE_SCREENING, HIT_REFUSAL, SCREENING_REQUIRED_FAILED, UNREADABLE_DECLINE]).size).toBe(5);
@@ -77,16 +94,16 @@ describe('whether a customer may move funds depends on one predicate that reads 
   });
 });
 
-describe('whether the vendor has spoken about a person, which decides only what the popup shows', () => {
-  it('is true once the identity is accepted, or once a processing session carries a delivery time', () => {
-    expect(vendorHasSpoken({ status: 'ACCEPTED', deliveredAt: null })).toBe(true);
-    expect(vendorHasSpoken({ status: 'PROCESSING', deliveredAt: new Date() })).toBe(true);
+describe('whether the popup may still offer the vendor page, which decides only what the popup shows and never who may move funds', () => {
+  it('is false once the identity is accepted, and once a processing session carries a delivery time', () => {
+    expect(popupMayOfferVendor({ status: 'ACCEPTED', deliveredAt: null })).toBe(false);
+    expect(popupMayOfferVendor({ status: 'PROCESSING', deliveredAt: new Date() })).toBe(false);
   });
 
-  it('is false for a session the vendor has only created, for a row still to be written, and for a refusal or a resubmission', () => {
-    expect(vendorHasSpoken({ status: 'PROCESSING', deliveredAt: null })).toBe(false);
-    expect(vendorHasSpoken(null)).toBe(false);
-    expect(vendorHasSpoken({ status: 'NEEDS_INFO', deliveredAt: new Date() })).toBe(false);
-    expect(vendorHasSpoken({ status: 'REJECTED', deliveredAt: new Date() })).toBe(false);
+  it('is true for a session the vendor has only created, for a row still to be written, and for a refusal or a resubmission', () => {
+    expect(popupMayOfferVendor({ status: 'PROCESSING', deliveredAt: null })).toBe(true);
+    expect(popupMayOfferVendor(null)).toBe(true);
+    expect(popupMayOfferVendor({ status: 'NEEDS_INFO', deliveredAt: new Date() })).toBe(true);
+    expect(popupMayOfferVendor({ status: 'REJECTED', deliveredAt: new Date() })).toBe(true);
   });
 });

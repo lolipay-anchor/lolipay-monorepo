@@ -51,7 +51,7 @@ const STYLE = [
   'input,select{width:100%;font:inherit;font-weight:400;padding:.6rem;border:1px solid #bbb;border-radius:.5rem;box-sizing:border-box}',
   'button,.btn{display:block;width:100%;min-height:44px;margin-top:1rem;font:inherit;font-weight:600;border:0;border-radius:.5rem;background:#111;color:#fff;text-align:center;text-decoration:none;padding:.75rem;box-sizing:border-box}',
   '.hint{color:#555;font-size:.9rem}',
-  'pre,code{white-space:pre-wrap;word-break:break-all}',
+  'pre,code{white-space:pre-wrap;overflow-wrap:anywhere}',
 ].join('');
 
 export function page(title: string, body: string, refreshSecs?: number): string {

@@ -65,7 +65,7 @@ describe('a dispute is settled only by the wallet the contract names', () => {
     expect(stellar.buildResolveTx).toHaveBeenCalledWith('CTEST', RESOLVER, 'a'.repeat(64), 'release');
   });
 
-  it('builds the resolve transaction for the admin, who the contract admits after the resolver window', async () => {
+  it('builds the resolve transaction for the admin, leaving the resolver window to the contract itself', async () => {
     const { svc, stellar } = svcWith('DISPUTED');
     await svc.buildResolveTx('order-1', ADMIN, 'refund');
     expect(stellar.buildResolveTx).toHaveBeenCalledWith('CTEST', ADMIN, 'a'.repeat(64), 'refund');
@@ -85,9 +85,11 @@ describe('a dispute is settled only by the wallet the contract names', () => {
     expect(stellar.buildResolveTx).not.toHaveBeenCalled();
   });
 
-  it('checks the staking contract, not the escrow, before a slash, and refuses a wallet it does not name', async () => {
+  it('checks the staking contract, not the escrow, before a slash, and refuses a wallet it does not name without inventing a waiting rule', async () => {
     const { svc, stellar } = svcWith('REFUNDED');
-    await expect(svc.buildSlashTx('order-1', FOUNDER_WALLET, 1n)).rejects.toThrow(/is neither/);
+    await expect(svc.buildSlashTx('order-1', FOUNDER_WALLET, 1n)).rejects.toThrow(
+      `the staking contract lets only its resolver ${RESOLVER} or its admin ${ADMIN} slash a provider; ${FOUNDER_WALLET} is neither`,
+    );
     expect(stellar.readDisputeSigners).toHaveBeenCalledWith('CSTAKING');
     expect(stellar.getTradeStatusStrict).not.toHaveBeenCalled();
     expect(stellar.buildSlashTx).not.toHaveBeenCalled();

@@ -230,9 +230,11 @@ export class OrderTxService {
       );
     }
     if (callerAddress !== signers.resolver && callerAddress !== signers.admin) {
-      throw new ForbiddenException(
-        `the ${contract} lets only its resolver ${signers.resolver} settle this dispute, or its admin ${signers.admin} once the resolver's day has passed; ${callerAddress} is neither`,
-      );
+      const rule =
+        contract === 'escrow'
+          ? `the escrow lets only its resolver ${signers.resolver} settle this dispute, or its admin ${signers.admin} once the resolver's day has passed`
+          : `the staking contract lets only its resolver ${signers.resolver} or its admin ${signers.admin} slash a provider`;
+      throw new ForbiddenException(`${rule}; ${callerAddress} is neither`);
     }
   }
 

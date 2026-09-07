@@ -7,7 +7,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { acceptedForFunds, vendorHasSpoken } from '../kyc/screening-requirement';
+import { acceptedForFunds, popupMayOfferVendor } from '../kyc/screening-requirement';
 import { RESOLVER_WINDOW_SECS, signingCutoffSecs } from '../config/contract-limits';
 import { refundOpensAt } from '../order/dispute.util';
 import { RefundSignerService } from '../stellar/refund-signer.service';
@@ -328,7 +328,7 @@ export class Sep24Service {
     }
     if (screen === 'waiting_on_identity') {
       const vendor = kyc?.verificationUrl?.startsWith('https://') ? kyc.verificationUrl : null;
-      if (vendor && !vendorHasSpoken(kyc)) {
+      if (vendor && popupMayOfferVendor(kyc)) {
         return page(
           'Verify your identity with Didit',
           `${credits}<a class="btn" href="${escapeHtml(vendor)}" target="_blank" rel="noopener">Open Didit verification</a><p class="hint">On a computer, Didit shows a QR code — scan it with your phone and finish there. Keep this window open; it refreshes itself. Already finished on your phone? This page updates on its own.</p>`,

@@ -147,7 +147,7 @@ describe('every screen wears the same small stylesheet', () => {
     expect(html).toContain('<style>');
     expect(html).toContain('max-width');
     expect(html).toContain('body{margin:0');
-    expect(html).toContain('pre,code{white-space:pre-wrap;word-break:break-all}');
+    expect(html).toContain('pre,code{white-space:pre-wrap;overflow-wrap:anywhere}');
     expect(html).toContain('input,select{width:100%;font:inherit;font-weight:400;');
     expect(html).toContain('<main><p class="brand">lolipay</p><h1>T</h1>');
     expect(html).toContain('<p>x</p></main>');

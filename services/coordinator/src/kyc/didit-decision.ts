@@ -7,7 +7,7 @@ import {
   UNREADABLE_SCREENING,
 } from './screening-requirement';
 
-const PROCESSING_STATUSES = ['Not Started', 'In Progress', 'In Review'];
+const PROCESSING_STATUSES = ['In Progress', 'In Review'];
 const RETRYABLE_STATUSES = ['Awaiting User', 'Resubmitted', 'Abandoned', 'Expired', 'Kyc Expired'];
 
 export interface DiditConclusion {

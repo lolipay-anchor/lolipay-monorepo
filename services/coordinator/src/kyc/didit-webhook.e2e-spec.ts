@@ -165,6 +165,27 @@ describe('the anchor accepts a delivery from Didit only when its bytes were sign
     expect(row!.personId).not.toBeNull();
   });
 
+  it('keeps the door to the vendor open on the Not Started delivery Didit sends at session creation: PROCESSING with no delivery time', async () => {
+    const kp = Keypair.random();
+    await sessionToken(app, kp);
+
+    const raw = JSON.stringify({
+      event_id: 'e-ns',
+      webhook_type: 'status.updated',
+      timestamp: Math.floor(Date.now() / 1000),
+      session_id: 'sess-not-started',
+      status: 'Not Started',
+      vendor_data: kp.publicKey(),
+      environment: 'sandbox',
+    });
+    await post(raw, signed(raw)).expect(200);
+
+    const row = await prisma.kycVerification.findUnique({ where: { customerRef: kp.publicKey() } });
+    expect(row).not.toBeNull();
+    expect(row!.status).toBe('PROCESSING');
+    expect(row!.deliveredAt).toBeNull();
+  });
+
   it('refuses an approval whose screening carried a hit, records the refusal against the person', async () => {
     const kp = Keypair.random();
     await sessionToken(app, kp);
