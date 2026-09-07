@@ -372,6 +372,35 @@ describe('LP registry + admin actions (e2e)', () => {
       .expect(403);
   });
 
+  it('two conflicting decisions fired together never both win: one is refused, or the second is audited against the first', async () => {
+    const seen = await prisma.adminAudit.count({ where: { targetId: lpId, action: 'lp.setStatus' } });
+    const [revoke, approve] = await Promise.all([
+      request(app.getHttpServer())
+        .post(`/admin/lps/${lpId}/revoke`)
+        .set('Authorization', `Bearer ${adminJwt}`)
+        .send({ note: 'FRAUD - stole fiat' }),
+      request(app.getHttpServer())
+        .post(`/admin/lps/${lpId}/approve`)
+        .set('Authorization', `Bearer ${adminJwt}`)
+        .send({}),
+    ]);
+    const audits = await prisma.adminAudit.findMany({
+      where: { targetId: lpId, action: 'lp.setStatus' },
+      orderBy: { createdAt: 'asc' },
+      skip: seen,
+    });
+    const statuses = [revoke.status, approve.status].sort();
+    if (statuses[1] === 409) {
+      expect(statuses).toEqual([200, 409]);
+      expect(audits).toHaveLength(1);
+    } else {
+      expect(statuses).toEqual([200, 200]);
+      expect(audits).toHaveLength(2);
+      const chained = audits.some((a, i) => audits.some((b, j) => i !== j && JSON.stringify(b.before) === JSON.stringify(a.after)));
+      expect(chained).toBe(true);
+    }
+  });
+
   it('GET /admin/orders → 200 for admin (may be empty list), 403 for non-admin', async () => {
     const res = await request(app.getHttpServer())
       .get('/admin/orders')

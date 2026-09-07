@@ -153,16 +153,23 @@ export class AdminService {
     return this.prisma.$transaction(async (tx) => {
       const lp = await tx.lp.findUnique({ where: { id } });
       if (!lp) throw new NotFoundException();
-      if (lp.status === status && (note === undefined || note === lp.approvalNote)) return lp;
+      if (lp.status === status && (note == null || note === lp.approvalNote)) return lp;
 
-      const updated = await tx.lp.update({
-        where: { id },
-        data: {
-          status,
-          approvalNote: note ?? lp.approvalNote,
-          approvedAt: status === 'APPROVED' ? new Date() : lp.approvedAt,
-        },
-      });
+      const updated = await tx.lp
+        .update({
+          where: { id, status: lp.status, approvalNote: lp.approvalNote },
+          data: {
+            status,
+            approvalNote: note ?? lp.approvalNote,
+            approvedAt: status === 'APPROVED' && lp.status !== 'APPROVED' ? new Date() : lp.approvedAt,
+          },
+        })
+        .catch((e: unknown) => {
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+            throw new ConflictException("the provider's status changed while you were deciding — reload and decide again");
+          }
+          throw e;
+        });
 
       await recordAudit(tx as any, {
         actorAddress,

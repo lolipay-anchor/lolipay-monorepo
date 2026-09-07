@@ -2,6 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import { LpService } from '../lp/lp.service';
 import { AdminService } from './admin.service';
 import { auditPayload } from './admin-audit';
+import { Prisma } from '../generated/prisma/client';
 
 const LP_ADDR = 'GLP00000000000000000000000000000000000000000000000000000';
 const ADMIN_ADDR = 'GADMIN000000000000000000000000000000000000000000000000A';
@@ -151,6 +152,40 @@ describe('AdminService — every mutation leaves a trail naming the actor', () =
     expect(tx.lp.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ approvalNote: 'took fiat, twice' }) }));
     expect(audits).toHaveLength(1);
     expect(audits[0].after).toMatchObject({ approvalNote: 'took fiat, twice' });
+  });
+
+  it('treats a null note like an absent one, so a client sending {"note": null} leaves no empty audit row', async () => {
+    const { service, tx, audits } = svc({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'APPROVED', approvedAt: new Date('2026-09-01T00:00:00Z'), approvalNote: 'ok' });
+    await service.setStatus('lp-1', 'APPROVED', null as any, ADMIN_ADDR);
+    expect(tx.lp.update).not.toHaveBeenCalled();
+    expect(audits).toHaveLength(0);
+  });
+
+  it('keeps approvedAt when a note is corrected on an already approved provider, and sets it only on the way into APPROVED', async () => {
+    const approvedOn = new Date('2026-09-01T00:00:00Z');
+    const corrected = svc({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'APPROVED', approvedAt: approvedOn, approvalNote: 'ok' });
+    await corrected.service.setStatus('lp-1', 'APPROVED', 'ok, verified again', ADMIN_ADDR);
+    expect(corrected.tx.lp.update.mock.calls[0][0].data.approvedAt).toEqual(approvedOn);
+
+    const reinstated = svc({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'SUSPENDED', approvedAt: approvedOn, approvalNote: 'took fiat' });
+    await reinstated.service.setStatus('lp-1', 'APPROVED', 'cleared', ADMIN_ADDR);
+    expect(reinstated.tx.lp.update.mock.calls[0][0].data.approvedAt.getTime()).toBeGreaterThan(approvedOn.getTime());
+  });
+
+  it('applies a sanction that carries no note, conditioned on the state it read', async () => {
+    const { service, tx, audits } = svc({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'APPROVED', approvedAt: new Date('2026-09-01T00:00:00Z'), approvalNote: 'ok' });
+    await service.setStatus('lp-1', 'REVOKED', undefined, ADMIN_ADDR);
+    expect(tx.lp.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'lp-1', status: 'APPROVED', approvalNote: 'ok' }, data: expect.objectContaining({ status: 'REVOKED' }) }),
+    );
+    expect(audits).toHaveLength(1);
+  });
+
+  it('refuses with 409 and audits nothing when the row changed between the read and the write', async () => {
+    const { service, tx, audits } = svc({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'PENDING', approvedAt: null, approvalNote: 'clean' });
+    tx.lp.update.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError('Record to update not found.', { code: 'P2025', clientVersion: 'test' }));
+    await expect(service.setStatus('lp-1', 'APPROVED', undefined, ADMIN_ADDR)).rejects.toThrow(ConflictException);
+    expect(audits).toHaveLength(0);
   });
 
   it('writes the audit row inside the same transaction as the change', async () => {
