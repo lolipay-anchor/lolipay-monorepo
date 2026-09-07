@@ -76,8 +76,10 @@ describe('the token from a leaked URL cannot be spent by a client that never hel
     const again = await http()
       .get(`/sep24/interactive/${id}?token=notatokenanymore`)
       .set('Cookie', cookie)
-      .expect(200);
-    expect(again.text).toContain('<form');
+      .expect(302);
+    expect(again.headers.location).toBe(`/sep24/interactive/${id}`);
+    const served = await http().get(again.headers.location).set('Cookie', cookie).expect(200);
+    expect(served.text).toContain('<form');
   });
 
   it('still redeems a valid link for a browser whose cookie is garbage', async () => {

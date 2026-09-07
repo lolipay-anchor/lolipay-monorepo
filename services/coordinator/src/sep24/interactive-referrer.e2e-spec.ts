@@ -37,6 +37,21 @@ describe('the page never tells another site where the depositor came from, and k
     expect(refused.headers['referrer-policy']).toBe('no-referrer');
   });
 
+  it('never renders a document at a URL that carries a token: with a live session cookie the tokened link is answered with a redirect to the clean URL, whatever the token says', async () => {
+    const { id, token } = await opened();
+    const hop = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(302);
+    const cookie = ([] as string[])
+      .concat(hop.headers['set-cookie'] ?? [])
+      .map((c) => c.split(';')[0])
+      .join('; ');
+    const again = await http().get(`/sep24/interactive/${id}?token=${token}`).set('Cookie', cookie).expect(302);
+    expect(again.headers.location).toBe(`/sep24/interactive/${id}`);
+    expect(again.headers['referrer-policy']).toBe('no-referrer');
+    const forged = await http().get(`/sep24/interactive/${id}?token=forged`).set('Cookie', cookie).expect(302);
+    expect(forged.headers.location).toBe(`/sep24/interactive/${id}`);
+    expect(forged.headers['referrer-policy']).toBe('no-referrer');
+  });
+
   it('sends same-origin on the page itself, whose URL carries no token: nothing reaches the verification vendor, and its own form posts keep the Origin header a no-referrer page would null', async () => {
     const { id, token } = await opened();
     const hop = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(302);

@@ -146,18 +146,19 @@ export class Sep24Controller {
   ) {
     res.setHeader('content-security-policy', cspAllowingRpc(this.cfg.rpcUrl));
     const held = this.usableSession(req, id);
+    const fromUrl = String(token ?? '');
+    if (fromUrl) {
+      if (!held) {
+        const session = await this.sep24.sessionFromLink(id, fromUrl);
+        res.cookie(sessionCookieName(id), session, sessionCookieOptions(id));
+      }
+      res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
+      return undefined;
+    }
     if (held) {
       res.cookie(sessionCookieName(id), held, sessionCookieOptions(id));
       res.setHeader('referrer-policy', 'same-origin');
       return this.sep24.renderInteractive(id, held);
-    }
-
-    const fromUrl = String(token ?? '');
-    if (fromUrl) {
-      const session = await this.sep24.sessionFromLink(id, fromUrl);
-      res.cookie(sessionCookieName(id), session, sessionCookieOptions(id));
-      res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
-      return undefined;
     }
     return this.sep24.renderInteractive(id, '');
   }
