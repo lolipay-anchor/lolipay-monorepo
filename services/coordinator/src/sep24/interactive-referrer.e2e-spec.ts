@@ -3,7 +3,7 @@ import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
 import { bootAuthApp, anchorToken } from '../auth/auth-test-helpers';
 
-describe('the page never tells another site where the depositor came from', () => {
+describe('the page never tells another site where the depositor came from, and keeps its own Origin on form posts', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
@@ -31,7 +31,13 @@ describe('the page never tells another site where the depositor came from', () =
     expect(hop.headers['referrer-policy']).toBe('no-referrer');
   });
 
-  it('sends no-referrer on the page itself, which links out to the verification vendor', async () => {
+  it('sends no-referrer on an error page rendered at a tokened URL, whose links would otherwise carry the token', async () => {
+    const { id } = await opened();
+    const refused = await http().get(`/sep24/interactive/${id}?token=forged`).expect(401);
+    expect(refused.headers['referrer-policy']).toBe('no-referrer');
+  });
+
+  it('sends same-origin on the page itself, whose URL carries no token: nothing reaches the verification vendor, and its own form posts keep the Origin header a no-referrer page would null', async () => {
     const { id, token } = await opened();
     const hop = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(302);
     const cookie = ([] as string[])
@@ -39,6 +45,6 @@ describe('the page never tells another site where the depositor came from', () =
       .map((c) => c.split(';')[0])
       .join('; ');
     const page = await http().get(`/sep24/interactive/${id}`).set('Cookie', cookie).expect(200);
-    expect(page.headers['referrer-policy']).toBe('no-referrer');
+    expect(page.headers['referrer-policy']).toBe('same-origin');
   });
 });
