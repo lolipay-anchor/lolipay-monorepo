@@ -601,3 +601,41 @@ describe('Orders page', () => {
     expect(screen.queryByTestId('risk-lp-completion')).toBeNull()
   })
 })
+
+describe('a settled order links its transaction', () => {
+  beforeEach(() => {
+    queryClient.clear()
+    vi.clearAllMocks()
+  })
+
+  it('renders a stellar.expert link to the settlement transaction when the order carries its hash', async () => {
+    const hash = 'ef'.repeat(32)
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValueOnce([
+      { ...MOCK_ORDER, id: 'order-settled', status: 'RELEASED' as const, settled_at: '2026-09-07T10:23:07.000Z', settlement_tx_hash: hash },
+    ])
+    render(
+      <TestProviders kit={fakeKit}>
+        <OrdersPage />
+      </TestProviders>,
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('settlement-link')).toBeTruthy()
+    })
+    const link = screen.getByTestId('settlement-link') as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe(`https://stellar.expert/explorer/testnet/tx/${hash}`)
+    expect(link.textContent).toBe('View transaction ↗')
+  })
+
+  it('renders no link for an order that has not settled', async () => {
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValueOnce([{ ...MOCK_ORDER, settlement_tx_hash: null }])
+    render(
+      <TestProviders kit={fakeKit}>
+        <OrdersPage />
+      </TestProviders>,
+    )
+    await waitFor(() => {
+      expect(screen.getAllByText(/USDC/).length).toBeGreaterThan(0)
+    })
+    expect(screen.queryByTestId('settlement-link')).toBeNull()
+  })
+})

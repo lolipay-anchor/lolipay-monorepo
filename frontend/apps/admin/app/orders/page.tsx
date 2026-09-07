@@ -1,5 +1,7 @@
 'use client'
 
+import { txUrl } from '@/lib/explorer'
+
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -485,6 +487,17 @@ function OrderCard({ order, onResolved }: { order: Order; onResolved: () => void
           <p className="text-xs text-lp-muted mt-0.5">
             {formatIDR(parseInt(order.fiat_amount, 10))}
           </p>
+          {order.settlement_tx_hash && txUrl(order.settlement_tx_hash) && (
+            <a
+              data-testid="settlement-link"
+              href={txUrl(order.settlement_tx_hash)!}
+              target="_blank"
+              rel="noopener"
+              className="text-xs font-semibold underline"
+            >
+              View transaction ↗
+            </a>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
           {order.status !== 'RELEASED' && order.status !== 'REFUNDED' && order.status !== 'CANCELLED' && order.status !== 'EXPIRED' && (

@@ -326,6 +326,57 @@ describe('OrderStatus component', () => {
     expect(mockPush).toHaveBeenCalledWith('/orders')
   })
 
+  it('RELEASED with a settlement hash: links the exact transaction on stellar.expert', async () => {
+    const hash = 'ab'.repeat(32)
+    const order: Order = { ...BASE_ORDER, id: 'ord-c10b', status: 'RELEASED', settlement_tx_hash: hash }
+    mockGetOrder.mockResolvedValue(order)
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-c10b" />
+      </TestProviders>,
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('settlement-link')).toBeTruthy()
+    })
+    const link = screen.getByTestId('settlement-link') as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe(`https://stellar.expert/explorer/testnet/tx/${hash}`)
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener')
+    expect(link.textContent).toBe('View transaction ↗')
+  })
+
+  it('RELEASED without a settlement hash yet: shows the panel with no link and no "null"', async () => {
+    const order: Order = { ...BASE_ORDER, id: 'ord-c10c', status: 'RELEASED', settlement_tx_hash: null }
+    mockGetOrder.mockResolvedValue(order)
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-c10c" />
+      </TestProviders>,
+    )
+    await waitFor(() => {
+      expect(screen.getByText('Settled on-chain — this order is complete.')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('settlement-link')).toBeNull()
+    expect(screen.queryByText(/null/)).toBeNull()
+  })
+
+  it('REFUNDED with a settlement hash: keeps its heading and links the refund transaction', async () => {
+    const hash = 'cd'.repeat(32)
+    const order: Order = { ...BASE_ORDER, id: 'ord-c10d', status: 'REFUNDED', settlement_tx_hash: hash }
+    mockGetOrder.mockResolvedValue(order)
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-c10d" />
+      </TestProviders>,
+    )
+    await waitFor(() => {
+      expect(screen.getByText('Refunded — escrow returned')).toBeTruthy()
+    })
+    expect((screen.getByTestId('settlement-link') as HTMLAnchorElement).getAttribute('href')).toBe(
+      `https://stellar.expert/explorer/testnet/tx/${hash}`,
+    )
+  })
+
   it('DISPUTED: shows the danger panel with a short case id derived from the order id', async () => {
     const order: Order = { ...BASE_ORDER, id: 'ord-c11-abcdef', status: 'DISPUTED' }
     mockGetOrder.mockResolvedValue(order)
