@@ -55,6 +55,7 @@ export interface Order {
   proof_paid_at?: string | null
 
   settled_at?: string | null
+  settlement_tx_hash?: string | null
   dispute_by?: 'user' | 'lp' | null
   on_chain_disputed_by?: string | null
   resolver_disputed?: boolean

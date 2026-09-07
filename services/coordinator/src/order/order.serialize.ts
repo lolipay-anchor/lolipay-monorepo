@@ -31,6 +31,7 @@ export function serializeOrderBase(
     proof_amount: order.proofAmount != null ? order.proofAmount.toString() : null,
     proof_paid_at: order.proofPaidAt ?? null,
     settled_at: order.settledAt ?? null,
+    settlement_tx_hash: order.settlementTxHash ?? null,
     dispute_by: order.disputeBy ?? null,
     dispute_reason: order.disputeReason ?? null,
     dispute_note: order.disputeNote ?? null,
