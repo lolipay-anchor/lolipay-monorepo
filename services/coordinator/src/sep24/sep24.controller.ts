@@ -135,6 +135,7 @@ export class Sep24Controller {
   @UseFilters(InteractiveErrorFilter)
   @Get('interactive/:id')
   @Header('cross-origin-opener-policy', 'unsafe-none')
+  @Header('referrer-policy', 'same-origin')
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Header('content-type', 'text/html; charset=utf-8')
   @Header('cache-control', 'no-store')

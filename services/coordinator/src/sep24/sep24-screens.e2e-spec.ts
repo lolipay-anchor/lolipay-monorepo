@@ -57,6 +57,12 @@ describe('the popup a wallet opens, and what it will not do for a stranger', () 
     expect(res.text).not.toMatch(/onclick=/i);
   });
 
+  it('serves the interactive page under a referrer policy that keeps the Origin header on its own form posts, because a no-referrer page makes the browser send Origin: null and the anchor then refuses its own form', async () => {
+    const { id, token } = await opened();
+    const res = await (await follow(app, id, token)).page().expect(200);
+    expect(res.headers['referrer-policy']).toBe('same-origin');
+  });
+
   it('refuses a link with no token', async () => {
     const { id } = await opened();
     await http().get(`/sep24/interactive/${id}`).expect(401);
