@@ -27,8 +27,11 @@ describe('describeContractError', () => {
 describe('every escrow error the contract can raise has a sentence', () => {
   it('maps each code declared in contracts/escrow/src/types.rs, so a new contract error never reaches a user as a bare number', () => {
     const rust = readFileSync(join(__dirname, '../../../../contracts/escrow/src/types.rs'), 'utf8');
-    const enumBody = rust.slice(rust.indexOf('pub enum Error {'));
+    const afterOpen = rust.slice(rust.indexOf('pub enum Error {') + 'pub enum Error {'.length);
+    const enumBody = afterOpen.slice(0, afterOpen.indexOf('}'));
+    const variantLines = enumBody.split('\n').filter((l) => l.trim().length > 0);
     const codes = [...enumBody.matchAll(/^\s+(\w+) = (\d+),?\s*$/gm)].map((m) => ({ name: m[1], code: Number(m[2]) }));
+    expect(codes.length).toBe(variantLines.length);
     expect(codes.length).toBeGreaterThanOrEqual(21);
     const unmapped = codes.filter(({ code }) =>
       describeContractError(new Error(`Error(Contract, #${code})`))?.startsWith('the escrow contract rejected this call'),

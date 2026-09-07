@@ -37,7 +37,7 @@ describe('the page never tells another site where the depositor came from, and k
     expect(refused.headers['referrer-policy']).toBe('no-referrer');
   });
 
-  it('never renders a document at a URL that carries a token: with a live session cookie the tokened link is answered with a redirect to the clean URL, whatever the token says', async () => {
+  it('never renders the page, with its relaxed policy and its forms, at a URL that carries a token: with a live session cookie the tokened link is answered with a redirect to the clean URL, whatever the token says', async () => {
     const { id, token } = await opened();
     const hop = await http().get(`/sep24/interactive/${id}?token=${token}`).expect(302);
     const cookie = ([] as string[])
