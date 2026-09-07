@@ -307,10 +307,10 @@ export type FundableOrder = AssignmentOrder & {
 
 export function pickFreshOrder(orders: AssignmentOrder[], userPub: string, notBeforeMs: number): FundableOrder {
   const mine = orders.filter(
-    (o) => o.user_address === userPub && o.status === 'MATCHED' && Date.parse(o.created_at) >= notBeforeMs,
+    (o) => o.user_address === userPub && (o.status === 'MATCHED' || o.status === 'AWAITING_ONCHAIN') && Date.parse(o.created_at) >= notBeforeMs,
   );
   if (mine.length !== 1) {
-    throw new Error(`expected exactly one fresh MATCHED order for ${userPub}, found ${mine.length}`);
+    throw new Error(`expected exactly one fresh MATCHED or AWAITING_ONCHAIN order for ${userPub}, found ${mine.length}`);
   }
   const fresh = mine[0];
   const missing = (['trade_id', 'usdc_amount', 'fiat_amount', 'fiat_currency', 'lp_fee_bps', 'pay_deadline', 'confirm_deadline', 'dispute_deadline', 'flow'] as const).filter(
@@ -378,6 +378,19 @@ export function resumeNeedsFunding(status: string): boolean {
   if (status === 'MATCHED' || status === 'AWAITING_ONCHAIN') return true;
   if (FUNDED_BY_ME.includes(status)) return false;
   throw new Error(`an order that is ${status} cannot be resumed by the provider`);
+}
+
+export function resumeAfterFailedFunding(err: unknown, again: { status: string; trade_id?: string | null } | undefined): string {
+  if (err instanceof RefusedToSign) throw err;
+  if (!again?.trade_id) throw err;
+  let stillUnfunded: boolean;
+  try {
+    stillUnfunded = resumeNeedsFunding(again.status);
+  } catch {
+    throw err;
+  }
+  if (stillUnfunded) throw err;
+  return again.trade_id;
 }
 
 export function fundedByMe(orders: AssignmentOrder[], userPub: string, notBeforeMs: number): { id: string; tradeIdHex: string } | null {
@@ -854,6 +867,7 @@ async function tradeOnChain(escrow: string, tradeIdHex: string, sourcePub: strin
   if (Api.isSimulationError(sim)) throw new Error(`get_trade: ${sim.error}`);
   if (!sim.result) throw new Error('get_trade returned nothing');
   const ret = scValToNative(sim.result.retval);
+  if (!ret || typeof ret !== 'object' || !('usdc_provider' in ret) || !('usdc_recipient' in ret)) throw new Error('get_trade returned something that is not a trade');
   return { usdcProvider: String(ret.usdc_provider), usdcRecipient: String(ret.usdc_recipient) };
 }
 
@@ -890,10 +904,10 @@ async function runAsProvider(
         try {
           tradeIdHex = await fundOrder(lp, lpJwt, escrow, pickFreshOrder([resumed], target.userPub, 0), target.userPub);
         } catch (err) {
+          if (err instanceof RefusedToSign) throw err;
           const again = (await assignmentsOf(lpJwt)).find((o) => o.id === orderId);
-          if (!again?.trade_id || resumeNeedsFunding(again.status)) throw err;
-          tradeIdHex = again.trade_id;
-          console.log(`order ${orderId} ternyata sudah ${again.status}; melanjutkan dengan trade ${tradeIdHex}`);
+          tradeIdHex = resumeAfterFailedFunding(err, again);
+          console.log(`order ${orderId} ternyata sudah ${again?.status}; melanjutkan dengan trade ${tradeIdHex}`);
         }
       } else {
         tradeIdHex = resumed.trade_id;
@@ -973,7 +987,14 @@ async function runAsProvider(
     if (!paid) {
       throw new Error(`order ${orderId} was not attested within ${target.waitMs / 60_000} minutes; rerun with SEP24_ORDER_ID=${orderId} to resume, the escrow stays funded meanwhile`);
     }
-    assertTradeParties(await tradeOnChain(escrow, tradeIdHex, lp.publicKey()), lp.publicKey(), target.userPub);
+    let onChain: { usdcProvider: string; usdcRecipient: string };
+    try {
+      onChain = await tradeOnChain(escrow, tradeIdHex, lp.publicKey());
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      throw new Error(`could not read trade ${tradeIdHex} from the escrow (${m}); the escrow stays as it is, rerun with SEP24_ORDER_ID=${orderId} to release it`);
+    }
+    assertTradeParties(onChain, lp.publicKey(), target.userPub);
     const released = await signAndSubmit(lp, await xdrFor(lpJwt, orderId, 'confirm-release'), escrow, 'confirm_and_release', { tradeIdHex });
     console.log(`rilis: ${released.hash}\n  ${explorer(released.hash)}`);
   } finally {

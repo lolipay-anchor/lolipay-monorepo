@@ -27,6 +27,7 @@ import {
   RefusedToSign,
   assertTradeParties,
   staleMatchedFor,
+  resumeAfterFailedFunding,
 } from './sep24-fixtures';
 import { FIAT_INPUT_REFUSAL } from '../money/money';
 
@@ -448,6 +449,7 @@ describe('the SEP-24 fixture driver, its two roles', () => {
     const t0 = Date.parse('2026-09-05T11:59:00.000Z');
     expect(newestMatchedOrder([older, newer], pub, t0)!.id).toBe('o2');
     expect(newestMatchedOrder([{ ...older, status: 'FUNDED' }], pub, t0)).toBeNull();
+    expect(pickFreshOrder([{ ...older, status: 'AWAITING_ONCHAIN' }], pub, t0).id).toBe('o1');
     expect(newestMatchedOrder([], pub, t0)).toBeNull();
   });
 
@@ -504,6 +506,18 @@ describe('what the provider refuses for good and what it merely waits out', () =
     }
     expect(caught).toBeInstanceOf(Error);
     expect(caught).not.toBeInstanceOf(RefusedToSign);
+    expect((caught as Error).message).toMatch(/fiat|rupiah|IDR/i);
+  });
+
+  it('after a failed resume funding, gives up on a refusal it was right to make, and otherwise continues only with an order the feed now says is funded', () => {
+    const refusal = new RefusedToSign('create_trade names recipient G..., not the wallet');
+    const blip = new Error('tx/create-trade: HTTP 502');
+    const funded = { id: 'o1', status: 'FUNDED', trade_id: 'ab'.repeat(32), created_at: '2026-09-05T12:00:00.000Z' };
+    expect(() => resumeAfterFailedFunding(refusal, funded)).toThrow(refusal);
+    expect(resumeAfterFailedFunding(blip, funded)).toBe('ab'.repeat(32));
+    expect(() => resumeAfterFailedFunding(blip, { ...funded, status: 'MATCHED' })).toThrow(blip);
+    expect(() => resumeAfterFailedFunding(blip, { ...funded, status: 'RELEASED' })).toThrow(blip);
+    expect(() => resumeAfterFailedFunding(blip, undefined)).toThrow(blip);
   });
 
   it('releases only a trade the chain says this provider funded for the wallet it serves', () => {
@@ -523,6 +537,8 @@ describe('what the provider refuses for good and what it merely waits out', () =
     ];
     expect(staleMatchedFor(rows, pub, t0)).toEqual({ id: 'old', createdAt: '2026-09-05T11:50:00.000Z' });
     expect(staleMatchedFor([{ ...rows[0], created_at: '2026-09-05T12:01:00.000Z' }], pub, t0)).toBeNull();
+    expect(staleMatchedFor([{ ...rows[0], status: 'FUNDED' }], pub, t0)).toBeNull();
+    expect(staleMatchedFor([{ ...rows[0], flow: 'WITHDRAW' }], pub, t0)).toBeNull();
     expect(staleMatchedFor([], pub, t0)).toBeNull();
   });
 });
