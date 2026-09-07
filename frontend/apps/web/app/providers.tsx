@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WalletProvider, useWallet } from '@lolipay/wallet'
-import { authenticate } from '@lolipay/api-client'
+import { authenticate, SESSION_EXPIRED_EVENT } from '@lolipay/api-client'
 import { client } from '@/lib/client'
 import { getDefaultKit } from '@/lib/wallet-kit'
 
@@ -49,6 +49,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!address) throw new Error('login: address is required — call connect() first')
     const w = walletRef.current
     await authenticate(client, address, w.signMessage)
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('lp_expired')
 
     const t = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('lp_jwt') : null
     setToken(t)
@@ -69,6 +70,15 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
 
     queryClient.clear()
   }, [])
+
+  React.useEffect(() => {
+    const onExpired = () => {
+      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('lp_expired', '1')
+      logout()
+    }
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired)
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
+  }, [logout])
 
   return (
     <AuthContext.Provider value={{ token, address, login, logout }}>{children}</AuthContext.Provider>

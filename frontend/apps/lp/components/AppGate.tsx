@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useWallet } from '@lolipay/wallet'
-import { getLpMe, applyLp, ApiError } from '@lolipay/api-client'
+import { getLpMe, applyLp } from '@lolipay/api-client'
 import type { LpMe } from '@lolipay/api-client'
 import { Button } from '@lolipay/ui'
 import { useAuth } from '@/app/providers'
@@ -191,7 +191,7 @@ export function AppGate({ children }: { children: React.ReactNode }) {
     setHasMounted(true)
   }, [])
 
-  const { data: me, isLoading, error, refetch } = useQuery({
+  const { data: me, isLoading, refetch } = useQuery({
     queryKey: ['lpMe'],
     queryFn: () => getLpMe(client),
     enabled: !!token,
@@ -216,22 +216,17 @@ export function AppGate({ children }: { children: React.ReactNode }) {
   }
 
   if (me === undefined) {
-    const is401 = error instanceof ApiError && error.status === 401
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-lp-paper px-6 text-center gap-4">
-        <p className="text-4xl">{is401 ? '🔒' : '⚠️'}</p>
+        <p className="text-4xl">⚠️</p>
         <p className="text-sm text-lp-muted max-w-xs">
-          {is401
-            ? 'Your session expired. Reconnect your wallet to continue.'
-            : "Couldn't load your LP profile. Check your connection and try again."}
+          Couldn&apos;t load your LP profile. Check your connection and try again.
         </p>
         <div className="flex gap-2">
-          {!is401 && (
-            <Button variant="ghost" onClick={() => refetch()}>
-              Retry
-            </Button>
-          )}
-          <Button onClick={handleDisconnect}>{is401 ? 'Reconnect' : 'Disconnect'}</Button>
+          <Button variant="ghost" onClick={() => refetch()}>
+            Retry
+          </Button>
+          <Button onClick={handleDisconnect}>Disconnect</Button>
         </div>
       </div>
     )

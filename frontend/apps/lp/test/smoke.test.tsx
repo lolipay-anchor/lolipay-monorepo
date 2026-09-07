@@ -192,24 +192,6 @@ describe('AppGate (LP)', () => {
     expect(screen.queryByTestId('lp-shell')).toBeNull()
   })
 
-  it('shows a Reconnect recovery screen (NOT blank) when getLpMe 401s (dead JWT)', async () => {
-    sessionStorage.setItem('lp_jwt', 'dead-jwt')
-    vi.mocked(apiClient.getLpMe).mockRejectedValue(new apiClient.ApiError(401, 'Unauthorized'))
-
-    render(
-      <TestProviders kit={fakeKit}>
-        <AppGate>
-          <div data-testid="lp-shell">LP SHELL</div>
-        </AppGate>
-      </TestProviders>,
-    )
-
-    await waitFor(() => expect(screen.getByText(/session expired/i)).toBeTruthy())
-    expect(screen.getByText('Reconnect')).toBeTruthy()
-
-    expect(screen.queryByTestId('lp-shell')).toBeNull()
-  })
-
   it('shows a Retry recovery screen (NOT blank) when getLpMe fails with a server error', async () => {
     sessionStorage.setItem('lp_jwt', 'valid-jwt')
     vi.mocked(apiClient.getLpMe).mockRejectedValue(new apiClient.ApiError(503, 'Service Unavailable'))

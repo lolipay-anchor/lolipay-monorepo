@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getRate, getMarkets } from '@lolipay/api-client'
+import { getRate, getMarkets, SESSION_EXPIRED } from '@lolipay/api-client'
 import type { Market } from '@lolipay/api-client'
 import { useWallet } from '@lolipay/wallet'
 import { DarkHeroCard } from '@lolipay/ui'
@@ -45,6 +45,9 @@ export function LoginScreen() {
   const auth = useAuth()
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [expired] = React.useState(
+    () => typeof sessionStorage !== 'undefined' && sessionStorage.getItem('lp_expired') === '1',
+  )
   const [country, setCountry] = React.useState('IDR')
 
   const { data: rate } = useQuery({
@@ -191,6 +194,12 @@ export function LoginScreen() {
           <p className="text-center text-xs text-lp-muted" role="status">
             Approve the request in your wallet. On a phone, open your wallet app (e.g. Freighter)
             to confirm.
+          </p>
+        )}
+
+        {expired && !error && (
+          <p className="text-center text-xs text-lp-muted" role="status" data-testid="session-expired">
+            {SESSION_EXPIRED}
           </p>
         )}
 

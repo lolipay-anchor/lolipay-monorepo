@@ -28,7 +28,7 @@ vi.mock('@/components/Toast', () => ({
 const mockGetMyProfile = vi.hoisted(() => vi.fn())
 vi.mock('@lolipay/api-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@lolipay/api-client')>()
-  return { ...actual, getMyProfile: mockGetMyProfile }
+  return { ...actual, getMyProfile: mockGetMyProfile, getNotifications: vi.fn(async () => ({ items: [], unread: 0 })) }
 })
 
 const { default: ProfilePage } = await import('@/app/profile/page')

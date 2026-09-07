@@ -175,4 +175,22 @@ describe('LoginScreen', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(errorMsg)
   })
+
+  it('shows the expiry sentence only while there is nothing else to say, and forgets it once a login succeeds', async () => {
+    fakeKit.openModal.mockImplementation(async ({ onWalletSelected }: { onWalletSelected: (w: { id: string }) => void }) => {
+      onWalletSelected({ id: 'freighter' })
+    })
+    sessionStorage.setItem('lp_expired', '1')
+    render(
+      <TestProviders kit={fakeKit}>
+        <LoginScreen />
+      </TestProviders>,
+    )
+    expect(screen.getByTestId('session-expired').textContent).toBe('Your session expired. Reconnect your wallet to continue.')
+    fireEvent.click(screen.getByRole('button', { name: /connect wallet/i }))
+    await waitFor(() => {
+      expect(sessionStorage.getItem('lp_jwt')).toBe('fake-jwt')
+    })
+    expect(sessionStorage.getItem('lp_expired')).toBeNull()
+  })
 })

@@ -1,3 +1,6 @@
+export const SESSION_EXPIRED_EVENT = 'lolipay:session-expired'
+export const SESSION_EXPIRED = 'Your session expired. Reconnect your wallet to continue.'
+
 export class ApiError extends Error { constructor(public status: number, msg: string){ super(msg) } }
 export class ApiClient {
   constructor(private o: { baseUrl: string; getToken: () => string | null; setToken: (t: string) => void }) {}
@@ -15,16 +18,7 @@ export class ApiClient {
       headers,
       body: isFormData ? (body as FormData) : body ? JSON.stringify(body) : undefined,
     })
-    if (!res.ok) {
-      let detail = ''
-      try {
-        const b = (await res.json()) as { message?: string | string[] }
-        detail = Array.isArray(b?.message) ? b.message.join(', ') : b?.message ?? ''
-      } catch {
-      }
-      if (res.status === 429) detail = detail || 'Too many attempts — please wait a moment and try again'
-      throw new ApiError(res.status, detail || `${method} ${path} → ${res.status}`)
-    }
+    if (!res.ok) await this.refuse(res, token, method, path)
 
     if (res.status === 204) return undefined as T
     return res.json() as Promise<T>
@@ -35,15 +29,23 @@ export class ApiClient {
     const headers: Record<string, string> = {}
     if (token) headers.Authorization = `Bearer ${token}`
     const res = await fetch(this.o.baseUrl + path, { method, headers })
-    if (!res.ok) {
-      let detail = ''
-      try {
-        const b = (await res.json()) as { message?: string | string[] }
-        detail = Array.isArray(b?.message) ? b.message.join(', ') : b?.message ?? ''
-      } catch {
-      }
-      throw new ApiError(res.status, detail || `${method} ${path} → ${res.status}`)
-    }
+    if (!res.ok) await this.refuse(res, token, method, path)
     return res.blob()
+  }
+
+  private async refuse(res: Response, token: string | null, method: string, path: string): Promise<never> {
+    let detail = ''
+    try {
+      const b = (await res.json()) as { message?: string | string[] }
+      detail = Array.isArray(b?.message) ? b.message.join(', ') : b?.message ?? ''
+    } catch {
+    }
+    if (res.status === 401 && token) {
+      this.o.setToken('')
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT))
+      throw new ApiError(401, SESSION_EXPIRED)
+    }
+    if (res.status === 429) detail = detail || 'Too many attempts — please wait a moment and try again'
+    throw new ApiError(res.status, detail || `${method} ${path} → ${res.status}`)
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { ApiClient, ApiError, authenticate } from '../index'
+import { ApiClient, ApiError, SESSION_EXPIRED, authenticate } from '../index'
 
 describe('auth', () => {
   afterEach(() => { vi.restoreAllMocks() })
@@ -43,5 +43,16 @@ describe('auth', () => {
     await client.request('GET', '/orders')
     const headers = fetchMock.mock.calls[0][1].headers
     expect(headers.Authorization).toBeUndefined()
+  })
+
+  it('names a session that has expired when a request that carried a token is refused with 401, and forgets the token', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({ message: 'Unauthorized' }) }))
+    const setToken = vi.fn()
+    const client = new ApiClient({ baseUrl: 'https://api.x', getToken: () => 'jwt', setToken })
+    const err = await client.request('GET', '/orders').catch(e => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err.status).toBe(401)
+    expect(err.message).toBe(SESSION_EXPIRED)
+    expect(setToken).toHaveBeenCalledWith('')
   })
 })

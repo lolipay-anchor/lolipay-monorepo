@@ -1,5 +1,6 @@
 'use client'
 
+import { SESSION_EXPIRED } from '@lolipay/api-client'
 import * as React from 'react'
 import { useWallet } from '@lolipay/wallet'
 import { Button } from '@lolipay/ui'
@@ -10,6 +11,9 @@ export function LoginScreen() {
   const auth = useAuth()
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [expired] = React.useState(
+    () => typeof sessionStorage !== 'undefined' && sessionStorage.getItem('lp_expired') === '1',
+  )
 
   const handleConnect = async () => {
     setBusy(true)
@@ -50,6 +54,12 @@ export function LoginScreen() {
           <Button loading={busy} onClick={handleConnect}>
             Connect Wallet
           </Button>
+
+          {expired && !error && (
+            <p className="text-xs text-lp-muted text-center" role="status" data-testid="session-expired">
+              {SESSION_EXPIRED}
+            </p>
+          )}
 
           {error && (
             <p className="text-xs text-lp-danger text-center" role="alert">
