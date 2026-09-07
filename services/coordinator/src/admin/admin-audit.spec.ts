@@ -131,6 +131,28 @@ describe('AdminService — every mutation leaves a trail naming the actor', () =
     expect(audits[0].after).toMatchObject({ status: 'SUSPENDED' });
   });
 
+  it('writes nothing for a decision that changes nothing, so a double click leaves one trail and one row', async () => {
+    const { service, tx, audits } = svc({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'APPROVED', approvedAt: new Date('2026-09-01T00:00:00Z'), approvalNote: 'ok' });
+    await service.setStatus('lp-1', 'APPROVED', undefined, ADMIN_ADDR);
+    expect(tx.lp.update).not.toHaveBeenCalled();
+    expect(audits).toHaveLength(0);
+  });
+
+  it('writes nothing when the same status arrives with the note the row already holds', async () => {
+    const { service, tx, audits } = svc({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'SUSPENDED', approvedAt: null, approvalNote: 'took fiat' });
+    await service.setStatus('lp-1', 'SUSPENDED', 'took fiat', ADMIN_ADDR);
+    expect(tx.lp.update).not.toHaveBeenCalled();
+    expect(audits).toHaveLength(0);
+  });
+
+  it('still corrects the note when the same status arrives with a new one, and audits it', async () => {
+    const { service, tx, audits } = svc({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'SUSPENDED', approvedAt: null, approvalNote: 'took fiat' });
+    await service.setStatus('lp-1', 'SUSPENDED', 'took fiat, twice', ADMIN_ADDR);
+    expect(tx.lp.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ approvalNote: 'took fiat, twice' }) }));
+    expect(audits).toHaveLength(1);
+    expect(audits[0].after).toMatchObject({ approvalNote: 'took fiat, twice' });
+  });
+
   it('writes the audit row inside the same transaction as the change', async () => {
     const { service, prisma, tx } = svc({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'APPROVED', approvedAt: null });
     await service.setStatus('lp-1', 'REVOKED', 'fraud', ADMIN_ADDR);

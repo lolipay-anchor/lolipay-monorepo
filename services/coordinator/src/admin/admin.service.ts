@@ -153,6 +153,7 @@ export class AdminService {
     return this.prisma.$transaction(async (tx) => {
       const lp = await tx.lp.findUnique({ where: { id } });
       if (!lp) throw new NotFoundException();
+      if (lp.status === status && (note === undefined || note === lp.approvalNote)) return lp;
 
       const updated = await tx.lp.update({
         where: { id },
