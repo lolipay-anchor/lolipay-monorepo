@@ -219,6 +219,23 @@ export class OrderTxService {
     }
   }
 
+  private async assertDisputeSigner(contractId: string, callerAddress: string, contract: 'escrow' | 'staking contract'): Promise<void> {
+    let signers: { resolver: string; admin: string };
+    try {
+      signers = await this.stellar.readDisputeSigners(contractId);
+    } catch (err) {
+      console.error('readDisputeSigners error:', err instanceof Error ? err.message : String(err));
+      throw new ServiceUnavailableException(
+        'cannot read who may settle this dispute right now — refusing rather than sending you to sign something that will be rejected',
+      );
+    }
+    if (callerAddress !== signers.resolver && callerAddress !== signers.admin) {
+      throw new ForbiddenException(
+        `the ${contract} lets only its resolver ${signers.resolver} settle this dispute, or its admin ${signers.admin} once the resolver's day has passed; ${callerAddress} is neither`,
+      );
+    }
+  }
+
   async buildResolveTx(
     orderId: string,
     callerAddress: string,
@@ -234,6 +251,7 @@ export class OrderTxService {
     if (currentOrder.status !== 'DISPUTED') {
       throw new ConflictException('order is not in DISPUTED status');
     }
+    await this.assertDisputeSigner(this.status.contractIdFor(currentOrder), callerAddress, 'escrow');
     try {
       return await this.stellar.buildResolveTx(
         this.status.contractIdFor(currentOrder),
@@ -283,6 +301,8 @@ export class OrderTxService {
         'a slash is restitution after settlement — this order has not settled, and while it has not, releasing or refunding the escrow is the remedy',
       );
     }
+
+    await this.assertDisputeSigner(this.cfg.stakingContractId, callerAddress, 'staking contract');
 
     let chain;
     try {

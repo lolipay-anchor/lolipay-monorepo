@@ -58,6 +58,7 @@ describe('OrderService — masked build-catch server-side logging (Fix 2)', () =
       buildConfirmReleaseTx: jest.fn(),
       buildRaiseDisputeTx: jest.fn(),
       buildResolveTx: jest.fn(),
+      readDisputeSigners: jest.fn().mockResolvedValue({ resolver: 'GADMIN', admin: 'GADMIN' }),
       getTradeStatus: jest.fn().mockResolvedValue(null),
       getTradeStatusStrict: jest.fn().mockResolvedValue(null),
       ...stellarOverrides,

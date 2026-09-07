@@ -56,6 +56,7 @@ describe('OrderService — Phase 5A per-order contractId cutover', () => {
       buildConfirmReleaseTx: jest.fn().mockResolvedValue({ xdr: 'x', networkPassphrase: 'p' }),
       buildRaiseDisputeTx: jest.fn().mockResolvedValue({ xdr: 'x', networkPassphrase: 'p' }),
       buildResolveTx: jest.fn().mockResolvedValue({ xdr: 'x', networkPassphrase: 'p' }),
+      readDisputeSigners: jest.fn().mockResolvedValue({ resolver: LP_ADDR, admin: LP_ADDR }),
       getTradeStatus: jest.fn().mockResolvedValue(null),
       getTradeStatusStrict: jest.fn().mockResolvedValue(null),
       ...stellarOverrides,

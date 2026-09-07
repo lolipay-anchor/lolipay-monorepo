@@ -36,6 +36,7 @@ describe('OrderTxService — the slash caller', () => {
       config: { upsert: jest.fn().mockResolvedValue({ id: 1 }) },
     } as any;
     const stellar = {
+      readDisputeSigners: jest.fn().mockResolvedValue({ resolver: 'GADMIN', admin: 'GESCROWADMIN' }),
       buildSlashTx: jest.fn().mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'NP' }),
       getSlashedSoFar: jest.fn().mockResolvedValue(0n),
       getTradeStatus: jest.fn().mockResolvedValue(null),
@@ -286,6 +287,7 @@ describe('OrderTxService — recovery already taken on chain', () => {
       config: { upsert: jest.fn().mockResolvedValue({ id: 1 }) },
     } as any;
     const stellar = {
+      readDisputeSigners: jest.fn().mockResolvedValue({ resolver: 'GADMIN', admin: 'GESCROWADMIN' }),
       buildSlashTx: jest.fn().mockResolvedValue({ xdr: 'X', networkPassphrase: 'NP' }),
       getSlashedSoFar: jest.fn().mockResolvedValue(slashed),
       getTradeStatus: jest.fn().mockResolvedValue(null),

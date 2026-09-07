@@ -610,3 +610,24 @@ describe('a getAccount read is retried whatever the SDK calls the failure, becau
     expect(fn).toHaveBeenCalledTimes(3);
   });
 });
+
+describe('who may settle a dispute is read from the contract, never assumed', () => {
+  const RESOLVER = 'GBDAT5C6MBMHCFEHERC6KRDTZUORG6W55D47HIPFVQS5DKMZKJPAFC3R';
+  const ADMIN = 'GBCUZOOJ6W3BWPDW53QL3UDSXTGZNITUS32ZK7GE5ZQSLN7YUVOBHKJT';
+
+  it('returns the resolver and the admin the contract names', async () => {
+    const svc = makeSvc();
+    (svc as any).simulateCall = async () => ({ resolver: RESOLVER, admin: ADMIN, paused: false });
+    expect(await svc.readDisputeSigners(FAKE_CONTRACT_ID)).toEqual({ resolver: RESOLVER, admin: ADMIN });
+  });
+
+  it.each([
+    ['no admin', { resolver: RESOLVER }],
+    ['an unreadable resolver', { resolver: 'not-an-address', admin: ADMIN }],
+    ['nothing', null],
+  ])('refuses rather than guesses when the config carries %s', async (_label, cfg) => {
+    const svc = makeSvc();
+    (svc as any).simulateCall = async () => cfg;
+    await expect(svc.readDisputeSigners(FAKE_CONTRACT_ID)).rejects.toThrow(/no readable resolver and admin/);
+  });
+});

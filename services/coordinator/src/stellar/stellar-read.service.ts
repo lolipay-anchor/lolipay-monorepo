@@ -736,6 +736,16 @@ export class StellarReadService {
     return resolver;
   }
 
+  async readDisputeSigners(contractId: string): Promise<{ resolver: string; admin: string }> {
+    const cfg = await this.simulateCall(contractId, 'get_config', []);
+    const resolver = cfg?.resolver;
+    const admin = cfg?.admin;
+    if (typeof resolver !== 'string' || !STELLAR_ADDRESS_RE.test(resolver) || typeof admin !== 'string' || !STELLAR_ADDRESS_RE.test(admin)) {
+      throw new Error(`readDisputeSigners: ${contractId} returned no readable resolver and admin`);
+    }
+    return { resolver, admin };
+  }
+
   async readEscrowPlatformDefaults(contractId: string): Promise<{ platformFeeBps: number; platformWallet: string }> {
     const cfg = await this.simulateCall(contractId, 'get_config', []);
     const platformFeeBps = asNumber(cfg?.default_platform_fee_bps);
