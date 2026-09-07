@@ -53,6 +53,16 @@ interface Props {
   submitFn?: SubmitFn
 }
 
+function SettlementLink({ hash, className }: { hash: string | null | undefined; className: string }) {
+  const url = hash ? txUrl(hash) : null
+  if (!url) return null
+  return (
+    <a data-testid="settlement-link" href={url} target="_blank" rel="noopener noreferrer" className={className}>
+      View transaction ↗
+    </a>
+  )
+}
+
 export function OrderStatus({ id, submitFn }: Props) {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -351,20 +361,10 @@ export function OrderStatus({ id, submitFn }: Props) {
           >
             <Undo2 size={38} strokeWidth={1.7} className="text-lp-amber" aria-hidden="true" />
             <p className="font-geist text-[19px] font-bold text-lp-ink">Refunded — escrow returned</p>
-            {order.settlement_tx_hash && txUrl(order.settlement_tx_hash) && (
-              <a
-                data-testid="settlement-link"
-                href={txUrl(order.settlement_tx_hash)!}
-                target="_blank"
-                rel="noopener"
-                className="text-[13px] font-semibold underline"
-              >
-                View transaction ↗
-              </a>
-            )}
             <p className="text-[13px] text-lp-ink-soft">
               The escrow was returned on-chain — no funds were lost.
             </p>
+            <SettlementLink hash={order.settlement_tx_hash} className="text-[13px] font-semibold underline" />
             {canPostSettleDispute && (
               <div className="mt-1 flex flex-col items-center gap-1">
                 <button
@@ -397,17 +397,7 @@ export function OrderStatus({ id, submitFn }: Props) {
             <CheckCircle2 size={38} strokeWidth={1.7} className="text-lp-green" aria-hidden="true" />
             <p className="font-geist text-[19px] font-bold text-lp-ink">{releasedTitle(order.flow)}</p>
             <p className="text-[13px] text-lp-ink-soft">Settled on-chain — this order is complete.</p>
-            {order.settlement_tx_hash && txUrl(order.settlement_tx_hash) && (
-              <a
-                data-testid="settlement-link"
-                href={txUrl(order.settlement_tx_hash)!}
-                target="_blank"
-                rel="noopener"
-                className="text-[13px] font-semibold underline"
-              >
-                View transaction ↗
-              </a>
-            )}
+            <SettlementLink hash={order.settlement_tx_hash} className="text-[13px] font-semibold underline" />
             {canPostSettleDispute && (
               <div className="mt-1 flex flex-col items-center gap-1">
                 <button
@@ -446,10 +436,13 @@ export function OrderStatus({ id, submitFn }: Props) {
               {order.status === 'EXPIRED' ? 'Order expired' : 'Order cancelled'}
             </p>
             <p className="text-[13px] text-lp-ink-soft">
-              {order.status === 'EXPIRED'
-                ? 'This order expired before it was completed. No funds were moved.'
-                : 'This order was cancelled. No funds were moved.'}
+              {order.settlement_tx_hash
+                ? 'The USDC locked for this order was returned on-chain.'
+                : order.status === 'EXPIRED'
+                  ? 'This order expired before it was completed. No funds were moved.'
+                  : 'This order was cancelled. No funds were moved.'}
             </p>
+            <SettlementLink hash={order.settlement_tx_hash} className="text-[13px] font-semibold underline" />
           </div>
         )}
       </main>

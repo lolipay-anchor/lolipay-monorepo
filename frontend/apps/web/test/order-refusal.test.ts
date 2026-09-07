@@ -24,14 +24,17 @@ describe('the refusals the anchor sends most often are said in plain words', () 
   it.each([
     ['platform is paused', 'Trading is paused right now. Please try again later.'],
     ['no eligible LP available', 'No provider can take this order right now. Try again in a few minutes.'],
-    ['quote amount is outside current limits', 'This amount is outside today\'s limits. Try a different amount.'],
+    ['quote amount is outside current limits', 'This amount is outside the current limits. Try a different amount.'],
+    ['daily limit exceeded', 'This order would go past your 24-hour limit. Try a smaller amount, or try again later.'],
     ['quote already used', 'That price expired. Get a new quote and try again.'],
     ['quote expired', 'That price expired. Get a new quote and try again.'],
   ])('"%s" becomes "%s"', (backend, sentence) => {
     expect(explainOrderRefusal(backend)).toBe(sentence)
   })
 
-  it('leaves a sentence it has no words for as the anchor wrote it', () => {
+  it('leaves a sentence it has no words for as the anchor wrote it, and never mistakes a neighbouring sentence for one it knows', () => {
     expect(explainOrderRefusal('the escrow contract is paused on-chain')).toBe('the escrow contract is paused on-chain')
+    expect(explainOrderRefusal('Your session expired. Reconnect your wallet to continue.')).toBe('Your session expired. Reconnect your wallet to continue.')
+    expect(explainOrderRefusal('quote does not belong to you')).toBe('quote does not belong to you')
   })
 })

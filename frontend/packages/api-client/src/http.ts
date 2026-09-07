@@ -41,8 +41,10 @@ export class ApiClient {
     } catch {
     }
     if (res.status === 401 && token) {
-      this.o.setToken('')
-      if (typeof window !== 'undefined') window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT))
+      if (this.o.getToken() === token) {
+        this.o.setToken('')
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT))
+      }
       throw new ApiError(401, SESSION_EXPIRED)
     }
     if (res.status === 429) detail = detail || 'Too many attempts — please wait a moment and try again'

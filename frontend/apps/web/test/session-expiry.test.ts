@@ -66,6 +66,27 @@ describe('a dead session is named once, and the app is told', () => {
     expect(heard).not.toHaveBeenCalled()
   })
 
+  it('a late 401 for a token that has since been replaced leaves the new session alone', async () => {
+    let current: string | null = 'dead'
+    const setToken = vi.fn((t: string) => {
+      current = t
+    })
+    const client = new ApiClient({ baseUrl: 'https://api.x', getToken: () => current, setToken })
+    let answer!: (r: unknown) => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((r) => { answer = r })))
+    const heard = vi.fn()
+    window.addEventListener(SESSION_EXPIRED_EVENT, heard)
+    const pending = client.request('GET', '/orders').catch((e) => e)
+    current = 'fresh'
+    answer({ ok: false, status: 401, json: async () => ({ message: 'Unauthorized' }) })
+    const err = await pending
+    window.removeEventListener(SESSION_EXPIRED_EVENT, heard)
+    expect(err.message).toBe(SESSION_EXPIRED)
+    expect(setToken).not.toHaveBeenCalled()
+    expect(heard).not.toHaveBeenCalled()
+    expect(current).toBe('fresh')
+  })
+
   it('an empty-bodied failure still names the request, which the order screens rely on', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 502, json: async () => { throw new Error('no body') } }))
     const { client } = clientWith('jwt')

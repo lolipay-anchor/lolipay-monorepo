@@ -341,7 +341,7 @@ describe('OrderStatus component', () => {
     const link = screen.getByTestId('settlement-link') as HTMLAnchorElement
     expect(link.getAttribute('href')).toBe(`https://stellar.expert/explorer/testnet/tx/${hash}`)
     expect(link.getAttribute('target')).toBe('_blank')
-    expect(link.getAttribute('rel')).toBe('noopener')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
     expect(link.textContent).toBe('View transaction ↗')
   })
 
@@ -375,6 +375,27 @@ describe('OrderStatus component', () => {
     expect((screen.getByTestId('settlement-link') as HTMLAnchorElement).getAttribute('href')).toBe(
       `https://stellar.expert/explorer/testnet/tx/${hash}`,
     )
+    const sentence = screen.getByText('The escrow was returned on-chain — no funds were lost.')
+    expect(sentence.compareDocumentPosition(screen.getByTestId('settlement-link')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('EXPIRED with a settlement hash, which orphan recovery writes when it returns the escrow, links the refund instead of claiming nothing moved', async () => {
+    const hash = 'ef'.repeat(32)
+    const order: Order = { ...BASE_ORDER, id: 'ord-c10e', status: 'EXPIRED', settlement_tx_hash: hash }
+    mockGetOrder.mockResolvedValue(order)
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-c10e" />
+      </TestProviders>,
+    )
+    await waitFor(() => {
+      expect(screen.getByText('Order expired')).toBeTruthy()
+    })
+    expect((screen.getByTestId('settlement-link') as HTMLAnchorElement).getAttribute('href')).toBe(
+      `https://stellar.expert/explorer/testnet/tx/${hash}`,
+    )
+    expect(screen.getByText('The USDC locked for this order was returned on-chain.')).toBeTruthy()
+    expect(screen.queryByText(/No funds were moved/)).toBeNull()
   })
 
   it('DISPUTED: shows the danger panel with a short case id derived from the order id', async () => {

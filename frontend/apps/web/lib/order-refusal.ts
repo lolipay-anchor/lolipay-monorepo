@@ -8,7 +8,8 @@ const TRANSPORT = /→ \d{3}$|failed to fetch|networkerror|load failed/i
 const PLAIN_WORDS: Array<[RegExp, string]> = [
   [/platform is paused/i, 'Trading is paused right now. Please try again later.'],
   [/no eligible LP available/i, 'No provider can take this order right now. Try again in a few minutes.'],
-  [/outside current limits/i, "This amount is outside today's limits. Try a different amount."],
+  [/outside current limits/i, 'This amount is outside the current limits. Try a different amount.'],
+  [/daily limit exceeded/i, 'This order would go past your 24-hour limit. Try a smaller amount, or try again later.'],
   [/quote already used|quote.*expired/i, 'That price expired. Get a new quote and try again.'],
 ]
 

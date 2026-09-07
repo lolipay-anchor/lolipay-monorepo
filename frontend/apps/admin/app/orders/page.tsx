@@ -27,6 +27,16 @@ async function defaultSubmit(signedXdr: string, networkPassphrase: string) {
   return res
 }
 
+function SettlementLink({ hash }: { hash: string | null | undefined }) {
+  const url = hash ? txUrl(hash) : null
+  if (!url) return null
+  return (
+    <a data-testid="settlement-link" href={url} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold underline">
+      View transaction ↗
+    </a>
+  )
+}
+
 export function ResolveActions({
   order,
   onResolved,
@@ -487,17 +497,7 @@ function OrderCard({ order, onResolved }: { order: Order; onResolved: () => void
           <p className="text-xs text-lp-muted mt-0.5">
             {formatIDR(parseInt(order.fiat_amount, 10))}
           </p>
-          {order.settlement_tx_hash && txUrl(order.settlement_tx_hash) && (
-            <a
-              data-testid="settlement-link"
-              href={txUrl(order.settlement_tx_hash)!}
-              target="_blank"
-              rel="noopener"
-              className="text-xs font-semibold underline"
-            >
-              View transaction ↗
-            </a>
-          )}
+          <SettlementLink hash={order.settlement_tx_hash} />
         </div>
         <div className="flex items-center gap-1.5">
           {order.status !== 'RELEASED' && order.status !== 'REFUNDED' && order.status !== 'CANCELLED' && order.status !== 'EXPIRED' && (

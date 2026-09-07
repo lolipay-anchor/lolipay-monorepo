@@ -193,4 +193,19 @@ describe('LoginScreen', () => {
     })
     expect(sessionStorage.getItem('lp_expired')).toBeNull()
   })
+
+  it('drops the expiry sentence the moment the screen has an error of its own, so one message shows at a time', async () => {
+    fakeKit.openModal.mockRejectedValueOnce(new Error('User rejected connection'))
+    sessionStorage.setItem('lp_expired', '1')
+    render(
+      <TestProviders kit={fakeKit}>
+        <LoginScreen />
+      </TestProviders>,
+    )
+    expect(screen.getByTestId('session-expired')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /connect wallet/i }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('User rejected connection')
+    expect(screen.queryByTestId('session-expired')).toBeNull()
+  })
 })

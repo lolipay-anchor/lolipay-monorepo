@@ -98,7 +98,7 @@ describe('create-order', () => {
   })
 
   it('shows error and does NOT navigate when createOrder rejects (409)', async () => {
-    mockCreateOrder.mockRejectedValueOnce(new Error('409: quote expired or used'))
+    mockCreateOrder.mockRejectedValueOnce(new Error('quote already used'))
 
     render(
       <TestProviders>

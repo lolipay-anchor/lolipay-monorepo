@@ -624,6 +624,8 @@ describe('a settled order links its transaction', () => {
     const link = screen.getByTestId('settlement-link') as HTMLAnchorElement
     expect(link.getAttribute('href')).toBe(`https://stellar.expert/explorer/testnet/tx/${hash}`)
     expect(link.textContent).toBe('View transaction ↗')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
   })
 
   it('renders no link for an order that has not settled', async () => {
