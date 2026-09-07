@@ -30,6 +30,7 @@ import {
   resumeAfterFailedFunding,
   partiesOf,
   withAttempts,
+  screenFromTitle,
 } from './sep24-fixtures';
 import { FIAT_INPUT_REFUSAL } from '../money/money';
 
@@ -573,5 +574,18 @@ describe('a chain read that sits between a human and the money tries again befor
     let calls = 0;
     await expect(withAttempts(async () => { calls += 1; throw new RefusedToSign('no'); }, 3, 0)).rejects.toThrow(RefusedToSign);
     expect(calls).toBe(1);
+  });
+});
+
+describe('the driver reads which screen the popup is on from its title', () => {
+  it.each([
+    ['Verify your identity', 'identity'],
+    ['Verify your identity with Didit', 'waiting'],
+    ['Checking your identity', 'waiting'],
+    ['Verification refused', 'refused'],
+    ['How much would you like to deposit?', 'amount'],
+    ['Something else entirely', 'other'],
+  ])('"%s" is the %s screen', (title, screen) => {
+    expect(screenFromTitle(title)).toBe(screen);
   });
 });

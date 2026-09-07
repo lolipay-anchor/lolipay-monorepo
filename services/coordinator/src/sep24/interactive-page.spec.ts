@@ -1,4 +1,5 @@
-import { interactiveScreen, escapeHtml, page, formatFiat, formatUsdc, effectiveIdrPerUsdc, settledRefreshSecs } from './interactive-page';
+import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
+import { interactiveScreen, escapeHtml, page, formatFiat, formatUsdc, effectiveIdrPerUsdc, settledRefreshSecs, identityField } from './interactive-page';
 
 const at = (kycStatus: any, screened: boolean, orderStatus: any) =>
   interactiveScreen({ kycStatus, screened, orderStatus });
@@ -137,5 +138,66 @@ describe('how often the settled screen asks the browser to look again', () => {
     expect(settledRefreshSecs('completed')).toBeUndefined();
     expect(settledRefreshSecs('refunded')).toBeUndefined();
     expect(settledRefreshSecs('expired')).toBeUndefined();
+  });
+});
+
+describe('every screen wears the same small stylesheet', () => {
+  it('wraps the body in a main column with the wordmark, a system font, no body margin, and unbreakable addresses that wrap', () => {
+    const html = page('T', '<p>x</p>');
+    expect(html).toContain('<style>');
+    expect(html).toContain('max-width');
+    expect(html).toContain('body{margin:0');
+    expect(html).toContain('word-break:break-all');
+    expect(html).toContain('<main><p class="brand">lolipay</p><h1>T</h1>');
+    expect(html).toContain('<p>x</p></main>');
+    expect(html).not.toContain('http-equiv');
+  });
+});
+
+describe('the identity form says what to type', () => {
+  it('labels the name fields and lets the browser autofill them', () => {
+    expect(identityField('first_name')).toBe(
+      '<label for="first_name">First name</label><input id="first_name" name="first_name" required autocomplete="given-name">',
+    );
+    expect(identityField('last_name')).toContain('Last name');
+    expect(identityField('last_name')).toContain('autocomplete="family-name"');
+  });
+
+  it('asks for the email as an email', () => {
+    const html = identityField('email_address');
+    expect(html).toContain('Email address');
+    expect(html).toContain('type="email"');
+    expect(html).toContain('autocomplete="email"');
+  });
+
+  it('offers the document types as a list with the Indonesian ID card first, and asks nothing the list already answers', () => {
+    const html = identityField('id_type');
+    expect(html).toContain('Identity document');
+    expect(html).toContain('<select id="id_type" name="id_type">');
+    expect(html).toContain('<option value="id_card" selected>KTP / national ID card</option>');
+    expect(html).toContain('<option value="passport">Passport</option>');
+    expect(html).toContain('<option value="drivers_license">Driving licence</option>');
+    expect(html).not.toContain('required');
+  });
+
+  it('fills the issuing country with IDN and accepts only a three-letter code', () => {
+    expect(identityField('id_country_code')).toBe(
+      '<label for="id_country_code">Country that issued it (3-letter code)</label><input id="id_country_code" name="id_country_code" value="IDN" pattern="[A-Za-z]{3}" maxlength="3" autocapitalize="characters" required>',
+    );
+  });
+
+  it('still renders a labelled required input for a field it has no words for, so a new required field is posted rather than lost', () => {
+    const html = identityField('address');
+    expect(html).toContain('name="address"');
+    expect(html).toContain('<label for="address">address</label>');
+    expect(html).toContain('required');
+  });
+
+  it('renders every required field with its name and a label', () => {
+    expect(
+      REQUIRED_KYC_FIELDS.every(
+        (f) => identityField(f).includes(`name="${f}"`) && /<label[^>]*>[^<]+<\/label>/.test(identityField(f)),
+      ),
+    ).toBe(true);
   });
 });

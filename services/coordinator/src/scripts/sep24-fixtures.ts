@@ -624,7 +624,16 @@ async function openInteractive(kind: 'deposit' | 'withdraw', demoSep10: () => Pr
   return { id: opened.id, cookie: setCookie.split(';')[0] };
 }
 
-type Screen = 'identity' | 'waiting' | 'amount' | 'refused' | 'other';
+export type Screen = 'identity' | 'waiting' | 'amount' | 'refused' | 'other';
+
+export function screenFromTitle(title: string): Screen {
+  if (/with didit/i.test(title)) return 'waiting';
+  if (/verify your identity/i.test(title)) return 'identity';
+  if (/checking your identity/i.test(title)) return 'waiting';
+  if (/verification refused/i.test(title)) return 'refused';
+  if (/how much would you like/i.test(title)) return 'amount';
+  return 'other';
+}
 
 async function screenOf(session: Session): Promise<{ screen: Screen; vendorUrl?: string }> {
   const res = await fetch(`${API}/sep24/interactive/${session.id}`, { headers: { cookie: session.cookie } });
@@ -633,12 +642,10 @@ async function screenOf(session: Session): Promise<{ screen: Screen; vendorUrl?:
   const page = await res.text();
   if (!res.ok) throw new Error(`interactive page: HTTP ${res.status} ${plain(page)}`);
   const title = (page.match(/<h1>([^<]*)<\/h1>/) ?? [])[1] ?? '';
+  const screen = screenFromTitle(title);
+  if (screen !== 'identity' && screen !== 'waiting') return { screen };
   const vendorUrl = (page.match(/href="(https:\/\/verify\.didit\.me\/[^"]+)"/) ?? [])[1];
-  if (/verify your identity/i.test(title)) return { screen: 'identity', vendorUrl };
-  if (/checking your identity/i.test(title)) return { screen: 'waiting', vendorUrl };
-  if (/verification refused/i.test(title)) return { screen: 'refused' };
-  if (/how much would you like/i.test(title)) return { screen: 'amount' };
-  return { screen: 'other' };
+  return { screen, vendorUrl };
 }
 
 async function postForm(session: Session, step: string, fields: Record<string, string>): Promise<void> {
@@ -685,7 +692,7 @@ async function assertScreened(session: Session): Promise<void> {
       [
         'The demo account has no screened identity yet.',
         vendorUrl
-          ? `Complete the verification at:\n  ${vendorUrl}\nthen re-run. (Whoever opens that link can submit documents into the demo identity; do not archive it.)`
+          ? `The popup is on the "${screen}" screen. Complete the verification at:\n  ${vendorUrl}\nthen re-run. (Whoever opens that link can submit documents into the demo identity; do not archive it.)`
           : `The interactive page shows "${screen}"; open the deposit in a browser to see why, then re-run.`,
       ].join('\n'),
     );

@@ -627,8 +627,39 @@ describe('the write credential stays out of every log a URL lands in', () => {
   });
 });
 
+describe('the identity form says what to type, and names the partner that checks it', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    app = await bootAuthApp();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('offers the document types as a list, fills the country with IDN, asks for the email as an email, and says Didit is next', async () => {
+    const jwt = await anchorToken(app, Keypair.random());
+    const res0 = await request(app.getHttpServer())
+      .post('/sep24/transactions/deposit/interactive')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ asset_code: 'USDC' })
+      .expect(200);
+    const id = res0.body.id;
+    const token = new URL(res0.body.url).searchParams.get('token')!;
+    const res = await (await follow(app, id, token)).page().expect(200);
+    expect(res.text).toContain('<select id="id_type" name="id_type">');
+    expect(res.text).toContain('value="IDN"');
+    expect(res.text).toContain('type="email"');
+    expect(res.text).toContain(
+      'Next, our verification partner Didit checks your document — have your KTP or passport ready and your phone nearby.',
+    );
+  });
+});
+
 describe('after the identity form, the popup lands on the screen that keeps checking', () => {
   let app: INestApplication;
+  let prisma: PrismaService;
 
   beforeAll(async () => {
     app = await bootAuthApp((b) =>
@@ -647,6 +678,7 @@ describe('after the identity form, the popup lands on the screen that keeps chec
   });
 
   it('hands the user to the waiting screen, which offers the vendor link and refreshes on its own', async () => {
+    prisma = app.get(PrismaService);
     const kp = Keypair.random();
     const jwt = await anchorToken(app, kp);
     const opened = await request(app.getHttpServer())
@@ -674,7 +706,33 @@ describe('after the identity form, the popup lands on the screen that keeps chec
 
     const shown = await page().expect(200);
     expect(shown.text).toContain('https://verify.example/session/abc123');
-    expect(shown.text).toContain('Continue verification');
+    expect(shown.text).toContain('class="btn"');
+    expect(shown.text).toContain('Verify your identity with Didit');
+    expect(shown.text).toContain('Open Didit verification');
     expect(shown.text).toContain('http-equiv="refresh" content="10"');
+
+    await prisma.kycVerification.update({ where: { customerRef: kp.publicKey() }, data: { deliveredAt: new Date() } });
+    const delivered = await page().expect(200);
+    expect(delivered.text).toContain('Checking your identity');
+    expect(delivered.text).toContain('https://verify.example/session/abc123');
+    expect(delivered.text).not.toContain('Open Didit verification');
+
+    await prisma.kycVerification.update({
+      where: { customerRef: kp.publicKey() },
+      data: { status: 'ACCEPTED', deliveredAt: null, screenedAt: null },
+    });
+    const accepted = await page().expect(200);
+    expect(accepted.text).toContain('Checking your identity');
+    expect(accepted.text).toContain('https://verify.example/session/abc123');
+    expect(accepted.text).not.toContain('Open Didit verification');
+
+    await prisma.kycVerification.update({
+      where: { customerRef: kp.publicKey() },
+      data: { status: 'PROCESSING', verificationUrl: 'http://verify.example/plain' },
+    });
+    const plain = await page().expect(200);
+    expect(plain.text).toContain('Checking your identity');
+    expect(plain.text).not.toContain('class="btn"');
+    expect(plain.text).not.toContain('href="http://');
   });
 });

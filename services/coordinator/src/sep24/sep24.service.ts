@@ -27,7 +27,7 @@ import {
   mintInteractiveToken,
   readInteractiveToken,
 } from './interactive-token';
-import { effectiveIdrPerUsdc, escapeHtml, formatFiat, formatUsdc, interactiveScreen, page, settledRefreshSecs } from './interactive-page';
+import { effectiveIdrPerUsdc, escapeHtml, formatFiat, formatUsdc, interactiveScreen, page, settledRefreshSecs, identityField } from './interactive-page';
 import { explorerTxUrl } from './explorer-url';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
 import { PersonService } from '../person/person.service';
@@ -320,21 +320,28 @@ export class Sep24Service {
       return page('Verification refused', `<p>${escapeHtml((state.refusedAnywhere as any)?.rejectionReason ?? (kyc?.status === 'REJECTED' ? kyc.rejectionReason : undefined) ?? 'This identity was refused.')}</p>`);
     }
     if (screen === 'identity') {
-      const fields = REQUIRED_KYC_FIELDS.map(
-        (f) => `<p><label>${escapeHtml(f.replace(/_/g, ' '))}<br><input name="${escapeHtml(f)}" required></label></p>`,
-      ).join('');
+      const fields = REQUIRED_KYC_FIELDS.map((f) => identityField(f)).join('');
       return page(
         'Verify your identity',
-        `${credits}<form method="post" action="${escapeHtml(post('/identity'))}">${fields}<button type="submit">Continue</button></form>`,
+        `${credits}<p>Next, our verification partner Didit checks your document — have your KTP or passport ready and your phone nearby.</p><form method="post" action="${escapeHtml(post('/identity'))}">${fields}<button type="submit">Continue</button></form>`,
       );
     }
     if (screen === 'waiting_on_identity') {
-      const again = kyc?.verificationUrl
-        ? `<p><a href="${escapeHtml(kyc.verificationUrl)}" target="_blank" rel="noopener">Continue verification</a></p>`
+      const vendor = kyc?.verificationUrl?.startsWith('https://') ? kyc.verificationUrl : null;
+      const vendorSpoke = kyc?.status === 'ACCEPTED' || (kyc?.status === 'PROCESSING' && kyc.deliveredAt !== null);
+      if (vendor && !vendorSpoke) {
+        return page(
+          'Verify your identity with Didit',
+          `${credits}<a class="btn" href="${escapeHtml(vendor)}" target="_blank" rel="noopener">Open Didit verification</a><p class="hint">On a computer, Didit shows a QR code — scan it with your phone and finish there. Keep this window open; it refreshes itself. Already finished on your phone? This page updates on its own.</p>`,
+          10,
+        );
+      }
+      const again = vendor
+        ? `<p><a href="${escapeHtml(vendor)}" target="_blank" rel="noopener">Continue verification</a></p>`
         : '';
       return page(
         'Checking your identity',
-        `<p>This usually takes a moment. This page refreshes itself.</p>${again}`,
+        `<p>This can take a few minutes. This page refreshes itself.</p>${again}`,
         10,
       );
     }
