@@ -12,7 +12,14 @@ const ESCROW_ERRORS: Record<number, string> = {
   11: 'the deadline for this call has not been reached yet',
   12: 'the caller is not authorised for this call',
   13: 'the trade is not disputed',
+  14: 'the escrow token cannot be changed once set',
+  15: 'the platform wallet cannot be changed once set',
   16: 'the roles do not satisfy the escrow contract',
+  17: 'the configuration is not accepted by the escrow contract',
+  18: 'the window to raise a dispute on this trade has closed',
+  19: 'this dispute has already been resolved',
+  20: 'this provider is not allowed to release early',
+  21: 'a dispute cannot be raised on this trade at this stage',
 };
 
 const STAKING_ERRORS: Record<number, string> = {
