@@ -48,10 +48,10 @@ const STYLE = [
   '.brand{font-weight:700;letter-spacing:.02em;color:#555;margin:0 0 .5rem}',
   'h1{font-size:1.35rem;margin:.25rem 0 1rem}',
   'label{display:block;margin:.75rem 0 .25rem;font-weight:600}',
-  'input,select{width:100%;font:inherit;padding:.6rem;border:1px solid #bbb;border-radius:.5rem;box-sizing:border-box}',
+  'input,select{width:100%;font:inherit;font-weight:400;padding:.6rem;border:1px solid #bbb;border-radius:.5rem;box-sizing:border-box}',
   'button,.btn{display:block;width:100%;min-height:44px;margin-top:1rem;font:inherit;font-weight:600;border:0;border-radius:.5rem;background:#111;color:#fff;text-align:center;text-decoration:none;padding:.75rem;box-sizing:border-box}',
   '.hint{color:#555;font-size:.9rem}',
-  'code{white-space:pre-wrap;word-break:break-all}',
+  'pre,code{white-space:pre-wrap;word-break:break-all}',
 ].join('');
 
 export function page(title: string, body: string, refreshSecs?: number): string {
@@ -84,7 +84,7 @@ const IDENTITY_FIELDS: Record<string, string> = {
 
 export function identityField(name: string): string {
   const safe = escapeHtml(name);
-  return IDENTITY_FIELDS[name] ?? `<label for="${safe}">${safe}</label><input id="${safe}" name="${safe}" required>`;
+  return IDENTITY_FIELDS[name] ?? `<label for="${safe}">${escapeHtml(name.replace(/_/g, ' '))}</label><input id="${safe}" name="${safe}" required>`;
 }
 
 export function formatFiat(amount: unknown): string {
