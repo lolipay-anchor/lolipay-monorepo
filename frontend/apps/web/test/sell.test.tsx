@@ -191,6 +191,27 @@ describe('SellForm (WITHDRAW)', () => {
     expect(screen.getByTestId('order-refusal').textContent).toMatch(/verify your identity/i)
   })
 
+  it('does clear an ordinary refusal on a keystroke, so keeping the identity sentence is an exemption and not a stuck banner', async () => {
+    mockCreateOrder.mockRejectedValueOnce(new Error('no eligible LP available'))
+    render(
+      <TestProviders>
+        <SellForm />
+      </TestProviders>,
+    )
+    const amount = screen.getByLabelText(/You sell/i)
+    fireEvent.change(amount, { target: { value: '20' } })
+    fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA 123 a/n Me' } })
+    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
+    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
+    await waitFor(() => expect(screen.getByTestId('order-refusal').textContent).toMatch(/No provider can take this order/i))
+
+    fireEvent.change(amount, { target: { value: '21' } })
+
+    await waitFor(() => expect(screen.queryByTestId('order-refusal')).toBeNull())
+  })
+
   it('refuses to continue on a price the quote door has since refused', async () => {
     render(
       <TestProviders>

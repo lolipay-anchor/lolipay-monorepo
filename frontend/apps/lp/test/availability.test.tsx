@@ -217,7 +217,7 @@ describe('the dashboard keeps its own picture of the provider fresh', () => {
     vi.useRealTimers()
   })
 
-  it('keeps the provider row on a timer but re-reads the stake only when the tab comes back, because that read is six uncached RPC calls', async () => {
+  it('reads the provider row four times as often as the stake, because the stake read is six uncached RPC calls', async () => {
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true))
     vi.useFakeTimers()
     render(
