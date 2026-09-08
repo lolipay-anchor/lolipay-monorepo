@@ -80,6 +80,32 @@ describe('the more-info page of a deposit', () => {
     expect(html).toContain('Send it before <strong>2027-01-15T08:00:00.000Z</strong>');
   });
 
+  it('stops telling a depositor to send rupiah once the pay window has closed, and says what the transaction JSON says instead', async () => {
+    const past = BigInt(Math.floor(Date.now() / 1000) - 600);
+    const html = await service({ ...baseOrder, status: 'FUNDED', settlementTxHash: null, settledAt: null, lpPaymentDetails: 'BCA 1234567890', ref: 'LP-42', payDeadline: past, confirmDeadline: past + 3600n }).moreInfo('tx-1');
+    expect(html).not.toContain('Send <strong>');
+    expect(html).not.toContain('BCA 1234567890');
+    expect(html).toContain('Do not start a transfer now');
+  });
+
+  it('shows no bank details when the order on the row belongs to another person, the same guard the status line already applies', async () => {
+    const svc = service({ ...baseOrder, status: 'FUNDED', settlementTxHash: null, settledAt: null, lpPaymentDetails: 'BCA 1234567890', ref: 'LP-42', payDeadline: 4_000_000_000n });
+    (svc as any).prisma.sep24Transaction.findUnique = jest.fn(async () => ({
+      id: 'tx-1', stellarAccount: 'GABC', personId: 'person-1', startedAt: new Date('2026-09-05T17:00:00.000Z'), flow: 'TOP_UP',
+      order: { personId: 'person-OTHER', ...baseOrder, status: 'FUNDED', settlementTxHash: null, settledAt: null, lpPaymentDetails: 'BCA 1234567890', ref: 'LP-42', payDeadline: 4_000_000_000n },
+    }));
+    const html = await svc.moreInfo('tx-1');
+    expect(html).not.toContain('BCA 1234567890');
+    expect(html).toContain('Status: <strong>incomplete</strong>');
+  });
+
+  it('is rendered through the same page shell as the popup, so the bank details wrap on a phone', async () => {
+    const html = await service({ ...baseOrder, status: 'FUNDED', settlementTxHash: null, settledAt: null, lpPaymentDetails: 'BCA 1234567890', ref: 'LP-42', payDeadline: 4_000_000_000n }).moreInfo('tx-1');
+    expect(html).toContain('<meta name="viewport" content="width=device-width,initial-scale=1">');
+    expect(html).toContain('pre,code{white-space:pre-wrap;overflow-wrap:break-word;overflow-wrap:anywhere}');
+    expect(html).toContain('<h1>lolipay deposit</h1>');
+  });
+
   it('shows no bank details once the deposit has left FUNDED, and never for a withdrawal', async () => {
     const released = await service({ ...baseOrder, status: 'RELEASED', settlementTxHash: HASH, settledAt: new Date(), lpPaymentDetails: 'BCA 1234567890' }).moreInfo('tx-1');
     expect(released).not.toContain('BCA 1234567890');

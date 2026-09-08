@@ -580,6 +580,7 @@ export class Sep24Service {
   }): string {
     const o = row.order;
     if (row.flow !== 'TOP_UP' || !o || o.status !== 'FUNDED') return '';
+    if (o.payDeadline && Number(o.payDeadline) * 1000 <= Date.now()) return '';
     const due = o.payDeadline ? new Date(Number(o.payDeadline) * 1000).toISOString() : null;
     return [
       `<p>Send <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to:</p>`,
@@ -597,16 +598,17 @@ export class Sep24Service {
     if (!row) throw new NotFoundException('this anchor holds no such transaction');
     const [tx] = await this.dress([row]);
     const noun = tx.kind === 'withdrawal' ? 'withdrawal' : 'deposit';
-    return [
-      '<!doctype html><html lang="en"><head><meta charset="utf-8">',
-      `<title>lolipay ${noun}</title></head><body>`,
-      `<h1>lolipay ${noun}</h1>`,
-      `<p>Status: <strong>${tx.status}</strong></p>`,
-      `<p>Started: ${tx.started_at}</p>`,
-      this.paymentLine(row),
-      this.settlementLine(tx.status, tx.stellar_transaction_id),
-      `<p>If something is wrong with this ${noun}, sign in with the same wallet at <a href="https://app.lolipay.app">app.lolipay.app</a>: the order appears there with its evidence, and it shows whether a dispute can still be opened and until when.</p>`,
-      '</body></html>',
-    ].join('');
+    const order = row.order && row.order.personId === row.personId ? row.order : null;
+    const payment = this.paymentLine({ flow: row.flow, order });
+    return page(
+      `lolipay ${noun}`,
+      [
+        `<p>Status: <strong>${escapeHtml(tx.status)}</strong></p>`,
+        `<p>Started: ${escapeHtml(tx.started_at)}</p>`,
+        payment || (tx.message ? `<p>${escapeHtml(tx.message)}</p>` : ''),
+        this.settlementLine(tx.status, tx.stellar_transaction_id),
+        `<p>If something is wrong with this ${noun}, sign in with the same wallet at <a href="https://app.lolipay.app">app.lolipay.app</a>: the order appears there with its evidence, and it shows whether a dispute can still be opened and until when.</p>`,
+      ].join(''),
+    );
   }
 }

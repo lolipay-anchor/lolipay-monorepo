@@ -41,12 +41,13 @@ describe('whether a customer may move funds depends on one predicate that reads 
     expect(offenders).toEqual([]);
   });
 
-  it('sep12.service touches screenedAt and deliveredAt only on the lines that write them and the one delivery-order guard, so any new read there fails until it is consciously listed', () => {
+  it('sep12.service touches screenedAt and deliveredAt, directly or through the popup predicate, only on the lines listed here, so any new read there fails until it is consciously listed', () => {
     const lines = readFileSync(join(__dirname, 'sep12.service.ts'), 'utf8')
       .split('\n')
       .map((l) => l.trim())
-      .filter((l) => /\b(screenedAt|deliveredAt)\b/.test(l));
+      .filter((l) => /\b(screenedAt|deliveredAt|popupMayOfferVendor)\b/.test(l));
     expect(lines).toEqual([
+      "import { awaitingProvider, popupMayOfferVendor } from './screening-requirement';",
       'async applyDelivery(conclusion: DiditConclusion, deliveredAt: Date): Promise<void> {',
       'if (!refusing && standing.deliveredAt && standing.deliveredAt > deliveredAt) return;',
       'await this.writeDelivery(tx, customerRef, person.id, conclusion, deliveredAt, standing);',
@@ -55,6 +56,7 @@ describe('whether a customer may move funds depends on one predicate that reads 
       'deliveredAt: conclusion.notStarted ? (standing?.deliveredAt ?? null) : deliveredAt,',
       'screenedAt: screened ? deliveredAt : null,',
       "verifiedAt: conclusion.status === 'ACCEPTED' ? deliveredAt : null,",
+      "const providerPage = row.verificationUrl?.startsWith('https://') && popupMayOfferVendor(row) && stillInFlight(row) ? row.verificationUrl : null;",
       'data: { rejectionReason: null, screenedAt: null, verifiedAt: null, verificationUrl: null, providerRef: null, environment: null },',
       'screenedAt: null,',
       'deliveredAt: null,',

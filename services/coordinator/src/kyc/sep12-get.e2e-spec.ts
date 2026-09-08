@@ -314,6 +314,31 @@ describe('GET /customer tells a caller where their verification stands', () => {
       .get('/customer')
       .set('Authorization', `Bearer ${plainJwt}`)
       .expect(200);
+    expect(plainRes.body.status).toBe('PROCESSING');
+    expect(String(plainRes.body.message)).toMatch(/submit your details again after a day/);
     expect(String(plainRes.body.message)).not.toContain('javascript:');
+  });
+
+  it('withholds the provider page for a session past its day, the same row the popup sends back to the identity form', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: kp.publicKey(),
+        personId: await personFor(kp.publicKey()),
+        status: 'PROCESSING',
+        providerRef: 'sess-stale',
+        verificationUrl: 'https://verify.didit.me/session/stale',
+        deliveredAt: null,
+        updatedAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+      },
+    });
+    const res = await request(app.getHttpServer())
+      .get('/customer')
+      .set('Authorization', `Bearer ${jwt}`)
+      .expect(200);
+    expect(res.body.status).toBe('PROCESSING');
+    expect(String(res.body.message)).toMatch(/submit your details again after a day/);
+    expect(String(res.body.message)).not.toContain('verify.didit.me');
   });
 });

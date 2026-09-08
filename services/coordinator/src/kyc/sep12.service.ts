@@ -195,7 +195,7 @@ export class Sep12Service {
       };
     }
     if (row.status === 'PROCESSING') {
-      const providerPage = row.verificationUrl?.startsWith('https://') && popupMayOfferVendor(row) ? row.verificationUrl : null;
+      const providerPage = row.verificationUrl?.startsWith('https://') && popupMayOfferVendor(row) && stillInFlight(row) ? row.verificationUrl : null;
       return {
         id: row.customerRef,
         status: row.status,
