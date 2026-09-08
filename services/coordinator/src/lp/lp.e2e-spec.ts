@@ -375,9 +375,9 @@ describe('LP registry + admin actions (e2e)', () => {
   it('refuses a decision when the row moved between the read and the write, audits nothing, and leaves the other decision standing', async () => {
     const seen = await prisma.adminAudit.count({ where: { targetId: lpId, action: 'lp.setStatus' } });
     const original = prisma.$transaction.bind(prisma);
-    const spy = jest.spyOn(prisma, '$transaction').mockImplementationOnce(((fn: (tx: any) => Promise<unknown>) =>
+    let moved = false;
+    const spy = jest.spyOn(prisma, '$transaction').mockImplementation(((fn: (tx: any) => Promise<unknown>) =>
       original(async (tx: any) => {
-        let moved = false;
         const bound = (target: any, prop: PropertyKey) => {
           const value = Reflect.get(target, prop);
           return typeof value === 'function' ? value.bind(target) : value;
@@ -385,11 +385,11 @@ describe('LP registry + admin actions (e2e)', () => {
         const lpDelegate = new Proxy(tx.lp, {
           get: (target, prop) =>
             prop === 'findUnique'
-              ? async (args: unknown) => {
+              ? async (args: any) => {
                   const row = await target.findUnique(args);
-                  if (!moved) {
+                  if (!moved && args?.where?.id === lpId) {
                     moved = true;
-                    await prisma.lp.update({ where: { id: lpId }, data: { status: 'REVOKED', approvalNote: 'someone else got there first' } });
+                    await prisma.lp.update({ where: { id: lpId }, data: { approvalNote: 'someone else edited the note' } });
                   }
                   return row;
                 }
@@ -406,9 +406,10 @@ describe('LP registry + admin actions (e2e)', () => {
     expect(res.status).toBe(409);
     expect(res.body.message).toBe("the provider's status changed while you were deciding — reload and decide again");
     expect(await prisma.adminAudit.count({ where: { targetId: lpId, action: 'lp.setStatus' } })).toBe(seen);
+    expect(moved).toBe(true);
     const row = await prisma.lp.findUnique({ where: { id: lpId } });
-    expect(row?.status).toBe('REVOKED');
-    expect(row?.approvalNote).toBe('someone else got there first');
+    expect(row?.status).toBe('SUSPENDED');
+    expect(row?.approvalNote).toBe('someone else edited the note');
   });
 
   it('treats a blank note as no note, so an empty box can never erase the reason behind a sanction', async () => {

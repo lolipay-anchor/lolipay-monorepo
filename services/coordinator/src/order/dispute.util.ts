@@ -37,8 +37,17 @@ export function allowedDisputeReasons(flow: string): readonly string[] {
 
 const EVIDENCE_EXTENSIONS = ['jpg', 'png', 'webp', 'pdf'];
 
-export function isOwnEvidencePath(evidenceUrl: string, orderId: string, role: 'user' | 'lp'): boolean {
-  const prefix = `evidence/${orderId}-${role}.`;
+export function evidenceKeyFor(orderId: string, role: 'user' | 'lp', closedAt: Date | null): string {
+  return closedAt ? `${orderId}-${role}-${closedAt.getTime()}` : `${orderId}-${role}`;
+}
+
+export function isOwnEvidencePath(
+  evidenceUrl: string,
+  orderId: string,
+  role: 'user' | 'lp',
+  closedAt: Date | null,
+): boolean {
+  const prefix = `evidence/${evidenceKeyFor(orderId, role, closedAt)}.`;
   if (!evidenceUrl.startsWith(prefix)) return false;
   const ext = evidenceUrl.slice(prefix.length);
   return EVIDENCE_EXTENSIONS.includes(ext);

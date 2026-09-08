@@ -329,6 +329,50 @@ describe('OrderService — dispute metadata + post-settle window (Phase 5B Task 
     expect((result.order.dispute_at as Date).getTime()).toBeGreaterThanOrEqual(before);
   });
 
+  it('a party whose post-settlement shot the escrow refuses is turned away before the row is claimed', async () => {
+    const { svc, prisma, stellar } = makeSvc({ status: 'RELEASED', settledAt: new Date() });
+    stellar.buildRaiseDisputeTx.mockRejectedValueOnce(new Error('simulation failed: HostError: Error(Contract, #7) AlreadyResolved'));
+
+    await expect(svc.postDispute('order-1', LP_ADDR, 'FAKE_PROOF', 'again', undefined)).rejects.toThrow();
+
+    const claims = prisma.order.updateMany.mock.calls.filter((c: any) => c[0].data && 'disputeBy' in c[0].data);
+    expect(claims).toHaveLength(0);
+  });
+
+  it('a filing after a closed round is accepted and stamped now, not with the earlier round\'s time', async () => {
+    const earlier = new Date(Date.now() - 86_400_000);
+    const before = Date.now();
+    const { svc } = makeSvc({
+      status: 'RELEASED',
+      settledAt: new Date(),
+      disputeAt: earlier,
+      disputeClosedAt: new Date(Date.now() - 3_600_000),
+    });
+
+    const result = await svc.postDispute('order-1', USER_ADDR, 'PAYMENT_NOT_RECEIVED', 'again', undefined);
+
+    expect((result.order.dispute_at as Date).getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  it('evidence uploaded for the new round, at the marked key, is accepted as the caller\'s own', async () => {
+    const closedAt = new Date(1_700_000_000_000);
+    const { svc, storage } = makeSvc({ status: 'FIAT_PAID', disputeClosedAt: closedAt });
+    const relative = await writeEvidenceFile(storage, 'order-1-user-1700000000000');
+
+    const result = await svc.postDispute('order-1', USER_ADDR, 'PAYMENT_NOT_RECEIVED', 'see attached', relative);
+
+    expect(result.order.dispute_evidence_url).toBe(relative);
+  });
+
+  it('the earlier round\'s plain key is no longer the caller\'s own once a round has been closed', async () => {
+    const { svc, storage } = makeSvc({ status: 'FIAT_PAID', disputeClosedAt: new Date(1_700_000_000_000) });
+    const relative = await writeEvidenceFile(storage, 'order-1-user');
+
+    await expect(svc.postDispute('order-1', USER_ADDR, 'PAYMENT_NOT_RECEIVED', 'see attached', relative)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
   describe('buildRaiseDisputeTx — relaxed to canDispute (FIAT_PAID or post-settle window)', () => {
     it('FIAT_PAID → still succeeds (unchanged behaviour)', async () => {
       const { svc, tx } = makeSvc({ status: 'FIAT_PAID' });

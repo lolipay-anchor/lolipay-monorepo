@@ -1,4 +1,4 @@
-import { canDispute, postSettleDeadlineMs, postSettleDisputeDeadline, refundOpensAt } from './dispute.util';
+import { canDispute, isOwnEvidencePath, postSettleDeadlineMs, postSettleDisputeDeadline, refundOpensAt } from './dispute.util';
 
 const CONFIG = { postSettleDisputeWindowSecs: 3600 };
 
@@ -158,5 +158,26 @@ describe('a filing closes the post-settlement window for everyone', () => {
         config,
       ),
     ).not.toBeNull();
+  });
+});
+
+describe('an evidence path belongs to the round it was uploaded in', () => {
+  const closedAt = new Date(1_700_000_000_000);
+
+  it('accepts the plain key while no round has been closed', () => {
+    expect(isOwnEvidencePath('evidence/order-1-user.jpg', 'order-1', 'user', null)).toBe(true);
+  });
+
+  it('accepts only the key carrying the closed-round marker once a round has been closed', () => {
+    expect(isOwnEvidencePath('evidence/order-1-user-1700000000000.jpg', 'order-1', 'user', closedAt)).toBe(true);
+    expect(isOwnEvidencePath('evidence/order-1-user.jpg', 'order-1', 'user', closedAt)).toBe(false);
+  });
+
+  it('refuses a marked key while no round has been closed', () => {
+    expect(isOwnEvidencePath('evidence/order-1-user-1700000000000.jpg', 'order-1', 'user', null)).toBe(false);
+  });
+
+  it('refuses the other party\'s marked key', () => {
+    expect(isOwnEvidencePath('evidence/order-1-lp-1700000000000.jpg', 'order-1', 'user', closedAt)).toBe(false);
   });
 });

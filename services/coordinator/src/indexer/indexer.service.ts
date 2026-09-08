@@ -10,6 +10,8 @@ import { contractIdFor } from '../order/order.params';
 import { verifyTradeMatchesOrder, notYetBoundOnChain } from '../order/trade-binding';
 import { userLostDispute, providerLostDispute } from '../reputation/dispute-outcome';
 import { UserReputationService } from '../reputation/user-reputation.service';
+import { recordAudit } from '../admin/admin-audit';
+import { Prisma } from '../generated/prisma/client';
 
 export function attributeDisputer(
   by: string,
@@ -265,7 +267,7 @@ export class IndexerService {
 
   private async applyDisputedEvent(
     ev: { value: any; contractId?: any },
-    order: { id: string; tradeId: string; status: string; disputeAt?: Date | null },
+    order: { id: string; tradeId: string; status: string; disputeAt?: Date | null; disputeBy?: string | null },
     toScVal: (t: any) => any,
   ): Promise<number> {
     let disputedBy: string | undefined;
@@ -285,7 +287,7 @@ export class IndexerService {
 
       const res = await this.prisma.order.updateMany({
         where: { id: order.id, status: { in: ['RELEASED', 'REFUNDED'] } },
-        data: { status: 'DISPUTED', disputeAt: order.disputeAt ?? new Date() },
+        data: { status: 'DISPUTED', disputeAt: disputeStampFor(order) },
       });
       if (res.count === 0) return 0;
       await this.reconcileDisputeMetadata(order.id, disputedBy);
@@ -296,7 +298,7 @@ export class IndexerService {
     const target = 'DISPUTED';
     const res = await this.prisma.order.updateMany({
       where: { id: order.id, status: { in: STATUS_BEFORE[target] as any[] } },
-      data: { status: target as any, disputeAt: order.disputeAt ?? new Date() },
+      data: { status: target as any, disputeAt: disputeStampFor(order) },
     });
     if (res.count === 0) return 0;
     await this.reconcileDisputeMetadata(order.id, disputedBy);
@@ -358,15 +360,19 @@ export class IndexerService {
         ? { postSettleDeadline: onChain.postSettleDeadline }
         : {};
       const hash = settlementHashOf(ev);
-      const res = await this.prisma.order.updateMany({
-        where: {
-          id: order.id,
-          OR: [
-            { status: { in: STATUS_BEFORE[target] as any[] } },
-            { status: target as any, resolution: null },
-          ],
-        },
-        data: { status: target as any, settledAt, resolution, ...latched, ...(hash ? { settlementTxHash: hash } : {}) },
+      const res = await this.prisma.$transaction(async (tx) => {
+        const written = await tx.order.updateMany({
+          where: {
+            id: order.id,
+            OR: [
+              { status: { in: STATUS_BEFORE[target] as any[] } },
+              { status: target as any, resolution: null },
+            ],
+          },
+          data: { status: target as any, settledAt, resolution, ...latched, ...(hash ? { settlementTxHash: hash } : {}) },
+        });
+        if (written.count > 0) await this.closeDisputeRound(tx, order.id, contractId);
+        return written;
       });
       if (res.count === 0) {
         this.log.warn(`resolver verdict on ${order.id} matched no row: status ${order.status}, resolution already recorded`);
@@ -384,23 +390,62 @@ export class IndexerService {
     const finalStatus = settled.status;
 
     const verdict = val.released ? 'released' : 'refunded';
-    const res = await this.prisma.order.updateMany({
-      where: { id: order.id },
-      data: {
-        status: finalStatus as any,
-        resolution: verdict,
-        ...(typeof settled.liabilityEstablished === 'boolean' && settled.slashDeadline !== undefined
-          ? {
-              liabilityEstablished: settled.liabilityEstablished,
-              slashDeadline: settled.slashDeadline,
-            }
-          : {}),
-      },
+    const res = await this.prisma.$transaction(async (tx) => {
+      const written = await tx.order.updateMany({
+        where: { id: order.id },
+        data: {
+          status: finalStatus as any,
+          resolution: verdict,
+          ...(typeof settled.liabilityEstablished === 'boolean' && settled.slashDeadline !== undefined
+            ? {
+                liabilityEstablished: settled.liabilityEstablished,
+                slashDeadline: settled.slashDeadline,
+              }
+            : {}),
+        },
+      });
+      if (written.count > 0) await this.closeDisputeRound(tx, order.id, contractId);
+      return written;
     });
     if (res.count === 0) return 0;
     await this.accrueDisputeLossIfApplicable(order, verdict);
     await this.notifySafely(order, finalStatus);
     return 1;
+  }
+
+  private async closeDisputeRound(tx: Prisma.TransactionClient, orderId: string, contractId: string): Promise<void> {
+    const open = await tx.order.findUnique({
+      where: { id: orderId },
+      select: {
+        disputeBy: true,
+        disputeReason: true,
+        disputeNote: true,
+        disputeEvidenceUrl: true,
+        disputeAt: true,
+        onChainDisputedBy: true,
+      },
+    });
+    if (!open || (!open.disputeBy && !open.onChainDisputedBy)) return;
+    const closed = await tx.order.updateMany({
+      where: { id: orderId, OR: [{ disputeBy: { not: null } }, { onChainDisputedBy: { not: null } }] },
+      data: { disputeBy: null, disputeReason: null, disputeNote: null, onChainDisputedBy: null, disputeClosedAt: new Date() },
+    });
+    if (closed.count !== 1) return;
+    await recordAudit(tx as any, {
+      actorAddress: contractId,
+      action: 'order.disputeRoundClosed',
+      targetType: 'Order',
+      targetId: orderId,
+      before: {
+        disputeBy: open.disputeBy,
+        disputeReason: open.disputeReason,
+        disputeNote: open.disputeNote,
+        disputeEvidenceUrl: open.disputeEvidenceUrl,
+        disputeAt: open.disputeAt,
+        onChainDisputedBy: open.onChainDisputedBy,
+      },
+      after: null,
+    });
   }
 
   private async accrueDisputeLossIfApplicable(
@@ -439,6 +484,10 @@ export class IndexerService {
       );
     }
   }
+}
+
+function disputeStampFor(order: { disputeAt?: Date | null; disputeBy?: string | null }): Date {
+  return order.disputeBy ? (order.disputeAt ?? new Date()) : new Date();
 }
 
 function eventContractId(ev: { contractId?: any }): string | undefined {

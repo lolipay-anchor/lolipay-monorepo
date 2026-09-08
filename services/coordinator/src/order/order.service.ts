@@ -440,7 +440,7 @@ export class OrderService {
     }
 
     if (evidenceUrl !== undefined) {
-      if (!isOwnEvidencePath(evidenceUrl, orderId, role)) {
+      if (!isOwnEvidencePath(evidenceUrl, orderId, role, currentOrder.disputeClosedAt ?? null)) {
         throw new BadRequestException(
           "evidenceUrl must be your OWN uploaded dispute evidence for this order (use POST /orders/:id/dispute-evidence first)",
         );
@@ -451,6 +451,8 @@ export class OrderService {
       }
     }
 
+    const dispute_tx = await this.tx.buildRaiseDisputeTx(orderId, callerAddress);
+
     const claimed = await this.prisma.order.updateMany({
       where: { id: orderId, disputeBy: null },
       data: {
@@ -458,7 +460,7 @@ export class OrderService {
         disputeReason: reason,
         disputeNote: sanitizedNote,
         disputeEvidenceUrl: evidenceUrl ?? null,
-        disputeAt: currentOrder.disputeAt ?? new Date(),
+        disputeAt: new Date(),
       },
     });
     if (claimed.count === 0) {
@@ -466,8 +468,6 @@ export class OrderService {
     }
 
     const updated = await this.prisma.order.findUnique({ where: { id: orderId }, include: { lp: true } });
-
-    const dispute_tx = await this.tx.buildRaiseDisputeTx(orderId, callerAddress);
 
     return { order: serializeOrderBase(updated, config), dispute_tx };
   }

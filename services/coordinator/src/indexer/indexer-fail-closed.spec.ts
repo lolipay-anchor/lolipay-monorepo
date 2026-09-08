@@ -43,6 +43,8 @@ function make(status: string, stellarOverrides: Record<string, any> = {}, orderO
     },
     indexerState: { upsert: jest.fn().mockResolvedValue({}) },
   } as any;
+  prisma.adminAudit = { create: jest.fn().mockResolvedValue(undefined) };
+  prisma.$transaction = jest.fn(async (fn: any) => fn(prisma));
   const cfg = { rpcUrl: 'x', escrowContractId: 'CXXX', escrowContractIdsExtra: [] } as any;
   const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
   const stellar = {

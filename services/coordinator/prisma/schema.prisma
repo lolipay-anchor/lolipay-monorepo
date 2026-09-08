@@ -122,6 +122,7 @@ model Order {
   disputeNote         String?
   disputeEvidenceUrl  String?
   disputeAt           DateTime?
+  disputeClosedAt     DateTime?
   resolution          String?
   disputeLossAccrued  Boolean     @default(false)
 

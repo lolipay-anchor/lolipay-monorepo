@@ -3,7 +3,8 @@ export type AuditAction =
   | 'lp.setStatus'
   | 'config.update'
   | 'market.update'
-  | 'order.attestFiatPaid';
+  | 'order.attestFiatPaid'
+  | 'order.disputeRoundClosed';
 
 export interface AuditEntry {
   actorAddress: string;

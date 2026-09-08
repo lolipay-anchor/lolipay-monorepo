@@ -73,7 +73,9 @@ describe('IndexerService.applyEvent', () => {
         update: jest.fn().mockResolvedValue(order),
         updateMany: jest.fn().mockResolvedValue({ count: opts.updateManyCount ?? 1 }),
       },
+      adminAudit: { create: jest.fn().mockResolvedValue(undefined) },
     } as any;
+    prisma.$transaction = jest.fn(async (fn: any) => fn(prisma));
     const cfg = { rpcUrl: 'x', escrowContractId: 'CXXX', escrowContractIdsExtra: [], ...opts.cfgOverrides } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
     const stellar = {
@@ -593,8 +595,9 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
       txHash: 'b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801a1',
     });
     expect(advanced).toBe(1);
-    expect(prisma.order.updateMany).toHaveBeenCalledTimes(1);
-    expect(prisma.order.updateMany.mock.calls[0][0].data).not.toHaveProperty('settlementTxHash');
+    const statusWrites = prisma.order.updateMany.mock.calls.filter((c: any) => 'status' in c[0].data);
+    expect(statusWrites).toHaveLength(1);
+    expect(statusWrites[0][0].data).not.toHaveProperty('settlementTxHash');
   });
 
   it('records the verdict and the hash when a client poll advanced the row before the resolved event landed', async () => {
@@ -1280,6 +1283,7 @@ describe('IndexerService.applyEvent — disputed (post-settlement raise, Phase 5
       lpWallet: 'GLP',
       flow: 'TOP_UP',
       status: 'RELEASED',
+      disputeBy: 'user',
       disputeAt: originalDisputeAt,
     });
     const advanced = await svc.applyEvent({
@@ -1390,6 +1394,8 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
         }),
       },
     } as any;
+    prisma.adminAudit = { create: jest.fn().mockResolvedValue(undefined) };
+    prisma.$transaction = jest.fn(async (fn: any) => fn(prisma));
     const cfg = { rpcUrl: 'x', escrowContractId: 'CXXX', escrowContractIdsExtra: [] } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
     const stellar = { getTradeStatus: jest.fn(), getTradeStatusStrict: jest.fn() } as any;
@@ -1618,11 +1624,13 @@ describe('IndexerService.applyEvent — disputed/resolved split-replay window (s
                 ? order.status === where.status
                 : (where.status?.in ?? []).includes(order.status);
           if (!matches) return Promise.resolve({ count: 0 });
-          order.status = data.status;
+          Object.assign(order, data);
           return Promise.resolve({ count: 1 });
         }),
       },
     } as any;
+    prisma.adminAudit = { create: jest.fn().mockResolvedValue(undefined) };
+    prisma.$transaction = jest.fn(async (fn: any) => fn(prisma));
     const cfg = { rpcUrl: 'x', escrowContractId: 'CEVENTCONTRACT', escrowContractIdsExtra: [] } as any;
     const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
 
@@ -1864,7 +1872,9 @@ function makeBase(
       update: jest.fn().mockResolvedValue(order),
       updateMany: jest.fn().mockResolvedValue({ count: opts.updateManyCount ?? 1 }),
     },
+    adminAudit: { create: jest.fn().mockResolvedValue(undefined) },
   } as any;
+  prisma.$transaction = jest.fn(async (fn: any) => fn(prisma));
   const cfg = { rpcUrl: 'x', escrowContractId: 'CXXX', escrowContractIdsExtra: [], ...opts.cfgOverrides } as any;
   const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) } as any;
   const stellar = {
@@ -1882,3 +1892,171 @@ function makeBase(
     userReputation,
   };
 }
+
+describe('IndexerService.applyEvent — a verdict closes the dispute round (ADR 0043)', () => {
+  const FILED_AT = new Date('2026-09-07T10:00:00.000Z');
+  const filing = {
+    disputeBy: 'user',
+    disputeReason: 'PAYMENT_NOT_RECEIVED',
+    disputeNote: 'no money arrived',
+    disputeEvidenceUrl: 'evidence/ord-1-user.jpg',
+    disputeAt: FILED_AT,
+    onChainDisputedBy: 'GUSER',
+  };
+
+  async function withRow(orderStatus: string, row: Record<string, any>, stellarOverrides: Record<string, any> = {}) {
+    const base = makeBase(orderStatus, {
+      stellarOverrides: {
+        getTradeStatus: jest.fn().mockResolvedValue({ settledAt: 1_700_000_000, postSettleDeadline: 1_700_086_400n }),
+        ...stellarOverrides,
+      },
+    });
+    const seed = await base.prisma.order.findUnique();
+    let current: any = {
+      ...seed,
+      disputeBy: null,
+      disputeReason: null,
+      disputeNote: null,
+      disputeEvidenceUrl: null,
+      disputeAt: null,
+      onChainDisputedBy: null,
+      disputeClosedAt: null,
+      resolution: null,
+      ...row,
+    };
+    const tx = {
+      order: {
+        findUnique: jest.fn().mockImplementation(async () => ({ ...current })),
+        updateMany: jest.fn().mockImplementation(async ({ data }: any) => {
+          if ('disputeClosedAt' in data && !current.disputeBy && !current.onChainDisputedBy) return { count: 0 };
+          current = { ...current, ...data };
+          return { count: 1 };
+        }),
+      },
+      adminAudit: { create: jest.fn().mockResolvedValue(undefined) },
+    };
+    base.prisma.$transaction = jest.fn(async (fn: any) => fn(tx));
+    base.prisma.order.findUnique.mockImplementation(async () => ({ ...current }));
+    return { ...base, tx, row: () => current };
+  }
+
+  const verdict = (post_settle = false) => ({
+    topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+    value: nativeToScVal({ released: true, post_settle }),
+    contractId: 'CXXX',
+  });
+
+  it('nulls the filing, keeps its time and its evidence, sets the marker and records the round — every write on the transaction client', async () => {
+    const { svc, prisma, tx, row } = await withRow('DISPUTED', filing);
+
+    expect(await svc.applyEvent(verdict())).toBe(1);
+
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+    expect(tx.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'RELEASED', resolution: 'released' }) }),
+    );
+    expect(row()).toMatchObject({
+      status: 'RELEASED',
+      disputeBy: null,
+      disputeReason: null,
+      disputeNote: null,
+      onChainDisputedBy: null,
+      disputeEvidenceUrl: 'evidence/ord-1-user.jpg',
+      disputeAt: FILED_AT,
+    });
+    expect(row().disputeClosedAt).toBeInstanceOf(Date);
+
+    expect(tx.adminAudit.create).toHaveBeenCalledTimes(1);
+    const { data } = tx.adminAudit.create.mock.calls[0][0];
+    expect(data).toMatchObject({ actorAddress: 'CXXX', action: 'order.disputeRoundClosed', targetType: 'Order', targetId: 'ord-1', after: null });
+    expect(data.before).toEqual({
+      disputeBy: 'user',
+      disputeReason: 'PAYMENT_NOT_RECEIVED',
+      disputeNote: 'no money arrived',
+      disputeEvidenceUrl: 'evidence/ord-1-user.jpg',
+      disputeAt: '2026-09-07T10:00:00.000Z',
+      onChainDisputedBy: 'GUSER',
+    });
+  });
+
+  it('closes the round from FIAT_PAID too, when the verdict lands before the dispute event was indexed', async () => {
+    const { svc, tx, row } = await withRow('FIAT_PAID', filing);
+
+    expect(await svc.applyEvent(verdict())).toBe(1);
+
+    expect(row()).toMatchObject({ status: 'RELEASED', disputeBy: null, disputeAt: FILED_AT });
+    expect(tx.adminAudit.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes a round the chain raised without a filing on record', async () => {
+    const { svc, tx, row } = await withRow('DISPUTED', { onChainDisputedBy: 'GRESOLVER', disputeAt: FILED_AT });
+
+    expect(await svc.applyEvent(verdict())).toBe(1);
+
+    expect(row()).toMatchObject({ onChainDisputedBy: null, disputeAt: FILED_AT });
+    expect(row().disputeClosedAt).toBeInstanceOf(Date);
+    expect(tx.adminAudit.create).toHaveBeenCalledTimes(1);
+    expect(tx.adminAudit.create.mock.calls[0][0].data.before).toMatchObject({ disputeBy: null, onChainDisputedBy: 'GRESOLVER' });
+  });
+
+  it('a verdict with no round open writes nothing beyond the status', async () => {
+    const { svc, tx, row } = await withRow('DISPUTED', {});
+
+    expect(await svc.applyEvent(verdict())).toBe(1);
+
+    expect(tx.adminAudit.create).not.toHaveBeenCalled();
+    expect(row().disputeClosedAt).toBeNull();
+  });
+
+  it('a replayed verdict writes no second audit row and does not move the marker', async () => {
+    const { svc, tx, row } = await withRow('DISPUTED', filing);
+    await svc.applyEvent(verdict());
+    const marker = row().disputeClosedAt;
+    tx.adminAudit.create.mockClear();
+
+    await svc.applyEvent(verdict());
+
+    expect(tx.adminAudit.create).not.toHaveBeenCalled();
+    expect(row().disputeClosedAt).toBe(marker);
+  });
+
+  it('a post-settlement verdict closes the round the same way', async () => {
+    const { svc, prisma, tx, row } = await withRow('RELEASED', filing, {
+      getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'RELEASED', liabilityEstablished: true, slashDeadline: 1_700_090_000n }),
+    });
+
+    expect(await svc.applyEvent(verdict(true))).toBe(1);
+
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+    expect(row()).toMatchObject({ status: 'RELEASED', resolution: 'released', liabilityEstablished: true, disputeBy: null, disputeAt: FILED_AT });
+    expect(tx.adminAudit.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('IndexerService.applyEvent — a dispute after a closed round gets a fresh time', () => {
+  const OLD = new Date('2026-09-01T00:00:00.000Z');
+
+  it('a chain dispute after a closed round stamps now, not the earlier round\'s time', async () => {
+    const { svc, prisma } = makeBase('RELEASED', {
+      stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'DISPUTED' }) },
+    });
+    const seed = await prisma.order.findUnique();
+    prisma.order.findUnique.mockResolvedValue({ ...seed, disputeAt: OLD, disputeBy: null, disputeClosedAt: new Date('2026-09-02T00:00:00.000Z') });
+    const before = Date.now();
+
+    expect(await svc.applyEvent({ topic: [TOPIC_DISPUTED, tradeIdTopic(TRADE_ID_A)], value: nativeToScVal(null), contractId: 'CXXX' })).toBe(1);
+
+    const stamped: Date = prisma.order.updateMany.mock.calls[0][0].data.disputeAt;
+    expect(stamped.getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  it('a chain dispute while a filing is open keeps the filing\'s time', async () => {
+    const { svc, prisma } = makeBase('FIAT_PAID');
+    const seed = await prisma.order.findUnique();
+    prisma.order.findUnique.mockResolvedValue({ ...seed, disputeAt: OLD, disputeBy: 'user' });
+
+    expect(await svc.applyEvent({ topic: [TOPIC_DISPUTED, tradeIdTopic(TRADE_ID_A)], value: nativeToScVal(null), contractId: 'CXXX' })).toBe(1);
+
+    expect(prisma.order.updateMany.mock.calls[0][0].data.disputeAt).toBe(OLD);
+  });
+});

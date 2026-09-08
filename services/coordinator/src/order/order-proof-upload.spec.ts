@@ -482,6 +482,20 @@ describe('OrderService — payment proof + dispute evidence uploads (Phase 5B Ta
     });
   });
 
+  describe('uploadDisputeEvidence after a closed round', () => {
+    it('stores the new round\'s file under a key carrying the marker and leaves the earlier round\'s file untouched', async () => {
+      const closedAt = new Date(1_700_000_000_000);
+      const { proofs, storage } = makeSvc({ status: 'FIAT_PAID', disputeClosedAt: closedAt });
+      await storage.putObject('evidence/order-1-user.jpg', JPG, 'image/jpeg');
+
+      const result = await proofs.uploadDisputeEvidence('order-1', USER_ADDR, jpgFile());
+
+      expect(result.evidence_url).toBe('evidence/order-1-user-1700000000000.jpg');
+      expect(storage.has('evidence/order-1-user.jpg')).toBe(true);
+      expect(storage.has('evidence/order-1-user-1700000000000.jpg')).toBe(true);
+    });
+  });
+
   describe('buildMarkFiatPaidTx — requireProof gate', () => {
     it('requireProof=true, LP-pays-fiat (WITHDRAW), no proof uploaded → 400', async () => {
       const { svc, tx, proofs } = makeSvc({ status: 'FUNDED', proofUrl: null }, { configOverrides: { requireProof: true } });

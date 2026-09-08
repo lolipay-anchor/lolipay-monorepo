@@ -20,7 +20,7 @@ import {
   UploadedFileLike,
 } from './upload.util';
 import { UploadProofDto } from './dto/upload-proof.dto';
-import { canDispute } from './dispute.util';
+import { canDispute, evidenceKeyFor } from './dispute.util';
 import { serializeOrderBase } from './order.serialize';
 
 @Injectable()
@@ -189,7 +189,10 @@ export class OrderProofService {
     }
 
     const role: 'user' | 'lp' = isUser ? 'user' : 'lp';
-    const relativePath = await this.sniffAndStoreDeterministic(file, `${orderId}-${role}`);
+    const relativePath = await this.sniffAndStoreDeterministic(
+      file,
+      evidenceKeyFor(orderId, role, currentOrder.disputeClosedAt ?? null),
+    );
     return { evidence_url: relativePath };
   }
 
