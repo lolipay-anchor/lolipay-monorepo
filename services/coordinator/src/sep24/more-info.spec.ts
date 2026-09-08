@@ -64,6 +64,35 @@ describe('the more-info page of a deposit', () => {
     expect(html).not.toContain('stellar.expert');
   });
 
+  it('tells a funded depositor where to send the rupiah, with the amount, the reference and the deadline, so a wallet that closed the popup still has them', async () => {
+    const html = await service({
+      ...baseOrder,
+      status: 'FUNDED',
+      settlementTxHash: null,
+      settledAt: null,
+      lpPaymentDetails: 'BCA 1234567890 a.n. Budi <Santoso>',
+      ref: 'LP-42',
+      payDeadline: 1_800_000_000n,
+    }).moreInfo('tx-1');
+    expect(html).toContain('Send <strong>200.000</strong> IDR to:');
+    expect(html).toContain('<pre>BCA 1234567890 a.n. Budi &lt;Santoso&gt;</pre>');
+    expect(html).toContain('Reference: <strong>LP-42</strong>');
+    expect(html).toContain('Send it before <strong>2027-01-15T08:00:00.000Z</strong>');
+  });
+
+  it('shows no bank details once the deposit has left FUNDED, and never for a withdrawal', async () => {
+    const released = await service({ ...baseOrder, status: 'RELEASED', settlementTxHash: HASH, settledAt: new Date(), lpPaymentDetails: 'BCA 1234567890' }).moreInfo('tx-1');
+    expect(released).not.toContain('BCA 1234567890');
+    expect(released).not.toContain('Send <strong>');
+    const withdrawal = service({ ...baseOrder, status: 'FUNDED', settlementTxHash: null, settledAt: null, lpPaymentDetails: 'BCA 1234567890', flow: 'WITHDRAW' });
+    (withdrawal as any).prisma.sep24Transaction.findUnique = jest.fn(async () => ({
+      id: 'tx-1', stellarAccount: 'GABC', personId: 'person-1', startedAt: new Date('2026-09-05T17:00:00.000Z'), flow: 'WITHDRAW',
+      order: { personId: 'person-1', ...baseOrder, status: 'FUNDED', settlementTxHash: null, settledAt: null, lpPaymentDetails: 'BCA 1234567890', flow: 'WITHDRAW' },
+    }));
+    const html = await withdrawal.moreInfo('tx-1');
+    expect(html).not.toContain('BCA 1234567890');
+  });
+
   it('shows the hash without a link on a network it does not know', async () => {
     const svc = service({ ...baseOrder, status: 'RELEASED', settlementTxHash: HASH, settledAt: new Date() });
     (svc as any).cfg.networkPassphrase = 'Standalone Network ; February 2017';

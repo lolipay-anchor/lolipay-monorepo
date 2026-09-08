@@ -253,4 +253,67 @@ describe('GET /customer tells a caller where their verification stands', () => {
     expect(res.body.status).toBe('PROCESSING');
     expect(String(res.body.message)).toMatch(/submit your details again after a day/);
   });
+
+  it('hands an integrator the provider page while a session is open and the vendor has not spoken, so the SEP-12 door does not dead-end', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: kp.publicKey(),
+        personId: await personFor(kp.publicKey()),
+        status: 'PROCESSING',
+        providerRef: 'sess-open-url',
+        verificationUrl: 'https://verify.didit.me/session/open-url',
+        deliveredAt: null,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/customer')
+      .set('Authorization', `Bearer ${jwt}`)
+      .expect(200);
+
+    expect(res.body.status).toBe('PROCESSING');
+    expect(String(res.body.message)).toContain('https://verify.didit.me/session/open-url');
+    expect(String(res.body.message)).toMatch(/submit your details again after a day/);
+  });
+
+  it('withholds the provider page once the vendor has spoken about the session, and when the stored link is not https', async () => {
+    const spoken = Keypair.random();
+    const spokenJwt = await anchorToken(app, spoken);
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: spoken.publicKey(),
+        personId: await personFor(spoken.publicKey()),
+        status: 'PROCESSING',
+        providerRef: 'sess-spoken',
+        verificationUrl: 'https://verify.didit.me/session/spoken',
+        deliveredAt: new Date(),
+      },
+    });
+    const spokenRes = await request(app.getHttpServer())
+      .get('/customer')
+      .set('Authorization', `Bearer ${spokenJwt}`)
+      .expect(200);
+    expect(spokenRes.body.status).toBe('PROCESSING');
+    expect(String(spokenRes.body.message)).not.toContain('verify.didit.me');
+
+    const plain = Keypair.random();
+    const plainJwt = await anchorToken(app, plain);
+    await prisma.kycVerification.create({
+      data: {
+        customerRef: plain.publicKey(),
+        personId: await personFor(plain.publicKey()),
+        status: 'PROCESSING',
+        providerRef: 'sess-plain',
+        verificationUrl: 'javascript:alert(1)',
+        deliveredAt: null,
+      },
+    });
+    const plainRes = await request(app.getHttpServer())
+      .get('/customer')
+      .set('Authorization', `Bearer ${plainJwt}`)
+      .expect(200);
+    expect(String(plainRes.body.message)).not.toContain('javascript:');
+  });
 });

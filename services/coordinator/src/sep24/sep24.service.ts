@@ -567,10 +567,32 @@ export class Sep24Service {
     return `<p>${label}: ${shown}</p>`;
   }
 
+  private paymentLine(row: {
+    flow: string;
+    order: {
+      status: string;
+      fiatAmount: bigint;
+      fiatCurrency: string;
+      lpPaymentDetails: string | null;
+      ref: string | null;
+      payDeadline: bigint | null;
+    } | null;
+  }): string {
+    const o = row.order;
+    if (row.flow !== 'TOP_UP' || !o || o.status !== 'FUNDED') return '';
+    const due = o.payDeadline ? new Date(Number(o.payDeadline) * 1000).toISOString() : null;
+    return [
+      `<p>Send <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to:</p>`,
+      `<pre>${escapeHtml(o.lpPaymentDetails ?? 'your provider will be shown here')}</pre>`,
+      `<p>Reference: <strong>${escapeHtml(o.ref ?? '')}</strong></p>`,
+      due ? `<p>Send it before <strong>${escapeHtml(due)}</strong>.</p>` : '',
+    ].join('');
+  }
+
   async moreInfo(id: string): Promise<string> {
     const row = await this.prisma.sep24Transaction.findUnique({
       where: { id },
-      include: { order: { select: ORDER_FIELDS } },
+      include: { order: { select: { ...ORDER_FIELDS, lpPaymentDetails: true } } },
     });
     if (!row) throw new NotFoundException('this anchor holds no such transaction');
     const [tx] = await this.dress([row]);
@@ -581,6 +603,7 @@ export class Sep24Service {
       `<h1>lolipay ${noun}</h1>`,
       `<p>Status: <strong>${tx.status}</strong></p>`,
       `<p>Started: ${tx.started_at}</p>`,
+      this.paymentLine(row),
       this.settlementLine(tx.status, tx.stellar_transaction_id),
       `<p>If something is wrong with this ${noun}, sign in with the same wallet at <a href="https://app.lolipay.app">app.lolipay.app</a>: the order appears there with its evidence, and it shows whether a dispute can still be opened and until when.</p>`,
       '</body></html>',

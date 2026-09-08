@@ -1,5 +1,5 @@
 import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
-import { awaitingProvider } from './screening-requirement';
+import { awaitingProvider, popupMayOfferVendor } from './screening-requirement';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonService } from '../person/person.service';
 import { AppConfigService } from '../config/app-config.service';
@@ -195,11 +195,14 @@ export class Sep12Service {
       };
     }
     if (row.status === 'PROCESSING') {
+      const providerPage = row.verificationUrl?.startsWith('https://') && popupMayOfferVendor(row) ? row.verificationUrl : null;
       return {
         id: row.customerRef,
         status: row.status,
         provided_fields: PROVIDED,
-        message: 'this verification is still open at the provider; if it has expired, submit your details again after a day and a new one will be opened',
+        message: providerPage
+          ? `this verification is open at the provider — complete it at ${providerPage}; if it has expired, submit your details again after a day and a new one will be opened`
+          : 'this verification is still open at the provider; if it has expired, submit your details again after a day and a new one will be opened',
       };
     }
     return { id: row.customerRef, status: row.status, provided_fields: PROVIDED };

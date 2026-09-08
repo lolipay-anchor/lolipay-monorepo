@@ -44,6 +44,15 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
     expect(out.kind).toBe('deposit');
   });
 
+  it('says outright that no memo was used on a deposit, because the escrow releases to the base account and a custodian must reconcile by id', () => {
+    const out = serializeSep24(tx(), BASE);
+    expect(out).toHaveProperty('deposit_memo', null);
+    expect(out).toHaveProperty('deposit_memo_type', null);
+    const withdrawal = serializeSep24(tx({ flow: 'WITHDRAW' }), BASE);
+    expect(withdrawal).not.toHaveProperty('deposit_memo');
+    expect(withdrawal).toHaveProperty('withdraw_memo', null);
+  });
+
   it('names the account it will pay, because the schema requires it at every status', () => {
     expect(serializeSep24(tx(), BASE).to).toBe(tx().stellarAccount);
   });

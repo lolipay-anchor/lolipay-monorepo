@@ -39,6 +39,8 @@ export interface Sep24TransactionJson {
   withdraw_anchor_account?: string | null;
   withdraw_memo?: string | null;
   withdraw_memo_type?: string | null;
+  deposit_memo?: string | null;
+  deposit_memo_type?: string | null;
   kyc_verified: boolean;
   amount_in?: string;
   amount_in_asset?: string;
@@ -74,6 +76,9 @@ export function serializeSep24(record: Sep24Record, assets: Sep24Assets): Sep24T
     json.withdraw_anchor_account = null;
     json.withdraw_memo = null;
     json.withdraw_memo_type = null;
+  } else {
+    json.deposit_memo = null;
+    json.deposit_memo_type = null;
   }
 
   const order = record.order;
