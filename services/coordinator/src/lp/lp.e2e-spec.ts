@@ -372,33 +372,57 @@ describe('LP registry + admin actions (e2e)', () => {
       .expect(403);
   });
 
-  it('two conflicting decisions fired together never both win: one is refused, or the second is audited against the first', async () => {
+  it('refuses a decision when the row moved between the read and the write, audits nothing, and leaves the other decision standing', async () => {
     const seen = await prisma.adminAudit.count({ where: { targetId: lpId, action: 'lp.setStatus' } });
-    const [revoke, approve] = await Promise.all([
-      request(app.getHttpServer())
-        .post(`/admin/lps/${lpId}/revoke`)
-        .set('Authorization', `Bearer ${adminJwt}`)
-        .send({ note: 'FRAUD - stole fiat' }),
-      request(app.getHttpServer())
-        .post(`/admin/lps/${lpId}/approve`)
-        .set('Authorization', `Bearer ${adminJwt}`)
-        .send({}),
-    ]);
-    const audits = await prisma.adminAudit.findMany({
-      where: { targetId: lpId, action: 'lp.setStatus' },
-      orderBy: { createdAt: 'asc' },
-      skip: seen,
-    });
-    const statuses = [revoke.status, approve.status].sort();
-    if (statuses[1] === 409) {
-      expect(statuses).toEqual([200, 409]);
-      expect(audits).toHaveLength(1);
-    } else {
-      expect(statuses).toEqual([200, 200]);
-      expect(audits).toHaveLength(2);
-      const chained = audits.some((a, i) => audits.some((b, j) => i !== j && JSON.stringify(b.before) === JSON.stringify(a.after)));
-      expect(chained).toBe(true);
-    }
+    const original = prisma.$transaction.bind(prisma);
+    const spy = jest.spyOn(prisma, '$transaction').mockImplementationOnce(((fn: (tx: any) => Promise<unknown>) =>
+      original(async (tx: any) => {
+        let moved = false;
+        const bound = (target: any, prop: PropertyKey) => {
+          const value = Reflect.get(target, prop);
+          return typeof value === 'function' ? value.bind(target) : value;
+        };
+        const lpDelegate = new Proxy(tx.lp, {
+          get: (target, prop) =>
+            prop === 'findUnique'
+              ? async (args: unknown) => {
+                  const row = await target.findUnique(args);
+                  if (!moved) {
+                    moved = true;
+                    await prisma.lp.update({ where: { id: lpId }, data: { status: 'REVOKED', approvalNote: 'someone else got there first' } });
+                  }
+                  return row;
+                }
+              : bound(target, prop),
+        });
+        const txProxy = new Proxy(tx, { get: (target, prop) => (prop === 'lp' ? lpDelegate : bound(target, prop)) });
+        return fn(txProxy);
+      })) as any);
+    const res = await request(app.getHttpServer())
+      .post(`/admin/lps/${lpId}/approve`)
+      .set('Authorization', `Bearer ${adminJwt}`)
+      .send({});
+    spy.mockRestore();
+    expect(res.status).toBe(409);
+    expect(res.body.message).toBe("the provider's status changed while you were deciding — reload and decide again");
+    expect(await prisma.adminAudit.count({ where: { targetId: lpId, action: 'lp.setStatus' } })).toBe(seen);
+    const row = await prisma.lp.findUnique({ where: { id: lpId } });
+    expect(row?.status).toBe('REVOKED');
+    expect(row?.approvalNote).toBe('someone else got there first');
+  });
+
+  it('treats a blank note as no note, so an empty box can never erase the reason behind a sanction', async () => {
+    await prisma.lp.update({ where: { id: lpId }, data: { status: 'SUSPENDED', approvalNote: 'took fiat' } });
+    const seen = await prisma.adminAudit.count({ where: { targetId: lpId, action: 'lp.setStatus' } });
+    await request(app.getHttpServer())
+      .post(`/admin/lps/${lpId}/suspend`)
+      .set('Authorization', `Bearer ${adminJwt}`)
+      .send({ note: '   ' })
+      .expect(200);
+    const row = await prisma.lp.findUnique({ where: { id: lpId } });
+    expect(row?.approvalNote).toBe('took fiat');
+    expect(await prisma.adminAudit.count({ where: { targetId: lpId, action: 'lp.setStatus' } })).toBe(seen);
+    await prisma.lp.update({ where: { id: lpId }, data: { status: 'SUSPENDED', approvalNote: 'suspended for live-role test' } });
   });
 
   it('GET /admin/orders → 200 for admin (may be empty list), 403 for non-admin', async () => {

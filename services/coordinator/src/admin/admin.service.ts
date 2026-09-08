@@ -147,7 +147,7 @@ export class AdminService {
   async setStatus(
     id: string,
     status: 'APPROVED' | 'SUSPENDED' | 'REVOKED',
-    note: string | undefined,
+    note: string | null | undefined,
     actorAddress: string,
   ) {
     return this.prisma.$transaction(async (tx) => {
@@ -157,7 +157,7 @@ export class AdminService {
 
       const updated = await tx.lp
         .update({
-          where: { id, status: lp.status, approvalNote: lp.approvalNote },
+          where: { id, status: lp.status, approvalNote: lp.approvalNote, liquidityProof: lp.liquidityProof, contact: lp.contact },
           data: {
             status,
             approvalNote: note ?? lp.approvalNote,

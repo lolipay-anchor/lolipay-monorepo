@@ -4,5 +4,5 @@ export class SetLpStatusDto {
   @IsString()
   @MaxLength(1000)
   @IsOptional()
-  note?: string;
+  note?: string | null;
 }

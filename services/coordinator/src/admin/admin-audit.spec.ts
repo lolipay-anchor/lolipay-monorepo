@@ -156,7 +156,7 @@ describe('AdminService — every mutation leaves a trail naming the actor', () =
 
   it('treats a null note like an absent one, so a client sending {"note": null} leaves no empty audit row', async () => {
     const { service, tx, audits } = svc({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'APPROVED', approvedAt: new Date('2026-09-01T00:00:00Z'), approvalNote: 'ok' });
-    await service.setStatus('lp-1', 'APPROVED', null as any, ADMIN_ADDR);
+    await service.setStatus('lp-1', 'APPROVED', null, ADMIN_ADDR);
     expect(tx.lp.update).not.toHaveBeenCalled();
     expect(audits).toHaveLength(0);
   });
@@ -172,11 +172,14 @@ describe('AdminService — every mutation leaves a trail naming the actor', () =
     expect(reinstated.tx.lp.update.mock.calls[0][0].data.approvedAt.getTime()).toBeGreaterThan(approvedOn.getTime());
   });
 
-  it('applies a sanction that carries no note, conditioned on the state it read', async () => {
-    const { service, tx, audits } = svc({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'APPROVED', approvedAt: new Date('2026-09-01T00:00:00Z'), approvalNote: 'ok' });
+  it('applies a sanction that carries no note, conditioned on every field the administrator read: status, note, proof and contact', async () => {
+    const { service, tx, audits } = svc({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'APPROVED', approvedAt: new Date('2026-09-01T00:00:00Z'), approvalNote: 'ok', liquidityProof: 'screenshot of 50,000 USDC', contact: 'lp@example.com' });
     await service.setStatus('lp-1', 'REVOKED', undefined, ADMIN_ADDR);
     expect(tx.lp.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'lp-1', status: 'APPROVED', approvalNote: 'ok' }, data: expect.objectContaining({ status: 'REVOKED' }) }),
+      expect.objectContaining({
+        where: { id: 'lp-1', status: 'APPROVED', approvalNote: 'ok', liquidityProof: 'screenshot of 50,000 USDC', contact: 'lp@example.com' },
+        data: expect.objectContaining({ status: 'REVOKED' }),
+      }),
     );
     expect(audits).toHaveLength(1);
   });

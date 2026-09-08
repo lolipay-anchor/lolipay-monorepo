@@ -39,6 +39,8 @@ class ParseMarketCodePipe implements PipeTransform<string, string> {
   }
 }
 
+const noteOf = (dto: SetLpStatusDto): string | undefined => dto.note?.trim() || undefined;
+
 @Controller('admin')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('admin')
@@ -58,19 +60,19 @@ export class AdminController {
   @Post('lps/:id/approve')
   @HttpCode(200)
   approveLp(@Req() req: any, @Param('id', ParseUUIDPipe) id: string, @Body() dto: SetLpStatusDto) {
-    return this.admin.setStatus(id, 'APPROVED', dto.note, req.user.address);
+    return this.admin.setStatus(id, 'APPROVED', noteOf(dto), req.user.address);
   }
 
   @Post('lps/:id/suspend')
   @HttpCode(200)
   suspendLp(@Req() req: any, @Param('id', ParseUUIDPipe) id: string, @Body() dto: SetLpStatusDto) {
-    return this.admin.setStatus(id, 'SUSPENDED', dto.note, req.user.address);
+    return this.admin.setStatus(id, 'SUSPENDED', noteOf(dto), req.user.address);
   }
 
   @Post('lps/:id/revoke')
   @HttpCode(200)
   revokeLp(@Req() req: any, @Param('id', ParseUUIDPipe) id: string, @Body() dto: SetLpStatusDto) {
-    return this.admin.setStatus(id, 'REVOKED', dto.note, req.user.address);
+    return this.admin.setStatus(id, 'REVOKED', noteOf(dto), req.user.address);
   }
 
   @Get('orders')
