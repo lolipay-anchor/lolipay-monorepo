@@ -335,12 +335,9 @@ export class Sep24Service {
           10,
         );
       }
-      const again = vendor && popupMayOfferVendor(kyc)
-        ? `<p><a href="${escapeHtml(vendor)}" target="_blank" rel="noopener">Continue verification</a></p>`
-        : '';
       return page(
         'Checking your identity',
-        `<p>This can take a few minutes. This page refreshes itself.</p>${again}`,
+        '<p>This can take a few minutes. This page refreshes itself.</p>',
         10,
       );
     }

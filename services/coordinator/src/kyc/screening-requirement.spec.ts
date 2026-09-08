@@ -120,7 +120,6 @@ describe('the popup reads the screening fields only through the shared predicate
     expect(lines).toEqual([
       "import { acceptedForFunds, popupMayOfferVendor } from '../kyc/screening-requirement';",
       'if (vendor && popupMayOfferVendor(kyc)) {',
-      'const again = vendor && popupMayOfferVendor(kyc)',
     ]);
   });
 });

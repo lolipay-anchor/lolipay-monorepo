@@ -62,9 +62,9 @@ export class DiditKycProvider implements KycProvider, OnModuleInit, OnModuleDest
       });
       if (res.ok) {
         const body: any = await res.json();
-        const rows = Array.isArray(body) ? body : (body?.results ?? []);
-        listRead = Array.isArray(rows);
-        features = rows.find((w: any) => w?.workflow_id === this.cfg.diditWorkflowId)?.features;
+        const rows = Array.isArray(body) ? body : Array.isArray(body?.results) ? body.results : null;
+        listRead = rows !== null;
+        features = rows?.find((w: any) => w?.workflow_id === this.cfg.diditWorkflowId)?.features;
       }
     } catch {
       features = undefined;

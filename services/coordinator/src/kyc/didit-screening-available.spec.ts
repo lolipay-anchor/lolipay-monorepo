@@ -118,6 +118,31 @@ describe('the anchor says at boot whether the workflow it is bound to can screen
     }
   });
 
+  it.each([
+    ['an empty object', {}],
+    ['a list under a name this code does not know', { data: [{ workflow_id: 'wf-1', features: 'AML' }] }],
+    ['a string where a body was expected', 'maintenance'],
+  ])('keeps asking when the vendor answers with %s, because no list was read and nothing was learned', async (_label, body) => {
+    jest.useFakeTimers();
+    const error = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    try {
+      const { provider, refusals, fetcher } = buildWith([
+        { status: 200, body },
+        { status: 200, body: workflows('OCR + LIVENESS + FACE_MATCH + AML + IP_ANALYSIS') },
+      ]);
+      await provider.onModuleInit();
+      expect(refusals.state().performsAml).toBeUndefined();
+      expect(error).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(DIDIT_WORKFLOW_RETRY_MS);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(refusals.state().performsAml).toBe(true);
+    } finally {
+      jest.useRealTimers();
+      error.mockRestore();
+    }
+  });
+
   it('stops asking when the module is torn down, so a test or a shutdown never leaves a timer behind', async () => {
     jest.useFakeTimers();
     try {
