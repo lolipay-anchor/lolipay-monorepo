@@ -11,6 +11,7 @@ describe('MaintenanceService', () => {
       quote: { deleteMany: jest.fn().mockResolvedValue({ count: 7 }) },
       walletLinkChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 3 }) },
       consumedChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      indexedEvent: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
     } as any;
     const stellar = {
@@ -169,6 +170,7 @@ describe('MaintenanceService', () => {
       quote: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       walletLinkChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       consumedChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      indexedEvent: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
     } as any;
 
@@ -203,6 +205,7 @@ describe('MaintenanceService', () => {
       quote: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       walletLinkChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       consumedChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      indexedEvent: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
     } as any;
     const stellar = { getTradeStatusStrict: jest.fn().mockResolvedValue(null), latestLedgerCloseTime: jest.fn(async () => new Date()) } as any;
@@ -232,6 +235,7 @@ describe('MaintenanceService', () => {
       quote: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       walletLinkChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       consumedChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      indexedEvent: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
     } as any;
     const stellar = { getTradeStatusStrict: jest.fn().mockResolvedValue(null), latestLedgerCloseTime: jest.fn(async () => new Date()) } as any;
@@ -278,6 +282,7 @@ describe('MaintenanceService', () => {
       quote: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       walletLinkChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       consumedChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      indexedEvent: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
     } as any;
     const stellar = { getTradeStatusStrict: jest.fn().mockResolvedValue(null), latestLedgerCloseTime: jest.fn(async () => new Date()) } as any;
@@ -342,6 +347,7 @@ describe('MaintenanceService.autoRefundExpired', () => {
       quote: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       walletLinkChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       consumedChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      indexedEvent: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund }) },
     } as any;
 
@@ -606,6 +612,19 @@ describe('MaintenanceService.autoRefundExpired', () => {
 
     const arg = prisma.consumedChallenge.deleteMany.mock.calls[0][0];
     expect(arg.where.expiresAt.lt).toBeInstanceOf(Date);
+  });
+
+  it('sweeps indexed chain events past the replay window, so the ledger that makes a verdict idempotent cannot grow without bound', async () => {
+    const { svc, prisma } = make();
+
+    await svc.pruneOldQuotes();
+
+    const arg = prisma.indexedEvent.deleteMany.mock.calls[0][0];
+    const cutoff = arg.where.createdAt.lt as Date;
+    expect(cutoff).toBeInstanceOf(Date);
+    const ageDays = (Date.now() - cutoff.getTime()) / 86_400_000;
+    expect(ageDays).toBeGreaterThan(6.9);
+    expect(ageDays).toBeLessThan(7.1);
   });
 });
 

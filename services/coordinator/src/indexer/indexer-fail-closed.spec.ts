@@ -3,6 +3,18 @@ import { IndexerService } from './indexer.service';
 
 const TRADE_ID_A = 'a'.repeat(64);
 const TOPIC_DISPUTED = xdr.ScVal.scvSymbol('disputed');
+const eventLedger = () => {
+  const seen = new Set<string>();
+  return {
+    createMany: jest.fn(async ({ data }: any) => {
+      const rows = Array.isArray(data) ? data : [data];
+      const fresh = rows.filter((r: any) => !seen.has(r.id));
+      fresh.forEach((r: any) => seen.add(r.id));
+      return { count: fresh.length };
+    }),
+  };
+};
+
 const TOPIC_RESOLVED = xdr.ScVal.scvSymbol('resolved');
 const TOPIC_TRADE_CREATED = xdr.ScVal.scvSymbol('trade_created');
 const VALUE_EMPTY = nativeToScVal(null);
@@ -36,6 +48,7 @@ function makeOrder(status: string, overrides: Record<string, any> = {}) {
 function make(status: string, stellarOverrides: Record<string, any> = {}, orderOverrides = {}) {
   const order = makeOrder(status, orderOverrides);
   const prisma = {
+    indexedEvent: eventLedger(),
     order: {
       findUnique: jest.fn().mockResolvedValue(order),
       update: jest.fn().mockResolvedValue(order),
@@ -94,6 +107,7 @@ describe('the indexer refuses to lose an event it could not verify', () => {
     const { IndexerService: MockedIndexerService } = require('./indexer.service');
 
     const prisma = {
+      indexedEvent: eventLedger(),
       indexerState: {
         findUnique: jest.fn().mockResolvedValue({ cursor: 'CUR1' }),
         upsert: jest.fn().mockResolvedValue(undefined),
@@ -124,6 +138,7 @@ describe('the indexer refuses to lose an event it could not verify', () => {
       getTradeStatus: jest.fn().mockRejectedValue(new Error('rpc down')),
     });
     const advanced = await svc.applyEvent({
+      id: 'ev-127',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value: nativeToScVal({ released: true, post_settle: false }),
       contractId: 'CXXX',
@@ -173,6 +188,7 @@ describe('a dispute cannot act on an order whose trade was never verified', () =
       getTradeStatusStrict: jest.fn().mockResolvedValue(null),
     });
     const advanced = await svc.applyEvent({
+      id: 'ev-176',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value: nativeToScVal({ released: true, post_settle: false }),
       contractId: 'CXXX',

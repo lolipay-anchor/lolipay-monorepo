@@ -307,6 +307,13 @@ model ConsumedChallenge {
   @@index([expiresAt])
 }
 
+model IndexedEvent {
+  id        String   @id
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 model AlertState {
   key         String   @id
   fingerprint String

@@ -7,6 +7,18 @@ const TOPIC_FIAT_PAID = 'AAAADwAAAAlmaWF0X3BhaWQAAAA=';
 const TOPIC_TRADE_ID = 'AAAADQAAACC/wTx2FfH6j+s3LiPFn43hIOgX8EfX3HT57X89mqxugw==';
 const VALUE_EMPTY = 'AAAAEQAAAAEAAAAA';
 
+const eventLedger = () => {
+  const seen = new Set<string>();
+  return {
+    createMany: jest.fn(async ({ data }: any) => {
+      const rows = Array.isArray(data) ? data : [data];
+      const fresh = rows.filter((r: any) => !seen.has(r.id));
+      fresh.forEach((r: any) => seen.add(r.id));
+      return { count: fresh.length };
+    }),
+  };
+};
+
 const TOPIC_RESOLVED = nativeToScVal('resolved', { type: 'symbol' });
 const TOPIC_DISPUTED = nativeToScVal('disputed', { type: 'symbol' });
 const TOPIC_RELEASED = nativeToScVal('released', { type: 'symbol' });
@@ -68,6 +80,7 @@ describe('IndexerService.applyEvent', () => {
       ...opts.orderOverrides,
     };
     const prisma = {
+      indexedEvent: eventLedger(),
       order: {
         findUnique: jest.fn().mockResolvedValue(order),
         update: jest.fn().mockResolvedValue(order),
@@ -439,6 +452,7 @@ describe('IndexerService.applyEvent', () => {
       postSettleDeadline: 0n,
     });
     await svc.applyEvent({
+      id: 'ev-442',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value: nativeToScVal({ released: true, post_settle: false }),
       contractId: 'CXXX',
@@ -455,6 +469,7 @@ describe('IndexerService.applyEvent', () => {
       postSettleDeadline: 1_700_004_100n,
     });
     await svc.applyEvent({
+      id: 'ev-458',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value: nativeToScVal({ released: true, post_settle: false }),
       contractId: 'CXXX',
@@ -546,6 +561,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     });
     const value = nativeToScVal({ released: true, post_settle: false });
     const advanced = await svc.applyEvent({
+      id: 'ev-549',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -558,6 +574,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
   it('carries the resolve transaction hash onto a resolver-released order, which never sees a released event', async () => {
     const { svc, prisma } = make('DISPUTED');
     const advanced = await svc.applyEvent({
+      id: 'ev-561',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value: nativeToScVal({ released: true, post_settle: false }),
       contractId: 'CXXX',
@@ -589,6 +606,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
       flow: 'TOP_UP',
     });
     const advanced = await svc.applyEvent({
+      id: 'ev-592',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value: nativeToScVal({ released: true, post_settle: true }),
       contractId: 'CXXX',
@@ -613,6 +631,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
       flow: 'TOP_UP',
     });
     const advanced = await svc.applyEvent({
+      id: 'ev-616',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value: nativeToScVal({ released: true, post_settle: false }),
       contractId: 'CXXX',
@@ -638,6 +657,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
       flow: 'TOP_UP',
     });
     const advanced = await svc.applyEvent({
+      id: 'ev-641',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value: nativeToScVal({ released: false, post_settle: false }),
       contractId: 'CXXX',
@@ -662,6 +682,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     });
     const value = nativeToScVal({ released: false, post_settle: true });
     await svc.applyEvent({
+      id: 'ev-665',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -684,13 +705,15 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     });
     const value = nativeToScVal({ released: false, post_settle: true });
     await svc.applyEvent({
+      id: 'ev-687',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
     });
 
     const call = (prisma.order.updateMany as jest.Mock).mock.calls[0][0];
-    expect(call.where).toEqual({ id: 'ord-1', OR: [{ status: 'DISPUTED' }, { resolution: null }] });
+    expect(call.where).toEqual({ id: 'ord-1' });
+    expect(prisma.indexedEvent.createMany).toHaveBeenCalledWith({ data: [{ id: 'ev-687' }], skipDuplicates: true });
   });
 
   it('records a post-settlement verdict even when the dispute before it was never indexed', async () => {
@@ -705,6 +728,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     });
     const value = nativeToScVal({ released: false, post_settle: true });
     await svc.applyEvent({
+      id: 'ev-708',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -720,6 +744,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     const { svc, prisma } = make('CANCELLED');
     const value = nativeToScVal({ released: false, post_settle: false });
     await svc.applyEvent({
+      id: 'ev-723',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -732,6 +757,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     const { svc, prisma, notifications, stellar } = make('DISPUTED');
     const value = nativeToScVal({ released: true, post_settle: false });
     const advanced = await svc.applyEvent({
+      id: 'ev-735',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -751,6 +777,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     const { svc, prisma, stellar } = make('DISPUTED');
     const value = nativeToScVal({ released: false });
     const advanced = await svc.applyEvent({
+      id: 'ev-754',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -767,6 +794,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     const { svc, prisma, notifications, stellar } = make('RELEASED', { updateManyCount: 0 });
     const value = nativeToScVal({ released: true, post_settle: false });
     const advanced = await svc.applyEvent({
+      id: 'ev-770',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -786,6 +814,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
 
     const value = nativeToScVal({ released: false, post_settle: true });
     const advanced = await svc.applyEvent({
+      id: 'ev-789',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CEVENTCONTRACT',
@@ -796,9 +825,10 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     expect(stellar.getTradeStatusStrict).toHaveBeenCalledTimes(1);
 
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', OR: [{ status: 'DISPUTED' }, { resolution: null }] },
+      where: { id: 'ord-1' },
       data: { status: 'RELEASED', resolution: 'refunded' },
     });
+    expect(prisma.indexedEvent.createMany).toHaveBeenCalledWith({ data: [{ id: 'ev-789' }], skipDuplicates: true });
     expect(prisma.order.update).not.toHaveBeenCalled();
     expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(expect.anything(), 'RELEASED');
   });
@@ -811,6 +841,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     });
     const value = nativeToScVal({ released: false, post_settle: true });
     const advanced = await svc.applyEvent({
+      id: 'ev-814',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CEVENTCONTRACT',
@@ -827,6 +858,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     const value = nativeToScVal({ released: true, post_settle: true });
     await expect(
       svc.applyEvent({
+        id: 'ev-830',
         topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
         value,
         contractId: 'CEVENTCONTRACT',
@@ -845,6 +877,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
       });
       const value = nativeToScVal({ released: true, post_settle: true });
       const advanced = await svc.applyEvent({
+        id: 'ev-848',
         topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
         value,
         contractId: 'CEVENTCONTRACT',
@@ -955,6 +988,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
     });
     const value = nativeToScVal({ released: true, post_settle: false });
     const advanced = await svc.applyEvent({
+      id: 'ev-958',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -974,6 +1008,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
     });
     const value = nativeToScVal({ released: true, post_settle: false });
     const advanced = await svc.applyEvent({
+      id: 'ev-977',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -996,6 +1031,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     const { svc, notifications, userReputation } = make('DISPUTED', { flow: 'TOP_UP' });
     const value = nativeToScVal({ released: false, post_settle: false });
     const advanced = await svc.applyEvent({
+      id: 'ev-999',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -1010,6 +1046,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     const { svc, userReputation } = make('DISPUTED', { flow: 'WITHDRAW' });
     const value = nativeToScVal({ released: true, post_settle: false });
     const advanced = await svc.applyEvent({
+      id: 'ev-1013',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -1023,6 +1060,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     const { svc, userReputation } = make('DISPUTED', { flow: 'WITHDRAW' });
     const value = nativeToScVal({ released: true, post_settle: false });
     const advanced = await svc.applyEvent({
+      id: 'ev-1026',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -1036,6 +1074,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     const { svc, userReputation } = make('DISPUTED', { flow: 'TOP_UP' });
     const value = nativeToScVal({ released: true, post_settle: false });
     const advanced = await svc.applyEvent({
+      id: 'ev-1039',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -1048,6 +1087,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     const { svc, userReputation } = make('DISPUTED', { flow: 'WITHDRAW' });
     const value = nativeToScVal({ released: false, post_settle: false });
     const advanced = await svc.applyEvent({
+      id: 'ev-1051',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -1060,6 +1100,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     const { svc, userReputation } = make('DISPUTED', { flow: 'WITHDRAW' });
     const value = nativeToScVal({ released: false, post_settle: false });
     const advanced = await svc.applyEvent({
+      id: 'ev-1063',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -1072,6 +1113,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     const { svc, userReputation } = make('REFUNDED', { flow: 'TOP_UP', updateManyCount: 0 });
     const value = nativeToScVal({ released: false, post_settle: false });
     const advanced = await svc.applyEvent({
+      id: 'ev-1075',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -1089,6 +1131,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     });
     const value = nativeToScVal({ released: true, post_settle: true });
     const advanced = await svc.applyEvent({
+      id: 'ev-1092',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CEVENTCONTRACT',
@@ -1106,6 +1149,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     });
     const value = nativeToScVal({ released: false, post_settle: true });
     const advanced = await svc.applyEvent({
+      id: 'ev-1109',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CEVENTCONTRACT',
@@ -1123,6 +1167,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     });
     const value = nativeToScVal({ released: true, post_settle: true });
     await svc.applyEvent({
+      id: 'ev-1126',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CEVENTCONTRACT',
@@ -1139,6 +1184,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     });
     const value = nativeToScVal({ released: true, post_settle: true });
     const advanced = await svc.applyEvent({
+      id: 'ev-1142',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CEVENTCONTRACT',
@@ -1154,14 +1200,16 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
       orderContractId: 'CEVENTCONTRACT',
     });
     await svc.applyEvent({
+      id: 'ev-1157',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value: nativeToScVal({ released: true, post_settle: true }),
       contractId: 'CEVENTCONTRACT',
     });
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', OR: [{ status: 'DISPUTED' }, { resolution: null }] },
+      where: { id: 'ord-1' },
       data: { status: 'REFUNDED', resolution: 'released' },
     });
+    expect(prisma.indexedEvent.createMany).toHaveBeenCalledWith({ data: [{ id: 'ev-1157' }], skipDuplicates: true });
     expect(userReputation.recordDisputeLost).not.toHaveBeenCalled();
   });
 
@@ -1173,6 +1221,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     });
     const value = nativeToScVal({ released: true, post_settle: true });
     const advanced = await svc.applyEvent({
+      id: 'ev-1176',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CEVENTCONTRACT',
@@ -1187,6 +1236,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     userReputation.recordDisputeLost.mockRejectedValue(new Error('db down'));
     const value = nativeToScVal({ released: false, post_settle: false });
     const advanced = await svc.applyEvent({
+      id: 'ev-1190',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CXXX',
@@ -1363,6 +1413,7 @@ describe('IndexerService.applyEvent — disputed metadata reconciliation (INERT-
       ...orderOverrides,
     };
     const prisma = {
+      indexedEvent: eventLedger(),
       order: {
         findUnique: jest.fn().mockImplementation(() => Promise.resolve({ ...order })),
         update: jest.fn(),
@@ -1612,6 +1663,7 @@ describe('IndexerService.applyEvent — disputed/resolved split-replay window (s
       status: 'RELEASED',
     };
     const prisma = {
+      indexedEvent: eventLedger(),
       order: {
         findUnique: jest.fn().mockImplementation(() => Promise.resolve(order)),
         update: jest.fn().mockResolvedValue(order),
@@ -1654,6 +1706,7 @@ describe('IndexerService.applyEvent — disputed/resolved split-replay window (s
 
     const value = nativeToScVal({ released: true, post_settle: true });
     const advancedResolved = await svc.applyEvent({
+      id: 'ev-1657',
       topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
       value,
       contractId: 'CEVENTCONTRACT',
@@ -1687,6 +1740,7 @@ describe('IndexerService.poll — RPC timeout resilience (Ops M-1 fix)', () => {
     const { IndexerService: MockedIndexerService } = require('./indexer.service');
 
     const prisma = {
+      indexedEvent: eventLedger(),
       indexerState: {
         findUnique: jest.fn().mockResolvedValue({ cursor: 'CUR1' }),
         upsert: jest.fn().mockResolvedValue(undefined),
@@ -1733,6 +1787,7 @@ describe('IndexerService.poll — RPC timeout resilience (Ops M-1 fix)', () => {
     const { IndexerService: MockedIndexerService } = require('./indexer.service');
 
     const prisma = {
+      indexedEvent: eventLedger(),
       indexerState: { findUnique: jest.fn().mockResolvedValue(null) },
     } as any;
     const cfg = { rpcUrl: 'x', escrowContractId: 'CXXX', escrowContractIdsExtra: [] } as any;
@@ -1771,6 +1826,7 @@ describe('IndexerService.poll — cursor-safe timeout vs genuine retention error
     const MockedIndexerService = loadMockedIndexerService(getEvents, getLatestLedger);
 
     const prisma = {
+      indexedEvent: eventLedger(),
       indexerState: {
         findUnique: jest.fn().mockResolvedValue({ cursor: 'CUR1' }),
         upsert: jest.fn().mockResolvedValue(undefined),
@@ -1796,6 +1852,7 @@ describe('IndexerService.poll — cursor-safe timeout vs genuine retention error
     const MockedIndexerService = loadMockedIndexerService(getEvents, getLatestLedger);
 
     const prisma = {
+      indexedEvent: eventLedger(),
       indexerState: {
         findUnique: jest.fn().mockResolvedValue({ cursor: 'CUR1' }),
         upsert: jest.fn().mockResolvedValue(undefined),
@@ -1822,6 +1879,7 @@ describe('IndexerService.poll — cursor-safe timeout vs genuine retention error
     const MockedIndexerService = loadMockedIndexerService(getEvents, getLatestLedger);
 
     const prisma = {
+      indexedEvent: eventLedger(),
       indexerState: {
         findUnique: jest.fn().mockResolvedValue({ cursor: 'CUR1' }),
         upsert: jest.fn().mockResolvedValue(undefined),
@@ -1867,6 +1925,7 @@ function makeBase(
     disputeDeadline: 10_800n,
   };
   const prisma = {
+    indexedEvent: eventLedger(),
     order: {
       findUnique: jest.fn().mockResolvedValue(order),
       update: jest.fn().mockResolvedValue(order),
@@ -1932,6 +1991,7 @@ describe('IndexerService.applyEvent — a verdict closes the dispute round (ADR 
       ...row,
     };
     const tx = {
+      indexedEvent: eventLedger(),
       order: {
         findUnique: jest.fn().mockImplementation(async () => ({ ...current })),
         updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
@@ -1948,6 +2008,7 @@ describe('IndexerService.applyEvent — a verdict closes the dispute round (ADR 
   }
 
   const verdict = (post_settle = false) => ({
+    id: 'ev-1951',
     topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
     value: nativeToScVal({ released: true, post_settle }),
     contractId: 'CXXX',
@@ -2045,26 +2106,89 @@ describe('IndexerService.applyEvent — a verdict closes the dispute round (ADR 
     expect(tx.adminAudit.create).not.toHaveBeenCalled();
   });
 
-  it('a replayed post-settlement verdict leaves a later round untouched too', async () => {
+  it('a post-settlement verdict this indexer has already applied leaves the round opened after it untouched', async () => {
+    const { svc, tx, row } = await withRow(
+      'DISPUTED',
+      filing,
+      { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'RELEASED', liabilityEstablished: true, slashDeadline: 1_700_090_000n }) },
+    );
+
+    expect(await svc.applyEvent(verdict(true))).toBe(1);
+    const firstClose = row().disputeClosedAt;
+    expect(firstClose).toBeInstanceOf(Date);
+    expect(tx.adminAudit.create).toHaveBeenCalledTimes(1);
+
+    await tx.order.updateMany({
+      where: { id: 'ord-1' },
+      data: {
+        status: 'DISPUTED',
+        disputeBy: 'lp',
+        disputeReason: 'FAKE_PROOF',
+        disputeNote: 'filed after the verdict',
+        onChainDisputedBy: 'GLP',
+      },
+    });
+
+    expect(await svc.applyEvent(verdict(true))).toBe(0);
+
+    expect(row()).toMatchObject({
+      status: 'DISPUTED',
+      disputeBy: 'lp',
+      disputeNote: 'filed after the verdict',
+      onChainDisputedBy: 'GLP',
+    });
+    expect(row().disputeClosedAt).toEqual(firstClose);
+    expect(tx.adminAudit.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops a replayed pre-settlement verdict at the ledger, before the row write, so a cold start is not reported as a refusal', async () => {
+    const { svc, tx } = await withRow('DISPUTED', filing);
+
+    expect(await svc.applyEvent(verdict())).toBe(1);
+    const writesWhenTheVerdictLanded = (tx.order.updateMany as jest.Mock).mock.calls.length;
+
+    expect(await svc.applyEvent(verdict())).toBe(0);
+
+    expect((tx.order.updateMany as jest.Mock).mock.calls.length).toBe(writesWhenTheVerdictLanded);
+    expect(tx.adminAudit.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses to apply a verdict that arrived without an RPC event id, so the batch retries instead of applying it unidentified', async () => {
+    const { svc, tx } = await withRow('DISPUTED', filing);
+
+    await expect(svc.applyEvent({ ...verdict(), id: undefined })).rejects.toThrow(/without an RPC event id/);
+
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
+    expect(tx.adminAudit.create).not.toHaveBeenCalled();
+  });
+
+  it('applies a post-settlement verdict it has never seen, even though the order page already advanced the row past DISPUTED', async () => {
     const { svc, tx, row } = await withRow(
       'RELEASED',
       {
         resolution: 'released',
         disputeBy: 'lp',
         disputeReason: 'FAKE_PROOF',
-        disputeNote: 'filed after the verdict',
+        disputeNote: 'filed after the first verdict',
         onChainDisputedBy: 'GLP',
         disputeAt: new Date('2026-09-07T12:00:00.000Z'),
         disputeClosedAt: new Date('2026-09-07T11:00:00.000Z'),
       },
-      { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'RELEASED', liabilityEstablished: true, slashDeadline: 1_700_090_000n }) },
+      { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'REFUNDED', liabilityEstablished: true, slashDeadline: 1_700_090_000n }) },
     );
 
-    expect(await svc.applyEvent(verdict(true))).toBe(0);
+    expect(await svc.applyEvent(verdict(true))).toBe(1);
 
-    expect(row()).toMatchObject({ disputeBy: 'lp', disputeNote: 'filed after the verdict', onChainDisputedBy: 'GLP' });
-    expect(row().disputeClosedAt).toEqual(new Date('2026-09-07T11:00:00.000Z'));
-    expect(tx.adminAudit.create).not.toHaveBeenCalled();
+    expect(row()).toMatchObject({
+      status: 'REFUNDED',
+      resolution: 'released',
+      disputeBy: null,
+      disputeReason: null,
+      disputeNote: null,
+      onChainDisputedBy: null,
+    });
+    expect(row().disputeClosedAt.getTime()).toBeGreaterThan(new Date('2026-09-07T11:00:00.000Z').getTime());
+    expect(tx.adminAudit.create).toHaveBeenCalledTimes(1);
   });
 
   it('closes nothing when the status write matched no row, because a round the chain did not resolve is not this verdict to end', async () => {

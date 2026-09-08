@@ -132,7 +132,7 @@ export class IndexerService {
     return Math.max(1, latest.sequence - LOOKBACK_LEDGERS);
   }
 
-  private async applyEvent(ev: { topic: any[]; value: any; contractId?: any; txHash?: string }): Promise<number> {
+  private async applyEvent(ev: { id?: string; topic: any[]; value: any; contractId?: any; txHash?: string }): Promise<number> {
     if (!ev.topic || ev.topic.length < 2) return 0;
     const toScVal = (t: any) =>
       typeof t === 'string' ? xdr.ScVal.fromXdr(t, 'base64') : t;
@@ -329,10 +329,17 @@ export class IndexerService {
   }
 
   private async applyResolvedEvent(
-    ev: { value: any; contractId?: any; txHash?: string },
+    ev: { id?: string; value: any; contractId?: any; txHash?: string },
     order: { id: string; tradeId: string; status: string; userAddress: string; flow: string },
     toScVal: (t: any) => any,
   ): Promise<number> {
+    const eventId = ev.id;
+    if (!eventId) {
+      throw new Error(
+        `resolver verdict for order ${order.id} arrived without an RPC event id: refusing to apply a verdict this indexer cannot recognise again`,
+      );
+    }
+
     let val: { released?: boolean; post_settle?: boolean };
     try {
       val = scValToNative(toScVal(ev.value)) as { released?: boolean; post_settle?: boolean };
@@ -361,6 +368,7 @@ export class IndexerService {
         : {};
       const hash = settlementHashOf(ev);
       const res = await this.prisma.$transaction(async (tx) => {
+        if (!(await this.claimEvent(tx, eventId))) return { replay: true, written: 0 };
         const written = await tx.order.updateMany({
           where: {
             id: order.id,
@@ -372,9 +380,13 @@ export class IndexerService {
           data: { status: target as any, settledAt, resolution, ...latched, ...(hash ? { settlementTxHash: hash } : {}) },
         });
         if (written.count > 0) await this.closeDisputeRound(tx, order.id, contractId);
-        return written;
+        return { replay: false, written: written.count };
       });
-      if (res.count === 0) {
+      if (res.replay) {
+        this.log.debug(`resolver verdict ${eventId} on ${order.id} has already been applied — ignoring the replay`);
+        return 0;
+      }
+      if (res.written === 0) {
         this.log.warn(`resolver verdict on ${order.id} matched no row: status ${order.status}, resolution already recorded`);
         return 0;
       }
@@ -391,8 +403,9 @@ export class IndexerService {
 
     const verdict = val.released ? 'released' : 'refunded';
     const res = await this.prisma.$transaction(async (tx) => {
+      if (!(await this.claimEvent(tx, eventId))) return { replay: true, written: 0 };
       const written = await tx.order.updateMany({
-        where: { id: order.id, OR: [{ status: 'DISPUTED' as any }, { resolution: null }] },
+        where: { id: order.id },
         data: {
           status: finalStatus as any,
           resolution: verdict,
@@ -405,12 +418,24 @@ export class IndexerService {
         },
       });
       if (written.count > 0) await this.closeDisputeRound(tx, order.id, contractId);
-      return written;
+      return { replay: false, written: written.count };
     });
-    if (res.count === 0) return 0;
+    if (res.replay) {
+      this.log.debug(`post-settlement verdict ${eventId} on ${order.id} has already been applied — ignoring the replay`);
+      return 0;
+    }
+    if (res.written === 0) {
+      this.log.warn(`post-settlement verdict on ${order.id} matched no row: the order was deleted between the read and the write`);
+      return 0;
+    }
     await this.accrueDisputeLossIfApplicable(order, verdict);
     await this.notifySafely(order, finalStatus);
     return 1;
+  }
+
+  private async claimEvent(tx: Prisma.TransactionClient, eventId: string): Promise<boolean> {
+    const claimed = await tx.indexedEvent.createMany({ data: [{ id: eventId }], skipDuplicates: true });
+    return claimed.count > 0;
   }
 
   private async closeDisputeRound(tx: Prisma.TransactionClient, orderId: string, contractId: string): Promise<void> {
