@@ -200,6 +200,7 @@ export class IndexerService {
           );
         }
         extra = {
+          settledStatus: target as any,
           settledAt: onChain && onChain.settledAt > 0 ? new Date(onChain.settledAt * 1000) : new Date(),
           ...(onChain?.postSettleDeadline ? { postSettleDeadline: onChain.postSettleDeadline } : {}),
           ...(hash ? { settlementTxHash: hash } : {}),
@@ -378,7 +379,7 @@ export class IndexerService {
               { status: target as any, resolution: null },
             ],
           },
-          data: { status: target as any, settledAt, resolution, ...latched, ...(hash ? { settlementTxHash: hash } : {}) },
+          data: { status: target as any, settledStatus: target as any, settledAt, resolution, ...latched, ...(hash ? { settlementTxHash: hash } : {}) },
         });
         if (written.count > 0) await this.closeDisputeRound(tx, order.id, contractId);
         return { replay: false, written: written.count };

@@ -111,6 +111,8 @@ model Order {
   proofAmount         BigInt?
   proofPaidAt         DateTime?
   settledAt           DateTime?
+  settledStatus       OrderStatus?
+  eventPos            BigInt      @default(0)
   settlementTxHash    String?
   postSettleDeadline  BigInt?
   resolverDisputed    Boolean     @default(false)

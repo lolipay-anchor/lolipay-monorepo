@@ -291,7 +291,7 @@ describe('IndexerService.applyEvent', () => {
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', status: { in: expect.arrayContaining(['FIAT_PAID']) } },
-      data: { status: 'RELEASED', settledAt: expect.any(Date) },
+      data: { status: 'RELEASED', settledStatus: 'RELEASED', settledAt: expect.any(Date) },
     });
     expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(expect.anything(), 'RELEASED');
   });
@@ -488,7 +488,7 @@ describe('IndexerService.applyEvent', () => {
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', status: { in: expect.arrayContaining(['FUNDED']) } },
-      data: { status: 'REFUNDED', settledAt: expect.any(Date) },
+      data: { status: 'REFUNDED', settledStatus: 'REFUNDED', settledAt: expect.any(Date) },
     });
     expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(expect.anything(), 'REFUNDED');
   });
@@ -765,7 +765,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] }, resolution: null }]) },
-      data: { status: 'RELEASED', settledAt: expect.any(Date), resolution: 'released' },
+      data: { status: 'RELEASED', settledStatus: 'RELEASED', settledAt: expect.any(Date), resolution: 'released' },
     });
     expect(prisma.order.update).not.toHaveBeenCalled();
 
@@ -785,7 +785,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] }, resolution: null }]) },
-      data: { status: 'REFUNDED', settledAt: expect.any(Date), resolution: 'refunded' },
+      data: { status: 'REFUNDED', settledStatus: 'REFUNDED', settledAt: expect.any(Date), resolution: 'refunded' },
     });
     expect(stellar.getTradeStatus).toHaveBeenCalledWith('CXXX', TRADE_ID_A);
   });
@@ -907,7 +907,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
     expect(stellar.getTradeStatus).toHaveBeenCalledWith('CXXX', TRADE_ID_A);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', status: { in: expect.arrayContaining(['FIAT_PAID']) } },
-      data: { status: 'RELEASED', settledAt: new Date(ON_CHAIN_SECS * 1000) },
+      data: { status: 'RELEASED', settledStatus: 'RELEASED', settledAt: new Date(ON_CHAIN_SECS * 1000) },
     });
   });
 
@@ -925,7 +925,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', status: { in: expect.arrayContaining(['FUNDED']) } },
-      data: { status: 'REFUNDED', settledAt: new Date(ON_CHAIN_SECS * 1000) },
+      data: { status: 'REFUNDED', settledStatus: 'REFUNDED', settledAt: new Date(ON_CHAIN_SECS * 1000) },
     });
   });
 
@@ -941,7 +941,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', status: { in: expect.arrayContaining(['FIAT_PAID']) } },
-      data: { status: 'RELEASED', settledAt: expect.any(Date) },
+      data: { status: 'RELEASED', settledStatus: 'RELEASED', settledAt: expect.any(Date) },
     });
     expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(expect.anything(), 'RELEASED');
   });
@@ -958,7 +958,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', status: { in: expect.arrayContaining(['FIAT_PAID']) } },
-      data: { status: 'RELEASED', settledAt: expect.any(Date) },
+      data: { status: 'RELEASED', settledStatus: 'RELEASED', settledAt: expect.any(Date) },
     });
   });
 
@@ -976,7 +976,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', status: { in: expect.arrayContaining(['FIAT_PAID']) } },
-      data: { status: 'RELEASED', settledAt: expect.any(Date) },
+      data: { status: 'RELEASED', settledStatus: 'RELEASED', settledAt: expect.any(Date) },
     });
   });
 
@@ -998,7 +998,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
     expect(stellar.getTradeStatus).toHaveBeenCalledTimes(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] }, resolution: null }]) },
-      data: { status: 'RELEASED', settledAt: new Date(ON_CHAIN_SECS * 1000), resolution: 'released' },
+      data: { status: 'RELEASED', settledStatus: 'RELEASED', settledAt: new Date(ON_CHAIN_SECS * 1000), resolution: 'released' },
     });
   });
 
@@ -1016,7 +1016,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] }, resolution: null }]) },
-      data: { status: 'RELEASED', settledAt: expect.any(Date), resolution: 'released' },
+      data: { status: 'RELEASED', settledStatus: 'RELEASED', settledAt: expect.any(Date), resolution: 'released' },
     });
     expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(expect.anything(), 'RELEASED');
   });

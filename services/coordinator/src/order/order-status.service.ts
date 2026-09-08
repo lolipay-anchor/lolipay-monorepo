@@ -39,6 +39,7 @@ export function isAhead(newStatus: string, currentStatus: string): boolean {
 export function settlementFieldsFrom(onChain: TradeOnChain): Record<string, unknown> {
   if (onChain.status !== 'RELEASED' && onChain.status !== 'REFUNDED') return {};
   return {
+    settledStatus: onChain.status,
     settledAt: onChain.settledAt > 0 ? new Date(onChain.settledAt * 1000) : new Date(),
     ...(onChain.postSettleDeadline === undefined ? {} : { postSettleDeadline: onChain.postSettleDeadline }),
     ...(onChain.slashDeadline === undefined ? {} : { slashDeadline: onChain.slashDeadline }),

@@ -475,8 +475,16 @@ describe('MaintenanceService.autoRefundExpired', () => {
     expect(refundSigner.submitRefund).toHaveBeenCalledTimes(1);
     expect(orderTable.updateMany).toHaveBeenCalledWith({
       where: { id: 'o1', status: 'FUNDED' },
-      data: expect.objectContaining({ status: 'REFUNDED' }),
+      data: expect.objectContaining({ status: 'REFUNDED', settledStatus: 'REFUNDED' }),
     });
+  });
+
+  it('records the direction the order settled in, so a later verdict does not have to ask the chain what it already knows', async () => {
+    const { svc, orderTable } = make();
+    await svc.autoRefundExpired();
+
+    const written = (orderTable.updateMany as jest.Mock).mock.calls[0][0].data;
+    expect(written.settledStatus).toBe(written.status);
   });
 
   describe('M1 fix: notify on auto-refund', () => {
