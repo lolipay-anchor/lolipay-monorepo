@@ -249,12 +249,14 @@ describe('LPs page', () => {
     await waitFor(() => {
       expect(screen.getByTestId('confirm-action')).toBeTruthy()
     })
+    fireEvent.change(screen.getByLabelText('Action note'), { target: { value: 'typed before the failure' } })
     fireEvent.click(screen.getByTestId('confirm-action'))
 
     await waitFor(() => {
       expect(screen.getByText('server exploded')).toBeTruthy()
     })
     expect(screen.getByTestId('confirm-action')).toBeTruthy()
+    expect((screen.getByLabelText('Action note') as HTMLTextAreaElement).value).toBe('typed before the failure')
     expect(vi.mocked(apiClient.getLps).mock.calls.length).toBe(listReadsBefore)
   })
 

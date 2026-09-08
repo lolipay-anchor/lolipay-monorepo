@@ -47,11 +47,12 @@ export function PrereqCard({ me, eligibility }: { me: LpMe; eligibility: Eligibi
   }, [])
 
   const staked = eligibility ? eligibility.eligible && unbondingIsZero(eligibility.unbonding) : null
-  const paymentMethod = me.paymentMethods.some((m) => m.active)
+  const paymentMethod = me.paymentMethods.some((m) => m.active && m.rail === 'BANK')
   const ownBeat = qc.getQueryData<number>(['lpLastBeat']) ?? 0
-  const serverBeat = me.lastHeartbeatAt === null ? 0 : Date.parse(me.lastHeartbeatAt)
+  const parsedServerBeat = me.lastHeartbeatAt === null ? 0 : Date.parse(me.lastHeartbeatAt)
+  const serverBeat = Number.isFinite(parsedServerBeat) ? parsedServerBeat : 0
   const lastBeat = Math.max(ownBeat, serverBeat)
-  const age = lastBeat > 0 ? Math.max(0, Math.round((now - lastBeat) / 1000)) : null
+  const age = lastBeat > 0 ? Math.max(0, Math.floor((now - lastBeat) / 1000)) : null
   const heartbeat = me.online && lastBeat > 0 && now - lastBeat < HEARTBEAT_FRESH_MS
 
   return (
@@ -67,10 +68,10 @@ export function PrereqCard({ me, eligibility }: { me: LpMe; eligibility: Eligibi
         <Row id="stake" ok={staked} label="Staked at least the minimum, nothing unbonding">
           {staked === null ? '—' : staked ? 'Done' : 'To do'}
         </Row>
-        <Row id="payment-method" ok={paymentMethod} label="A payment method added">
+        <Row id="payment-method" ok={paymentMethod} label="A bank payment method, active">
           {paymentMethod ? 'Done' : 'To do'}
         </Row>
-        <Row id="heartbeat" ok={heartbeat} label="Heartbeat received in the last 2 minutes">
+        <Row id="heartbeat" ok={heartbeat} label="Online, with a heartbeat in the last 2 minutes">
           {age === null ? 'not yet' : `last seen ${age} s ago`}
         </Row>
       </ul>

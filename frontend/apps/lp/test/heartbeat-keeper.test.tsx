@@ -78,6 +78,7 @@ describe('HeartbeatKeeper — the provider stays matchable on every page, not on
     const t0 = Date.parse('2026-09-07T16:00:00Z')
     vi.setSystemTime(t0)
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true))
+    const setQueryData = vi.spyOn(queryClient, 'setQueryData')
     mount()
 
     await act(async () => {
@@ -87,6 +88,7 @@ describe('HeartbeatKeeper — the provider stays matchable on every page, not on
     expect(recorded).toBeGreaterThanOrEqual(t0)
     expect(recorded).toBeLessThanOrEqual(t0 + 100)
     expect(queryClient.getQueryData<{ lastHeartbeatAt: string | null }>(['lpMe'])?.lastHeartbeatAt).toBeNull()
+    expect(setQueryData).not.toHaveBeenCalledWith(['lpMe'], expect.anything())
   })
 
   it('records nothing when the beat is refused', async () => {

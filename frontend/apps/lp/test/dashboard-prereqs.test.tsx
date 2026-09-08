@@ -115,4 +115,16 @@ describe('the dashboard shows the three prerequisites with honest ticks', () => 
     expect(screen.getByText('last seen 3 s ago')).toBeTruthy()
     expect(tick('heartbeat')).toBe('true')
   })
+
+  it('leaves the payment row To do when the only active method is not a bank account, because orders arrive over bank transfer', () => {
+    mount(provider({ paymentMethods: [{ ...method(true), rail: 'QRIS' }] }), ready)
+    expect(tick('payment-method')).toBe('false')
+  })
+
+  it('does not let a malformed server heartbeat poison the beat the keeper itself recorded', () => {
+    queryClient.setQueryData(['lpLastBeat'], T0 - 3_000)
+    mount(provider({ lastHeartbeatAt: 'not a date' }), ready)
+    expect(tick('heartbeat')).toBe('true')
+    expect(screen.getByText('last seen 3 s ago')).toBeTruthy()
+  })
 })

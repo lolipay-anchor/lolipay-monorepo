@@ -216,7 +216,7 @@ describe('the dashboard keeps its own picture of the provider fresh', () => {
     vi.useRealTimers()
   })
 
-  it('re-reads the provider and the stake every thirty seconds while the page is open', async () => {
+  it('keeps the provider row on a timer but re-reads the stake only when the tab comes back, because that read is six uncached RPC calls', async () => {
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true))
     vi.useFakeTimers()
     render(
@@ -233,6 +233,20 @@ describe('the dashboard keeps its own picture of the provider fresh', () => {
       await vi.advanceTimersByTimeAsync(30_000)
     })
     expect(apiClient.getLpMe).toHaveBeenCalledTimes(2)
+    expect(apiClient.getLpEligibility).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      window.dispatchEvent(new Event('visibilitychange'))
+      await vi.advanceTimersByTimeAsync(100)
+    })
     expect(apiClient.getLpEligibility).toHaveBeenCalledTimes(2)
+  })
+
+  it('carries the prerequisite card, so a provider sees what is missing on the page they land on', async () => {
+    render(
+      <TestProviders kit={fakeKit}>
+        <DashboardPage />
+      </TestProviders>,
+    )
+    expect(await screen.findByTestId('prereq-card')).toBeTruthy()
   })
 })
