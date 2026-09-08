@@ -2144,13 +2144,102 @@ describe('IndexerService.applyEvent — a verdict closes the dispute round (ADR 
   it('stops a replayed pre-settlement verdict at the ledger, before the row write, so a cold start is not reported as a refusal', async () => {
     const { svc, tx } = await withRow('DISPUTED', filing);
 
-    expect(await svc.applyEvent(verdict())).toBe(1);
-    const writesWhenTheVerdictLanded = (tx.order.updateMany as jest.Mock).mock.calls.length;
+    const debug = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(await svc.applyEvent(verdict())).toBe(1);
+      const writesWhenTheVerdictLanded = (tx.order.updateMany as jest.Mock).mock.calls.length;
 
-    expect(await svc.applyEvent(verdict())).toBe(0);
+      expect(await svc.applyEvent(verdict())).toBe(0);
 
-    expect((tx.order.updateMany as jest.Mock).mock.calls.length).toBe(writesWhenTheVerdictLanded);
-    expect(tx.adminAudit.create).toHaveBeenCalledTimes(1);
+      expect((tx.order.updateMany as jest.Mock).mock.calls.length).toBe(writesWhenTheVerdictLanded);
+      expect(tx.adminAudit.create).toHaveBeenCalledTimes(1);
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining('has already been applied'));
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      debug.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it('never applies a post-settlement verdict it once refused because a newer round was live, even after that round ends', async () => {
+    const { svc, prisma, notifications } = makeBase('RELEASED', {
+      stellarOverrides: {
+        getTradeStatusStrict: jest
+          .fn()
+          .mockResolvedValueOnce({ status: 'DISPUTED' })
+          .mockResolvedValue({ status: 'RELEASED', liabilityEstablished: true, slashDeadline: 1_700_090_000n }),
+      },
+      orderContractId: 'CEVENTCONTRACT',
+    });
+    const midRound = {
+      id: 'ev-refused-mid-round',
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value: nativeToScVal({ released: true, post_settle: true }),
+      contractId: 'CEVENTCONTRACT',
+    };
+
+    expect(await svc.applyEvent(midRound)).toBe(0);
+    expect(await svc.applyEvent(midRound)).toBe(0);
+
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
+    expect(notifications.notifyOrderStatus).not.toHaveBeenCalled();
+  });
+
+  it('keeps a post-settlement verdict alive when the chain could not be read at all, because a trade the RPC did not find is not a verdict this indexer has decided', async () => {
+    const { svc, prisma } = makeBase('RELEASED', {
+      stellarOverrides: {
+        getTradeStatusStrict: jest
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValue({ status: 'RELEASED', liabilityEstablished: true, slashDeadline: 1_700_090_000n }),
+      },
+      orderContractId: 'CEVENTCONTRACT',
+    });
+    const unread = {
+      id: 'ev-chain-unreadable',
+      topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+      value: nativeToScVal({ released: true, post_settle: true }),
+      contractId: 'CEVENTCONTRACT',
+    };
+
+    expect(await svc.applyEvent(unread)).toBe(0);
+    expect(prisma.indexedEvent.createMany).not.toHaveBeenCalled();
+
+    expect(await svc.applyEvent(unread)).toBe(1);
+  });
+
+  it('claims nothing when the event is refused before the verdict is ever read, so the operator who fixes the binding gets the verdict', async () => {
+    const { svc, prisma } = makeBase('MATCHED', {
+      stellarOverrides: { getTradeStatusStrict: jest.fn().mockResolvedValue(null) },
+      orderContractId: 'CEVENTCONTRACT',
+    });
+
+    expect(
+      await svc.applyEvent({
+        id: 'ev-unbound',
+        topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+        value: nativeToScVal({ released: true, post_settle: false }),
+        contractId: 'CEVENTCONTRACT',
+      }),
+    ).toBe(0);
+
+    expect(prisma.indexedEvent.createMany).not.toHaveBeenCalled();
+  });
+
+  it('claims nothing when the event came from a contract this order is not bound to', async () => {
+    const { svc, prisma } = makeBase('DISPUTED', { orderContractId: 'CEVENTCONTRACT' });
+
+    expect(
+      await svc.applyEvent({
+        id: 'ev-wrong-contract',
+        topic: [TOPIC_RESOLVED, tradeIdTopic(TRADE_ID_A)],
+        value: nativeToScVal({ released: true, post_settle: false }),
+        contractId: 'CSOMEOTHERCONTRACT',
+      }),
+    ).toBe(0);
+
+    expect(prisma.indexedEvent.createMany).not.toHaveBeenCalled();
   });
 
   it('refuses to apply a verdict that arrived without an RPC event id, so the batch retries instead of applying it unidentified', async () => {

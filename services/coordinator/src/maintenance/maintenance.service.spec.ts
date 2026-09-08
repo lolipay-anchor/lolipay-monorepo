@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
-import { MaintenanceService } from './maintenance.service';
+import { LOOKBACK_LEDGERS, LEDGER_SECONDS } from '../indexer/indexer.service';
+import { MaintenanceService, INDEXED_EVENT_RETENTION_MS } from './maintenance.service';
 
 describe('MaintenanceService', () => {
   function make(onChain: any = null, throwOnStrict = false, orders?: any[]) {
@@ -612,6 +613,10 @@ describe('MaintenanceService.autoRefundExpired', () => {
 
     const arg = prisma.consumedChallenge.deleteMany.mock.calls[0][0];
     expect(arg.where.expiresAt.lt).toBeInstanceOf(Date);
+  });
+
+  it('keeps indexed chain events for longer than a cold start can reach back, so the ledger is never pruned out from under a replay', () => {
+    expect(INDEXED_EVENT_RETENTION_MS).toBeGreaterThan(LOOKBACK_LEDGERS * LEDGER_SECONDS * 1000);
   });
 
   it('sweeps indexed chain events past the replay window, so the ledger that makes a verdict idempotent cannot grow without bound', async () => {

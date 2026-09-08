@@ -32,6 +32,8 @@ function refundablePoolWhere(nowSecs: bigint) {
 }
 
 
+export const INDEXED_EVENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
 @Injectable()
 export class MaintenanceService {
   private readonly log = new Logger('Maintenance');
@@ -326,7 +328,7 @@ export class MaintenanceService {
     if (anchor.count > 0) this.log.log(`pruned ${anchor.count} spent SEP-10 challenge(s)`);
 
     const indexed = await this.prisma.indexedEvent.deleteMany({
-      where: { createdAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } },
+      where: { createdAt: { lt: new Date(Date.now() - INDEXED_EVENT_RETENTION_MS) } },
     });
     if (indexed.count > 0) this.log.log(`pruned ${indexed.count} indexed chain event(s) past the replay window`);
 

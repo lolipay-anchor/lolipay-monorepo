@@ -42,7 +42,8 @@ const STATUS_BEFORE: Record<string, string[]> = {
   REFUNDED: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'],
 };
 
-const LOOKBACK_LEDGERS = 17280;
+export const LOOKBACK_LEDGERS = 17280;
+export const LEDGER_SECONDS = 5;
 
 function settlementHashOf(ev: { txHash?: string }): string | undefined {
   const h = ev.txHash;
@@ -396,7 +397,12 @@ export class IndexerService {
     }
 
     const settled = await this.stellar.getTradeStatusStrict(contractId, order.tradeId);
-    if (!settled || !(POST_SETTLE_TERMINAL as readonly string[]).includes(settled.status)) {
+    if (!settled) return 0;
+    if (!(POST_SETTLE_TERMINAL as readonly string[]).includes(settled.status)) {
+      await this.claimEvent(this.prisma, eventId);
+      this.log.warn(
+        `post-settlement verdict ${eventId} on ${order.id} arrived while the chain reports ${settled.status}: a later round is open, so this verdict is recorded as decided and will not be applied`,
+      );
       return 0;
     }
     const finalStatus = settled.status;
