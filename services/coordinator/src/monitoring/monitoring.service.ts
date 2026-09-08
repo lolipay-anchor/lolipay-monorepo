@@ -384,7 +384,7 @@ export class MonitoringService {
         urgency: 'routine',
         text:
           'boot could not read which checks the bound verification workflow performs, so whether an unscreened acceptance is drift is unknown ' +
-          '— restart the coordinator once the vendor answers, or read the workflow in the Didit console',
+          '— the coordinator asks the vendor again every minute and this clears on its own once it knows; if it stays, read the workflow in the Didit console and check DIDIT_WORKFLOW_ID',
       });
     } else if (refusals.performsAml) {
       try {

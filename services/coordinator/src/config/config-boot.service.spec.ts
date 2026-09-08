@@ -223,6 +223,8 @@ describe('an anchor that cannot name itself cannot serve SEP-24', () => {
     ['a bare scheme with no host', 'https://'],
     ['a query string a wallet would carry into the webview', 'https://api.lolipay.app?next=evil'],
     ['a fragment', 'https://api.lolipay.app#evil'],
+    ['a trailing slash, which would double the slash in every URL built from it and 404 more_info_url', 'https://api.lolipay.app/'],
+    ['a path, which no SEP endpoint is served under', 'https://api.lolipay.app/anchor'],
   ])('refuses %s, because every URL handed to a wallet is built from this value', async (_n, value) => {
     const { prisma } = makePrisma({ id: 1, spreadBps: 150, platformFeeBps: 30, platformWallet: WALLET });
     await expect(

@@ -34,10 +34,10 @@ describe('whether a customer may move funds depends on one predicate that reads 
   });
 
   it('no other source file reads screenedAt or deliveredAt, so no gate can require or skip the provider behind the switch', () => {
-    const allowed = ['screening-requirement.ts', 'sep12.service.ts'];
+    const allowed = ['screening-requirement.ts', 'sep12.service.ts', 'sep24.service.ts'];
     const offenders = sourceFiles(join(__dirname, '..'))
       .filter((p) => !allowed.some((a) => p.endsWith(a)))
-      .filter((p) => /\b(screenedAt|deliveredAt)\b/.test(readFileSync(p, 'utf8')));
+      .filter((p) => /\b(screenedAt|deliveredAt|popupMayOfferVendor|awaitingProvider)\b/.test(readFileSync(p, 'utf8')));
     expect(offenders).toEqual([]);
   });
 
@@ -45,7 +45,7 @@ describe('whether a customer may move funds depends on one predicate that reads 
     const lines = readFileSync(join(__dirname, 'sep12.service.ts'), 'utf8')
       .split('\n')
       .map((l) => l.trim())
-      .filter((l) => /\b(screenedAt|deliveredAt|popupMayOfferVendor)\b/.test(l));
+      .filter((l) => /\b(screenedAt|deliveredAt|popupMayOfferVendor|awaitingProvider)\b/.test(l));
     expect(lines).toEqual([
       "import { awaitingProvider, popupMayOfferVendor } from './screening-requirement';",
       'async applyDelivery(conclusion: DiditConclusion, deliveredAt: Date): Promise<void> {',
@@ -56,6 +56,7 @@ describe('whether a customer may move funds depends on one predicate that reads 
       'deliveredAt: conclusion.notStarted ? (standing?.deliveredAt ?? null) : deliveredAt,',
       'screenedAt: screened ? deliveredAt : null,',
       "verifiedAt: conclusion.status === 'ACCEPTED' ? deliveredAt : null,",
+      'if (awaitingProvider(row, this.cfg.kycRequireAml)) {',
       "const providerPage = row.verificationUrl?.startsWith('https://') && popupMayOfferVendor(row) && stillInFlight(row) ? row.verificationUrl : null;",
       'data: { rejectionReason: null, screenedAt: null, verifiedAt: null, verificationUrl: null, providerRef: null, environment: null },',
       'screenedAt: null,',
@@ -107,5 +108,19 @@ describe('whether the popup may still offer the vendor page, which decides only 
     expect(popupMayOfferVendor(null)).toBe(true);
     expect(popupMayOfferVendor({ status: 'NEEDS_INFO', deliveredAt: new Date() })).toBe(true);
     expect(popupMayOfferVendor({ status: 'REJECTED', deliveredAt: new Date() })).toBe(true);
+  });
+});
+
+describe('the popup reads the screening fields only through the shared predicate, on the lines listed here', () => {
+  it('sep24.service touches them on exactly these lines, so any new read there fails until it is consciously listed', () => {
+    const lines = readFileSync(join(__dirname, '..', 'sep24', 'sep24.service.ts'), 'utf8')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => /\b(screenedAt|deliveredAt|popupMayOfferVendor|awaitingProvider)\b/.test(l));
+    expect(lines).toEqual([
+      "import { acceptedForFunds, popupMayOfferVendor } from '../kyc/screening-requirement';",
+      'if (vendor && popupMayOfferVendor(kyc)) {',
+      'const again = vendor && popupMayOfferVendor(kyc)',
+    ]);
   });
 });

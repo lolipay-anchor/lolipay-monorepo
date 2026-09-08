@@ -119,10 +119,47 @@ describe('a verdict closes the dispute round on the real database (ADR 0043, e2e
     });
   }
 
+  async function seedChainRaisedOrder() {
+    const order = await seedDisputedOrder();
+    return prisma.order.update({
+      where: { id: order.id },
+      data: { disputeBy: null, disputeReason: null, disputeNote: null, onChainDisputedBy: lpKp.publicKey(), resolverDisputed: true },
+    });
+  }
+
   const verdictFor = (tradeId: string) => ({
     topic: [nativeToScVal('resolved', { type: 'symbol' }), nativeToScVal(Buffer.from(tradeId, 'hex'))],
     value: nativeToScVal({ released: true, post_settle: false }),
     contractId: escrow,
+  });
+
+  it('closes a round the chain raised with no filing on record, and clears the resolver marker with it', async () => {
+    const order = await seedChainRaisedOrder();
+
+    expect(await indexer.applyEvent(verdictFor(order.tradeId))).toBe(1);
+
+    const closed = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(closed).toMatchObject({ status: 'RELEASED', onChainDisputedBy: null, disputeBy: null, resolverDisputed: false });
+    expect(closed.disputeClosedAt).toBeInstanceOf(Date);
+    const audits = await prisma.adminAudit.findMany({ where: { targetId: order.id, action: 'order.disputeRoundClosed' } });
+    expect(audits).toHaveLength(1);
+    expect(audits[0].before).toMatchObject({ disputeBy: null, onChainDisputedBy: lpKp.publicKey() });
+  });
+
+  it('leaves a round filed after the verdict alone when the same event is replayed', async () => {
+    const order = await seedDisputedOrder();
+    expect(await indexer.applyEvent(verdictFor(order.tradeId))).toBe(1);
+    const reopened = await prisma.order.update({
+      where: { id: order.id },
+      data: { status: 'DISPUTED', disputeBy: 'lp', disputeReason: 'FAKE_PROOF', disputeNote: 'filed after the verdict', onChainDisputedBy: lpKp.publicKey() },
+    });
+
+    expect(await indexer.applyEvent(verdictFor(order.tradeId))).toBe(0);
+
+    const after = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(after).toMatchObject({ status: 'DISPUTED', disputeBy: 'lp', disputeNote: 'filed after the verdict' });
+    expect(after.disputeClosedAt?.getTime()).toBe(reopened.disputeClosedAt?.getTime());
+    expect(await prisma.adminAudit.count({ where: { targetId: order.id, action: 'order.disputeRoundClosed' } })).toBe(1);
   });
 
   it('clears the filing, keeps its time, sets the marker, writes one audit row, ignores a replay, and lets the party file again', async () => {

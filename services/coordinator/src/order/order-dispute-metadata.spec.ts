@@ -331,9 +331,11 @@ describe('OrderService — dispute metadata + post-settle window (Phase 5B Task 
 
   it('a party whose post-settlement shot the escrow refuses is turned away before the row is claimed', async () => {
     const { svc, prisma, stellar } = makeSvc({ status: 'RELEASED', settledAt: new Date() });
-    stellar.buildRaiseDisputeTx.mockRejectedValueOnce(new Error('simulation failed: HostError: Error(Contract, #7) AlreadyResolved'));
+    stellar.buildRaiseDisputeTx.mockRejectedValueOnce(new Error('simulation failed: HostError: Error(Contract, #19)'));
 
-    await expect(svc.postDispute('order-1', LP_ADDR, 'FAKE_PROOF', 'again', undefined)).rejects.toThrow();
+    await expect(svc.postDispute('order-1', LP_ADDR, 'FAKE_PROOF', 'again', undefined)).rejects.toThrow(
+      /already been resolved/i,
+    );
 
     const claims = prisma.order.updateMany.mock.calls.filter((c: any) => c[0].data && 'disputeBy' in c[0].data);
     expect(claims).toHaveLength(0);

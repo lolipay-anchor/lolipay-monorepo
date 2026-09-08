@@ -22,6 +22,8 @@ function buildWith(replies: Array<{ status: number; body: unknown } | Error>) {
   return { provider: new DiditKycProvider(cfg, refusals, fetcher), refusals, fetcher };
 }
 
+const built: DiditKycProvider[] = [];
+
 function build(reply: { status: number; body: unknown } | Error) {
   const fetcher = jest.fn(async (url: string) => {
     if (reply instanceof Error) throw reply;
@@ -33,7 +35,9 @@ function build(reply: { status: number; body: unknown } | Error) {
       text: async () => JSON.stringify(reply.body),
     };
   }) as any;
-  return new DiditKycProvider(cfg, new DiditRefusalsService(), fetcher);
+  const provider = new DiditKycProvider(cfg, new DiditRefusalsService(), fetcher);
+  built.push(provider);
+  return provider;
 }
 
 const workflows = (features: string) => ({
@@ -51,6 +55,7 @@ describe('the anchor says at boot whether the workflow it is bound to can screen
   afterEach(() => {
     warn.mockRestore();
     log.mockRestore();
+    built.splice(0).forEach((p) => p.onModuleDestroy());
   });
 
   it('warns loudly when the bound workflow carries no AML step', async () => {
@@ -71,11 +76,24 @@ describe('the anchor says at boot whether the workflow it is bound to can screen
     expect(warn.mock.calls.flat().join(' ')).toMatch(/could not/i);
   });
 
-  it('does not refuse to start when the bound workflow is not in the list', async () => {
-    await expect(
-      build({ status: 200, body: { results: [{ workflow_id: 'other', features: 'AML' }] } }).onModuleInit(),
-    ).resolves.toBeUndefined();
-    expect(warn.mock.calls.flat().join(' ')).toMatch(/could not/i);
+  it('does not refuse to start when the bound workflow is not in the list, names the id as the thing to check, and does not ask again', async () => {
+    const error = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    jest.useFakeTimers();
+    try {
+      const { provider, fetcher } = buildWith([{ status: 200, body: { results: [{ workflow_id: 'other', features: 'AML' }] } }]);
+      await expect(provider.onModuleInit()).resolves.toBeUndefined();
+      expect(error.mock.calls.flat().join(' ')).toMatch(/DIDIT_WORKFLOW_ID/);
+      expect(warn.mock.calls.flat().join(' ')).not.toMatch(/could not/i);
+      await jest.advanceTimersByTimeAsync(DIDIT_WORKFLOW_RETRY_MS * 3);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+      error.mockRestore();
+    }
+  });
+
+  it('asks the vendor again once a minute, not once a second or once an hour', () => {
+    expect(DIDIT_WORKFLOW_RETRY_MS).toBe(60_000);
   });
 
   it('keeps asking the vendor once a minute after a failed boot read, and stops the moment it knows', async () => {

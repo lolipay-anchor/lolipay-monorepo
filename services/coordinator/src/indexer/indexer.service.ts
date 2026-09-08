@@ -365,7 +365,7 @@ export class IndexerService {
           where: {
             id: order.id,
             OR: [
-              { status: { in: STATUS_BEFORE[target] as any[] } },
+              { status: { in: STATUS_BEFORE[target] as any[] }, resolution: null },
               { status: target as any, resolution: null },
             ],
           },
@@ -392,7 +392,7 @@ export class IndexerService {
     const verdict = val.released ? 'released' : 'refunded';
     const res = await this.prisma.$transaction(async (tx) => {
       const written = await tx.order.updateMany({
-        where: { id: order.id },
+        where: { id: order.id, OR: [{ status: 'DISPUTED' as any }, { resolution: null }] },
         data: {
           status: finalStatus as any,
           resolution: verdict,
@@ -428,7 +428,7 @@ export class IndexerService {
     if (!open || (!open.disputeBy && !open.onChainDisputedBy)) return;
     const closed = await tx.order.updateMany({
       where: { id: orderId, OR: [{ disputeBy: { not: null } }, { onChainDisputedBy: { not: null } }] },
-      data: { disputeBy: null, disputeReason: null, disputeNote: null, onChainDisputedBy: null, disputeClosedAt: new Date() },
+      data: { disputeBy: null, disputeReason: null, disputeNote: null, onChainDisputedBy: null, resolverDisputed: false, disputeClosedAt: new Date() },
     });
     if (closed.count !== 1) return;
     await recordAudit(tx as any, {

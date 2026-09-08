@@ -335,7 +335,7 @@ export class Sep24Service {
           10,
         );
       }
-      const again = vendor
+      const again = vendor && popupMayOfferVendor(kyc)
         ? `<p><a href="${escapeHtml(vendor)}" target="_blank" rel="noopener">Continue verification</a></p>`
         : '';
       return page(
@@ -415,18 +415,22 @@ export class Sep24Service {
     }
     if (screen === 'instructions') {
       const o = row.order as any;
-      const due = o.payDeadline ? new Date(Number(o.payDeadline) * 1000).toISOString() : null;
+      const payment = this.paymentLine({ flow: row.flow, order: o });
+      if (!payment) {
+        const [tx] = await this.dress([row]);
+        return page(
+          'The time to pay has passed',
+          `${tx.message ? `<p>${escapeHtml(tx.message)}</p>` : ''}<p>You may close this window.</p>`,
+          30,
+        );
+      }
       const { platformFee, lpFee, net } = splitFees(o.usdcAmount, o.platformFeeBps, o.lpFeeBps);
       return page(
         'Send your rupiah',
         [
-          `<p>Send <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to:</p>`,
-          `<pre>${escapeHtml(o.lpPaymentDetails ?? 'your provider will be shown here')}</pre>`,
-          `<p>Reference: <strong>${escapeHtml(o.ref ?? '')}</strong></p>`,
+          payment,
           `<p>You receive <strong>${escapeHtml(formatUsdc(net))}</strong> USDC for it: 1 USDC ≈ <strong>${escapeHtml(formatFiat(effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount)))}</strong> ${escapeHtml(o.fiatCurrency)} on the <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC escrowed, minus a fee of <strong>${escapeHtml(formatUsdc(platformFee + lpFee))}</strong> USDC (${(o.platformFeeBps + o.lpFeeBps) / 100}%), all fixed for this order.</p>`,
-          due
-            ? `<p><strong>Send it before ${escapeHtml(due)}.</strong> After that a new transfer cannot be matched; one already sent can still be confirmed until <strong>${escapeHtml(new Date(Number(refundOpensAt(o)) * 1000).toISOString())}</strong>, when the escrow returns the USDC to the provider.</p>`
-            : '',
+          `<p>After that a new transfer cannot be matched; one already sent can still be confirmed until <strong>${escapeHtml(new Date(Number(refundOpensAt(o)) * 1000).toISOString())}</strong>, when the escrow returns the USDC to the provider.</p>`,
           '<p>You may close this window. Your wallet will show the deposit once it settles.</p>',
         ].join(''),
         30,
@@ -580,13 +584,13 @@ export class Sep24Service {
   }): string {
     const o = row.order;
     if (row.flow !== 'TOP_UP' || !o || o.status !== 'FUNDED') return '';
-    if (o.payDeadline && Number(o.payDeadline) * 1000 <= Date.now()) return '';
-    const due = o.payDeadline ? new Date(Number(o.payDeadline) * 1000).toISOString() : null;
+    if (!o.payDeadline || Number(o.payDeadline) * 1000 <= Date.now()) return '';
+    const due = new Date(Number(o.payDeadline) * 1000).toISOString();
     return [
       `<p>Send <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to:</p>`,
       `<pre>${escapeHtml(o.lpPaymentDetails ?? 'your provider will be shown here')}</pre>`,
       `<p>Reference: <strong>${escapeHtml(o.ref ?? '')}</strong></p>`,
-      due ? `<p>Send it before <strong>${escapeHtml(due)}</strong>.</p>` : '',
+      `<p><strong>Send it before ${escapeHtml(due)}.</strong></p>`,
     ].join('');
   }
 

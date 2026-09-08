@@ -690,7 +690,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     });
 
     const call = (prisma.order.updateMany as jest.Mock).mock.calls[0][0];
-    expect(call.where).toEqual({ id: 'ord-1' });
+    expect(call.where).toEqual({ id: 'ord-1', OR: [{ status: 'DISPUTED' }, { resolution: null }] });
   });
 
   it('records a post-settlement verdict even when the dispute before it was never indexed', async () => {
@@ -738,7 +738,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     });
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } }]) },
+      where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] }, resolution: null }]) },
       data: { status: 'RELEASED', settledAt: expect.any(Date), resolution: 'released' },
     });
     expect(prisma.order.update).not.toHaveBeenCalled();
@@ -757,7 +757,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     });
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } }]) },
+      where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] }, resolution: null }]) },
       data: { status: 'REFUNDED', settledAt: expect.any(Date), resolution: 'refunded' },
     });
     expect(stellar.getTradeStatus).toHaveBeenCalledWith('CXXX', TRADE_ID_A);
@@ -796,7 +796,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
     expect(stellar.getTradeStatusStrict).toHaveBeenCalledTimes(1);
 
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1' },
+      where: { id: 'ord-1', OR: [{ status: 'DISPUTED' }, { resolution: null }] },
       data: { status: 'RELEASED', resolution: 'refunded' },
     });
     expect(prisma.order.update).not.toHaveBeenCalled();
@@ -963,7 +963,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
 
     expect(stellar.getTradeStatus).toHaveBeenCalledTimes(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } }]) },
+      where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] }, resolution: null }]) },
       data: { status: 'RELEASED', settledAt: new Date(ON_CHAIN_SECS * 1000), resolution: 'released' },
     });
   });
@@ -980,7 +980,7 @@ describe('IndexerService.applyEvent — settledAt uses on-chain settled_at (Anal
     });
     expect(advanced).toBe(1);
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] } }]) },
+      where: { id: 'ord-1', OR: expect.arrayContaining([{ status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'DISPUTED', 'EXPIRED', 'CANCELLED'] }, resolution: null }]) },
       data: { status: 'RELEASED', settledAt: expect.any(Date), resolution: 'released' },
     });
     expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(expect.anything(), 'RELEASED');
@@ -1159,7 +1159,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
       contractId: 'CEVENTCONTRACT',
     });
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'ord-1' },
+      where: { id: 'ord-1', OR: [{ status: 'DISPUTED' }, { resolution: null }] },
       data: { status: 'REFUNDED', resolution: 'released' },
     });
     expect(userReputation.recordDisputeLost).not.toHaveBeenCalled();
@@ -1912,6 +1912,13 @@ describe('IndexerService.applyEvent — a verdict closes the dispute round (ADR 
       },
     });
     const seed = await base.prisma.order.findUnique();
+    const matches = (row: any, where: any): boolean =>
+      Object.entries(where ?? {}).every(([k, v]: [string, any]) => {
+        if (k === 'OR') return (v as any[]).some((clause) => matches(row, clause));
+        if (v && typeof v === 'object' && 'in' in v) return (v.in as any[]).includes(row[k]);
+        if (v && typeof v === 'object' && 'not' in v) return v.not === null ? row[k] != null : row[k] !== v.not;
+        return row[k] === v;
+      });
     let current: any = {
       ...seed,
       disputeBy: null,
@@ -1927,8 +1934,8 @@ describe('IndexerService.applyEvent — a verdict closes the dispute round (ADR 
     const tx = {
       order: {
         findUnique: jest.fn().mockImplementation(async () => ({ ...current })),
-        updateMany: jest.fn().mockImplementation(async ({ data }: any) => {
-          if ('disputeClosedAt' in data && !current.disputeBy && !current.onChainDisputedBy) return { count: 0 };
+        updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
+          if (!matches(current, where)) return { count: 0 };
           current = { ...current, ...data };
           return { count: 1 };
         }),
@@ -2018,6 +2025,64 @@ describe('IndexerService.applyEvent — a verdict closes the dispute round (ADR 
 
     expect(tx.adminAudit.create).not.toHaveBeenCalled();
     expect(row().disputeClosedAt).toBe(marker);
+  });
+
+  it('a replayed verdict leaves a LATER round untouched, because the chain resolved the round before it and not this one', async () => {
+    const { svc, tx, row } = await withRow('DISPUTED', {
+      resolution: 'released',
+      disputeBy: 'lp',
+      disputeReason: 'FAKE_PROOF',
+      disputeNote: 'the proof was doctored',
+      onChainDisputedBy: 'GLP',
+      disputeAt: new Date('2026-09-07T12:00:00.000Z'),
+      disputeClosedAt: new Date('2026-09-07T11:00:00.000Z'),
+    });
+
+    expect(await svc.applyEvent(verdict())).toBe(0);
+
+    expect(row()).toMatchObject({ status: 'DISPUTED', disputeBy: 'lp', disputeReason: 'FAKE_PROOF', onChainDisputedBy: 'GLP' });
+    expect(row().disputeClosedAt).toEqual(new Date('2026-09-07T11:00:00.000Z'));
+    expect(tx.adminAudit.create).not.toHaveBeenCalled();
+  });
+
+  it('a replayed post-settlement verdict leaves a later round untouched too', async () => {
+    const { svc, tx, row } = await withRow(
+      'RELEASED',
+      {
+        resolution: 'released',
+        disputeBy: 'lp',
+        disputeReason: 'FAKE_PROOF',
+        disputeNote: 'filed after the verdict',
+        onChainDisputedBy: 'GLP',
+        disputeAt: new Date('2026-09-07T12:00:00.000Z'),
+        disputeClosedAt: new Date('2026-09-07T11:00:00.000Z'),
+      },
+      { getTradeStatusStrict: jest.fn().mockResolvedValue({ status: 'RELEASED', liabilityEstablished: true, slashDeadline: 1_700_090_000n }) },
+    );
+
+    expect(await svc.applyEvent(verdict(true))).toBe(0);
+
+    expect(row()).toMatchObject({ disputeBy: 'lp', disputeNote: 'filed after the verdict', onChainDisputedBy: 'GLP' });
+    expect(row().disputeClosedAt).toEqual(new Date('2026-09-07T11:00:00.000Z'));
+    expect(tx.adminAudit.create).not.toHaveBeenCalled();
+  });
+
+  it('closes nothing when the status write matched no row, because a round the chain did not resolve is not this verdict to end', async () => {
+    const { svc, tx, row } = await withRow('RELEASED', { ...filing, resolution: 'released' });
+
+    expect(await svc.applyEvent(verdict())).toBe(0);
+
+    expect(row()).toMatchObject({ disputeBy: 'user', disputeReason: 'PAYMENT_NOT_RECEIVED' });
+    expect(row().disputeClosedAt).toBeNull();
+    expect(tx.adminAudit.create).not.toHaveBeenCalled();
+  });
+
+  it('clears the resolver marker too, so a later round the resolver did not raise is not attributed to it', async () => {
+    const { svc, row } = await withRow('DISPUTED', { onChainDisputedBy: 'GRESOLVER', resolverDisputed: true, disputeAt: FILED_AT });
+
+    expect(await svc.applyEvent(verdict())).toBe(1);
+
+    expect(row().resolverDisputed).toBe(false);
   });
 
   it('a post-settlement verdict closes the round the same way', async () => {

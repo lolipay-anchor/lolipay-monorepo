@@ -36,9 +36,12 @@ export class DiditKycProvider implements KycProvider, OnModuleInit, OnModuleDest
   async onModuleInit(): Promise<void> {
     if (await this.probeWorkflow()) return;
     this.workflowRetry = setInterval(() => {
-      void this.probeWorkflow().then((known) => {
-        if (known) this.onModuleDestroy();
-      });
+      void this.probeWorkflow().then(
+        (known) => {
+          if (known) this.onModuleDestroy();
+        },
+        () => undefined,
+      );
     }, DIDIT_WORKFLOW_RETRY_MS);
     this.workflowRetry.unref?.();
   }
@@ -51,6 +54,7 @@ export class DiditKycProvider implements KycProvider, OnModuleInit, OnModuleDest
   private async probeWorkflow(): Promise<boolean> {
     const log = new Logger('Kyc');
     let features: string | undefined;
+    let listRead = false;
     try {
       const res = await this.fetcher(DIDIT_WORKFLOWS_URL, {
         headers: { 'x-api-key': this.cfg.diditApiKey },
@@ -59,12 +63,19 @@ export class DiditKycProvider implements KycProvider, OnModuleInit, OnModuleDest
       if (res.ok) {
         const body: any = await res.json();
         const rows = Array.isArray(body) ? body : (body?.results ?? []);
+        listRead = Array.isArray(rows);
         features = rows.find((w: any) => w?.workflow_id === this.cfg.diditWorkflowId)?.features;
       }
     } catch {
       features = undefined;
     }
 
+    if (typeof features !== 'string' && listRead) {
+      log.error(
+        'the vendor answered, but the workflow this deployment is bound to is not in the account\'s list, so whether it can screen cannot be known; check DIDIT_WORKFLOW_ID against the Didit console and restart — asking again would not change the answer',
+      );
+      return true;
+    }
     if (typeof features !== 'string') {
       log.warn(
         `could not read which checks the configured verification workflow performs, so whether this deployment can screen is unknown; starting anyway and asking again every ${DIDIT_WORKFLOW_RETRY_MS / 1000} s`,

@@ -42,10 +42,11 @@ export class ConfigBootService implements OnModuleInit {
       parsed.username ||
       parsed.password ||
       parsed.search ||
-      parsed.hash
+      parsed.hash ||
+      base !== parsed.origin
     ) {
       throw new Error(
-        `refusing to start: ANCHOR_BASE_URL is ${JSON.stringify(base)}, and every URL this anchor hands a wallet is built from it — it must be a plain https origin with no credentials, query or fragment`,
+        `refusing to start: ANCHOR_BASE_URL is ${JSON.stringify(base)}, and every URL this anchor hands a wallet is built from it — it must be a plain https origin with no path, trailing slash, credentials, query or fragment`,
       );
     }
 

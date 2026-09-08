@@ -443,7 +443,7 @@ describe('the screen that actually asks for money', () => {
 
   const http = () => request(app.getHttpServer());
 
-  async function fundedDeposit(paymentDetails: string) {
+  async function fundedDeposit(paymentDetails: string, payDeadline?: bigint) {
     const kp = Keypair.random();
     const jwt = await anchorToken(app, kp);
     const link = await prisma.walletLink.findUnique({
@@ -465,7 +465,7 @@ describe('the screen that actually asks for money', () => {
     const id = opened.body.id;
     const token = new URL(opened.body.url).searchParams.get('token')!;
 
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
+    const deadline = payDeadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800);
     const order = await prisma.order.create({
       data: {
         tradeId: `t-${id}`.slice(0, 64),
@@ -511,6 +511,15 @@ describe('the screen that actually asks for money', () => {
   it('keeps refreshing, because the escrow settles while the page is open', async () => {
     const { id, token } = await fundedDeposit('BCA 1');
     const res = await (await follow(app, id, token)).page();
+    expect(res.text).toContain('http-equiv="refresh"');
+  });
+
+  it('stops asking for the rupiah once the pay deadline has passed, and says so instead', async () => {
+    const { id, token } = await fundedDeposit('BCA 9999 a/n Late', BigInt(Math.floor(Date.now() / 1000) - 600));
+    const res = await (await follow(app, id, token)).page().expect(200);
+    expect(res.text).not.toContain('BCA 9999 a/n Late');
+    expect(res.text).not.toContain('Send <strong>');
+    expect(res.text).toContain('The time to send the rupiah has passed');
     expect(res.text).toContain('http-equiv="refresh"');
   });
 });
@@ -714,7 +723,7 @@ describe('after the identity form, the popup lands on the screen that keeps chec
     await prisma.kycVerification.update({ where: { customerRef: kp.publicKey() }, data: { deliveredAt: new Date() } });
     const delivered = await page().expect(200);
     expect(delivered.text).toContain('Checking your identity');
-    expect(delivered.text).toContain('https://verify.example/session/abc123');
+    expect(delivered.text).not.toContain('https://verify.example/session/abc123');
     expect(delivered.text).not.toContain('Open Didit verification');
 
     await prisma.kycVerification.update({
@@ -723,7 +732,7 @@ describe('after the identity form, the popup lands on the screen that keeps chec
     });
     const accepted = await page().expect(200);
     expect(accepted.text).toContain('Checking your identity');
-    expect(accepted.text).toContain('https://verify.example/session/abc123');
+    expect(accepted.text).not.toContain('https://verify.example/session/abc123');
     expect(accepted.text).not.toContain('Open Didit verification');
 
     await prisma.kycVerification.update({
