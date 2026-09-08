@@ -415,6 +415,7 @@ export class IndexerService {
         where: { id: order.id },
         data: {
           status: finalStatus as any,
+          settledStatus: finalStatus as any,
           resolution: verdict,
           ...(typeof settled.liabilityEstablished === 'boolean' && settled.slashDeadline !== undefined
             ? {

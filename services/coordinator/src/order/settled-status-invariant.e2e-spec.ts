@@ -89,6 +89,15 @@ describe('every path that settles an order records the direction it settled in (
     return Number(rows[0].count);
   }
 
+  let violationsBefore = 0;
+  beforeEach(async () => {
+    violationsBefore = await ordersSettledWithoutADirection();
+  });
+
+  async function noNewViolation(): Promise<void> {
+    expect(await ordersSettledWithoutADirection()).toBe(violationsBefore);
+  }
+
   const event = (name: string, tradeId: string, value: any) => ({
     id: `inv-${name}-${tradeId.slice(0, 12)}`,
     ledger: 4_600_000,
@@ -108,7 +117,7 @@ describe('every path that settles an order records the direction it settled in (
     const after = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
     expect(after.status).toBe('RELEASED');
     expect(after.settledStatus).toBe('RELEASED');
-    expect(await ordersSettledWithoutADirection()).toBe(0);
+    await noNewViolation();
   });
 
   it('the indexer records it when a pre-settlement verdict settles the order', async () => {
@@ -124,7 +133,29 @@ describe('every path that settles an order records the direction it settled in (
     const after = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
     expect(after.status).toBe('REFUNDED');
     expect(after.settledStatus).toBe('REFUNDED');
-    expect(await ordersSettledWithoutADirection()).toBe(0);
+    await noNewViolation();
+  });
+
+  it('the indexer records it when a post-settlement verdict is the first thing to settle the row', async () => {
+    const order = await seedFunded();
+    await prisma.order.update({ where: { id: order.id }, data: { status: 'DISPUTED' } });
+    stellar.getTradeStatusStrict.mockResolvedValue({
+      status: 'RELEASED',
+      settledAt: Math.floor(Date.now() / 1000),
+      liabilityEstablished: true,
+      slashDeadline: Math.floor(Date.now() / 1000) + 86_400,
+    });
+
+    expect(
+      await indexer.applyEvent(
+        event('resolved', order.tradeId, nativeToScVal({ released: true, post_settle: true })),
+      ),
+    ).toBe(1);
+
+    const after = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(after.status).toBe('RELEASED');
+    expect(after.settledStatus).toBe('RELEASED');
+    await noNewViolation();
   });
 
   it('the order page records it when the chain settled the order before any event was indexed', async () => {
@@ -143,6 +174,6 @@ describe('every path that settles an order records the direction it settled in (
     const after = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
     expect(after.status).toBe('RELEASED');
     expect(after.settledStatus).toBe('RELEASED');
-    expect(await ordersSettledWithoutADirection()).toBe(0);
+    await noNewViolation();
   });
 });
