@@ -187,6 +187,39 @@ describe('LPs page', () => {
     expect(callArgs[2]).toBe('approve')
   })
 
+  it('obeys its own 409: a decision refused because the provider moved collapses the card and reloads the list before the administrator can click again', async () => {
+    const { ApiError } = await import('@lolipay/api-client')
+    vi.mocked(apiClient.getLps).mockResolvedValue([MOCK_LP])
+    vi.mocked(apiClient.setLpStatus).mockRejectedValueOnce(
+      new ApiError(409, "the provider's status changed while you were deciding — reload and decide again"),
+    )
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <LPsPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Approve')).toBeTruthy()
+    })
+    const listReadsBefore = vi.mocked(apiClient.getLps).mock.calls.length
+
+    fireEvent.click(screen.getByText('Approve'))
+    await waitFor(() => {
+      expect(screen.getByTestId('confirm-action')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByTestId('confirm-action'))
+
+    await waitFor(() => {
+      expect(screen.getByText("the provider's status changed while you were deciding — reload and decide again")).toBeTruthy()
+    })
+    expect(screen.queryByTestId('confirm-action')).toBeNull()
+    await waitFor(() => {
+      expect(vi.mocked(apiClient.getLps).mock.calls.length).toBeGreaterThan(listReadsBefore)
+    })
+  })
+
   it('shows the online dot when LP is online', async () => {
     vi.mocked(apiClient.getLps).mockResolvedValueOnce([
       { ...MOCK_LP, online: true },

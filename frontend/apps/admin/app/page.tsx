@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getLps, setLpStatus, registerLp } from '@lolipay/api-client'
+import { getLps, setLpStatus, registerLp, ApiError } from '@lolipay/api-client'
 import type { Lp, LpStatus } from '@lolipay/api-client'
 import { Card, StatusPill, Button, StatCard, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
 import { Plus } from 'lucide-react'
@@ -312,6 +312,11 @@ function LpList() {
     },
     onError: (e) => {
       setMutError(e instanceof Error ? e.message : 'Action failed')
+      if (e instanceof ApiError && e.status === 409) {
+        setPendingAction(null)
+        queryClient.invalidateQueries({ queryKey: ['lps'] })
+        queryClient.invalidateQueries({ queryKey: ['lps-all'] })
+      }
     },
   })
 
