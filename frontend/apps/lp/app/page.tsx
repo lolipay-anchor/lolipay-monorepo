@@ -71,6 +71,7 @@ export default function DashboardPage() {
     queryKey: ['lpEligibility'],
     queryFn: () => getLpEligibility(client),
     staleTime: 30_000,
+    refetchInterval: 300_000,
   })
 
   const {

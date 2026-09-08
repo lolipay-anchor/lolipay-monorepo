@@ -13,7 +13,7 @@ import { formatUsdcBalance } from '@/lib/balance'
 import { useUsdcBalance } from '@/hooks/useUsdcBalance'
 import { QuoteBreakdown } from '@/components/QuoteBreakdown'
 import { ReviewSheet } from '@/components/ReviewSheet'
-import { explainOrderRefusal, QUOTE_FALLBACK } from '@/lib/order-refusal'
+import { explainOrderRefusal, keepIdentity, QUOTE_FALLBACK } from '@/lib/order-refusal'
 import { useToast } from '@/components/Toast'
 import { DailyLimitRow } from '@/components/DailyLimitRow'
 
@@ -132,7 +132,7 @@ export function SellForm() {
     },
   })
 
-  const canContinue = !!quote && !expired && !isPending
+  const canContinue = !!quote && !quoteRefusal && !expired && !isPending
 
   const handleContinue = () => {
     setOrderRefusal(null)
@@ -211,7 +211,7 @@ export function SellForm() {
               value={usdcInput}
               onChange={(e) => {
                 setUsdcInput(e.target.value)
-                setOrderRefusal(null)
+                setOrderRefusal(keepIdentity)
               }}
             />
             <span className="font-geist text-[20px] font-bold text-lp-muted">USDC</span>

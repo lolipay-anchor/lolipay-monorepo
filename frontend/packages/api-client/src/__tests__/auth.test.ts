@@ -55,4 +55,26 @@ describe('auth', () => {
     expect(err.message).toBe(SESSION_EXPIRED)
     expect(setToken).toHaveBeenCalledWith('')
   })
+  it('names the request when a 2xx body cannot be read, so a parser message never reaches a user', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError('Unexpected token \'<\', "<html>" is not valid JSON')
+        },
+      }),
+    )
+    const client = new ApiClient({ baseUrl: 'https://api.x', getToken: () => null, setToken: () => {} })
+    const err = await client.request('GET', '/quotes').then(
+      () => {
+        throw new Error('expected a refusal')
+      },
+      (e) => e as ApiError,
+    )
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err.status).toBe(200)
+    expect(err.message).toBe('GET /quotes → 200')
+  })
 })

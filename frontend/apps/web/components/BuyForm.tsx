@@ -10,6 +10,7 @@ import { QuoteBreakdown } from '@/components/QuoteBreakdown'
 import { ReviewSheet, formatMMSS } from '@/components/ReviewSheet'
 import { TrustlineNotice } from '@/components/TrustlineNotice'
 import { useToast } from '@/components/Toast'
+import { keepIdentity } from '@/lib/order-refusal'
 import { useQuote } from '@/hooks/useQuote'
 import { useCreateOrder } from '@/hooks/useCreateOrder'
 import { DailyLimitRow } from '@/components/DailyLimitRow'
@@ -59,7 +60,7 @@ export function BuyForm() {
 
   const { gross, net, rateText } = computeBreakdown(quote, usdcAmount)
 
-  const canContinue = !!quote && !expired && !isPending
+  const canContinue = !!quote && !quoteRefusal && !expired && !isPending
 
   const [reviewedSecondsLeft, setReviewedSecondsLeft] = React.useState(0)
   React.useEffect(() => {
@@ -136,7 +137,7 @@ export function BuyForm() {
               value={rawIDR}
               onChange={(e) => {
                 setRawIDR(e.target.value)
-                setOrderRefusal(null)
+                setOrderRefusal(keepIdentity)
               }}
               aria-invalid={refused}
               aria-describedby={refused ? 'buy-idr-refusal' : undefined}
@@ -162,7 +163,7 @@ export function BuyForm() {
                 type="button"
                 onClick={() => {
                   setRawIDR(String(amount))
-                  setOrderRefusal(null)
+                  setOrderRefusal(keepIdentity)
                 }}
                 className="flex-1 rounded-[10px] border border-lp-line bg-lp-raise py-2 text-xs font-semibold text-lp-ink transition hover:bg-lp-line-2"
               >

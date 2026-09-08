@@ -151,6 +151,67 @@ describe('SellForm (WITHDRAW)', () => {
     expect(screen.queryByText('Review order')).toBeNull()
     expect(mockCreateOrder).not.toHaveBeenCalled()
   })
+
+  it('shows the 24-hour sentence when the withdrawal quote itself is refused for the daily limit', async () => {
+    mockCreateQuote.mockRejectedValueOnce(new Error('daily limit exceeded'))
+    render(
+      <TestProviders>
+        <SellForm />
+      </TestProviders>,
+    )
+    fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('order-refusal').textContent).toBe(
+          'This order would go past your 24-hour limit. Try a smaller amount, or try again later.',
+        )
+      },
+      { timeout: 2000 },
+    )
+  })
+
+  it('keeps the identity sentence through a keystroke on the withdrawal screen too', async () => {
+    mockCreateOrder.mockRejectedValueOnce(new Error('identity verification is required before a trade can be opened'))
+    render(
+      <TestProviders>
+        <SellForm />
+      </TestProviders>,
+    )
+    const amount = screen.getByLabelText(/You sell/i)
+    fireEvent.change(amount, { target: { value: '20' } })
+    fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA 123 a/n Me' } })
+    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
+    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
+    await waitFor(() => expect(screen.getByTestId('order-refusal').textContent).toMatch(/verify your identity/i))
+
+    fireEvent.change(amount, { target: { value: '21' } })
+
+    expect(screen.getByTestId('order-refusal').textContent).toMatch(/verify your identity/i)
+  })
+
+  it('refuses to continue on a price the quote door has since refused', async () => {
+    render(
+      <TestProviders>
+        <SellForm />
+      </TestProviders>,
+    )
+    fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
+    fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA 123 a/n Me' } })
+    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    expect((screen.getByRole('button', { name: /Lock USDC & sell/i }) as HTMLButtonElement).disabled).toBe(false)
+
+    mockCreateQuote.mockRejectedValue(new Error('daily limit exceeded'))
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ['sellQuote'] })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-refusal').textContent).toMatch(/24-hour limit/)
+    })
+    expect((screen.getByRole('button', { name: /Lock USDC & sell/i }) as HTMLButtonElement).disabled).toBe(true)
+  })
 })
 
 describe('SellForm — balance and exceeds-balance', () => {
@@ -462,23 +523,5 @@ describe('SellForm — daily-limit row', () => {
     expect(row).toHaveTextContent('600.00')
     expect(row).toHaveTextContent('Trusted')
     expect(row.textContent).not.toMatch(/fee/i)
-  })
-
-  it('shows the 24-hour sentence when the withdrawal quote itself is refused for the daily limit', async () => {
-    mockCreateQuote.mockRejectedValueOnce(new Error('daily limit exceeded'))
-    render(
-      <TestProviders>
-        <SellForm />
-      </TestProviders>,
-    )
-    fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
-    await waitFor(
-      () => {
-        expect(screen.getByTestId('order-refusal').textContent).toBe(
-          'This order would go past your 24-hour limit. Try a smaller amount, or try again later.',
-        )
-      },
-      { timeout: 2000 },
-    )
   })
 })

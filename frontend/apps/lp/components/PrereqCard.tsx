@@ -71,7 +71,7 @@ export function PrereqCard({ me, eligibility }: { me: LpMe; eligibility: Eligibi
         <Row id="payment-method" ok={paymentMethod} label="A bank payment method, active">
           {paymentMethod ? 'Done' : 'To do'}
         </Row>
-        <Row id="heartbeat" ok={heartbeat} label="Online, with a heartbeat in the last 2 minutes">
+        <Row id="heartbeat" ok={heartbeat} label="Online, with a recent heartbeat">
           {age === null ? 'not yet' : `last seen ${age} s ago`}
         </Row>
       </ul>

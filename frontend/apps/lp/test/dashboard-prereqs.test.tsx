@@ -127,4 +127,10 @@ describe('the dashboard shows the three prerequisites with honest ticks', () => 
     expect(tick('heartbeat')).toBe('true')
     expect(screen.getByText('last seen 3 s ago')).toBeTruthy()
   })
+
+  it('never prints an age at or past the window it is still green for, because the seconds are floored', () => {
+    mount(provider({ lastHeartbeatAt: new Date(T0 - 119_600).toISOString() }), ready)
+    expect(screen.getByText('last seen 119 s ago')).toBeTruthy()
+    expect(tick('heartbeat')).toBe('true')
+  })
 })

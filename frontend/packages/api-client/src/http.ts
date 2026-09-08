@@ -21,7 +21,11 @@ export class ApiClient {
     if (!res.ok) await this.refuse(res, token, method, path)
 
     if (res.status === 204) return undefined as T
-    return res.json() as Promise<T>
+    try {
+      return (await res.json()) as T
+    } catch {
+      throw new ApiError(res.status, `${method} ${path} → ${res.status}`)
+    }
   }
 
   async requestBlob(method: string, path: string): Promise<Blob> {

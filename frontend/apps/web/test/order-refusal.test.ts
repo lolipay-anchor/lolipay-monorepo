@@ -41,9 +41,9 @@ describe('the refusals the anchor sends most often are said in plain words', () 
 })
 
 describe('the fallback belongs to the door that failed', () => {
-  it('folds a JSON parser failure into the fallback instead of showing the parser to the user', () => {
-    expect(explainOrderRefusal('Unexpected token < in JSON at position 0')).toBe('The order could not be opened. Please try again.')
-    expect(explainOrderRefusal('"abc" is not valid JSON')).toBe('The order could not be opened. Please try again.')
+  it('folds a body this app could not read into the fallback, by the shape the client gives it rather than by the parser\'s prose', () => {
+    expect(explainOrderRefusal('POST /orders → 200')).toBe('The order could not be opened. Please try again.')
+    expect(explainOrderRefusal('POST /quotes → 200', QUOTE_FALLBACK)).toBe('Could not get a price right now. Please try again.')
   })
 
   it('uses the quote door\'s own sentence for a transport failure while pricing, because no order exists yet', () => {

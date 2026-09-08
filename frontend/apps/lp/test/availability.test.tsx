@@ -210,6 +210,7 @@ describe('the dashboard keeps its own picture of the provider fresh', () => {
   beforeEach(() => {
     queryClient.clear()
     vi.clearAllMocks()
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true))
   })
 
   afterEach(() => {
@@ -248,5 +249,22 @@ describe('the dashboard keeps its own picture of the provider fresh', () => {
       </TestProviders>,
     )
     expect(await screen.findByTestId('prereq-card')).toBeTruthy()
+  })
+
+  it('re-reads the stake on a slow timer, so a provider slashed elsewhere does not keep a green pill forever', async () => {
+    vi.useFakeTimers()
+    render(
+      <TestProviders kit={fakeKit}>
+        <DashboardPage />
+      </TestProviders>,
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+    expect(apiClient.getLpEligibility).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300_000)
+    })
+    expect(apiClient.getLpEligibility).toHaveBeenCalledTimes(2)
   })
 })
