@@ -203,6 +203,13 @@ describe('LPs page', () => {
     await waitFor(() => {
       expect(screen.getByText('Approve')).toBeTruthy()
     })
+    fireEvent.click(await screen.findByRole('button', { name: 'PENDING' }))
+    await waitFor(() => {
+      expect(vi.mocked(apiClient.getLps)).toHaveBeenCalledWith(expect.anything(), 'PENDING')
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Approve')).toBeTruthy()
+    })
     const listReadsBefore = vi.mocked(apiClient.getLps).mock.calls.length
 
     fireEvent.click(screen.getByText('Approve'))
@@ -216,8 +223,39 @@ describe('LPs page', () => {
     })
     expect(screen.queryByTestId('confirm-action')).toBeNull()
     await waitFor(() => {
-      expect(vi.mocked(apiClient.getLps).mock.calls.length).toBeGreaterThan(listReadsBefore)
+      const after = vi.mocked(apiClient.getLps).mock.calls.slice(listReadsBefore).map((c) => c[1])
+      expect(after).toContain('PENDING')
+      expect(after).toContain(undefined)
     })
+  })
+
+  it('leaves the card open on any other refusal, so a 500 does not throw away what the administrator typed', async () => {
+    const { ApiError } = await import('@lolipay/api-client')
+    vi.mocked(apiClient.getLps).mockResolvedValue([MOCK_LP])
+    vi.mocked(apiClient.setLpStatus).mockReset()
+    vi.mocked(apiClient.setLpStatus).mockRejectedValueOnce(new ApiError(500, 'server exploded'))
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <LPsPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Approve')).toBeTruthy()
+    })
+    const listReadsBefore = vi.mocked(apiClient.getLps).mock.calls.length
+    fireEvent.click(screen.getByText('Approve'))
+    await waitFor(() => {
+      expect(screen.getByTestId('confirm-action')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByTestId('confirm-action'))
+
+    await waitFor(() => {
+      expect(screen.getByText('server exploded')).toBeTruthy()
+    })
+    expect(screen.getByTestId('confirm-action')).toBeTruthy()
+    expect(vi.mocked(apiClient.getLps).mock.calls.length).toBe(listReadsBefore)
   })
 
   it('shows the online dot when LP is online', async () => {
