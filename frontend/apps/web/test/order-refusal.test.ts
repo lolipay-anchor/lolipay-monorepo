@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { explainOrderRefusal, IDENTITY_REQUIRED } from '@/lib/order-refusal'
+import { explainOrderRefusal, IDENTITY_REQUIRED, QUOTE_FALLBACK } from '@/lib/order-refusal'
 
 describe('what a refused order tells the person', () => {
   it('turns the anchor identity refusal into a sentence that says what to do', () => {
@@ -37,5 +37,22 @@ describe('the refusals the anchor sends most often are said in plain words', () 
     expect(explainOrderRefusal('Your session expired. Reconnect your wallet to continue.')).toBe('Your session expired. Reconnect your wallet to continue.')
     expect(explainOrderRefusal('quote does not belong to you')).toBe('quote does not belong to you')
     expect(explainOrderRefusal('the amount exceeds the per-order limit set by the provider')).toBe('the amount exceeds the per-order limit set by the provider')
+  })
+})
+
+describe('the fallback belongs to the door that failed', () => {
+  it('folds a JSON parser failure into the fallback instead of showing the parser to the user', () => {
+    expect(explainOrderRefusal('Unexpected token < in JSON at position 0')).toBe('The order could not be opened. Please try again.')
+    expect(explainOrderRefusal('"abc" is not valid JSON')).toBe('The order could not be opened. Please try again.')
+  })
+
+  it('uses the quote door\'s own sentence for a transport failure while pricing, because no order exists yet', () => {
+    expect(explainOrderRefusal('Failed to fetch', QUOTE_FALLBACK)).toBe('Could not get a price right now. Please try again.')
+  })
+
+  it('never lets the fallback replace a refusal the anchor actually wrote', () => {
+    expect(explainOrderRefusal('daily limit exceeded', QUOTE_FALLBACK)).toBe(
+      'This order would go past your 24-hour limit. Try a smaller amount, or try again later.',
+    )
   })
 })

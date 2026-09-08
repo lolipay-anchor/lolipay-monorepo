@@ -20,7 +20,12 @@ describe('a dead session is named once, and the app is told', () => {
     const heard = vi.fn()
     window.addEventListener(SESSION_EXPIRED_EVENT, heard)
     const { client, setToken } = clientWith('jwt')
-    const err = await client.request('GET', '/orders').catch((e) => e as ApiError)
+    const err = await client.request('GET', '/orders').then(
+      () => {
+        throw new Error('expected a refusal')
+      },
+      (e) => e as ApiError,
+    )
     window.removeEventListener(SESSION_EXPIRED_EVENT, heard)
     expect(err).toBeInstanceOf(ApiError)
     expect(err.status).toBe(401)
@@ -34,7 +39,12 @@ describe('a dead session is named once, and the app is told', () => {
     const heard = vi.fn()
     window.addEventListener(SESSION_EXPIRED_EVENT, heard)
     const { client, setToken } = clientWith('jwt')
-    const err = await client.requestBlob('GET', '/orders/o1/proof').catch((e) => e as ApiError)
+    const err = await client.requestBlob('GET', '/orders/o1/proof').then(
+      () => {
+        throw new Error('expected a refusal')
+      },
+      (e) => e as ApiError,
+    )
     window.removeEventListener(SESSION_EXPIRED_EVENT, heard)
     expect(err.message).toBe(SESSION_EXPIRED)
     expect(setToken).toHaveBeenCalledWith('')
@@ -46,7 +56,12 @@ describe('a dead session is named once, and the app is told', () => {
     const heard = vi.fn()
     window.addEventListener(SESSION_EXPIRED_EVENT, heard)
     const { client, setToken } = clientWith(null)
-    const err = await client.request('POST', '/auth/verify', {}).catch((e) => e as ApiError)
+    const err = await client.request('POST', '/auth/verify', {}).then(
+      () => {
+        throw new Error('expected a refusal')
+      },
+      (e) => e as ApiError,
+    )
     window.removeEventListener(SESSION_EXPIRED_EVENT, heard)
     expect(err.message).toBe('address is not a proven wallet')
     expect(setToken).not.toHaveBeenCalled()
@@ -58,7 +73,12 @@ describe('a dead session is named once, and the app is told', () => {
     const heard = vi.fn()
     window.addEventListener(SESSION_EXPIRED_EVENT, heard)
     const { client, setToken } = clientWith('jwt')
-    const err = await client.request('GET', '/admin/orders').catch((e) => e as ApiError)
+    const err = await client.request('GET', '/admin/orders').then(
+      () => {
+        throw new Error('expected a refusal')
+      },
+      (e) => e as ApiError,
+    )
     window.removeEventListener(SESSION_EXPIRED_EVENT, heard)
     expect(err.status).toBe(403)
     expect(err.message).toBe('Forbidden')
@@ -76,7 +96,12 @@ describe('a dead session is named once, and the app is told', () => {
     vi.stubGlobal('fetch', vi.fn(() => new Promise((r) => { answer = r })))
     const heard = vi.fn()
     window.addEventListener(SESSION_EXPIRED_EVENT, heard)
-    const pending = client.request('GET', '/orders').catch((e) => e as ApiError)
+    const pending = client.request('GET', '/orders').then(
+      () => {
+        throw new Error('expected a refusal')
+      },
+      (e) => e as ApiError,
+    )
     current = 'fresh'
     answer({ ok: false, status: 401, json: async () => ({ message: 'Unauthorized' }) })
     const err = await pending
@@ -90,7 +115,12 @@ describe('a dead session is named once, and the app is told', () => {
   it('an empty-bodied failure still names the request, which the order screens rely on', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 502, json: async () => { throw new Error('no body') } }))
     const { client } = clientWith('jwt')
-    const err = await client.request('POST', '/orders', {}).catch((e) => e as ApiError)
+    const err = await client.request('POST', '/orders', {}).then(
+      () => {
+        throw new Error('expected a refusal')
+      },
+      (e) => e as ApiError,
+    )
     expect(err.message).toBe('POST /orders → 502')
   })
 })

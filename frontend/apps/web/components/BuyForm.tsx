@@ -134,7 +134,10 @@ export function BuyForm() {
               className="w-full flex-1 bg-transparent font-geist text-[32px] font-bold tracking-[-0.02em] text-lp-ink tabular-nums outline-none"
               placeholder="0"
               value={rawIDR}
-              onChange={(e) => setRawIDR(e.target.value)}
+              onChange={(e) => {
+                setRawIDR(e.target.value)
+                setOrderRefusal(null)
+              }}
               aria-invalid={refused}
               aria-describedby={refused ? 'buy-idr-refusal' : undefined}
             />
@@ -157,7 +160,10 @@ export function BuyForm() {
               <button
                 key={amount}
                 type="button"
-                onClick={() => setRawIDR(String(amount))}
+                onClick={() => {
+                  setRawIDR(String(amount))
+                  setOrderRefusal(null)
+                }}
                 className="flex-1 rounded-[10px] border border-lp-line bg-lp-raise py-2 text-xs font-semibold text-lp-ink transition hover:bg-lp-line-2"
               >
                 {formatIDR(amount)}

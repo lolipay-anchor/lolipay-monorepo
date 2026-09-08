@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getRate, createQuote } from '@lolipay/api-client'
 import { client } from '@/lib/client'
 import type { Quote } from '@lolipay/api-client'
-import { explainOrderRefusal } from '@/lib/order-refusal'
+import { explainOrderRefusal, QUOTE_FALLBACK } from '@/lib/order-refusal'
 
 export interface UseQuoteResult {
   quote: Quote | undefined
@@ -63,7 +63,7 @@ export function useQuote(idrAmount: number): UseQuoteResult {
 
   return {
     quote,
-    refusal: quoteError ? explainOrderRefusal(quoteError.message) : undefined,
+    refusal: quoteError ? explainOrderRefusal(quoteError.message, QUOTE_FALLBACK) : undefined,
     usdcAmount,
     secondsLeft,
     expired,

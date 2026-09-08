@@ -463,4 +463,22 @@ describe('SellForm — daily-limit row', () => {
     expect(row).toHaveTextContent('Trusted')
     expect(row.textContent).not.toMatch(/fee/i)
   })
+
+  it('shows the 24-hour sentence when the withdrawal quote itself is refused for the daily limit', async () => {
+    mockCreateQuote.mockRejectedValueOnce(new Error('daily limit exceeded'))
+    render(
+      <TestProviders>
+        <SellForm />
+      </TestProviders>,
+    )
+    fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('order-refusal').textContent).toBe(
+          'This order would go past your 24-hour limit. Try a smaller amount, or try again later.',
+        )
+      },
+      { timeout: 2000 },
+    )
+  })
 })

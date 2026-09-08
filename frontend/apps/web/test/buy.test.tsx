@@ -231,12 +231,41 @@ describe('BuyForm — the quote door refuses in plain words too', () => {
       </TestProviders>,
     )
     fireEvent.change(screen.getByRole('textbox'), { target: { value: '1624000' } })
-    await waitFor(() => {
-      expect(screen.getByTestId('order-refusal').textContent).toBe(
-        'This order would go past your 24-hour limit. Try a smaller amount, or try again later.',
-      )
-    })
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('order-refusal').textContent).toBe(
+          'This order would go past your 24-hour limit. Try a smaller amount, or try again later.',
+        )
+      },
+      { timeout: 2000 },
+    )
     expect((screen.getByRole('button', { name: /Continue to pay/ }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('a fresh amount clears an earlier order refusal, so the quote door can speak for the new amount', async () => {
+    mockCreateOrder.mockRejectedValueOnce(new Error('no eligible LP available'))
+    render(
+      <TestProviders>
+        <BuyForm />
+      </TestProviders>,
+    )
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: '1624000' } })
+    await waitFor(() => expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy(), { timeout: 2000 })
+    fireEvent.click(screen.getByRole('button', { name: /continue to pay/i }))
+    fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('order-refusal').textContent).toBe(
+          'No provider can take this order right now. Try again in a few minutes.',
+        )
+      },
+      { timeout: 2000 },
+    )
+
+    fireEvent.change(input, { target: { value: '1000000' } })
+
+    await waitFor(() => expect(screen.queryByTestId('order-refusal')).toBeNull(), { timeout: 2000 })
   })
 })
 

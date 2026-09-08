@@ -3,7 +3,9 @@ export const IDENTITY_REQUIRED =
 
 const FALLBACK = 'The order could not be opened. Please try again.'
 
-const TRANSPORT = /→ \d{3}$|failed to fetch|networkerror|load failed/i
+export const QUOTE_FALLBACK = 'Could not get a price right now. Please try again.'
+
+const TRANSPORT = /→ \d{3}$|failed to fetch|networkerror|load failed|is not valid json|unexpected token|unexpected end of json/i
 
 const PLAIN_WORDS: Array<[RegExp, string]> = [
   [/platform is paused/i, 'Trading is paused right now. Please try again later.'],
@@ -13,9 +15,9 @@ const PLAIN_WORDS: Array<[RegExp, string]> = [
   [/quote already used|quote.*expired/i, 'That price expired. Get a new quote and try again.'],
 ]
 
-export function explainOrderRefusal(message: string): string {
+export function explainOrderRefusal(message: string, fallback: string = FALLBACK): string {
   if (/identity verification is required/i.test(message)) return IDENTITY_REQUIRED
-  if (message.trim() === '' || TRANSPORT.test(message)) return FALLBACK
+  if (message.trim() === '' || TRANSPORT.test(message)) return fallback
   const known = PLAIN_WORDS.find(([pattern]) => pattern.test(message))
   return known ? known[1] : message
 }

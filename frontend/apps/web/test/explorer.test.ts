@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
-async function txUrlWith(network: string, rpc: string) {
+async function txUrlWith(network: string | undefined, rpc: string) {
   vi.stubEnv('NEXT_PUBLIC_STELLAR_NETWORK', network)
   vi.stubEnv('NEXT_PUBLIC_RPC_URL', rpc)
   vi.resetModules()
@@ -17,6 +17,11 @@ describe('the app links the exact transaction, not the contract', () => {
     const fresh = await txUrlWith('testnet', '')
     expect(fresh('ab'.repeat(32))).toBe(`https://stellar.expert/explorer/testnet/tx/${'ab'.repeat(32)}`)
     expect(fresh('a b')).toBe('https://stellar.expert/explorer/testnet/tx/a%20b')
+  })
+
+  it('infers testnet when the variable is absent altogether, which is the state the deployed app is in', async () => {
+    const fresh = await txUrlWith(undefined, '')
+    expect(fresh('ab'.repeat(32))).toBe(`https://stellar.expert/explorer/testnet/tx/${'ab'.repeat(32)}`)
   })
 
   it('infers testnet only while the variable is unset and the RPC is not a mainnet one', async () => {

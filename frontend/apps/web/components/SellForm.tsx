@@ -13,7 +13,7 @@ import { formatUsdcBalance } from '@/lib/balance'
 import { useUsdcBalance } from '@/hooks/useUsdcBalance'
 import { QuoteBreakdown } from '@/components/QuoteBreakdown'
 import { ReviewSheet } from '@/components/ReviewSheet'
-import { explainOrderRefusal } from '@/lib/order-refusal'
+import { explainOrderRefusal, QUOTE_FALLBACK } from '@/lib/order-refusal'
 import { useToast } from '@/components/Toast'
 import { DailyLimitRow } from '@/components/DailyLimitRow'
 
@@ -70,13 +70,14 @@ export function SellForm() {
   }
 
   const quoteQueryKey = ['sellQuote', cfg.flow, usdcBaseUnits]
-  const { data: quote, isLoading: quoteLoading } = useQuery({
+  const { data: quote, isLoading: quoteLoading, error: quoteError } = useQuery({
     queryKey: quoteQueryKey,
     queryFn: () =>
       createQuote(client, { flow: cfg.flow, rail: cfg.rail, usdcAmount: usdcBaseUnits }),
     enabled: usdcValid && BigInt(usdcBaseUnits) >= 1n,
     staleTime: 10_000,
   })
+  const quoteRefusal = quoteError ? explainOrderRefusal(quoteError.message, QUOTE_FALLBACK) : null
 
   const [secondsLeft, setSecondsLeft] = React.useState(0)
   React.useEffect(() => {
@@ -208,7 +209,10 @@ export function SellForm() {
               className="w-full flex-1 bg-transparent font-geist text-[32px] font-bold tracking-[-0.02em] text-lp-ink tabular-nums outline-none"
               placeholder={cfg.usdcPlaceholder}
               value={usdcInput}
-              onChange={(e) => setUsdcInput(e.target.value)}
+              onChange={(e) => {
+                setUsdcInput(e.target.value)
+                setOrderRefusal(null)
+              }}
             />
             <span className="font-geist text-[20px] font-bold text-lp-muted">USDC</span>
           </div>
@@ -266,9 +270,9 @@ export function SellForm() {
       </div>
 
       {inputError && <p className="text-center text-xs text-lp-danger">{inputError}</p>}
-      {orderRefusal && (
+      {(orderRefusal ?? quoteRefusal) && (
         <p role="alert" data-testid="order-refusal" className="text-center text-xs text-lp-danger">
-          {orderRefusal}
+          {orderRefusal ?? quoteRefusal}
         </p>
       )}
 
