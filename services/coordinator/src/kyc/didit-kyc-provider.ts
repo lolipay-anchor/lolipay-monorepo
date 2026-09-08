@@ -1,4 +1,4 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { AppConfigService } from '../config/app-config.service';
 import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
 import { KycDecision, KycProvider } from './kyc-provider';
@@ -7,11 +7,12 @@ export const DIDIT_SESSION_URL = 'https://verification.didit.me/v3/session/';
 export const DIDIT_WORKFLOWS_URL = 'https://verification.didit.me/v3/workflows/';
 export const DIDIT_TIMEOUT_MS = 10_000;
 export const DIDIT_BOOT_PROBE_MS = 5_000;
+export const DIDIT_WORKFLOW_RETRY_MS = 60_000;
 
 type Fetcher = (url: string, init: any) => Promise<any>;
 
 @Injectable()
-export class DiditKycProvider implements KycProvider {
+export class DiditKycProvider implements KycProvider, OnModuleInit, OnModuleDestroy {
   constructor(
     private cfg: AppConfigService,
     private refusals: DiditRefusalsService,
@@ -19,6 +20,7 @@ export class DiditKycProvider implements KycProvider {
   ) {}
 
   private started: number[] = [];
+  private workflowRetry: ReturnType<typeof setInterval> | null = null;
 
   private overBudget(): boolean {
     const cutoff = Date.now() - 86_400_000;
@@ -32,6 +34,21 @@ export class DiditKycProvider implements KycProvider {
   }
 
   async onModuleInit(): Promise<void> {
+    if (await this.probeWorkflow()) return;
+    this.workflowRetry = setInterval(() => {
+      void this.probeWorkflow().then((known) => {
+        if (known) this.onModuleDestroy();
+      });
+    }, DIDIT_WORKFLOW_RETRY_MS);
+    this.workflowRetry.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.workflowRetry) clearInterval(this.workflowRetry);
+    this.workflowRetry = null;
+  }
+
+  private async probeWorkflow(): Promise<boolean> {
     const log = new Logger('Kyc');
     let features: string | undefined;
     try {
@@ -50,9 +67,9 @@ export class DiditKycProvider implements KycProvider {
 
     if (typeof features !== 'string') {
       log.warn(
-        'could not read which checks the configured verification workflow performs, so whether this deployment can screen is unknown; starting anyway',
+        `could not read which checks the configured verification workflow performs, so whether this deployment can screen is unknown; starting anyway and asking again every ${DIDIT_WORKFLOW_RETRY_MS / 1000} s`,
       );
-      return;
+      return false;
     }
     this.refusals.workflowPerformsAml(/\bAML\b/i.test(features));
     if (!/\bAML\b/i.test(features)) {
@@ -63,15 +80,16 @@ export class DiditKycProvider implements KycProvider {
       } else {
         log.log(`the configured verification workflow performs ${features}; AML is not required (KYC_REQUIRE_AML=false), so an accepted identity alone may move funds`);
       }
-      return;
+      return true;
     }
     if (!this.cfg.kycRequireAml) {
       log.warn(
         `the configured verification workflow performs ${features}, but AML is not required (KYC_REQUIRE_AML=false), so a delivery that carries no screening still opens the gate — a vendor payload that dropped aml_screenings would not be noticed here`,
       );
-      return;
+      return true;
     }
     log.log(`the configured verification workflow performs ${features}`);
+    return true;
   }
 
   async start(customerRef: string, _fields: Record<string, string>): Promise<KycDecision> {
