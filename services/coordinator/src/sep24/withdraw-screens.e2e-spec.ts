@@ -360,6 +360,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
         lpFeeBps: 0,
         platformWallet: 'GPLATFORM',
         status: 'RELEASED',
+        settledStatus: 'RELEASED',
         payDeadline: 9_999_999_999n,
         confirmDeadline: 9_999_999_999n,
         disputeDeadline: 9_999_999_999n,

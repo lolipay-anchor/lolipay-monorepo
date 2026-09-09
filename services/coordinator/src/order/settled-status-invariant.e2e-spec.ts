@@ -113,6 +113,18 @@ describe('every path that settles an order records the direction it settled in (
     contractId: escrow,
   });
 
+  it('the database itself refuses a settled row with no direction, so a path nobody thought to test cannot create one', async () => {
+    const order = await seedFunded();
+
+    await expect(
+      prisma.order.update({ where: { id: order.id }, data: { status: 'RELEASED' } }),
+    ).rejects.toThrow(/settled_rows_record_a_direction/);
+
+    const after = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(after.status).toBe('FUNDED');
+    await noNewViolation();
+  });
+
   it('the indexer records it when a settlement event advances the order', async () => {
     const order = await seedFunded();
 

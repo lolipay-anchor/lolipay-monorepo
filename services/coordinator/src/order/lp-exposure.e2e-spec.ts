@@ -50,6 +50,7 @@ describe('an LP is exposed on a trade for as long as it can still be slashed for
         disputeDeadline: BigInt(NOW),
         expiresAt: new Date(NOW * 1000),
         ...patch,
+        ...(patch.status === 'RELEASED' || patch.status === 'REFUNDED' ? { settledStatus: patch.status } : {}),
       } as any,
     });
   }

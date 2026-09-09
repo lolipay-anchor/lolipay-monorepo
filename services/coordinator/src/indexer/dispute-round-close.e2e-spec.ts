@@ -155,6 +155,7 @@ describe('a verdict closes the dispute round on the real database (ADR 0043, e2e
       where: { id: order.id },
       data: {
         status: 'RELEASED',
+        settledStatus: 'RELEASED',
         resolution: 'released',
         settledAt: ROUND_ONE_CLOSED,
         disputeClosedAt: ROUND_ONE_CLOSED,

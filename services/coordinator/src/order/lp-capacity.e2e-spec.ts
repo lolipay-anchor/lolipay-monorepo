@@ -245,6 +245,7 @@ describe('one provider bond cannot back two trades at once', () => {
         lpFeeBps: 10,
         platformWallet: 'GPLATFORM',
         status: 'RELEASED',
+        settledStatus: 'RELEASED',
         settledAt: new Date(),
         postSettleDeadline: BigInt(Math.floor(Date.now() / 1000) + 86_400),
         payDeadline: 0n,

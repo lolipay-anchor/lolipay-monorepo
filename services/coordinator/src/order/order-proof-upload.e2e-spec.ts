@@ -443,7 +443,7 @@ describe('Payment proof + dispute evidence uploads (e2e)', () => {
     const orderId = await createFundedWithdrawOrder();
     await prisma.order.update({
       where: { id: orderId },
-      data: { status: 'RELEASED', settledAt: new Date(Date.now() - 999 * 60 * 60 * 1000) },
+      data: { status: 'RELEASED', settledStatus: 'RELEASED', settledAt: new Date(Date.now() - 999 * 60 * 60 * 1000) },
     });
 
     await request(app.getHttpServer())
@@ -457,7 +457,7 @@ describe('Payment proof + dispute evidence uploads (e2e)', () => {
     const orderId = await createFundedWithdrawOrder();
     await prisma.order.update({
       where: { id: orderId },
-      data: { status: 'RELEASED', settledAt: new Date(Date.now() - 60_000) },
+      data: { status: 'RELEASED', settledStatus: 'RELEASED', settledAt: new Date(Date.now() - 60_000) },
     });
 
     const res = await request(app.getHttpServer())
