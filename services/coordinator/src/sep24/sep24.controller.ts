@@ -42,7 +42,7 @@ import { TransactionsQueryDto, TransactionQueryDto } from './sep24-query.dto';
 import { PersonService } from '../person/person.service';
 
 export const SEP24_INTERACTIVE_LIMITS = {
-  limits: { files: 0, fieldSize: 4096, fields: 40, ...NO_BRACKETED_FIELD_NAMES },
+  limits: { files: 0, fieldSize: 4096, fields: 40, parts: 45, ...NO_BRACKETED_FIELD_NAMES },
 };
 
 @Controller('sep24')

@@ -286,6 +286,17 @@ describe('Payment proof + dispute evidence uploads (e2e)', () => {
     expect(res.status).toBeLessThan(500);
   });
 
+  it('POST /orders/:id/proof — a bracketed field name is refused on the route itself', async () => {
+    const orderId = await createFundedWithdrawOrder();
+    const res = await request(app.getHttpServer())
+      .post(`/orders/${orderId}/proof`)
+      .set('Authorization', `Bearer ${lpJwt}`)
+      .attach('file', JPG, { filename: 'p.jpg', contentType: 'image/jpeg' })
+      .field('items[0]', 'x');
+
+    expect(res.status).toBe(400);
+  });
+
   it('POST /orders/:id/proof — file over 5MB → 413', async () => {
     const orderId = await createFundedWithdrawOrder();
     await request(app.getHttpServer())

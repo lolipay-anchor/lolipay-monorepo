@@ -8,7 +8,9 @@ const multer = require('multer');
 const body = (name: string) =>
   `--x\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n1\r\n--x--\r\n`;
 
-async function post(limits: unknown, name: string): Promise<{ status: number; text: string }> {
+const partsWithNoDisposition = (count: number) => `--x\r\nA: B\r\n\r\n\r\n`.repeat(count) + `--x--\r\n`;
+
+async function postBody(limits: unknown, raw: string): Promise<{ status: number; text: string }> {
   const app = express();
   app.post('/u', multer({ limits }).any(), (_req: any, res: any) => res.status(200).send('PARSED'));
   app.use((err: any, _req: any, res: any, _next: any) => res.status(400).send(`REFUSED ${err?.code}`));
@@ -18,7 +20,7 @@ async function post(limits: unknown, name: string): Promise<{ status: number; te
   try {
     const res = await fetch(`http://127.0.0.1:${port}/u`, {
       method: 'POST',
-      body: body(name),
+      body: raw,
       headers: { 'content-type': 'multipart/form-data; boundary=x' },
     });
     return { status: res.status, text: await res.text() };
@@ -26,6 +28,8 @@ async function post(limits: unknown, name: string): Promise<{ status: number; te
     server.close();
   }
 }
+
+const post = (limits: unknown, name: string) => postBody(limits, body(name));
 
 describe('a bracketed field name is refused before it is parsed, on every route that reads multipart', () => {
   it.each([
@@ -42,6 +46,21 @@ describe('a bracketed field name is refused before it is parsed, on every route 
     const res = await post(UPLOAD_OPTS.limits, 'rrn');
 
     expect(res.text).toBe('PARSED');
+  });
+
+  it.each([
+    ['the payment-proof and dispute-evidence routes', () => UPLOAD_OPTS.limits],
+    ['the SEP-24 interactive routes', () => SEP24_INTERACTIVE_LIMITS.limits],
+  ])('%s refuse a body of parts that carry no disposition, which busboy never counts as a field or a file', async (_label, limits) => {
+    const res = await postBody(limits(), partsWithNoDisposition(20_000));
+
+    expect(res.text).toBe('REFUSED LIMIT_PART_COUNT');
+    expect(res.status).toBe(400);
+  });
+
+  it('bounds the number of parts on both, because fields and files do not bound the ones busboy skips', () => {
+    expect(typeof (UPLOAD_OPTS.limits as { parts?: unknown }).parts).toBe('number');
+    expect(typeof (SEP24_INTERACTIVE_LIMITS.limits as { parts?: unknown }).parts).toBe('number');
   });
 
   it('arms the guard from one shared constant, so the two controllers cannot drift apart', () => {

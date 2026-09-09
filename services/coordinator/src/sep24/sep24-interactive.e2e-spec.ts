@@ -168,6 +168,32 @@ describe('opening a deposit from a wallet that has never met this anchor', () =>
     expect(res.body.type).toBe('interactive_customer_info_needed');
   });
 
+  it('refuses a bracketed field name on the route itself, before the parser walks it', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    await http()
+      .post(PATH)
+      .set('Authorization', `Bearer ${jwt}`)
+      .field('asset_code', 'USDC')
+      .field('items[0]', 'x')
+      .expect(400);
+  });
+
+  it('refuses a body of parts carrying no disposition, which bound neither the field nor the file count', async () => {
+    const kp = Keypair.random();
+    const jwt = await anchorToken(app, kp);
+    await http()
+      .post(PATH)
+      .set('Authorization', `Bearer ${jwt}`)
+      .set('Content-Type', 'multipart/form-data; boundary=x')
+      .send(
+        '--x\r\nContent-Disposition: form-data; name="asset_code"\r\n\r\nUSDC\r\n' +
+          '--x\r\nA: B\r\n\r\n\r\n'.repeat(2_000) +
+          '--x--\r\n',
+      )
+      .expect(400);
+  });
+
   it('still refuses a multipart body that names an asset it does not serve', async () => {
     const kp = Keypair.random();
     const jwt = await anchorToken(app, kp);
