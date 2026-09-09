@@ -251,6 +251,7 @@ describe('two ticks must not be able to wipe each other findings', () => {
       config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
       kycVerification: { count: jest.fn().mockResolvedValue(0) },
+      lp: { count: jest.fn().mockResolvedValue(1) },
     } as any;
     const stellar = {
       getTradeStatusStrict: jest.fn().mockRejectedValue(new Error('rpc down')),
@@ -292,6 +293,7 @@ describe('two ticks must not be able to wipe each other findings', () => {
       config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
       kycVerification: { count: jest.fn().mockResolvedValue(0) },
+      lp: { count: jest.fn().mockResolvedValue(1) },
     } as any;
     const svc = new MonitoringService(prisma, { raise } as any, knownRefusals(),
       { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn() } as any,
@@ -335,6 +337,7 @@ describe('the restitution scan cannot clear while the thing that feeds it is beh
       config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
       kycVerification: { count: jest.fn().mockResolvedValue(0) },
+      lp: { count: jest.fn().mockResolvedValue(1) },
     } as any;
     return new MonitoringService(prisma, { raise: jest.fn() } as any, knownRefusals(),
       { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any,
@@ -373,6 +376,7 @@ describe('the restitution scan cannot clear while the thing that feeds it is beh
       config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
       kycVerification: { count: jest.fn().mockResolvedValue(0) },
+      lp: { count: jest.fn().mockResolvedValue(1) },
     } as any;
     const svc = new MonitoringService(prisma, { raise: jest.fn() } as any, knownRefusals(),
       { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any,
@@ -417,6 +421,7 @@ describe('the anchor is watched for disagreeing with itself', () => {
       config: { findUnique: jest.fn().mockResolvedValue({ payWindowSecs: 1800, confirmWindowSecs: 1800 }) },
       indexerState: { findUnique: jest.fn().mockResolvedValue({ updatedAt: new Date() }) },
       kycVerification: { count: jest.fn().mockResolvedValue(0) },
+      lp: { count: jest.fn().mockResolvedValue(1) },
     } as any;
     const svc = new MonitoringService(prisma, { raise: jest.fn() } as any, knownRefusals(),
       { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any,

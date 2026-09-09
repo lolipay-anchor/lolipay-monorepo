@@ -19,6 +19,7 @@ function make(opts: {
   indexerAgeMs: number | null;
   webhook?: string;
   kycRequireAml?: boolean;
+  matchableLps?: number | 'throws';
 }) {
   const prisma = {
     order: {
@@ -45,6 +46,12 @@ function make(opts: {
       ),
     },
     kycVerification: { count: jest.fn().mockResolvedValue(0) },
+    lp: {
+      count:
+        opts.matchableLps === 'throws'
+          ? jest.fn().mockRejectedValue(new Error('database unreachable'))
+          : jest.fn().mockResolvedValue(opts.matchableLps ?? 1),
+    },
   } as any;
   const raised: any[] = [];
   const alerts = {
@@ -372,5 +379,44 @@ describe('a new alert reaches the operator only if its family is in scope', () =
     const kinds = [...src.matchAll(/noteOverflow\('([a-z_]+)'/g)].map((m) => m[1]);
     expect(kinds.length).toBeGreaterThan(0);
     for (const kind of kinds) expect(MONITORING_ALERT_SCOPE).toContain(kind);
+  });
+});
+
+describe('the platform going dark is an alert, because nothing else notices', () => {
+  it('raises when no provider can be matched at all', async () => {
+    const { svc } = make({ disputes: 0, releaseOverdue: 0, fiatOverdue: 0, indexerAgeMs: 1000, matchableLps: 0 });
+    const alerts = await svc.buildAlerts(await svc.metrics(), new Set());
+    const dark = alerts.filter((a) => a.key.startsWith('no_lp_matchable'));
+    expect(dark).toHaveLength(1);
+    expect(dark[0].urgency).toBe('urgent');
+    expect(dark[0].fingerprint).toBe('none');
+    expect(dark[0].text).toMatch(/no (liquidity )?provider/i);
+  });
+
+  it('stays silent while at least one provider can be matched', async () => {
+    const { svc } = make({ disputes: 0, releaseOverdue: 0, fiatOverdue: 0, indexerAgeMs: 1000, matchableLps: 1 });
+    const alerts = await svc.buildAlerts(await svc.metrics(), new Set());
+    expect(alerts.filter((a) => a.key.startsWith('no_lp_matchable'))).toHaveLength(0);
+  });
+
+  it('counts providers by the same predicate the matcher uses, not by the online flag alone', async () => {
+    const { svc, prisma } = make({ disputes: 0, releaseOverdue: 0, fiatOverdue: 0, indexerAgeMs: 1000, matchableLps: 0 });
+    await svc.buildAlerts(await svc.metrics(), new Set());
+    const where = prisma.lp.count.mock.calls[0][0].where;
+    expect(where.status).toBe('APPROVED');
+    expect(where.online).toBe(true);
+    expect(where.lastHeartbeatAt.gt).toBeInstanceOf(Date);
+    expect(where.paymentMethods.some.active).toBe(true);
+  });
+
+  it('pages when it cannot tell, rather than reporting the platform healthy', async () => {
+    const { svc } = make({ disputes: 0, releaseOverdue: 0, fiatOverdue: 0, indexerAgeMs: 1000, matchableLps: 'throws' });
+    const incomplete = new Set<string>();
+    const alerts = await svc.buildAlerts(await svc.metrics(), incomplete);
+    expect(incomplete.has('no_lp_matchable')).toBe(true);
+    const blind = alerts.filter((a) => a.key.startsWith('no_lp_matchable'));
+    expect(blind).toHaveLength(1);
+    expect(blind[0].urgency).toBe('urgent');
+    expect(blind[0].fingerprint).toBe('unreadable');
   });
 });

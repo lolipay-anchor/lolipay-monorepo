@@ -10,6 +10,7 @@ import { StellarReadService } from '../stellar/stellar-read.service';
 import { AppConfigService } from '../config/app-config.service';
 import { cooldownFloorSecs } from '../config/contract-limits';
 import { checkAnchorIdentity } from '../anchor/consistency';
+import { heartbeatStaleMs, matchableLpWhere } from '../matching/matching.service';
 import {
   ALERT_SAMPLE_LIMIT,
   DISPUTE_STALE_DAYS,
@@ -24,6 +25,7 @@ import {
 const INDEXER_LAG_ALERT_SECONDS = 120;
 
 export const MONITORING_ALERT_SCOPE = [
+  'no_lp_matchable',
   'open_dispute',
   'release_overdue',
   'fiat_payment_overdue',
@@ -244,6 +246,30 @@ export class MonitoringService {
       if (m.indexer_lag_seconds == null || m.indexer_lag_seconds > INDEXER_LAG_ALERT_SECONDS) {
         incomplete.add('slash_window_open');
       }
+    try {
+      if ((await this.prisma.lp.count({ where: matchableLpWhere() })) === 0) {
+        alerts.push({
+          key: 'no_lp_matchable',
+          fingerprint: 'none',
+          urgency: 'urgent',
+          text:
+            'no liquidity provider is matchable — every attempt to open an order is refused with "no eligible LP available". ' +
+            `A provider counts only while it is APPROVED, online, has an active payment method, and has sent a heartbeat within ${heartbeatStaleMs() / 1000}s. ` +
+            'Silence here does not prove orders succeed: this check ignores the rail and currency of a particular order, on-chain stake eligibility, and remaining capacity',
+        });
+      }
+    } catch (e) {
+      incomplete.add('no_lp_matchable');
+      alerts.push({
+        key: 'no_lp_matchable',
+        fingerprint: 'unreadable',
+        urgency: 'urgent',
+        text:
+          `the count of matchable liquidity providers could not be read (${e instanceof Error ? e.message : String(e)}) — ` +
+          'this check is blind, and while it is blind an outage of the whole order path would go unreported',
+      });
+    }
+
       alerts.push(...(await this.slashWindowAlerts(new Date(), incomplete)));
     } catch (e) {
       this.log.error(

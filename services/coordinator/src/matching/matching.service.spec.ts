@@ -1,5 +1,5 @@
 import { ServiceUnavailableException } from '@nestjs/common';
-import { MatchingService } from './matching.service';
+import { MatchingService, matchableLpWhere } from './matching.service';
 
 const PM = { id: 'pm1', rail: 'BANK', active: true, currency: 'IDR', details: 'BCA 123' };
 const PM2 = { id: 'pm2', rail: 'BANK', active: true, currency: 'IDR', details: 'BNI 456' };
@@ -164,6 +164,23 @@ describe('MatchingService.pickLp', () => {
         }),
       }),
     );
+  });
+
+  it('asks for every provider the shared matchability rule names, so the monitor that counts them cannot drift from the matcher that picks them', async () => {
+    const prisma = makePrisma([makeCandidate('lp-a', 'GA', 0, PM)]);
+    const stellar = makeStellar({ GA: true });
+    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
+
+    await svc.pickLp('BANK', 'IDR', 1n);
+
+    const where = prisma.lp.findMany.mock.calls[0][0].where;
+    const shared = matchableLpWhere();
+    for (const key of Object.keys(shared)) {
+      expect(Object.keys(where)).toContain(key);
+    }
+    expect(where.status).toBe(shared.status);
+    expect(where.online).toBe(shared.online);
+    expect(where.lastHeartbeatAt.gt).toBeInstanceOf(Date);
   });
 
   it('queries LPs filtered by rail, active, AND fiat currency', async () => {

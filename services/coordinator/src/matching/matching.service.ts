@@ -12,6 +12,19 @@ export interface LpMatch {
   staked: bigint;
 }
 
+export function heartbeatStaleMs() {
+  return Number(process.env.HEARTBEAT_STALE_SECONDS ?? 120) * 1000;
+}
+
+export function matchableLpWhere(now: Date = new Date()) {
+  return {
+    status: 'APPROVED' as const,
+    online: true,
+    lastHeartbeatAt: { gt: new Date(now.getTime() - heartbeatStaleMs()) },
+    paymentMethods: { some: { active: true } },
+  };
+}
+
 @Injectable()
 export class MatchingService {
   constructor(
@@ -26,13 +39,9 @@ export class MatchingService {
     amount: bigint,
     excludePersonId?: PersonId,
   ): Promise<LpMatch> {
-    const staleMs = Number(process.env.HEARTBEAT_STALE_SECONDS ?? 120) * 1000;
-
     const candidates = await this.prisma.lp.findMany({
       where: {
-        status: 'APPROVED',
-        online: true,
-        lastHeartbeatAt: { gt: new Date(Date.now() - staleMs) },
+        ...matchableLpWhere(),
         paymentMethods: { some: { rail, active: true, currency: fiat } },
       },
       include: {
