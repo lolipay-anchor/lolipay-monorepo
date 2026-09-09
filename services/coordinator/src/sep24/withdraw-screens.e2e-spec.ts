@@ -375,7 +375,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
   });
 
   it('the page a failed step lands on names neither direction, because it cannot know which', async () => {
-    const { id, token } = await openedWithdrawal(true);
+    const { id, token } = await openedWithdrawal(false);
     const first = await http().get(`/sep24/interactive/${id}?token=${token}`);
     const cookie = (first.headers['set-cookie'] as unknown as string[]) ?? [];
 
@@ -387,6 +387,21 @@ describe('a withdrawal is never described to the user as a deposit', () => {
 
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.text).not.toMatch(/deposit/i);
+  });
+
+  it('refuses the amount step by name while the identity screen is the current one', async () => {
+    const { id, token } = await openedWithdrawal(false);
+    const first = await http().get(`/sep24/interactive/${id}?token=${token}`);
+    const cookie = (first.headers['set-cookie'] as unknown as string[]) ?? [];
+
+    const res = await http()
+      .post(`/sep24/interactive/${id}/amount`)
+      .set('Cookie', cookie)
+      .set('Origin', process.env.ANCHOR_BASE_URL ?? 'http://localhost')
+      .send({ fiat_amount: '150000', user_payment_method: 'BNI 1112223334' });
+
+    expect(res.status).toBe(403);
+    expect(res.text).toMatch(/not at the point of naming an amount/);
   });
 
   it('a second identity submit is returned to the screen that is current, not to an error page that could misname the direction', async () => {

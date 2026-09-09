@@ -441,15 +441,11 @@ export class Sep24Service {
     );
   }
 
-  async submitIdentity(id: string, token: string, fields: Record<string, string>) {
+  async submitIdentity(id: string, token: string, fields: Record<string, string>): Promise<void> {
     const state = await this.interactiveState(id, token);
     const { row, kyc } = state;
-    if (this.screenFor(row, kyc, state) !== 'identity') return kyc?.verificationUrl ?? null;
+    if (this.screenFor(row, kyc, state) !== 'identity') return;
     await this.sep12.put(row.stellarAccount, fields);
-    const after = await this.prisma.kycVerification.findUnique({
-      where: { customerRef: row.stellarAccount },
-    });
-    return after?.verificationUrl ?? null;
   }
 
   private screenFor(row: any, kyc: any, state?: { screenedElsewhere?: unknown; refusedAnywhere?: unknown }) {
@@ -554,7 +550,6 @@ export class Sep24Service {
       this.log.warn(
         `a second order was opened for SEP-24 transaction ${id} and has been cancelled (${undone.count} row) rather than left holding provider capacity`,
       );
-      throw new ConflictException('this transaction was already opened');
     }
   }
 

@@ -1,7 +1,8 @@
 import { Sep24Service } from './sep24.service';
+import { mintInteractiveToken } from './interactive-token';
 
 describe('a deposit that loses the race is cancelled, not abandoned', () => {
-  it('cancels the order it could not bind, so provider capacity is freed at once', async () => {
+  function build(linkedCount: number) {
     const updates: any[] = [];
     const prisma: any = {
       sep24Transaction: {
@@ -14,7 +15,7 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
           flow: 'TOP_UP',
           order: null,
         })),
-        updateMany: jest.fn(async () => ({ count: 0 })),
+        updateMany: jest.fn(async () => ({ count: linkedCount })),
       },
       kycVerification: {
         findUnique: jest.fn(async () => ({ status: 'ACCEPTED', screenedAt: new Date() })),
@@ -37,13 +38,31 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
     const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
     const svc = new Sep24Service(prisma, cfg, {} as any, rate, orders, people, {} as any, {} as any, { isConfigured: false } as any);
 
-    const { mintInteractiveToken } = await import('./interactive-token');
-    const token = mintInteractiveToken(cfg, 'tx-1', 'GABC');
+    return { svc, updates, token: mintInteractiveToken(cfg, 'tx-1', 'GABC') };
+  }
 
-    await expect(svc.submitAmount('tx-1', token, '400000')).rejects.toThrow(/already opened/);
+  it('cancels the order it could not bind, so provider capacity is freed at once', async () => {
+    const { svc, updates, token } = build(0);
+
+    await svc.submitAmount('tx-1', token, '400000');
+
     expect(updates).toHaveLength(1);
     expect(updates[0].where.id).toBe('order-2');
     expect(updates[0].data.status).toBe('CANCELLED');
     expect(updates[0].where.status.in).toEqual(expect.arrayContaining(['CREATED', 'MATCHED']));
+  });
+
+  it('does not refuse the person who lost it, because the winner already opened their order', async () => {
+    const { svc, token } = build(0);
+
+    await expect(svc.submitAmount('tx-1', token, '400000')).resolves.not.toThrow();
+  });
+
+  it('cancels nothing when the binding succeeded', async () => {
+    const { svc, updates, token } = build(1);
+
+    await svc.submitAmount('tx-1', token, '400000');
+
+    expect(updates).toHaveLength(0);
   });
 });
