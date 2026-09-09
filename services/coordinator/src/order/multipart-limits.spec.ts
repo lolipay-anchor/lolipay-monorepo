@@ -58,9 +58,17 @@ describe('a bracketed field name is refused before it is parsed, on every route 
     expect(res.status).toBe(400);
   });
 
-  it('bounds the number of parts on both, because fields and files do not bound the ones busboy skips', () => {
-    expect(typeof (UPLOAD_OPTS.limits as { parts?: unknown }).parts).toBe('number');
-    expect(typeof (SEP24_INTERACTIVE_LIMITS.limits as { parts?: unknown }).parts).toBe('number');
+  it.each([
+    ['the payment-proof and dispute-evidence routes', () => UPLOAD_OPTS.limits],
+    ['the SEP-24 interactive routes', () => SEP24_INTERACTIVE_LIMITS.limits],
+  ])('%s bound parts just above their own field ceiling, because fields and files do not bound the ones busboy skips', (_label, limits) => {
+    const { parts, fields, fieldSize } = limits() as { parts?: number; fields?: number; fieldSize?: number };
+
+    expect(typeof parts).toBe('number');
+    expect(typeof fields).toBe('number');
+    expect(typeof fieldSize).toBe('number');
+    expect(parts).toBeGreaterThan(fields as number);
+    expect(parts).toBeLessThanOrEqual((fields as number) + 5);
   });
 
   it('arms the guard from one shared constant, so the two controllers cannot drift apart', () => {

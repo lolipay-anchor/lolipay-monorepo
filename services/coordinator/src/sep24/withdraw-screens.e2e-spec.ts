@@ -375,7 +375,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
   });
 
   it('the page a failed step lands on names neither direction, because it cannot know which', async () => {
-    const { id, token } = await openedWithdrawal(false);
+    const { id, token } = await openedWithdrawal(true);
     const first = await http().get(`/sep24/interactive/${id}?token=${token}`);
     const cookie = (first.headers['set-cookie'] as unknown as string[]) ?? [];
 
