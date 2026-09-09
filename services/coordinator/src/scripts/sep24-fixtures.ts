@@ -784,6 +784,7 @@ export async function waitForSep24(
       await new Promise((r) => setTimeout(r, POLL_MS));
       continue;
     }
+    lastRead = '';
     if (transaction.status === status) {
       if (transaction.amount_in !== record.amountIn) throw new Error(`transaction ${id} records amount_in ${transaction.amount_in}, not the ${record.amountIn} the driver asked for`);
       if (transaction.amount_in_asset !== record.asset) throw new Error(`transaction ${id} records amount_in_asset ${transaction.amount_in_asset}, not ${record.asset}`);
