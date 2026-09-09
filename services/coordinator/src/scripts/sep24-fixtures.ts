@@ -757,7 +757,7 @@ async function signAndSubmit(
   throw new Error(`transaction ${sent.hash} not confirmed within ${POLL_LIMIT_MS / 1000}s`);
 }
 
-async function waitForSep24(
+export async function waitForSep24(
   demoSep10: () => Promise<string>,
   id: string,
   status: string,
@@ -765,13 +765,25 @@ async function waitForSep24(
   limitMs = POLL_LIMIT_MS,
 ): Promise<{ status: string; stellar_transaction_id: string | null; amount_in: string | null; amount_in_asset: string | null }> {
   const until = Date.now() + limitMs;
+  let lastRead = '';
   while (Date.now() < until) {
-    const { transaction } = await json<{
-      transaction: { status: string; stellar_transaction_id: string | null; amount_in: string | null; amount_in_asset: string | null };
-    }>(
-      await fetch(`${API}/sep24/transaction?id=${id}`, { headers: bearer(await demoSep10()) }),
-      'sep24/transaction',
-    );
+    let transaction: { status: string; stellar_transaction_id: string | null; amount_in: string | null; amount_in_asset: string | null };
+    try {
+      ({ transaction } = await json<{
+        transaction: { status: string; stellar_transaction_id: string | null; amount_in: string | null; amount_in_asset: string | null };
+      }>(
+        await fetch(`${API}/sep24/transaction?id=${id}`, { headers: bearer(await demoSep10()) }),
+        'sep24/transaction',
+      ));
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      if (m !== lastRead) {
+        console.log(`menunggu: ${m}`);
+        lastRead = m;
+      }
+      await new Promise((r) => setTimeout(r, POLL_MS));
+      continue;
+    }
     if (transaction.status === status) {
       if (transaction.amount_in !== record.amountIn) throw new Error(`transaction ${id} records amount_in ${transaction.amount_in}, not the ${record.amountIn} the driver asked for`);
       if (transaction.amount_in_asset !== record.asset) throw new Error(`transaction ${id} records amount_in_asset ${transaction.amount_in_asset}, not ${record.asset}`);
@@ -779,7 +791,9 @@ async function waitForSep24(
     }
     await new Promise((r) => setTimeout(r, POLL_MS));
   }
-  throw new Error(`transaction ${id} did not reach ${status} within ${limitMs / 1000}s`);
+  throw new Error(
+    `transaction ${id} did not reach ${status} within ${limitMs / 1000}s${lastRead ? ` (last read failed: ${lastRead})` : ''}`,
+  );
 }
 
 interface Actors {

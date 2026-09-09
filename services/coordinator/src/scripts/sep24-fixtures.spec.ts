@@ -18,6 +18,7 @@ import {
   readChallenge,
   sep53Signature,
   signSep10Challenge,
+  waitForSep24,
   roleTarget,
   newestMatchedOrder,
   orderAwaitingRelease,
@@ -588,4 +589,52 @@ describe('the driver reads which screen the popup is on from its title', () => {
   ])('"%s" is the %s screen', (title, screen) => {
     expect(screenFromTitle(title)).toBe(screen);
   });
+});
+
+describe('a transient while polling the anchor does not end a run the escrow has already been funded for', () => {
+  const record = { amountIn: '200000', asset: 'iso4217:IDR' };
+  const body = (amountIn: string) =>
+    JSON.stringify({
+      transaction: {
+        status: 'pending_user_transfer_start',
+        stellar_transaction_id: null,
+        amount_in: amountIn,
+        amount_in_asset: 'iso4217:IDR',
+      },
+    });
+  const responding = (amountIn: string) => ({ ok: true, status: 200, text: async () => body(amountIn) });
+
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it('retries the read and returns the transaction the next poll sees', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('fetch failed'))
+      .mockResolvedValue(responding('200000') as any);
+    globalThis.fetch = fetchMock as any;
+
+    const tx = await waitForSep24(async () => 'jwt', 'tx-1', 'pending_user_transfer_start', record, 60_000);
+
+    expect(tx.status).toBe('pending_user_transfer_start');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  }, 30_000);
+
+  it('still refuses a transaction whose recorded amount is not the one the driver asked for', async () => {
+    globalThis.fetch = jest.fn().mockResolvedValue(responding('999999') as any) as any;
+
+    await expect(
+      waitForSep24(async () => 'jwt', 'tx-1', 'pending_user_transfer_start', record, 60_000),
+    ).rejects.toThrow(/records amount_in 999999/);
+  }, 30_000);
+
+  it('names the read that kept failing when the window runs out, instead of blaming the status', async () => {
+    globalThis.fetch = jest.fn().mockRejectedValue(new Error('fetch failed')) as any;
+
+    await expect(
+      waitForSep24(async () => 'jwt', 'tx-1', 'pending_user_transfer_start', record, 1),
+    ).rejects.toThrow(/did not reach pending_user_transfer_start/);
+  }, 30_000);
 });
