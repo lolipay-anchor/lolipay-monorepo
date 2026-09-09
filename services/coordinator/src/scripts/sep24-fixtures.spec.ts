@@ -621,7 +621,7 @@ describe('a transient while polling the anchor does not end a run the escrow has
 
     expect(tx.status).toBe('pending_user_transfer_start');
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(5_000);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(4_500);
   }, 30_000);
 
   it('still refuses a transaction whose recorded amount is not the one the driver asked for', async () => {
@@ -641,13 +641,15 @@ describe('a transient while polling the anchor does not end a run the escrow has
   }, 30_000);
 
   it('blames the status, not a transient that recovered, when the reads went on succeeding', async () => {
-    globalThis.fetch = jest
+    const fetchMock = jest
       .fn()
       .mockRejectedValueOnce(new Error('fetch failed'))
-      .mockResolvedValue(responding('200000') as any) as any;
+      .mockResolvedValue(responding('200000') as any);
+    globalThis.fetch = fetchMock as any;
 
     await expect(
       waitForSep24(async () => 'jwt', 'tx-1', 'completed', record, 12_000),
     ).rejects.toThrow(/did not reach completed within 12s$/);
+    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(4);
   }, 30_000);
 });

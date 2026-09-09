@@ -385,7 +385,7 @@ describe('a withdrawal is never described to the user as a deposit', () => {
       .set('Origin', process.env.ANCHOR_BASE_URL ?? 'http://localhost')
       .send({});
 
-    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBe(400);
     expect(res.text).not.toMatch(/deposit/i);
   });
 

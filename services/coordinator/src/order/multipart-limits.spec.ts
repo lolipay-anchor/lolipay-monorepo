@@ -69,6 +69,8 @@ describe('a bracketed field name is refused before it is parsed, on every route 
     expect(typeof fieldSize).toBe('number');
     expect(parts).toBeGreaterThan(fields as number);
     expect(parts).toBeLessThanOrEqual((fields as number) + 5);
+    expect(fields).toBeLessThanOrEqual(50);
+    expect(fieldSize).toBeLessThanOrEqual(8192);
   });
 
   it('arms the guard from one shared constant, so the two controllers cannot drift apart', () => {
