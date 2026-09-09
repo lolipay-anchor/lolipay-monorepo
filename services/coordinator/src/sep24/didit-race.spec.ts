@@ -2,15 +2,16 @@ import { Sep24Service } from './sep24.service';
 import { mintInteractiveToken } from './interactive-token';
 
 describe('a deposit that loses the race is cancelled, not abandoned', () => {
-  function build(linkedCount: number) {
+  function build(linkedCount: number, alreadyLinked: string | null = null) {
     const updates: any[] = [];
+    const quotes: any[] = [];
     const prisma: any = {
       sep24Transaction: {
         findUnique: jest.fn(async () => ({
           id: 'tx-1',
           stellarAccount: 'GABC',
           personId: 'person-1',
-          orderId: null,
+          orderId: alreadyLinked,
           startedAt: new Date(),
           flow: 'TOP_UP',
           order: null,
@@ -33,12 +34,12 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
       jwtIssuer: 'https://lolipay.app',
       jwtAudience: 'lolipay-app',
     } as any;
-    const rate = { createQuote: jest.fn(async () => ({ id: 'quote-1' })) } as any;
+    const rate = { createQuote: jest.fn(async () => (quotes.push(1), { id: 'quote-1' })) } as any;
     const orders = { createFromQuote: jest.fn(async () => ({ order: { id: 'order-2' } })) } as any;
     const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
     const svc = new Sep24Service(prisma, cfg, {} as any, rate, orders, people, {} as any, {} as any, { isConfigured: false } as any);
 
-    return { svc, updates, token: mintInteractiveToken(cfg, 'tx-1', 'GABC') };
+    return { svc, updates, quotes, token: mintInteractiveToken(cfg, 'tx-1', 'GABC') };
   }
 
   it('cancels the order it could not bind, so provider capacity is freed at once', async () => {
@@ -56,6 +57,15 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
     const { svc, token } = build(0);
 
     await expect(svc.submitAmount('tx-1', token, '400000')).resolves.not.toThrow();
+  });
+
+  it('opens no second order at all when this transaction already has one', async () => {
+    const { svc, updates, quotes, token } = build(1, 'order-1');
+
+    await svc.submitAmount('tx-1', token, '400000');
+
+    expect(quotes).toHaveLength(0);
+    expect(updates).toHaveLength(0);
   });
 
   it('cancels nothing when the binding succeeded', async () => {

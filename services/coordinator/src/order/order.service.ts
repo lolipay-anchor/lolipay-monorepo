@@ -38,7 +38,7 @@ import { PROVIDER_LOST_WHERE } from '../reputation/dispute-outcome';
 
 export const MAX_REF_ATTEMPTS = 5;
 
-const PRE_CHAIN_STATUSES = ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN'];
+export const PRE_CHAIN_STATUSES = ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN'];
 
 const FUNDED_OR_LATER = ['FUNDED', 'FIAT_PAID', 'RELEASED', 'REFUNDED', 'DISPUTED'];
 
