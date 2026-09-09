@@ -380,13 +380,33 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     const cookie = (first.headers['set-cookie'] as unknown as string[]) ?? [];
 
     const res = await http()
-      .post(`/sep24/interactive/${id}/identity`)
+      .post(`/sep24/interactive/${id}/amount`)
       .set('Cookie', cookie)
       .set('Origin', process.env.ANCHOR_BASE_URL ?? 'http://localhost')
       .send({});
 
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.text).not.toMatch(/deposit/i);
+  });
+
+  it('a second identity submit is returned to the screen that is current, not to an error page that could misname the direction', async () => {
+    const { id, token } = await openedWithdrawal(true);
+    const first = await http().get(`/sep24/interactive/${id}?token=${token}`);
+    const cookie = (first.headers['set-cookie'] as unknown as string[]) ?? [];
+
+    const res = await http()
+      .post(`/sep24/interactive/${id}/identity`)
+      .set('Cookie', cookie)
+      .set('Origin', process.env.ANCHOR_BASE_URL ?? 'http://localhost')
+      .send({});
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe(`/sep24/interactive/${id}`);
+
+    const landed = await http().get(`/sep24/interactive/${id}`).set('Cookie', cookie);
+    expect(landed.status).toBe(200);
+    expect(landed.text).not.toMatch(/could not continue/i);
+    expect(landed.text).not.toMatch(/deposit status/i);
   });
 
   it('a deposit keeps saying deposit, so the branch did not simply rename everything', async () => {

@@ -444,9 +444,7 @@ export class Sep24Service {
   async submitIdentity(id: string, token: string, fields: Record<string, string>) {
     const state = await this.interactiveState(id, token);
     const { row, kyc } = state;
-    if (this.screenFor(row, kyc, state) !== 'identity') {
-      throw new ForbiddenException('this transaction is not waiting for identity details');
-    }
+    if (this.screenFor(row, kyc, state) !== 'identity') return kyc?.verificationUrl ?? null;
     await this.sep12.put(row.stellarAccount, fields);
     const after = await this.prisma.kycVerification.findUnique({
       where: { customerRef: row.stellarAccount },
