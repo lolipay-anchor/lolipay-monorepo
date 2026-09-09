@@ -416,6 +416,8 @@ export class IndexerService {
         data: {
           status: finalStatus as any,
           settledStatus: finalStatus as any,
+          settledAt: settled.settledAt > 0 ? new Date(settled.settledAt * 1000) : new Date(),
+          ...(settled.postSettleDeadline ? { postSettleDeadline: settled.postSettleDeadline } : {}),
           resolution: verdict,
           ...(typeof settled.liabilityEstablished === 'boolean' && settled.slashDeadline !== undefined
             ? {

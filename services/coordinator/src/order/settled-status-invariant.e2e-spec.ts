@@ -9,6 +9,8 @@ import { StellarReadService } from '../stellar/stellar-read.service';
 import { PRICE_ADAPTER } from '../rate/rate.module';
 import { IndexerService } from '../indexer/indexer.service';
 import { OrderStatusService } from './order-status.service';
+import { OrderService } from './order.service';
+import { canDispute } from './dispute.util';
 
 const noopStorage = {
   increment: async () => ({ totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 }),
@@ -19,6 +21,7 @@ describe('every path that settles an order records the direction it settled in (
   let prisma: PrismaService;
   let indexer: any;
   let statuses: OrderStatusService;
+  let orders: OrderService;
   let stellar: any;
   const escrow = process.env.ESCROW_CONTRACT_ID as string;
   const userKp = Keypair.random();
@@ -43,6 +46,7 @@ describe('every path that settles an order records the direction it settled in (
     prisma = mod.get(PrismaService);
     indexer = mod.get(IndexerService);
     statuses = mod.get(OrderStatusService);
+    orders = mod.get(OrderService);
     stellar = mod.get(StellarReadService);
   });
 
@@ -139,11 +143,13 @@ describe('every path that settles an order records the direction it settled in (
   it('the indexer records it when a post-settlement verdict is the first thing to settle the row', async () => {
     const order = await seedFunded();
     await prisma.order.update({ where: { id: order.id }, data: { status: 'DISPUTED' } });
+    const settledAtSecs = Math.floor(Date.now() / 1000);
     stellar.getTradeStatusStrict.mockResolvedValue({
       status: 'RELEASED',
-      settledAt: Math.floor(Date.now() / 1000),
+      settledAt: settledAtSecs,
+      postSettleDeadline: BigInt(settledAtSecs + 3600),
       liabilityEstablished: true,
-      slashDeadline: Math.floor(Date.now() / 1000) + 86_400,
+      slashDeadline: settledAtSecs + 86_400,
     });
 
     expect(
@@ -151,6 +157,29 @@ describe('every path that settles an order records the direction it settled in (
         event('resolved', order.tradeId, nativeToScVal({ released: true, post_settle: true })),
       ),
     ).toBe(1);
+
+    const after = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(after.status).toBe('RELEASED');
+    expect(after.settledStatus).toBe('RELEASED');
+    expect(after.settledAt).toBeInstanceOf(Date);
+    expect(after.postSettleDeadline).not.toBeNull();
+    expect(canDispute({ ...after, status: after.status as string }, { postSettleDisputeWindowSecs: 3600 })).toBe(true);
+    await noNewViolation();
+  });
+
+  it('the cancel path records it when the chain settled the order under a cancel attempt', async () => {
+    const order = await seedFunded();
+    const settledAt = Math.floor(Date.now() / 1000);
+    stellar.getTradeStatusStrict.mockResolvedValue({
+      status: 'RELEASED',
+      settledAt,
+      usdcAmount: order.usdcAmount,
+      fiatAmount: order.fiatAmount,
+      usdcRecipient: userKp.publicKey(),
+      postSettleDeadline: BigInt(settledAt + 3600),
+    });
+
+    await orders.cancelOrder(order.id, userKp.publicKey()).catch(() => undefined);
 
     const after = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
     expect(after.status).toBe('RELEASED');

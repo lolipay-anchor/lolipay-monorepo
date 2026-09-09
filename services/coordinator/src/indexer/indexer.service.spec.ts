@@ -826,7 +826,7 @@ describe('IndexerService.applyEvent — resolved (post-settlement, Phase 5A)', (
 
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1' },
-      data: { status: 'RELEASED', settledStatus: 'RELEASED', resolution: 'refunded' },
+      data: { status: 'RELEASED', settledStatus: 'RELEASED', settledAt: expect.any(Date), resolution: 'refunded' },
     });
     expect(prisma.indexedEvent.createMany).toHaveBeenCalledWith({ data: [{ id: 'ev-789' }], skipDuplicates: true });
     expect(prisma.order.update).not.toHaveBeenCalled();
@@ -1207,7 +1207,7 @@ describe('IndexerService.applyEvent — resolved dispute-loss accrual (Phase 6 �
     });
     expect(prisma.order.updateMany).toHaveBeenCalledWith({
       where: { id: 'ord-1' },
-      data: { status: 'REFUNDED', settledStatus: 'REFUNDED', resolution: 'released' },
+      data: { status: 'REFUNDED', settledStatus: 'REFUNDED', settledAt: expect.any(Date), resolution: 'released' },
     });
     expect(prisma.indexedEvent.createMany).toHaveBeenCalledWith({ data: [{ id: 'ev-1157' }], skipDuplicates: true });
     expect(userReputation.recordDisputeLost).not.toHaveBeenCalled();
