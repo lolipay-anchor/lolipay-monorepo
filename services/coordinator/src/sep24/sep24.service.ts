@@ -15,7 +15,7 @@ import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { Sep12Service, stillInFlight } from '../kyc/sep12.service';
 import { RateService } from '../rate/rate.service';
-import { OrderService, PRE_CHAIN_STATUSES } from '../order/order.service';
+import { OrderService } from '../order/order.service';
 import { OrderTxService } from '../order/order-tx.service';
 import { OrderStatusService, REFRESH_FROM_CHAIN_STATUSES } from '../order/order-status.service';
 import { accountOf } from '../sep10/account-signers.service';
@@ -544,12 +544,12 @@ export class Sep24Service {
     });
     if (linked.count !== 1) {
       const undone = await this.prisma.order.updateMany({
-        where: { id: orderId, status: { in: PRE_CHAIN_STATUSES as any[] } },
+        where: { id: orderId, status: 'MATCHED' },
         data: { status: 'CANCELLED' },
       });
       if (undone.count === 1) {
         this.log.warn(
-          `a second order was opened for SEP-24 transaction ${id} and has been cancelled rather than left holding provider capacity`,
+          `a second order ${orderId} was opened for SEP-24 transaction ${id} and has been cancelled rather than left holding provider capacity`,
         );
       } else {
         this.log.error(

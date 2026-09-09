@@ -1,8 +1,9 @@
+import { Logger } from '@nestjs/common';
 import { Sep24Service } from './sep24.service';
 import { mintInteractiveToken } from './interactive-token';
 
 describe('a deposit that loses the race is cancelled, not abandoned', () => {
-  function build(linkedCount: number, alreadyLinked: string | null = null) {
+  function build(linkedCount: number, alreadyLinked: string | null = null, undoneCount = 1) {
     const updates: any[] = [];
     const quotes: any[] = [];
     const prisma: any = {
@@ -14,7 +15,7 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
           orderId: alreadyLinked,
           startedAt: new Date(),
           flow: 'TOP_UP',
-          order: null,
+          order: alreadyLinked ? { status: 'CREATED' } : null,
         })),
         updateMany: jest.fn(async () => ({ count: linkedCount })),
       },
@@ -24,7 +25,7 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
           args.where.status === 'ACCEPTED' ? { customerRef: 'GABC' } : null,
         ),
       },
-      order: { updateMany: jest.fn(async (args: any) => (updates.push(args), { count: 1 })) },
+      order: { updateMany: jest.fn(async (args: any) => (updates.push(args), { count: undoneCount })) },
     };
     const cfg = {
       anchorBaseUrl: 'https://api.lolipay.app',
@@ -42,15 +43,28 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
     return { svc, updates, quotes, token: mintInteractiveToken(cfg, 'tx-1', 'GABC') };
   }
 
-  it('cancels the order it could not bind, so provider capacity is freed at once', async () => {
+  function captureLogs() {
+    const warned: string[] = [];
+    const errored: string[] = [];
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(((m: any) => {
+      warned.push(String(m));
+    }) as any);
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(((m: any) => {
+      errored.push(String(m));
+    }) as any);
+    return { warned, errored };
+  }
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('cancels the loser only while it is exactly as createFromQuote left it, so a row anything else has touched is left alone', async () => {
     const { svc, updates, token } = build(0);
 
     await svc.submitAmount('tx-1', token, '400000');
 
     expect(updates).toHaveLength(1);
-    expect(updates[0].where.id).toBe('order-2');
-    expect(updates[0].data.status).toBe('CANCELLED');
-    expect(updates[0].where.status.in).toEqual(expect.arrayContaining(['CREATED', 'MATCHED']));
+    expect(updates[0].where).toEqual({ id: 'order-2', status: 'MATCHED' });
+    expect(updates[0].data).toEqual({ status: 'CANCELLED' });
   });
 
   it('does not refuse the person who lost it, because the winner already opened their order', async () => {
@@ -74,5 +88,29 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
     await svc.submitAmount('tx-1', token, '400000');
 
     expect(updates).toHaveLength(0);
+  });
+
+  it('records the cancellation as a warning, naming the order it cancelled', async () => {
+    const { warned, errored } = captureLogs();
+    const { svc, token } = build(0, null, 1);
+
+    await svc.submitAmount('tx-1', token, '400000');
+
+    expect(errored).toHaveLength(0);
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toMatch(/has been cancelled/);
+    expect(warned[0]).toContain('order-2');
+  });
+
+  it('raises the level to error, and says so, when the order it opened survived the cancel', async () => {
+    const { warned, errored } = captureLogs();
+    const { svc, token } = build(0, null, 0);
+
+    await svc.submitAmount('tx-1', token, '400000');
+
+    expect(warned).toHaveLength(0);
+    expect(errored).toHaveLength(1);
+    expect(errored[0]).toMatch(/could NOT be cancelled/);
+    expect(errored[0]).toContain('order-2');
   });
 });
