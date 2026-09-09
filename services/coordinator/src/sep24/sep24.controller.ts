@@ -1,3 +1,4 @@
+import { NO_BRACKETED_FIELD_NAMES } from '../order/multipart-limits';
 import {
   Body,
   Controller,
@@ -40,6 +41,10 @@ import { AllowTokenClasses } from '../auth/token-class.interceptor';
 import { TransactionsQueryDto, TransactionQueryDto } from './sep24-query.dto';
 import { PersonService } from '../person/person.service';
 
+export const SEP24_INTERACTIVE_LIMITS = {
+  limits: { files: 0, fieldSize: 4096, fields: 40, ...NO_BRACKETED_FIELD_NAMES },
+};
+
 @Controller('sep24')
 export class Sep24Controller {
   constructor(
@@ -81,7 +86,7 @@ export class Sep24Controller {
 
   @Post('transactions/deposit/interactive')
   @Throttle({ default: { ttl: 3_600_000, limit: 60 } })
-  @UseInterceptors(AnyFilesInterceptor({ limits: { files: 0, fieldSize: 4096, fields: 40 } }))
+  @UseInterceptors(AnyFilesInterceptor(SEP24_INTERACTIVE_LIMITS))
   @HttpCode(200)
   @UseGuards(Sep24AuthGuard)
   @AllowTokenClasses('sep10')
@@ -96,7 +101,7 @@ export class Sep24Controller {
 
   @Post('transactions/withdraw/interactive')
   @Throttle({ default: { ttl: 3_600_000, limit: 60 } })
-  @UseInterceptors(AnyFilesInterceptor({ limits: { files: 0, fieldSize: 4096, fields: 40 } }))
+  @UseInterceptors(AnyFilesInterceptor(SEP24_INTERACTIVE_LIMITS))
   @HttpCode(200)
   @UseGuards(Sep24AuthGuard)
   @AllowTokenClasses('sep10')

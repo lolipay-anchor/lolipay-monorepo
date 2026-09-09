@@ -1,3 +1,4 @@
+import { NO_BRACKETED_FIELD_NAMES } from './multipart-limits';
 import {
   BadRequestException,
   Body,
@@ -26,8 +27,8 @@ import { UploadProofDto } from './dto/upload-proof.dto';
 import { UploadedFileLike } from './upload.util';
 import { ObjectStorageService } from '../storage/object-storage.service';
 
-const UPLOAD_OPTS = {
-  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 4, fieldSize: 4096, parts: 6 },
+export const UPLOAD_OPTS = {
+  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 4, fieldSize: 4096, parts: 6, ...NO_BRACKETED_FIELD_NAMES },
 };
 
 function clampInt(v: string | undefined, def: number, min: number, max: number): number {
