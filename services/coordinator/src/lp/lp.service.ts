@@ -250,14 +250,4 @@ export class LpService {
     };
   }
 
-  async assignableLps(rail: Rail) {
-    return this.prisma.lp.findMany({
-      where: {
-        status: 'APPROVED',
-        online: true,
-        paymentMethods: { some: { rail, active: true } },
-      },
-      include: { paymentMethods: { where: { rail, active: true } } },
-    });
-  }
 }

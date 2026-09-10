@@ -239,7 +239,6 @@ describe('GET /lp/tx/stake + GET /lp/eligibility (HTTP controller)', () => {
     addPaymentMethod: jest.fn(),
     updatePaymentMethod: jest.fn(),
     deletePaymentMethod: jest.fn(),
-    assignableLps: jest.fn(),
   };
 
   beforeAll(async () => {

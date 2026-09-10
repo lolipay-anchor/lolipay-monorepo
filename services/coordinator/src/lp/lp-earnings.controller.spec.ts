@@ -41,7 +41,6 @@ const mockLpService = {
   buildRequestUnstakeTx: jest.fn(),
   buildClaimUnstakeTx: jest.fn(),
   getStakeInfo: jest.fn(),
-  assignableLps: jest.fn(),
 };
 
 describe('GET /lp/earnings (HTTP controller, real RolesGuard)', () => {
