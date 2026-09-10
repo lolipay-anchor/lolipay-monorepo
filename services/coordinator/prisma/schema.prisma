@@ -270,6 +270,7 @@ enum WalletLinkStatus {
 
 model Person {
   id          String       @id @default(uuid())
+  email       String?      @db.VarChar(254)
   wallets     WalletLink[]
   orders      Order[]
   kyc         KycVerification[]

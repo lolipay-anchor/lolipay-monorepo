@@ -12,6 +12,7 @@ import {
   KycProvider,
   REQUIRED_KYC_FIELDS,
 } from './kyc-provider';
+import { isStorableEmailAddress } from './email-address';
 
 const SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
@@ -222,16 +223,20 @@ export class Sep12Service {
 
     const redacted = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${person.id}))`;
+      const cleared = await tx.person.updateMany({
+        where: { id: person.id, email: { not: null } },
+        data: { email: null },
+      });
       const refusals = await tx.kycVerification.findMany({
         where: { status: 'REJECTED', OR: [{ customerRef }, { personId: person.id }] },
         select: { customerRef: true },
       });
-      if (refusals.length === 0) return 0;
+      if (refusals.length === 0) return cleared.count;
       await tx.kycVerification.updateMany({
         where: { customerRef: { in: refusals.map((r) => r.customerRef) } },
         data: { rejectionReason: null, screenedAt: null, verifiedAt: null, verificationUrl: null, providerRef: null, environment: null },
       });
-      return 1;
+      return cleared.count + 1;
     });
     return count > 0 ? count : redacted;
   }
@@ -247,6 +252,13 @@ export class Sep12Service {
     if (refused) {
       throw new ForbiddenException('this identity was refused and cannot be resubmitted here');
     }
+    if (isStorableEmailAddress(fields.email_address)) {
+      await this.prisma.person.update({
+        where: { id: person.id },
+        data: { email: fields.email_address.trim() },
+      });
+    }
+
     const inFlight = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
     if (inFlight?.status === 'ACCEPTED') {
       return { id: customerRef };

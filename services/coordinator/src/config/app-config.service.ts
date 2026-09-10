@@ -52,6 +52,8 @@ export class AppConfigService {
       .filter(Boolean);
   }
   get priceStaleSecs() { return Number(this.c.get('PRICE_STALE_SECONDS') ?? 120); }
+  get resendApiKey() { return this.c.get('RESEND_API_KEY') ?? ''; }
+  get resendFrom() { return this.c.get('RESEND_FROM') ?? 'lolipay <support@lolipay.app>'; }
   get priceDeviationMaxBps() { return Number(this.c.get('PRICE_DEVIATION_MAX_BPS') ?? 100); }
   get platformWallet(): string {
     const w = this.req('PLATFORM_WALLET');

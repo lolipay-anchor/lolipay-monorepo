@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { OutboxService } from '../outbox/outbox.service';
+import { PersonService } from '../person/person.service';
+import { EMAIL_OUTBOX_KIND } from '../email/email.service';
 
 type Role = 'user' | 'lp';
 interface Msg {
@@ -58,6 +61,8 @@ function messageFor(flow: string, status: string, role: Role, settledAt?: Date |
 export class NotificationService {
   constructor(
     private prisma: PrismaService,
+    private outbox: OutboxService,
+    private people: PersonService,
     private realtime?: RealtimeGateway,
   ) {}
 
@@ -80,7 +85,20 @@ export class NotificationService {
       rows.push({ address: order.lpWallet, orderId: order.id, event: status, ...l });
     }
     if (rows.length > 0) {
-      await this.prisma.notification.createMany({ data: rows, skipDuplicates: true });
+      const recipients = await Promise.all(
+        rows.map(async (r) => ({ row: r, person: await this.people.lookupPerson(r.address) })),
+      );
+      await this.prisma.$transaction(async (tx) => {
+        await tx.notification.createMany({ data: rows, skipDuplicates: true });
+        for (const { row, person } of recipients) {
+          if (!person) continue;
+          await this.outbox.enqueue(tx, {
+            kind: EMAIL_OUTBOX_KIND,
+            dedupeKey: `${EMAIL_OUTBOX_KIND}:${order.id}:${status}:${person.id}`,
+            payload: { personId: person.id, subject: row.title, text: row.body },
+          });
+        }
+      });
     }
 
     this.realtime?.emitOrderUpdate({

@@ -25,6 +25,7 @@ import { OrderModule } from './order/order.module';
 import { ReputationModule } from './reputation/reputation.module';
 import { ProfileModule } from './profile/profile.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { EmailModule } from './email/email.module';
 
 @Controller('health')
 class HealthController {
@@ -32,7 +33,7 @@ class HealthController {
 }
 
 @Module({
-  imports: [
+  imports: [EmailModule, 
     Sep10Module,
     OutboxModule,
 

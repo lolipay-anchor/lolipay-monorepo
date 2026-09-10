@@ -8,6 +8,7 @@ const EARLIER = new Date('2026-08-28T04:00:00.000Z');
 function svc(row: any, environment = 'sandbox', personRefusal: any = null) {
   const store = { row };
   const prisma: any = {
+    person: { update: jest.fn(async () => ({})), updateMany: jest.fn(async () => ({ count: 0 })) },
     kycVerification: {
       findUnique: jest.fn(async () => store.row),
       findFirst: jest.fn(async () => personRefusal),
@@ -281,6 +282,7 @@ describe('registering a customer does not spend on every attempt', () => {
   function putSvc(row: any) {
     const store = { row };
     const prisma: any = {
+      person: { update: jest.fn(async () => ({})), updateMany: jest.fn(async () => ({ count: 0 })) },
       kycVerification: {
         findUnique: jest.fn(async () => store.row),
         findFirst: jest.fn(async () => null),
@@ -440,6 +442,7 @@ describe('two requests arriving together buy one session, not two', () => {
   it('opens a single verification when the same customer asks twice at once', async () => {
     const store: any = { row: null };
     const prisma: any = {
+      person: { update: jest.fn(async () => ({})), updateMany: jest.fn(async () => ({ count: 0 })) },
       kycVerification: {
         findUnique: jest.fn(async () => store.row),
         findFirst: jest.fn(async () => null),
@@ -511,6 +514,7 @@ describe('forgetting a customer reaches every refusal that person carries, and n
     const updates: any[] = [];
     const tx: any = {
       $executeRaw: jest.fn(async () => 0),
+      person: { update: jest.fn(async () => ({})), updateMany: jest.fn(async () => ({ count: 0 })) },
       kycVerification: {
         findMany: jest.fn(async () => refusals),
         updateMany: jest.fn(async (args: any) => {
@@ -520,6 +524,7 @@ describe('forgetting a customer reaches every refusal that person carries, and n
       },
     };
     const prisma: any = {
+      person: { update: jest.fn(async () => ({})), updateMany: jest.fn(async () => ({ count: 0 })) },
       kycVerification: {
         findUnique: jest.fn(async () => own),
         deleteMany: jest.fn(async () => ({ count: own && own.status !== 'REJECTED' ? 1 : 0 })),
@@ -581,6 +586,7 @@ describe('a session bought while the customer was being settled elsewhere is dis
     };
     const tx: any = {
       $executeRaw: jest.fn(async () => 0),
+      person: { update: jest.fn(async () => ({})), updateMany: jest.fn(async () => ({ count: 0 })) },
       kycVerification: {
         findUnique: jest.fn(async () => store.row),
         findFirst: jest.fn(async () => null),
@@ -588,6 +594,7 @@ describe('a session bought while the customer was being settled elsewhere is dis
       },
     };
     const prisma: any = {
+      person: { update: jest.fn(async () => ({})), updateMany: jest.fn(async () => ({ count: 0 })) },
       kycVerification: {
         findUnique: jest.fn(async () => store.row),
         findFirst: jest.fn(async () => null),
@@ -626,6 +633,7 @@ describe('the guards this anchor relies on are the ones it actually takes', () =
   function harness(row: any) {
     const store = { row };
     const prisma: any = {
+      person: { update: jest.fn(async () => ({})), updateMany: jest.fn(async () => ({ count: 0 })) },
       kycVerification: {
         findUnique: jest.fn(async () => store.row),
         findFirst: jest.fn(async () => null),

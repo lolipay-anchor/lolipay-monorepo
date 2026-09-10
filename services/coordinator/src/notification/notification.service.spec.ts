@@ -10,8 +10,12 @@ describe('NotificationService', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     } as any;
+    const enqueued: any[] = [];
+    prisma.$transaction = jest.fn(async (cb: any) => cb(prisma));
+    const outbox = { enqueue: jest.fn(async (_tx: any, job: any) => { enqueued.push(job); }) } as any;
+    const people = { lookupPerson: jest.fn(async (a: string) => (a === 'GNOBODY' ? null : { id: `person-of-${a}` })) } as any;
     const realtime = withRealtime ? ({ emitOrderUpdate: jest.fn() } as any) : undefined;
-    return { svc: new NotificationService(prisma, realtime), prisma, realtime };
+    return { svc: new NotificationService(prisma, outbox, people, realtime), prisma, realtime, outbox, people, enqueued };
   }
 
   it('notifies BOTH parties on FUNDED, dedup via skipDuplicates', async () => {
@@ -160,6 +164,55 @@ describe('NotificationService', () => {
           'FUNDED',
         ),
       ).resolves.toBeUndefined();
+    });
+  });
+  describe('the email side of a notification', () => {
+    it('queues one email per notification row, carrying a personId and never an address', async () => {
+      const { svc, enqueued } = make();
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'FUNDED');
+
+      expect(enqueued).toHaveLength(2);
+      for (const job of enqueued) {
+        expect(job.kind).toBe('email');
+        expect(job.payload.personId).toMatch(/^person-of-/);
+        expect(JSON.stringify(job.payload)).not.toMatch(/^.*"G[UL]".*$/);
+        expect(job.payload.subject).toBeTruthy();
+        expect(job.payload.text).toBeTruthy();
+      }
+    });
+
+    it('queues the email in the same transaction as the notification row, so a crash cannot write one without the other', async () => {
+      const { svc, prisma, outbox } = make();
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'FUNDED');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      const tx = (outbox.enqueue.mock.calls as any[])[0][0];
+      expect(tx).toBe(prisma);
+    });
+
+    it('gives every email a dedupe key of order, status and recipient, so a replayed status cannot send twice', async () => {
+      const { svc, enqueued } = make();
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'FUNDED');
+
+      const keys = enqueued.map((j) => j.dedupeKey);
+      expect(new Set(keys).size).toBe(2);
+      for (const k of keys) expect(k).toMatch(/^email:o1:FUNDED:person-of-G[UL]$/);
+    });
+
+    it('queues nothing for a recipient with no person, rather than an undeliverable row', async () => {
+      const { svc, enqueued } = make();
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GNOBODY', lpWallet: 'GL', flow: 'TOP_UP' }, 'FUNDED');
+
+      expect(enqueued).toHaveLength(1);
+      expect(enqueued[0].payload.personId).toBe('person-of-GL');
+    });
+
+    it('queues nothing at all when the status produces no notification', async () => {
+      const { svc, enqueued, prisma } = make();
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'CANCELLED');
+
+      expect(prisma.notification.createMany).not.toHaveBeenCalled();
+      expect(enqueued).toHaveLength(0);
     });
   });
 });
