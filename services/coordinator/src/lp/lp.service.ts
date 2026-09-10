@@ -1,10 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-  ServiceUnavailableException,
-  ConflictException,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { OrderStatus, Prisma, Rail } from '../generated/prisma/client';
@@ -138,10 +132,21 @@ export class LpService {
     await this.prisma.paymentMethod.delete({ where: { id } });
   }
 
+  private async assertIsAProvider(lpAddress: string) {
+    const lp = await this.prisma.lp.findUnique({
+      where: { stellarAddress: lpAddress },
+      select: { id: true },
+    });
+    if (!lp) {
+      throw new ForbiddenException('this wallet is not a registered provider');
+    }
+  }
+
   async buildStakeTx(
     lpAddress: string,
     amount: string,
   ): Promise<{ xdr: string; networkPassphrase: string }> {
+    await this.assertIsAProvider(lpAddress);
     try {
       return await this.stellar.buildStakeTx(lpAddress, amount);
     } catch (err: unknown) {
@@ -154,6 +159,7 @@ export class LpService {
     lpAddress: string,
     amount: string,
   ): Promise<{ xdr: string; networkPassphrase: string }> {
+    await this.assertIsAProvider(lpAddress);
     try {
       return await this.stellar.buildRequestUnstakeTx(lpAddress, amount);
     } catch (err: unknown) {
@@ -165,6 +171,7 @@ export class LpService {
   async buildClaimUnstakeTx(
     lpAddress: string,
   ): Promise<{ xdr: string; networkPassphrase: string }> {
+    await this.assertIsAProvider(lpAddress);
     try {
       return await this.stellar.buildClaimUnstakeTx(lpAddress);
     } catch (err: unknown) {
@@ -180,6 +187,7 @@ export class LpService {
     min_stake: string;
     eligible: boolean;
   }> {
+    await this.assertIsAProvider(lpAddress);
     try {
       return await this.stellar.getStakeInfo(lpAddress);
     } catch (err: unknown) {

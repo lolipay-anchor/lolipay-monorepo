@@ -164,7 +164,7 @@ describe('LpService staking wrappers (unit)', () => {
     };
 
     const prisma = {
-      lp: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn(), findMany: jest.fn() },
+      lp: { findUnique: jest.fn(async () => ({ id: 'lp1' })), upsert: jest.fn(), update: jest.fn(), findMany: jest.fn() },
       paymentMethod: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn(), delete: jest.fn() },
     } as any;
     return new LpService(prisma, stellar);

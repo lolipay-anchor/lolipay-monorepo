@@ -97,19 +97,19 @@ export class LpController {
   }
 
   @Get('tx/request-unstake')
-  @Roles('lp')
+  @Roles('user', 'lp', 'admin')
   async buildRequestUnstakeTx(@Req() req: any, @Query() query: StakeTxQueryDto) {
     return this.lp.buildRequestUnstakeTx(req.user.address, query.amount);
   }
 
   @Get('tx/claim-unstake')
-  @Roles('lp')
+  @Roles('user', 'lp', 'admin')
   async buildClaimUnstakeTx(@Req() req: any) {
     return this.lp.buildClaimUnstakeTx(req.user.address);
   }
 
   @Get('eligibility')
-  @Roles('lp')
+  @Roles('user', 'lp', 'admin')
   async getEligibility(@Req() req: any) {
     return this.lp.getStakeInfo(req.user.address);
   }
