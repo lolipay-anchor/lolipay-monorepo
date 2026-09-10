@@ -175,7 +175,7 @@ describe('NotificationService', () => {
       for (const job of enqueued) {
         expect(job.kind).toBe('email');
         expect(job.payload.personId).toMatch(/^person-of-/);
-        expect(JSON.stringify(job.payload)).not.toMatch(/^.*"G[UL]".*$/);
+        expect(Object.keys(job.payload).sort()).toEqual(['personId', 'subject', 'text']);
         expect(job.payload.subject).toBeTruthy();
         expect(job.payload.text).toBeTruthy();
       }

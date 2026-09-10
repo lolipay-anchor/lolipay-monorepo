@@ -53,7 +53,7 @@ describe('the email channel', () => {
   it('throws when the provider refuses, so the outbox retries instead of recording a send that never happened', async () => {
     const send = jest.fn(async () => ({ ok: false, status: 422, body: 'suppressed' }));
     const { handler } = make({ send });
-    await expect(handler()({ personId: 'p1', subject: 'S', text: 'T' })).rejects.toThrow(/422/);
+    await expect(handler()({ personId: 'p1', subject: 'S', text: 'T' })).rejects.toThrow(/refused with 422/);
   });
 
   it('throws rather than silently succeeding when no API key is configured AND there was something to send', async () => {

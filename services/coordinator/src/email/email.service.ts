@@ -53,7 +53,7 @@ export class EmailService implements OnModuleInit {
     });
 
     if (!res.ok) {
-      throw new Error(`email provider refused with ${res.status}: ${res.body.slice(0, 200)}`);
+      throw new Error(`email provider refused with ${res.status}`);
     }
   }
 

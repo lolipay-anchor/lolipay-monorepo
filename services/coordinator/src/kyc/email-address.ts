@@ -1,7 +1,7 @@
 export const EMAIL_MAX_LENGTH = 254;
 
 const HAS_BOTH_SIDES = /^.+@.+$/;
-const HAS_SPACE_OR_CONTROL = /[\s\u0000-\u001f\u007f]/;
+const HAS_SPACE_OR_CONTROL = /[\s\p{Cc}]/u;
 
 export function isStorableEmailAddress(value: string | undefined | null): boolean {
   if (typeof value !== 'string') return false;
