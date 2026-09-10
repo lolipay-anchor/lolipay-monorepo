@@ -395,7 +395,7 @@ export class Sep24Service {
           funding
             ? [
                 `<p>Your wallet will ask you to approve moving <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC into escrow. The provider then pays <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to your bank account, and the escrow releases to them when you confirm it arrived. Nothing leaves your wallet until you approve it.</p>`,
-                `<p>Rate: 1 USDC ≈ <strong>${escapeHtml(formatFiat(effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount)))}</strong> ${escapeHtml(o.fiatCurrency)}, fixed for this order. No fee is deducted from the rupiah you receive; the platform's share is inside that rate.</p>`,
+                `<p>Rate: 1 USDC ≈ <strong>${escapeHtml(formatFiat(effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount)))}</strong> ${escapeHtml(o.fiatCurrency)}, fixed for this order.</p>`,
                 `<p>If the provider never marks the rupiah sent, anyone, including you, can take the USDC back out of the escrow after <strong>${escapeHtml(new Date(Number(refundOpensAt(o)) * 1000).toISOString())}</strong>${anchorRefunds ? ', and this anchor\'s refund service does it for you' : '; this anchor will not do it for you, so the route is open on chain to anyone, including you'}. Once they do mark it sent, only your confirmation or a dispute can move it, decided by the resolver, or by the platform if the resolver does not act within ${RESOLVER_WINDOW_SECS / 3600} hours.</p>`,
                 `<p>Sign before <strong>${escapeHtml(signBy!.toISOString())}</strong>. After that the escrow refuses the signature and this withdrawal expires.</p>`,
               ].join('')

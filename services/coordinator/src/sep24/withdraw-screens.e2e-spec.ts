@@ -132,15 +132,23 @@ describe('a withdrawal is never described to the user as a deposit', () => {
     expect(res.text).not.toContain('1000.0000000');
   });
 
-  it('states the exchange rate the order holds, that it is fixed for this order, and that no fee comes out of the rupiah', async () => {
+  it('states the exchange rate the order holds and that it is fixed for this order', async () => {
     const { id, token, address } = await openedWithdrawal(true);
     await linkOrder(id, address, 'WITHDRAW', 'MATCHED');
 
     const res = await screen(id, token);
     expect(res.text).toMatch(/1 USDC ≈ <strong>16\.000<\/strong> IDR/);
     expect(res.text).toMatch(/fixed for this order/i);
-    expect(res.text).toMatch(/no fee is deducted from the rupiah you receive/i);
     expect(res.text).not.toMatch(/estimate/i);
+  });
+
+  it('no longer explains where the spread goes, matching the deposit screen, which never did', async () => {
+    const { id, token, address } = await openedWithdrawal(true);
+    await linkOrder(id, address, 'WITHDRAW', 'MATCHED');
+
+    const res = await screen(id, token);
+    expect(res.text).not.toMatch(/no fee is deducted/i);
+    expect(res.text).not.toMatch(/platform's share/i);
   });
 
   it('the withdrawal amount screen quotes the reference price minus the spread, and says the applied rate may differ from the estimate', async () => {
