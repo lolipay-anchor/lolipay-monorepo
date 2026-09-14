@@ -31,7 +31,7 @@ describe('a dead session returns the app to its login screen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('session-expired').textContent).toBe('Your session expired. Reconnect your wallet to continue.')
     })
-    expect(screen.getByRole('button', { name: /connect wallet/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Connect Wallet' })).toBeTruthy()
     expect(screen.queryByTestId('shell')).toBeNull()
     expect(sessionStorage.getItem('lp_jwt') || null).toBeNull()
   })
@@ -47,7 +47,7 @@ describe('a dead session returns the app to its login screen', () => {
       </TestProviders>,
     )
     expect(await screen.findByTestId('session-expired')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /connect wallet/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Wallet' }))
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('User rejected connection')
     expect(screen.queryByTestId('session-expired')).toBeNull()
@@ -67,7 +67,7 @@ describe('a dead session returns the app to its login screen', () => {
         </AppGate>
       </TestProviders>,
     )
-    fireEvent.click(await screen.findByRole('button', { name: /connect wallet/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect Wallet' }))
     await waitFor(() => {
       expect(sessionStorage.getItem('lp_jwt')).toBe('fresh-jwt')
     })

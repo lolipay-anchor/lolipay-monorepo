@@ -55,6 +55,7 @@ function makeLpMe(methods: PM[] = []) {
     liquidityProof: 'https://proof.example.com',
     approvalNote: null,
     online: false,
+    matchable: false,
     lastHeartbeatAt: null,
     createdAt: new Date().toISOString(),
     approvedAt: null,

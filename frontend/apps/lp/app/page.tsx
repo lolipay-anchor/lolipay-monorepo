@@ -13,7 +13,8 @@ import {
 import type { LpEarningsDayBar, LpMe } from '@lolipay/api-client'
 import { DarkHeroCard, StatCard, StatusPill, Skeleton, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
 import { AppHeader } from '@/components/AppHeader'
-import { PrereqCard } from '@/components/PrereqCard'
+import { PrereqCard, stakeIsReady } from '@/components/PrereqCard'
+import { useBeatHealth } from '@/components/HeartbeatKeeper'
 import { client } from '@/lib/client'
 import { formatUSDC, formatUsdcNumber } from '@/lib/money'
 
@@ -87,7 +88,10 @@ export default function DashboardPage() {
     refetchOnWindowFocus: true,
   })
 
+  const { failingFor } = useBeatHealth()
   const online = me?.online === true
+  const matchable =
+    online && me?.matchable === true && stakeIsReady(eligibility) === true && failingFor === null
   const [toggling, setToggling] = React.useState(false)
   const [availError, setAvailError] = React.useState<string | null>(null)
 
@@ -122,17 +126,27 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2">
                   <span className="relative h-[9px] w-[9px] flex-none">
                     <span
-                      className={`absolute inset-0 rounded-full ${online ? 'bg-lp-green' : 'bg-lp-paper/40'}`}
+                      className={`absolute inset-0 rounded-full ${
+                        matchable ? 'bg-lp-green' : online ? 'bg-lp-amber' : 'bg-lp-paper/40'
+                      }`}
                     />
-                    {online && (
+                    {matchable && (
                       <span
                         aria-hidden="true"
+                        data-testid="online-ring"
                         className="absolute inset-0 rounded-full bg-lp-green animate-lp-ring"
                       />
                     )}
                   </span>
-                  <span className="font-geist text-[15px] font-semibold text-lp-paper">
-                    {online ? 'Online — accepting orders' : 'Offline'}
+                  <span
+                    className="font-geist text-[15px] font-semibold text-lp-paper"
+                    data-testid="availability-state"
+                  >
+                    {!online
+                      ? 'Offline'
+                      : matchable
+                        ? 'Online — accepting orders'
+                        : 'Online — not receiving orders'}
                   </span>
                 </div>
 

@@ -83,7 +83,7 @@ describe('AssignmentCard — Lock USDC (MATCHED)', () => {
 
     expect(screen.getByText(/Provide 100\.00 USDC/)).toBeTruthy()
     expect(screen.getByText(/You receive Rp 1.500.000 via BANK/)).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Lock USDC/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Lock USDC' })).toBeTruthy()
     expect(screen.getByText(/MATCHED/)).toBeTruthy()
   })
 
@@ -97,7 +97,7 @@ describe('AssignmentCard — Lock USDC (MATCHED)', () => {
       </TestProviders>,
     )
 
-    expect(screen.getByRole('button', { name: /Lock USDC/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Lock USDC' })).toBeTruthy()
   })
 
   it('calls getCreateTradeTx → wallet.signTransaction → submitFn on click', async () => {
@@ -118,7 +118,7 @@ describe('AssignmentCard — Lock USDC (MATCHED)', () => {
       </TestProviders>,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Lock USDC/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Lock USDC' }))
 
     await waitFor(() => {
       expect(apiClient.getCreateTradeTx).toHaveBeenCalledWith(
@@ -157,7 +157,7 @@ describe('AssignmentCard — Lock USDC (MATCHED)', () => {
       </TestProviders>,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Lock USDC/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Lock USDC' }))
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeTruthy()
@@ -196,7 +196,7 @@ describe('AssignmentCard — Confirm receipt & release (FIAT_PAID)', () => {
       </TestProviders>,
     )
 
-    expect(screen.getByRole('button', { name: /Confirm receipt & release/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Confirm receipt & release' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Lock USDC/i })).toBeNull()
     expect((screen.getByTestId('lp-open-dispute') as HTMLButtonElement).type).toBe('button')
   })
@@ -211,7 +211,7 @@ describe('AssignmentCard — Confirm receipt & release (FIAT_PAID)', () => {
       </TestProviders>,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Confirm receipt & release/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm receipt & release' }))
 
     await waitFor(() => {
       expect(screen.getByText(/Only release AFTER/i)).toBeTruthy()
@@ -231,11 +231,11 @@ describe('AssignmentCard — Confirm receipt & release (FIAT_PAID)', () => {
       </TestProviders>,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Confirm receipt & release/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm receipt & release' }))
 
     await waitFor(() => screen.getByRole('checkbox'))
 
-    const releaseBtn = screen.getByRole('button', { name: /Release USDC/i })
+    const releaseBtn = screen.getByRole('button', { name: 'Release USDC — sign' })
 
     expect(releaseBtn.hasAttribute('disabled')).toBe(true)
 
@@ -261,12 +261,12 @@ describe('AssignmentCard — Confirm receipt & release (FIAT_PAID)', () => {
       </TestProviders>,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Confirm receipt & release/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm receipt & release' }))
     await waitFor(() => screen.getByRole('checkbox'))
 
     fireEvent.click(screen.getByRole('checkbox'))
 
-    fireEvent.click(screen.getByRole('button', { name: /Release USDC/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Release USDC — sign' }))
 
     await waitFor(() => {
       expect(apiClient.getConfirmReleaseTx).toHaveBeenCalledWith(
@@ -307,10 +307,10 @@ describe('AssignmentCard — Confirm receipt & release (FIAT_PAID)', () => {
       </TestProviders>,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Confirm receipt & release/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm receipt & release' }))
     await waitFor(() => screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('checkbox'))
-    fireEvent.click(screen.getByRole('button', { name: /Release USDC/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Release USDC — sign' }))
 
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled())
     fireEvent.keyDown(document, { key: 'Escape' })
@@ -364,7 +364,7 @@ describe('AssignmentCard — WITHDRAW (LP pays fiat)', () => {
     )
 
     expect(screen.getByText(/BCA 999 a\/n Seller/)).toBeTruthy()
-    const btn = screen.getByRole('button', { name: /Mark fiat paid/i }) as HTMLButtonElement
+    const btn = screen.getByRole('button', { name: 'Mark fiat paid — sign' }) as HTMLButtonElement
     expect(btn.disabled).toBe(true)
 
     fireEvent.click(screen.getByRole('checkbox'))
@@ -598,7 +598,7 @@ describe('AssignmentCard — proof upload (WITHDRAW FUNDED)', () => {
     )
 
     fireEvent.click(screen.getByRole('checkbox'))
-    const btn = screen.getByRole('button', { name: /Mark fiat paid/i }) as HTMLButtonElement
+    const btn = screen.getByRole('button', { name: 'Mark fiat paid — sign' }) as HTMLButtonElement
     expect(btn.disabled).toBe(true)
     expect(screen.getByTestId('proof-required-hint')).toBeTruthy()
     expect(screen.getByText(/Upload your transfer receipt first/i)).toBeTruthy()
@@ -620,7 +620,7 @@ describe('AssignmentCard — proof upload (WITHDRAW FUNDED)', () => {
       </TestProviders>,
     )
 
-    const btn = screen.getByRole('button', { name: /Mark fiat paid/i }) as HTMLButtonElement
+    const btn = screen.getByRole('button', { name: 'Mark fiat paid — sign' }) as HTMLButtonElement
     expect(btn.disabled).toBe(true)
 
     fireEvent.click(screen.getByRole('checkbox'))
@@ -641,7 +641,7 @@ describe('AssignmentCard — proof upload (WITHDRAW FUNDED)', () => {
     )
 
     fireEvent.click(screen.getByRole('checkbox'))
-    const btn = screen.getByRole('button', { name: /Mark fiat paid/i }) as HTMLButtonElement
+    const btn = screen.getByRole('button', { name: 'Mark fiat paid — sign' }) as HTMLButtonElement
     expect(btn.disabled).toBe(false)
     expect(screen.queryByTestId('proof-required-hint')).toBeNull()
   })
@@ -727,7 +727,7 @@ describe('AssignmentsPage — full page', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Provide 100\.00 USDC/)).toBeTruthy()
-      expect(screen.getByRole('button', { name: /Lock USDC/i })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Lock USDC' })).toBeTruthy()
     })
   })
 

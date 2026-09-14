@@ -148,7 +148,7 @@ describe('StakePage — StakeForm', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('unstake-amount')).toBeTruthy()
-      expect(screen.getByRole('button', { name: /Request Unstake/i })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Request Unstake' })).toBeTruthy()
     })
   })
 
@@ -167,7 +167,7 @@ describe('StakePage — StakeForm', () => {
 
     await waitFor(() => screen.getByTestId('unstake-amount'))
     fireEvent.change(screen.getByTestId('unstake-amount'), { target: { value: '30' } })
-    fireEvent.click(screen.getByRole('button', { name: /Request Unstake/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Request Unstake' }))
 
     await waitFor(() => {
       expect(apiClient.getRequestUnstakeTx).toHaveBeenCalledWith(

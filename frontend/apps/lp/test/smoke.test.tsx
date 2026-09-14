@@ -55,6 +55,7 @@ function makeLpMe(status: 'PENDING' | 'APPROVED' | 'SUSPENDED' | 'REVOKED', extr
     liquidityProof: 'https://example.com/proof',
     approvalNote: null,
     online: false,
+    matchable: false,
     lastHeartbeatAt: null,
     createdAt: new Date().toISOString(),
     approvedAt: null,
@@ -258,7 +259,7 @@ describe('AppGate (LP)', () => {
 
   it('keeps an approved online provider heartbeating from inside the gate, on whatever page', async () => {
     sessionStorage.setItem('lp_jwt', 'approved-jwt')
-    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe('APPROVED', { online: true }))
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe('APPROVED', { online: true, matchable: true }))
     vi.useFakeTimers()
     try {
       render(

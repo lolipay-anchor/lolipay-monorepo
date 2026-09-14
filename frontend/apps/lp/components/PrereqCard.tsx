@@ -3,9 +3,14 @@ import * as React from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { Eligibility, LpMe } from '@lolipay/api-client'
 import { StatusPill } from '@lolipay/ui'
+import { OWN_BEAT_GRACE_MS, useBeatHealth } from './HeartbeatKeeper'
 
-const HEARTBEAT_FRESH_MS = 120_000
-const CLOCK_TICK_MS = 10_000
+function duration(ms: number): string {
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  return hours < 24 ? `${hours} h` : `${Math.floor(hours / 24)} d`
+}
 
 function unbondingIsZero(value: string): boolean {
   try {
@@ -13,6 +18,10 @@ function unbondingIsZero(value: string): boolean {
   } catch {
     return false
   }
+}
+
+export function stakeIsReady(eligibility: Eligibility | undefined): boolean | null {
+  return eligibility ? eligibility.eligible && unbondingIsZero(eligibility.unbonding) : null
 }
 
 function Row({
@@ -40,20 +49,19 @@ function Row({
 
 export function PrereqCard({ me, eligibility }: { me: LpMe; eligibility: Eligibility | undefined }) {
   const qc = useQueryClient()
-  const [now, setNow] = React.useState(() => Date.now())
-  React.useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS)
-    return () => clearInterval(id)
-  }, [])
+  const { now, failingFor } = useBeatHealth()
 
-  const staked = eligibility ? eligibility.eligible && unbondingIsZero(eligibility.unbonding) : null
+  const staked = stakeIsReady(eligibility)
   const paymentMethod = me.paymentMethods.some((m) => m.active && m.rail === 'BANK')
   const ownBeat = qc.getQueryData<number>(['lpLastBeat']) ?? 0
   const parsedServerBeat = me.lastHeartbeatAt === null ? 0 : Date.parse(me.lastHeartbeatAt)
   const serverBeat = Number.isFinite(parsedServerBeat) ? parsedServerBeat : 0
   const lastBeat = Math.max(ownBeat, serverBeat)
   const age = lastBeat > 0 ? Math.max(0, Math.floor((now - lastBeat) / 1000)) : null
-  const heartbeat = me.online && lastBeat > 0 && now - lastBeat < HEARTBEAT_FRESH_MS
+  const heartbeat =
+    me.online &&
+    failingFor === null &&
+    (me.matchable || (lastBeat > 0 && now - lastBeat < OWN_BEAT_GRACE_MS))
 
   return (
     <section
@@ -72,7 +80,11 @@ export function PrereqCard({ me, eligibility }: { me: LpMe; eligibility: Eligibi
           {paymentMethod ? 'Done' : 'To do'}
         </Row>
         <Row id="heartbeat" ok={heartbeat} label="Online, with a recent heartbeat">
-          {age === null ? 'not yet' : `last seen ${age} s ago`}
+          {failingFor !== null
+            ? `check-in failing for ${duration(failingFor)}`
+            : age === null
+              ? 'not yet'
+              : `last seen ${age} s ago`}
         </Row>
       </ul>
     </section>

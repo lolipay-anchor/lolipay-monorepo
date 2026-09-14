@@ -32,13 +32,7 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
 
     getAssignments: vi.fn().mockResolvedValue([]),
     getLpEarnings: vi.fn().mockResolvedValue({ today_trades: 0, today_earned_usdc: 0, today_volume_usdc: 0, week_bars: [], all_time_trades: 0, all_time_earned_usdc: 0 }),
-    getLpEligibility: vi.fn().mockResolvedValue({
-      staked: '0',
-      unbonding: '0',
-      unbond_available_at: 0,
-      min_stake: '5000000000',
-      eligible: false,
-    }),
+    getLpEligibility: vi.fn(),
     getNotifications: vi.fn().mockResolvedValue({ items: [], unread: 0 }),
   }
 })
@@ -46,7 +40,23 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
 const DashboardPage = (await import('@/app/page')).default
 const apiClient = await import('@lolipay/api-client')
 
-function makeLpMe(online = false) {
+const noStake = {
+  staked: '0',
+  unbonding: '0',
+  unbond_available_at: 0,
+  min_stake: '5000000000',
+  eligible: false,
+}
+
+const eligibleStake = {
+  staked: '500000000',
+  unbonding: '0',
+  unbond_available_at: 0,
+  min_stake: '100000000',
+  eligible: true,
+}
+
+function makeLpMe(online = false, matchable = online) {
   return {
     id: 'lp-1',
     stellarAddress: 'GDCPLKM7CKTQSH7VM4BV3XXTYJB9SC6X',
@@ -55,6 +65,7 @@ function makeLpMe(online = false) {
     liquidityProof: 'https://proof.example.com',
     approvalNote: null,
     online,
+    matchable,
     lastHeartbeatAt: null,
     createdAt: new Date().toISOString(),
     approvedAt: null,
@@ -67,6 +78,7 @@ describe('DashboardPage — Availability', () => {
     queryClient.clear()
     vi.clearAllMocks()
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(false))
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue(noStake)
     vi.mocked(apiClient.setAvailability).mockResolvedValue({ ok: true })
     vi.mocked(apiClient.heartbeat).mockResolvedValue({ ok: true })
   })
@@ -152,6 +164,7 @@ describe('DashboardPage — Availability', () => {
   })
 
   it('shows "Online — accepting orders" text after toggling on', async () => {
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
     vi.mocked(apiClient.setAvailability).mockImplementation(async (_client, next) => {
       vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(next))
       return { ok: true }
@@ -163,16 +176,16 @@ describe('DashboardPage — Availability', () => {
     )
 
     await waitFor(() => screen.getByTestId('availability-toggle'))
-    expect(screen.getByText(/Offline/i)).toBeTruthy()
+    expect(screen.getByTestId('availability-state').textContent).toBe('Offline')
 
     fireEvent.click(screen.getByTestId('availability-toggle'))
 
     await waitFor(() => {
-      expect(screen.getByText(/Online — accepting orders/i)).toBeTruthy()
+      expect(screen.getByTestId('availability-state').textContent).toBe('Online — accepting orders')
     })
   })
 
-  it('keeps the pill online when the refetch after toggling fails, because the ack is what was written', async () => {
+  it('keeps the switch pressed when the refetch after toggling fails, because the ack is what was written', async () => {
     vi.mocked(apiClient.setAvailability).mockImplementation(async () => {
       vi.mocked(apiClient.getLpMe).mockRejectedValue(new Error('transient blip'))
       return { ok: true }
@@ -185,10 +198,131 @@ describe('DashboardPage — Availability', () => {
     await waitFor(() => screen.getByTestId('availability-toggle'))
     fireEvent.click(screen.getByTestId('availability-toggle'))
     await waitFor(() => {
-      expect(screen.getByText(/Online — accepting orders/i)).toBeTruthy()
+      expect(screen.getByTestId('availability-toggle').getAttribute('aria-pressed')).toBe('true')
     })
-    expect(screen.getByTestId('availability-toggle').getAttribute('aria-pressed')).toBe('true')
     expect(queryClient.getQueryData(['lpMe'])).toMatchObject({ online: true })
+  })
+
+  it('does not claim orders are being accepted while the refetch that would prove it has failed', async () => {
+    vi.mocked(apiClient.setAvailability).mockImplementation(async () => {
+      vi.mocked(apiClient.getLpMe).mockRejectedValue(new Error('transient blip'))
+      return { ok: true }
+    })
+    render(
+      <TestProviders kit={fakeKit}>
+        <DashboardPage />
+      </TestProviders>,
+    )
+    await waitFor(() => screen.getByTestId('availability-toggle'))
+    fireEvent.click(screen.getByTestId('availability-toggle'))
+    await waitFor(() => {
+      expect(screen.getByTestId('availability-toggle').getAttribute('aria-pressed')).toBe('true')
+    })
+    expect(screen.getByTestId('availability-state').textContent).toBe('Online — not receiving orders')
+  })
+
+  it('tells a provider the platform cannot match that orders are not reaching them, even with the switch on', async () => {
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, false))
+    render(
+      <TestProviders kit={fakeKit}>
+        <DashboardPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('availability-toggle'))
+    expect(screen.getByTestId('availability-state').textContent).toBe('Online — not receiving orders')
+    expect(screen.queryByText(/accepting orders/i)).toBeNull()
+  })
+
+  it('says orders are being accepted only when the platform says the provider is matchable', async () => {
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true))
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
+    render(
+      <TestProviders kit={fakeKit}>
+        <DashboardPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('availability-toggle'))
+    expect(screen.getByTestId('availability-state').textContent).toBe('Online — accepting orders')
+  })
+
+  it('says Offline when the switch is off, whatever the platform thinks of the provider', async () => {
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(false, true))
+    render(
+      <TestProviders kit={fakeKit}>
+        <DashboardPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('availability-toggle'))
+    expect(screen.getByTestId('availability-state').textContent).toBe('Offline')
+  })
+
+  it('withholds the live ring from a provider no order can reach, so the light agrees with the sentence', async () => {
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, false))
+    render(
+      <TestProviders kit={fakeKit}>
+        <DashboardPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('availability-toggle'))
+    expect(screen.queryByTestId('online-ring')).toBeNull()
+  })
+
+  it('shows the live ring to a provider orders can reach', async () => {
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true))
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
+    render(
+      <TestProviders kit={fakeKit}>
+        <DashboardPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('availability-toggle'))
+    expect(screen.getByTestId('online-ring')).toBeTruthy()
+  })
+
+  it('stops claiming orders are being accepted once the check-in has been failing longer than the grace, whatever the cached row still says', async () => {
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true))
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
+    queryClient.setQueryData(['lpBeatFailingSince'], Date.now() - 2_700_000)
+    render(
+      <TestProviders kit={fakeKit}>
+        <DashboardPage />
+      </TestProviders>,
+    )
+
+    await screen.findByText('Eligible')
+    expect(screen.getByTestId('availability-state').textContent).toBe('Online — not receiving orders')
+    expect(screen.queryByTestId('online-ring')).toBeNull()
+  })
+
+  it('does not tell a provider with no eligible stake that orders are being accepted, because the matcher will pass them over', async () => {
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true))
+    render(
+      <TestProviders kit={fakeKit}>
+        <DashboardPage />
+      </TestProviders>,
+    )
+
+    await screen.findByText('Not eligible')
+    expect(screen.getByTestId('availability-state').textContent).toBe('Online — not receiving orders')
+    expect(screen.queryByTestId('online-ring')).toBeNull()
+  })
+
+  it('does not claim orders are being accepted while the stake is unbonding, which is the refusal the matcher makes beside eligibility', async () => {
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true))
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue({ ...eligibleStake, unbonding: '1' })
+    render(
+      <TestProviders kit={fakeKit}>
+        <DashboardPage />
+      </TestProviders>,
+    )
+
+    await screen.findByText('Eligible')
+    expect(screen.getByTestId('availability-state').textContent).toBe('Online — not receiving orders')
   })
 
   it('shows the eligibility link', async () => {
@@ -211,6 +345,7 @@ describe('the dashboard keeps its own picture of the provider fresh', () => {
     queryClient.clear()
     vi.clearAllMocks()
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true))
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue(noStake)
   })
 
   afterEach(() => {

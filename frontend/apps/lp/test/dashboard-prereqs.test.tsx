@@ -23,6 +23,7 @@ function provider(extra: Partial<LpMe> = {}): LpMe {
     liquidityProof: 'https://example.com/proof',
     approvalNote: null,
     online: true,
+    matchable: true,
     lastHeartbeatAt: new Date(T0 - 5_000).toISOString(),
     createdAt: new Date(T0 - 86_400_000).toISOString(),
     approvedAt: null,
@@ -88,30 +89,101 @@ describe('the dashboard shows the three prerequisites with honest ticks', () => 
   })
 
   it('says "not yet" when no heartbeat was ever received, whether or not the provider is online', () => {
-    mount(provider({ lastHeartbeatAt: null, online: true }), ready)
+    mount(provider({ lastHeartbeatAt: null, online: true, matchable: false }), ready)
     expect(screen.getByText('not yet')).toBeTruthy()
     expect(tick('heartbeat')).toBe('false')
   })
 
   it('does not count a recent beat for a provider who is offline', () => {
-    mount(provider({ online: false }), ready)
+    mount(provider({ online: false, matchable: false }), ready)
     expect(tick('heartbeat')).toBe('false')
     expect(screen.getByText('last seen 5 s ago')).toBeTruthy()
   })
 
-  it('keeps its own clock, so a beat that ages past two minutes loses its tick while the cached row is unchanged', async () => {
+  it('keeps its own clock, so the printed age counts up while the cached row is unchanged', async () => {
     mount(provider(), ready)
     expect(screen.getByText('last seen 5 s ago')).toBeTruthy()
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150_000)
     })
     expect(screen.getByText('last seen 155 s ago')).toBeTruthy()
+  })
+
+  it('carries no freshness window of its own: a beat the platform still counts keeps the tick though it is older than the keeper\'s own grace', () => {
+    mount(provider({ lastHeartbeatAt: new Date(T0 - 90_000).toISOString(), matchable: true }), ready)
+    expect(screen.getByText('last seen 90 s ago')).toBeTruthy()
+    expect(tick('heartbeat')).toBe('true')
+  })
+
+  it('drops the tick while the check-in is failing, however matchable the cached row still claims the provider is', () => {
+    queryClient.setQueryData(['lpBeatFailingSince'], T0 - 2_700_000)
+    mount(provider({ matchable: true }), ready)
+    expect(screen.getByText('check-in failing for 45 min')).toBeTruthy()
     expect(tick('heartbeat')).toBe('false')
+  })
+
+  it('still counts the keeper\'s own beat one and a half intervals after it landed', async () => {
+    queryClient.setQueryData(['lpLastBeat'], T0)
+    mount(provider({ lastHeartbeatAt: null, matchable: false }), ready)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(45_000)
+    })
+    expect(tick('heartbeat')).toBe('true')
+  })
+
+  it('stops counting the keeper\'s own beat once two of its intervals have passed without another', async () => {
+    queryClient.setQueryData(['lpLastBeat'], T0)
+    mount(provider({ lastHeartbeatAt: null, matchable: false }), ready)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(61_000)
+    })
+    expect(tick('heartbeat')).toBe('false')
+  })
+
+  it('keeps the heartbeat row honest for a provider the platform cannot match for want of a payment method', () => {
+    queryClient.setQueryData(['lpLastBeat'], T0 - 5_000)
+    mount(provider({ matchable: false, paymentMethods: [method(false)] }), ready)
+    expect(tick('payment-method')).toBe('false')
+    expect(tick('heartbeat')).toBe('true')
+  })
+
+  it('names a check-in that has been refused for longer than one beat interval, so a four-day silence is not silent', () => {
+    queryClient.setQueryData(['lpLastBeat'], T0 - 240_000)
+    queryClient.setQueryData(['lpBeatFailingSince'], T0 - 240_000)
+    mount(provider({ matchable: false }), ready)
+    expect(screen.getByText('check-in failing for 4 min')).toBeTruthy()
+  })
+
+  it('stays quiet about a refusal younger than the grace that costs the tick, so a transient blip does not scream', () => {
+    queryClient.setQueryData(['lpLastBeat'], T0 - 5_000)
+    queryClient.setQueryData(['lpBeatFailingSince'], T0 - 59_000)
+    mount(provider({ matchable: false }), ready)
+    expect(screen.getByText('last seen 5 s ago')).toBeTruthy()
+    expect(screen.queryByText(/check-in failing/)).toBeNull()
+  })
+
+  it('speaks at the first moment it loses the tick, and never announces a failure of no minutes', () => {
+    queryClient.setQueryData(['lpLastBeat'], T0 - 60_000)
+    queryClient.setQueryData(['lpBeatFailingSince'], T0 - 60_000)
+    mount(provider({ matchable: false }), ready)
+    expect(screen.getByText('check-in failing for 1 min')).toBeTruthy()
+  })
+
+  it('counts a refusal of a few hours in hours', () => {
+    queryClient.setQueryData(['lpBeatFailingSince'], T0 - 10_800_000)
+    mount(provider({ matchable: false }), ready)
+    expect(screen.getByText('check-in failing for 3 h')).toBeTruthy()
+  })
+
+  it('counts a refusal of several days in days', () => {
+    queryClient.setQueryData(['lpBeatFailingSince'], T0 - 345_600_000)
+    mount(provider({ matchable: false }), ready)
+    expect(screen.getByText('check-in failing for 4 d')).toBeTruthy()
   })
 
   it('trusts the keeper\'s own successful beat over a stale server value, so the first seconds after going online are not shown as stale', () => {
     queryClient.setQueryData(['lpLastBeat'], T0 - 3_000)
-    mount(provider({ lastHeartbeatAt: new Date(T0 - 300_000).toISOString() }), ready)
+    mount(provider({ lastHeartbeatAt: new Date(T0 - 300_000).toISOString(), matchable: false }), ready)
     expect(screen.getByText('last seen 3 s ago')).toBeTruthy()
     expect(tick('heartbeat')).toBe('true')
   })
@@ -123,14 +195,13 @@ describe('the dashboard shows the three prerequisites with honest ticks', () => 
 
   it('does not let a malformed server heartbeat poison the beat the keeper itself recorded', () => {
     queryClient.setQueryData(['lpLastBeat'], T0 - 3_000)
-    mount(provider({ lastHeartbeatAt: 'not a date' }), ready)
+    mount(provider({ lastHeartbeatAt: 'not a date', matchable: false }), ready)
     expect(tick('heartbeat')).toBe('true')
     expect(screen.getByText('last seen 3 s ago')).toBeTruthy()
   })
 
-  it('never prints an age at or past the window it is still green for, because the seconds are floored', () => {
+  it('floors the printed age to whole seconds rather than rounding it up', () => {
     mount(provider({ lastHeartbeatAt: new Date(T0 - 119_600).toISOString() }), ready)
     expect(screen.getByText('last seen 119 s ago')).toBeTruthy()
-    expect(tick('heartbeat')).toBe('true')
   })
 })

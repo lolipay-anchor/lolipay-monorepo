@@ -150,7 +150,7 @@ export interface PaymentMethod {
   active: boolean
 }
 
-export type LpMe = Lp & { paymentMethods: PaymentMethod[] }
+export type LpMe = Lp & { paymentMethods: PaymentMethod[]; matchable: boolean }
 
 export interface AdminConfig {
   id: number

@@ -556,6 +556,7 @@ describe('endpoints', () => {
       id: 'lp_1', stellarAddress: 'GALP', status: 'APPROVED',
       contact: 'lp@example.com', liquidityProof: 'https://proof', approvalNote: 'ok',
       online: true, lastHeartbeatAt: '2026-07-01T10:00:00Z', createdAt: '2026-06-01T00:00:00Z', approvedAt: '2026-06-15T00:00:00Z',
+      matchable: true,
       paymentMethods: [
         { id: 'pm_1', lpId: 'lp_1', rail: 'BANK', label: 'BCA', details: '12345678', currency: 'IDR', active: true },
       ],

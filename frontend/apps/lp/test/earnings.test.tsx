@@ -54,6 +54,7 @@ function makeLpMe() {
     liquidityProof: 'https://proof.example.com',
     approvalNote: null,
     online: false,
+    matchable: false,
     lastHeartbeatAt: null,
     createdAt: new Date().toISOString(),
     approvedAt: null,
@@ -117,8 +118,8 @@ describe('DashboardPage — Earnings', () => {
     })
 
     expect(screen.getByTestId('earnings-orders-today')).toHaveTextContent(/^12$/)
-    expect(screen.getByTestId('earnings-usdc-earned')).toHaveTextContent('+3.84')
-    expect(screen.getByTestId('earnings-volume-today')).toHaveTextContent('640.50')
+    expect(screen.getByTestId('earnings-usdc-earned')).toHaveTextContent(/^\+3\.84$/)
+    expect(screen.getByTestId('earnings-volume-today')).toHaveTextContent(/^640\.50$/)
     expect(apiClient.getLpEarnings).toHaveBeenCalledWith(expect.anything())
   })
 
@@ -214,9 +215,9 @@ describe('DashboardPage — Earnings', () => {
     await waitFor(() => {
       expect(screen.getByTestId('earnings-tiles')).toBeTruthy()
     })
-    expect(screen.getByTestId('earnings-orders-today')).toHaveTextContent('0')
-    expect(screen.getByTestId('earnings-usdc-earned')).toHaveTextContent('+0.00')
-    expect(screen.getByTestId('earnings-volume-today')).toHaveTextContent('0.00')
+    expect(screen.getByTestId('earnings-orders-today')).toHaveTextContent(/^0$/)
+    expect(screen.getByTestId('earnings-usdc-earned')).toHaveTextContent(/^\+0\.00$/)
+    expect(screen.getByTestId('earnings-volume-today')).toHaveTextContent(/^0\.00$/)
   })
 
   it('renders the all-time totals footnote from the same earnings fetch', async () => {
@@ -263,6 +264,6 @@ describe('DashboardPage — Earnings', () => {
     })
     expect(screen.getByTestId('availability-toggle')).toBeTruthy()
     expect(screen.getByText('Active assignments')).toBeTruthy()
-    expect(screen.getByRole('link', { name: /View stake/i })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'View stake & eligibility' })).toBeTruthy()
   })
 })
