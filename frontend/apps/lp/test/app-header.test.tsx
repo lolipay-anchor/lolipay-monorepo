@@ -1,7 +1,8 @@
 import * as React from 'react'
-import { render, screen } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TestProviders, fakeKit } from './helpers'
+import { queryClient } from '@/app/providers'
 
 vi.mock('@/lib/wallet-kit', () => ({
   getDefaultKit: vi.fn(() => ({})),
@@ -23,23 +24,37 @@ vi.mock('next/link', () => ({
   ),
 }))
 
+const mockPush = vi.hoisted(() => vi.fn())
 vi.mock('next/navigation', () => ({
   usePathname: vi.fn(() => '/'),
-  useRouter: vi.fn(() => ({ back: vi.fn() })),
+  useRouter: vi.fn(() => ({ back: vi.fn(), push: mockPush })),
 }))
 
+const mockMarkNotificationsRead = vi.hoisted(() => vi.fn(async () => ({})))
 vi.mock('@lolipay/api-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@lolipay/api-client')>()
   return {
     ...actual,
     getNotifications: vi.fn(async () => ({ unread: 0 })),
-    markNotificationsRead: vi.fn(async () => ({})),
+    markNotificationsRead: mockMarkNotificationsRead,
   }
 })
 
 const { AppHeader } = await import('@/components/AppHeader')
 
+function authed() {
+  sessionStorage.setItem('lp_jwt', 'fake-jwt-token')
+  sessionStorage.setItem('lp_addr', 'GDCPLKM7CKTQSH7VM4BV3XXTYJB9SC6X')
+}
+
 describe('AppHeader (LP)', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    queryClient.clear()
+    mockPush.mockClear()
+    mockMarkNotificationsRead.mockClear()
+  })
+
   it('renders the title only once (row 2) when showBack is false', () => {
     render(
       <TestProviders kit={fakeKit}>
@@ -71,5 +86,19 @@ describe('AppHeader (LP)', () => {
     const back = screen.getByLabelText('Go back')
     expect(back.className).toContain('-m-2.5')
     expect(back.className).toContain('p-2.5')
+  })
+
+  it('clicking the bell navigates to the notifications route, without marking anything read itself', () => {
+    authed()
+    render(
+      <TestProviders kit={fakeKit}>
+        <AppHeader title="Dashboard" />
+      </TestProviders>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Notifications/i }))
+
+    expect(mockPush).toHaveBeenCalledWith('/notifications')
+    expect(mockMarkNotificationsRead).not.toHaveBeenCalled()
   })
 })

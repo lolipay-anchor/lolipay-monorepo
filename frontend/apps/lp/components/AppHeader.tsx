@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { useWallet } from '@lolipay/wallet'
 import { WalletPill, NotificationBell } from '@lolipay/ui'
-import { getNotifications, markNotificationsRead } from '@lolipay/api-client'
+import { getNotifications } from '@lolipay/api-client'
 import { useAuth } from '@/app/providers'
 import { client } from '@/lib/client'
 import { useRealtimeChannel } from '@/hooks/useRealtimeChannel'
@@ -44,9 +44,7 @@ export function AppHeader({ title, showBack = false }: AppHeaderProps) {
   }
 
   const handleBellClick = () => {
-    markNotificationsRead(client)
-      .then(() => qc.invalidateQueries({ queryKey: ['notifications-unread'] }))
-      .catch(() => {})
+    router.push('/notifications')
   }
 
   return (
