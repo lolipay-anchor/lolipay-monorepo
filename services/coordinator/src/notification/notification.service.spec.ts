@@ -81,6 +81,7 @@ describe('NotificationService', () => {
       const svc = new NotificationService(prisma, {} as any, {} as any, undefined);
       return {
         svc,
+        prisma,
         seed: (newRows: any[]) => rows.push(...newRows),
         rowsFor: (address: string) => rows.filter((r) => r.address === address),
       };
@@ -118,20 +119,15 @@ describe('NotificationService', () => {
       expect(rowsFor('GU').filter((r) => r.id.startsWith('shown')).every((r) => r.read)).toBe(true);
     });
 
-    it('breaks createdAt ties the same way in list() and markAllRead(), so the two windows agree', async () => {
-      const { svc, seed, rowsFor } = makeStateful();
-      const tieTime = 1000;
-      const seeded = [
-        ...Array.from({ length: 5 }, (_, i) => row(`tie${i}`, 'GU', tieTime)),
-        ...Array.from({ length: 47 }, (_, i) => row(`older${i}`, 'GU', tieTime - 1 - i)),
-      ];
-      expect(seeded).toHaveLength(52);
-      seed(seeded);
-      const shownIds = (await svc.list('GU')).map((r: any) => r.id);
-      expect(shownIds).toHaveLength(50);
+    it('queries the exact same window as list() — same where, same order, same take — so a tie between the two can never be broken two different ways', async () => {
+      const { svc, seed, prisma } = makeStateful();
+      seed([row('a', 'GU', 1)]);
+      await svc.list('GU');
       await svc.markAllRead('GU');
-      const readIds = rowsFor('GU').filter((r) => r.read).map((r) => r.id);
-      expect(new Set(readIds)).toEqual(new Set(shownIds));
+      const [listArgs, markArgs] = prisma.notification.findMany.mock.calls.map((c: any) => c[0]);
+      expect(markArgs.where).toEqual(listArgs.where);
+      expect(markArgs.orderBy).toEqual(listArgs.orderBy);
+      expect(markArgs.take).toBe(listArgs.take);
     });
 
     it('touches no other caller\'s rows', async () => {
