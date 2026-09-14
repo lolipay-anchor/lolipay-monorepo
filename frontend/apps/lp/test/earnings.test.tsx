@@ -1,6 +1,6 @@
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor, act } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { TestProviders, fakeKit } from './helpers'
 import { queryClient } from '@/app/providers'
 
@@ -98,8 +98,13 @@ describe('DashboardPage — Earnings', () => {
     vi.mocked(apiClient.heartbeat).mockResolvedValue({ ok: true })
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('renders real today_trades / today_earned_usdc / today_volume_usdc from getLpEarnings', async () => {
     vi.mocked(apiClient.getLpEarnings).mockResolvedValue(REAL_EARNINGS)
+    vi.useFakeTimers()
 
     render(
       <TestProviders kit={fakeKit}>
@@ -107,9 +112,11 @@ describe('DashboardPage — Earnings', () => {
       </TestProviders>,
     )
 
-    await waitFor(() => {
-      expect(screen.getByTestId('earnings-orders-today')).toHaveTextContent('12')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
     })
+
+    expect(screen.getByTestId('earnings-orders-today')).toHaveTextContent(/^12$/)
     expect(screen.getByTestId('earnings-usdc-earned')).toHaveTextContent('+3.84')
     expect(screen.getByTestId('earnings-volume-today')).toHaveTextContent('640.50')
     expect(apiClient.getLpEarnings).toHaveBeenCalledWith(expect.anything())
@@ -124,6 +131,7 @@ describe('DashboardPage — Earnings', () => {
       </TestProviders>,
     )
 
+    await waitFor(() => screen.getByTestId('availability-toggle'))
     await waitFor(() => {
       expect(screen.getByTestId('earnings-sparkline')).toBeTruthy()
     })
@@ -144,6 +152,7 @@ describe('DashboardPage — Earnings', () => {
       </TestProviders>,
     )
 
+    await waitFor(() => screen.getByTestId('availability-toggle'))
     await waitFor(() => {
       expect(screen.getByTestId('earnings-sparkline')).toBeTruthy()
     })
@@ -166,6 +175,7 @@ describe('DashboardPage — Earnings', () => {
       </TestProviders>,
     )
 
+    await waitFor(() => screen.getByTestId('availability-toggle'))
     await waitFor(() => {
       expect(screen.getByTestId('earnings-loading')).toBeTruthy()
     })
@@ -200,6 +210,7 @@ describe('DashboardPage — Earnings', () => {
       </TestProviders>,
     )
 
+    await waitFor(() => screen.getByTestId('availability-toggle'))
     await waitFor(() => {
       expect(screen.getByTestId('earnings-tiles')).toBeTruthy()
     })
@@ -217,6 +228,7 @@ describe('DashboardPage — Earnings', () => {
       </TestProviders>,
     )
 
+    await waitFor(() => screen.getByTestId('availability-toggle'))
     await waitFor(() => {
       expect(screen.getByTestId('earnings-all-time')).toHaveTextContent('210 trades')
     })
@@ -245,6 +257,7 @@ describe('DashboardPage — Earnings', () => {
       </TestProviders>,
     )
 
+    await waitFor(() => screen.getByTestId('availability-toggle'))
     await waitFor(() => {
       expect(screen.getByTestId('earnings-tiles')).toBeTruthy()
     })

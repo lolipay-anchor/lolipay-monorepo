@@ -198,11 +198,11 @@ describe('DashboardPage — Availability', () => {
       </TestProviders>,
     )
 
-    await waitFor(() => {
-      const link = screen.getByRole('link', { name: /View stake/i })
-      expect(link).toBeTruthy()
-      expect(link.getAttribute('href')).toBe('/stake')
-    })
+    await waitFor(() => screen.getByTestId('availability-toggle'))
+
+    const link = screen.getByRole('link', { name: 'View stake & eligibility' })
+    expect(link).toBeTruthy()
+    expect(link.getAttribute('href')).toBe('/stake')
   })
 })
 
