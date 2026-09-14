@@ -77,6 +77,95 @@ describe('NotificationService', () => {
     expect(lpRow.body.toLowerCase()).toContain('assigned');
   });
 
+  describe('MATCHED — the provider is told an order was assigned, instead of being expected to watch a screen', () => {
+    const PAY_DEADLINE = 1_800_000_000n;
+
+    it('TOP_UP: the provider gets the assignment and the moment after which this anchor stops building the funding transaction', async () => {
+      const { svc, prisma } = make();
+      await svc.notifyOrderStatus(
+        { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP', payDeadline: PAY_DEADLINE },
+        'MATCHED',
+      );
+
+      const arg = prisma.notification.createMany.mock.calls[0][0];
+      expect(arg.data).toHaveLength(1);
+      expect(arg.data[0].address).toBe('GL');
+      expect(arg.data[0].event).toBe('MATCHED');
+      expect(arg.data[0].title).toBe('New order — lock the USDC');
+      expect(arg.data[0].body).toBe(
+        'An order has been assigned to you. Lock the USDC in escrow before 2027-01-15T07:49:00.000Z or the assignment expires.',
+      );
+    });
+
+    it('TOP_UP with no pay deadline on the row: still tells the provider, and names no time it cannot stand behind', async () => {
+      const { svc, prisma } = make();
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'MATCHED');
+
+      const arg = prisma.notification.createMany.mock.calls[0][0];
+      expect(arg.data).toHaveLength(1);
+      expect(arg.data[0].body).toBe(
+        'An order has been assigned to you. Lock the USDC in escrow before the assignment expires.',
+      );
+    });
+
+    it('WITHDRAW: the provider is NOT told to lock USDC — on this flow the seller locks it, and the provider owes nothing yet', async () => {
+      const { svc, prisma } = make();
+      await svc.notifyOrderStatus(
+        { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'WITHDRAW', payDeadline: PAY_DEADLINE },
+        'MATCHED',
+      );
+
+      const arg = prisma.notification.createMany.mock.calls[0][0];
+      expect(arg.data).toHaveLength(1);
+      expect(arg.data[0].address).toBe('GL');
+      expect(arg.data[0].title).toBe('New order assigned');
+      expect(arg.data[0].body).toBe(
+        'An order has been assigned to you. The seller locks their USDC first — nothing is needed from you yet.',
+      );
+    });
+
+    it('the user who just placed the order is not emailed on either flow — only the provider is', async () => {
+      for (const flow of ['TOP_UP', 'WITHDRAW']) {
+        const { svc, prisma, enqueued } = make();
+        await svc.notifyOrderStatus(
+          { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow, payDeadline: PAY_DEADLINE },
+          'MATCHED',
+        );
+
+        const arg = prisma.notification.createMany.mock.calls[0][0];
+        expect(arg.data.map((r: any) => r.address)).toEqual(['GL']);
+        expect(enqueued.map((j) => j.payload.personId)).toEqual(['person-of-GL']);
+      }
+    });
+
+    it('queues exactly one email, keyed so a replayed MATCHED cannot send twice', async () => {
+      const { svc, enqueued } = make();
+      await svc.notifyOrderStatus(
+        { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP', payDeadline: PAY_DEADLINE },
+        'MATCHED',
+      );
+
+      expect(enqueued).toHaveLength(1);
+      expect(enqueued[0].dedupeKey).toBe('email:o1:MATCHED:person-of-GL');
+    });
+
+    it('emits the realtime update too, so an open LP tab moves without waiting for a poll', async () => {
+      const { svc, realtime } = make(true);
+      await svc.notifyOrderStatus(
+        { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP', payDeadline: PAY_DEADLINE },
+        'MATCHED',
+      );
+
+      expect(realtime.emitOrderUpdate).toHaveBeenCalledWith({
+        id: 'o1',
+        status: 'MATCHED',
+        flow: 'TOP_UP',
+        userAddress: 'GU',
+        lpWallet: 'GL',
+      });
+    });
+  });
+
   it('CANCELLED: no in-app notification message (deliberately, not a "you lost" event) but realtime still emits', async () => {
     const { svc, prisma, realtime } = make(true);
     await svc.notifyOrderStatus(

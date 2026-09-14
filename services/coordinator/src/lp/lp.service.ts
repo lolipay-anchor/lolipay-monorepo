@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { OrderStatus, Prisma, Rail } from '../generated/prisma/client';
 import { applyBps, baseUnitsToUsdc } from '../money/money';
+import { matchableLpWhere } from '../matching/matching.service';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -65,8 +66,8 @@ export class LpService {
     });
   }
 
-  me(address: string) {
-    return this.prisma.lp.findUnique({
+  async me(address: string) {
+    const lp = await this.prisma.lp.findUnique({
       where: { stellarAddress: address },
       select: {
         id: true,
@@ -81,6 +82,12 @@ export class LpService {
         paymentMethods: true,
       },
     });
+    if (!lp) return null;
+
+    const counted = await this.prisma.lp.count({
+      where: { ...matchableLpWhere(), id: lp.id },
+    });
+    return { ...lp, matchable: counted > 0 };
   }
 
   async heartbeat(address: string) {

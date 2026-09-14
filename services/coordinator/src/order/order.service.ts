@@ -284,6 +284,14 @@ export class OrderService {
       }
     }
 
+    try {
+      await this.notifications.notifyOrderStatus(order, 'MATCHED');
+    } catch (err) {
+      this.log.error(
+        `order ${order.id} was matched to provider ${lp.id}, but the provider was not told: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
     const createTradeParams = buildCreateTradeParams(order, roles);
 
     const userIsSigner = flow !== 'TOP_UP';

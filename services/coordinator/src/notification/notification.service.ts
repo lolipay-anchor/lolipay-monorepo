@@ -4,6 +4,7 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { OutboxService } from '../outbox/outbox.service';
 import { PersonService } from '../person/person.service';
 import { EMAIL_OUTBOX_KIND } from '../email/email.service';
+import { signingCutoffSecs } from '../config/contract-limits';
 
 type Role = 'user' | 'lp';
 interface Msg {
@@ -11,9 +12,32 @@ interface Msg {
   body: string;
 }
 
-function messageFor(flow: string, status: string, role: Role, settledAt?: Date | null): Msg | null {
+function messageFor(
+  flow: string,
+  status: string,
+  role: Role,
+  settledAt?: Date | null,
+  payDeadline?: bigint | number | null,
+): Msg | null {
   const isBuy = flow === 'TOP_UP';
   switch (status) {
+    case 'MATCHED': {
+      if (role !== 'lp') return null;
+      if (!isBuy) {
+        return {
+          title: 'New order assigned',
+          body: 'An order has been assigned to you. The seller locks their USDC first — nothing is needed from you yet.',
+        };
+      }
+      const buildsUntil =
+        payDeadline == null ? null : new Date(signingCutoffSecs(Number(payDeadline)) * 1000);
+      return {
+        title: 'New order — lock the USDC',
+        body: buildsUntil
+          ? `An order has been assigned to you. Lock the USDC in escrow before ${buildsUntil.toISOString()} or the assignment expires.`
+          : 'An order has been assigned to you. Lock the USDC in escrow before the assignment expires.',
+      };
+    }
     case 'MATCHED_EXPIRED':
       return role === 'user'
         ? { title: 'Order expired', body: 'Your order was not completed on-chain in time and was cancelled.' }
@@ -74,13 +98,14 @@ export class NotificationService {
       lpWallet: string | null;
       flow: string;
       settledAt?: Date | null;
+      payDeadline?: bigint | number | null;
     },
     status: string,
   ): Promise<void> {
     const rows: any[] = [];
-    const u = messageFor(order.flow, status, 'user', order.settledAt);
+    const u = messageFor(order.flow, status, 'user', order.settledAt, order.payDeadline);
     if (u) rows.push({ address: order.userAddress, orderId: order.id, event: status, ...u });
-    const l = messageFor(order.flow, status, 'lp', order.settledAt);
+    const l = messageFor(order.flow, status, 'lp', order.settledAt, order.payDeadline);
     if (l && order.lpWallet && order.lpWallet !== order.userAddress) {
       rows.push({ address: order.lpWallet, orderId: order.id, event: status, ...l });
     }

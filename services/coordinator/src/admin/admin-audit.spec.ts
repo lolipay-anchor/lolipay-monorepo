@@ -69,6 +69,7 @@ describe('LpService.me — the administrator note is internal', () => {
   it('does not return approvalNote to the provider', async () => {
     const { prisma } = makePrisma(null);
     prisma.lp.findUnique = jest.fn().mockResolvedValue({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'SUSPENDED' });
+    prisma.lp.count = jest.fn().mockResolvedValue(0);
     const stellar = { stakingCooldownSecs: jest.fn().mockResolvedValue(349_201), hasUsdcTrustline: jest.fn() } as any;
     const service = new LpService(prisma, stellar);
 
