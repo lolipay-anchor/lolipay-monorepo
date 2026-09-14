@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { TestProviders, fakeKit } from './helpers'
 import { queryClient } from '@/app/providers'
+import type { PaymentMethod } from '@lolipay/api-client'
 
 vi.mock('@/lib/wallet-kit', () => ({ getDefaultKit: vi.fn(() => ({})) }))
 
@@ -56,7 +57,15 @@ const eligibleStake = {
   eligible: true,
 }
 
-function makeLpMe(online = false, matchable = online) {
+function bankMethod(): PaymentMethod {
+  return { id: 'pm-1', lpId: 'lp-1', rail: 'BANK', label: 'BCA', details: '1234567890', currency: 'IDR', active: true }
+}
+
+function qrisMethod(): PaymentMethod {
+  return { id: 'pm-1', lpId: 'lp-1', rail: 'QRIS', label: 'QRIS', details: 'merchant-1', currency: 'IDR', active: true }
+}
+
+function makeLpMe(online = false, matchable = online, paymentMethods: PaymentMethod[] = []) {
   return {
     id: 'lp-1',
     stellarAddress: 'GDCPLKM7CKTQSH7VM4BV3XXTYJB9SC6X',
@@ -69,7 +78,7 @@ function makeLpMe(online = false, matchable = online) {
     lastHeartbeatAt: null,
     createdAt: new Date().toISOString(),
     approvedAt: null,
-    paymentMethods: [],
+    paymentMethods,
   }
 }
 
@@ -166,7 +175,7 @@ describe('DashboardPage — Availability', () => {
   it('shows "Online — accepting orders" text after toggling on', async () => {
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
     vi.mocked(apiClient.setAvailability).mockImplementation(async (_client, next) => {
-      vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(next))
+      vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(next, next, [bankMethod()]))
       return { ok: true }
     })
     render(
@@ -235,7 +244,7 @@ describe('DashboardPage — Availability', () => {
   })
 
   it('says orders are being accepted only when the platform says the provider is matchable', async () => {
-    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true))
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true, [bankMethod()]))
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
     render(
       <TestProviders kit={fakeKit}>
@@ -245,6 +254,21 @@ describe('DashboardPage — Availability', () => {
 
     await waitFor(() => screen.getByTestId('availability-toggle'))
     expect(screen.getByTestId('availability-state').textContent).toBe('Online — accepting orders')
+  })
+
+  it('does not say "accepting orders" for a provider whose only active method is QRIS, because every order door creates a BANK-rail order', async () => {
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true, [qrisMethod()]))
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
+    render(
+      <TestProviders kit={fakeKit}>
+        <DashboardPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('availability-toggle'))
+    expect(screen.getByTestId('availability-state').textContent).toBe('Online — not receiving orders')
+    expect(screen.queryByText(/accepting orders/i)).toBeNull()
+    expect(screen.queryByTestId('online-ring')).toBeNull()
   })
 
   it('says Offline when the switch is off, whatever the platform thinks of the provider', async () => {
@@ -272,7 +296,7 @@ describe('DashboardPage — Availability', () => {
   })
 
   it('shows the live ring to a provider orders can reach', async () => {
-    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true))
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true, [bankMethod()]))
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
     render(
       <TestProviders kit={fakeKit}>

@@ -24,6 +24,10 @@ export function stakeIsReady(eligibility: Eligibility | undefined): boolean | nu
   return eligibility ? eligibility.eligible && unbondingIsZero(eligibility.unbonding) : null
 }
 
+export function hasBankPaymentMethod(me: LpMe): boolean {
+  return me.paymentMethods.some((m) => m.active && m.rail === 'BANK')
+}
+
 function Row({
   id,
   ok,
@@ -52,7 +56,7 @@ export function PrereqCard({ me, eligibility }: { me: LpMe; eligibility: Eligibi
   const { now, failingFor } = useBeatHealth()
 
   const staked = stakeIsReady(eligibility)
-  const paymentMethod = me.paymentMethods.some((m) => m.active && m.rail === 'BANK')
+  const paymentMethod = hasBankPaymentMethod(me)
   const ownBeat = qc.getQueryData<number>(['lpLastBeat']) ?? 0
   const parsedServerBeat = me.lastHeartbeatAt === null ? 0 : Date.parse(me.lastHeartbeatAt)
   const serverBeat = Number.isFinite(parsedServerBeat) ? parsedServerBeat : 0

@@ -13,7 +13,7 @@ import {
 import type { LpEarningsDayBar, LpMe } from '@lolipay/api-client'
 import { DarkHeroCard, StatCard, StatusPill, Skeleton, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
 import { AppHeader } from '@/components/AppHeader'
-import { PrereqCard, stakeIsReady } from '@/components/PrereqCard'
+import { PrereqCard, stakeIsReady, hasBankPaymentMethod } from '@/components/PrereqCard'
 import { useBeatHealth } from '@/components/HeartbeatKeeper'
 import { client } from '@/lib/client'
 import { formatUSDC, formatUsdcNumber } from '@/lib/money'
@@ -91,7 +91,12 @@ export default function DashboardPage() {
   const { failingFor } = useBeatHealth()
   const online = me?.online === true
   const matchable =
-    online && me?.matchable === true && stakeIsReady(eligibility) === true && failingFor === null
+    online &&
+    me != null &&
+    hasBankPaymentMethod(me) &&
+    me.matchable === true &&
+    stakeIsReady(eligibility) === true &&
+    failingFor === null
   const [toggling, setToggling] = React.useState(false)
   const [availError, setAvailError] = React.useState<string | null>(null)
 
