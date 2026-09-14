@@ -34,19 +34,23 @@ describe('the email channel', () => {
     expect(sent.text).toBe('T');
   });
 
-  it('treats a person with no address on file as nothing to send, so the row is marked SENT rather than retried nine times and left FAILED forever', async () => {
+  it('refuses a person with no address on file, so the outbox retries instead of recording a delivery that never happened', async () => {
     const send = jest.fn();
     const { handler } = make({ email: '', send });
 
-    await expect(handler()({ personId: 'p1', subject: 'S', text: 'T' })).resolves.toBeUndefined();
+    await expect(handler()({ personId: 'p1', subject: 'S', text: 'T' })).rejects.toThrow(
+      'no address on file for this person, so nothing was delivered',
+    );
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('treats a person that no longer exists the same way — erased, not undeliverable', async () => {
+  it('refuses a person that no longer exists the same way, rather than reporting a send to an erased recipient', async () => {
     const send = jest.fn();
     const { handler } = make({ email: null, send });
 
-    await expect(handler()({ personId: 'gone', subject: 'S', text: 'T' })).resolves.toBeUndefined();
+    await expect(handler()({ personId: 'gone', subject: 'S', text: 'T' })).rejects.toThrow(
+      'no address on file for this person, so nothing was delivered',
+    );
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -63,9 +67,11 @@ describe('the email channel', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('does not throw for an unconfigured key when there was nothing to send anyway', async () => {
+  it('blames the missing address rather than the missing API key when both are absent, so the recorded reason is the true one', async () => {
     const { handler } = make({ apiKey: '', email: '' });
-    await expect(handler()({ personId: 'p1', subject: 'S', text: 'T' })).resolves.toBeUndefined();
+    await expect(handler()({ personId: 'p1', subject: 'S', text: 'T' })).rejects.toThrow(
+      'no address on file for this person, so nothing was delivered',
+    );
   });
 
   it('refuses a payload with no personId rather than resolving nothing and reporting success', async () => {

@@ -116,7 +116,7 @@ export class NotificationService {
       await this.prisma.$transaction(async (tx) => {
         await tx.notification.createMany({ data: rows, skipDuplicates: true });
         for (const { row, person } of recipients) {
-          if (!person) continue;
+          if (!person?.email) continue;
           await this.outbox.enqueue(tx, {
             kind: EMAIL_OUTBOX_KIND,
             dedupeKey: `${EMAIL_OUTBOX_KIND}:${order.id}:${status}:${person.id}`,

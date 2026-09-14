@@ -13,7 +13,11 @@ describe('NotificationService', () => {
     const enqueued: any[] = [];
     prisma.$transaction = jest.fn(async (cb: any) => cb(prisma));
     const outbox = { enqueue: jest.fn(async (_tx: any, job: any) => { enqueued.push(job); }) } as any;
-    const people = { lookupPerson: jest.fn(async (a: string) => (a === 'GNOBODY' ? null : { id: `person-of-${a}` })) } as any;
+    const people = {
+      lookupPerson: jest.fn(async (a: string) =>
+        a === 'GNOBODY' ? null : { id: `person-of-${a}`, email: a === 'GNOMAIL' ? null : `${a.toLowerCase()}@example.test` },
+      ),
+    } as any;
     const realtime = withRealtime ? ({ emitOrderUpdate: jest.fn() } as any) : undefined;
     return { svc: new NotificationService(prisma, outbox, people, realtime), prisma, realtime, outbox, people, enqueued };
   }
@@ -294,6 +298,18 @@ describe('NotificationService', () => {
 
       expect(enqueued).toHaveLength(1);
       expect(enqueued[0].payload.personId).toBe('person-of-GL');
+    });
+
+    it('queues nothing for a recipient whose person has no address, while still writing them the in-app row', async () => {
+      const { svc, enqueued, prisma } = make();
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GNOMAIL', flow: 'TOP_UP' }, 'FUNDED');
+
+      expect(enqueued).toHaveLength(1);
+      expect(enqueued[0].payload.personId).toBe('person-of-GU');
+      expect(prisma.notification.createMany.mock.calls[0][0].data.map((r: any) => r.address).sort()).toEqual([
+        'GNOMAIL',
+        'GU',
+      ]);
     });
 
     it('queues nothing at all when the status produces no notification', async () => {

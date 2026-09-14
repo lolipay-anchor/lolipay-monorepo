@@ -39,7 +39,7 @@ export class EmailService implements OnModuleInit {
       select: { email: true },
     });
     const to = person?.email?.trim() ?? '';
-    if (!to) return;
+    if (!to) throw new Error('no address on file for this person, so nothing was delivered');
 
     if (!this.cfg.resendApiKey) {
       throw new Error('email is not configured: RESEND_API_KEY is unset');
