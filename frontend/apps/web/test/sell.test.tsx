@@ -27,6 +27,12 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
 
 const { SellForm } = await import('@/components/SellForm')
 
+async function clickLockCta() {
+  const cta = screen.getByRole('button', { name: /Lock USDC & sell/i })
+  await waitFor(() => expect(cta).toBeEnabled())
+  fireEvent.click(cta)
+}
+
 describe('SellForm (WITHDRAW)', () => {
   beforeEach(() => {
     queryClient.clear()
@@ -87,9 +93,8 @@ describe('SellForm (WITHDRAW)', () => {
     })
 
     await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
-
-    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    await clickLockCta()
+    expect(screen.getByText('Review order')).toBeTruthy()
     expect(mockCreateOrder).not.toHaveBeenCalled()
     expect(pushMock).not.toHaveBeenCalled()
 
@@ -114,8 +119,8 @@ describe('SellForm (WITHDRAW)', () => {
     fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
     fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA 123 a/n Me' } })
     await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
-    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    await clickLockCta()
+    expect(screen.getByText('Review order')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
 
@@ -128,13 +133,13 @@ describe('SellForm (WITHDRAW)', () => {
     expect(screen.getAllByRole('alert')).toHaveLength(1)
 
     fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: '' } })
-    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
+    await clickLockCta()
     await waitFor(() => expect(screen.getByText(/bank account details/i)).toBeTruthy())
     expect(screen.queryByTestId('order-refusal')).toBeNull()
 
     fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA 123 a/n Me' } })
-    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
-    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    await clickLockCta()
+    expect(screen.getByText('Review order')).toBeTruthy()
     expect(screen.queryByTestId('order-refusal')).toBeNull()
   })
 
@@ -146,7 +151,7 @@ describe('SellForm (WITHDRAW)', () => {
     )
     fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
     await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
+    await clickLockCta()
     await waitFor(() => expect(screen.getByText(/bank account details/i)).toBeTruthy())
     expect(screen.queryByText('Review order')).toBeNull()
     expect(mockCreateOrder).not.toHaveBeenCalled()
@@ -181,8 +186,8 @@ describe('SellForm (WITHDRAW)', () => {
     fireEvent.change(amount, { target: { value: '20' } })
     fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA 123 a/n Me' } })
     await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
-    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    await clickLockCta()
+    expect(screen.getByText('Review order')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
     await waitFor(() => expect(screen.getByTestId('order-refusal').textContent).toMatch(/verify your identity/i))
 
@@ -202,8 +207,8 @@ describe('SellForm (WITHDRAW)', () => {
     fireEvent.change(amount, { target: { value: '20' } })
     fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA 123 a/n Me' } })
     await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
-    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    await clickLockCta()
+    expect(screen.getByText('Review order')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
     await waitFor(() => expect(screen.getByTestId('order-refusal').textContent).toMatch(/No provider can take this order/i))
 
@@ -221,7 +226,8 @@ describe('SellForm (WITHDRAW)', () => {
     fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
     fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA 123 a/n Me' } })
     await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
-    expect((screen.getByRole('button', { name: /Lock USDC & sell/i }) as HTMLButtonElement).disabled).toBe(false)
+    const cta = screen.getByRole('button', { name: /Lock USDC & sell/i }) as HTMLButtonElement
+    await waitFor(() => expect(cta).toBeEnabled())
 
     mockCreateQuote.mockRejectedValue(new Error('daily limit exceeded'))
     await act(async () => {
@@ -267,36 +273,50 @@ describe('SellForm — quote expires while the review sheet is open', () => {
     mockCreateOrder.mockResolvedValue({ order: { id: 'ord-sell', status: 'MATCHED' } })
   })
 
+  afterEach(() => {
+    mockCreateQuote.mockReset()
+    vi.restoreAllMocks()
+  })
+
   it('closes the sheet', async () => {
-    mockCreateQuote.mockImplementation(async () => ({
-      quote_id: 'q-short',
-      fiat_amount: '3652000',
-      rate: '18260',
-      platform_fee_bps: 30,
-      lp_fee_bps: 120,
-      expires_at: new Date(Date.now() + 1500).toISOString(),
-    }))
+    const openedAt = Date.now()
+    let now = openedAt
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      mockCreateQuote.mockImplementation(async () => ({
+        quote_id: 'q-short',
+        fiat_amount: '3652000',
+        rate: '18260',
+        platform_fee_bps: 30,
+        lp_fee_bps: 120,
+        expires_at: new Date(Date.now() + 1500).toISOString(),
+      }))
 
-    render(
-      <TestProviders>
-        <SellForm />
-      </TestProviders>,
-    )
-    fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
-    fireEvent.change(screen.getByLabelText(/bank account/i), {
-      target: { value: 'BCA 123 a/n Me' },
-    })
-    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
-    expect(screen.getByText('Review order')).toBeTruthy()
+      render(
+        <TestProviders>
+          <SellForm />
+        </TestProviders>,
+      )
+      fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
+      fireEvent.change(screen.getByLabelText(/bank account/i), {
+        target: { value: 'BCA 123 a/n Me' },
+      })
+      await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+      await clickLockCta()
+      expect(screen.getByText('Review order')).toBeTruthy()
 
-    await waitFor(
-      () => {
-        expect(screen.queryByText('Review order')).toBeNull()
-      },
-      { timeout: 4000 },
-    )
-    expect(mockCreateOrder).not.toHaveBeenCalled()
+      now = openedAt + 1500
+
+      await waitFor(
+        () => {
+          expect(screen.queryByText('Review order')).toBeNull()
+        },
+        { timeout: 4000 },
+      )
+      expect(mockCreateOrder).not.toHaveBeenCalled()
+    } finally {
+      clock.mockRestore()
+    }
   })
 })
 
@@ -305,6 +325,10 @@ describe('SellForm — the review sheet is immune to a background quote refetch'
     queryClient.clear()
     vi.clearAllMocks()
     mockCreateOrder.mockResolvedValue({ order: { id: 'ord-sell', status: 'MATCHED' } })
+  })
+
+  afterEach(() => {
+    mockCreateQuote.mockReset()
   })
 
   it('keeps showing the ORIGINAL quote and submits the ORIGINAL quote_id even after the live quote query refetches a new one underneath it', async () => {
@@ -340,8 +364,8 @@ describe('SellForm — the review sheet is immune to a background quote refetch'
       target: { value: 'BCA 123 a/n Me' },
     })
     await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
-    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    await clickLockCta()
+    expect(screen.getByText('Review order')).toBeTruthy()
 
     const sheet = () =>
       within(screen.getByText('Review order').closest('div.flex.flex-col') as HTMLElement)
@@ -427,8 +451,8 @@ describe('SellForm — exceeds-balance BigInt logic (authenticated, positive pat
 
     expect(screen.queryByText(/exceeds balance/i)).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
-    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    await clickLockCta()
+    expect(screen.getByText('Review order')).toBeTruthy()
     expect(mockCreateOrder).not.toHaveBeenCalled()
   })
 
@@ -448,11 +472,7 @@ describe('SellForm — exceeds-balance BigInt logic (authenticated, positive pat
 
     await waitFor(() => expect(screen.getByText(/exceeds balance/i)).toBeTruthy())
 
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Lock USDC & sell/i })).toBeEnabled(),
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
+    await clickLockCta()
     expect(screen.getByText(/Amount exceeds your balance/i)).toBeTruthy()
     expect(screen.queryByText('Review order')).toBeNull()
     expect(mockCreateOrder).not.toHaveBeenCalled()
@@ -478,8 +498,8 @@ describe('SellForm — exceeds-balance BigInt logic (authenticated, positive pat
     await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
 
     expect(screen.queryByText(/exceeds balance/i)).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: /Lock USDC & sell/i }))
-    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    await clickLockCta()
+    expect(screen.getByText('Review order')).toBeTruthy()
     expect(mockCreateOrder).not.toHaveBeenCalled()
   })
 

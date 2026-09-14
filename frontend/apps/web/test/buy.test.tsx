@@ -58,6 +58,25 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
 const { BuyForm } = await import('@/components/BuyForm')
 const apiClient = await import('@lolipay/api-client')
 
+async function typeAmount(value: string) {
+  const quotesBefore = vi.mocked(apiClient.createQuote).mock.calls.length
+  fireEvent.change(screen.getByRole('textbox'), { target: { value } })
+  await waitFor(
+    () =>
+      expect(vi.mocked(apiClient.createQuote).mock.calls.length).toBeGreaterThan(quotesBefore),
+    { timeout: 2000 },
+  )
+  await waitFor(() => expect(screen.getByTestId('quote-net')).toBeTruthy())
+  expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy()
+}
+
+async function openReviewSheet() {
+  const cta = screen.getByRole('button', { name: /continue to pay/i })
+  await waitFor(() => expect(cta).toBeEnabled())
+  fireEvent.click(cta)
+  expect(screen.getByText('Review order')).toBeTruthy()
+}
+
 describe('BuyForm', () => {
   beforeEach(() => {
     queryClient.clear()
@@ -73,15 +92,7 @@ describe('BuyForm', () => {
       </TestProviders>,
     )
 
-    const input = screen.getByRole('textbox')
-    fireEvent.change(input, { target: { value: '1624000' } })
-
-    await waitFor(
-      () => {
-        expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy()
-      },
-      { timeout: 2000 },
-    )
+    await typeAmount('1624000')
 
     expect(screen.getAllByText(/USDC/).length).toBeGreaterThan(0)
   })
@@ -93,10 +104,9 @@ describe('BuyForm', () => {
       </TestProviders>,
     )
 
-    const input = screen.getByRole('textbox')
-    fireEvent.change(input, { target: { value: '1624000' } })
-    await waitFor(() => expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy(), { timeout: 2000 })
+    await typeAmount('1624000')
 
+    const input = screen.getByRole('textbox')
     fireEvent.change(input, { target: { value: '1624000,50' } })
 
     await waitFor(() => {
@@ -113,15 +123,9 @@ describe('BuyForm', () => {
       </TestProviders>,
     )
 
-    const input = screen.getByRole('textbox')
-    fireEvent.change(input, { target: { value: '1624000' } })
+    await typeAmount('1624000')
 
-    await waitFor(
-      () => {
-        expect(screen.getByTestId('quote-net').textContent).toBe('99.97 USDC')
-      },
-      { timeout: 2000 },
-    )
+    expect(screen.getByTestId('quote-net').textContent).toBe('99.97 USDC')
 
     expect(screen.queryByText(/fee/i)).toBeNull()
   })
@@ -146,13 +150,9 @@ describe('BuyForm', () => {
       </TestProviders>,
     )
 
-    const input = screen.getByRole('textbox')
-    fireEvent.change(input, { target: { value: '1624000' } })
-    await waitFor(() => expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy(), { timeout: 2000 })
+    await typeAmount('1624000')
 
-    fireEvent.click(screen.getByRole('button', { name: /continue to pay/i }))
-
-    expect(screen.getByText('Review order')).toBeTruthy()
+    await openReviewSheet()
     expect(screen.getAllByText(/Rp\s?1\.624\.000/).length).toBeGreaterThan(0)
     expect(mockCreateOrder).not.toHaveBeenCalled()
 
@@ -169,12 +169,9 @@ describe('BuyForm', () => {
       </TestProviders>,
     )
 
-    const input = screen.getByRole('textbox')
-    fireEvent.change(input, { target: { value: '1624000' } })
-    await waitFor(() => expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy(), { timeout: 2000 })
+    await typeAmount('1624000')
 
-    fireEvent.click(screen.getByRole('button', { name: /continue to pay/i }))
-    expect(screen.getByText('Review order')).toBeTruthy()
+    await openReviewSheet()
 
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(screen.queryByText('Review order')).toBeNull()
@@ -249,10 +246,8 @@ describe('BuyForm — the quote door refuses in plain words too', () => {
         <BuyForm />
       </TestProviders>,
     )
-    const input = screen.getByRole('textbox')
-    fireEvent.change(input, { target: { value: '1624000' } })
-    await waitFor(() => expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy(), { timeout: 2000 })
-    fireEvent.click(screen.getByRole('button', { name: /continue to pay/i }))
+    await typeAmount('1624000')
+    await openReviewSheet()
     fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
     await waitFor(
       () => {
@@ -263,7 +258,7 @@ describe('BuyForm — the quote door refuses in plain words too', () => {
       { timeout: 2000 },
     )
 
-    fireEvent.change(input, { target: { value: '1000000' } })
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '1000000' } })
 
     await waitFor(() => expect(screen.queryByTestId('order-refusal')).toBeNull(), { timeout: 2000 })
   })
@@ -275,18 +270,14 @@ describe('BuyForm — the quote door refuses in plain words too', () => {
         <BuyForm />
       </TestProviders>,
     )
-    const input = screen.getByRole('textbox')
-    fireEvent.change(input, { target: { value: '1624000' } })
-    await waitFor(() => expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy(), { timeout: 2000 })
-    fireEvent.click(screen.getByRole('button', { name: /continue to pay/i }))
+    await typeAmount('1624000')
+    await openReviewSheet()
     fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
     await waitFor(() => expect(screen.getByTestId('order-refusal').textContent).toMatch(/verify your identity/i), {
       timeout: 2000,
     })
 
-    fireEvent.change(input, { target: { value: '1000000' } })
-
-    await waitFor(() => expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy(), { timeout: 2000 })
+    await typeAmount('1000000')
     expect(screen.getByTestId('order-refusal').textContent).toMatch(/verify your identity/i)
   })
 
@@ -296,9 +287,9 @@ describe('BuyForm — the quote door refuses in plain words too', () => {
         <BuyForm />
       </TestProviders>,
     )
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: '1624000' } })
-    await waitFor(() => expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy(), { timeout: 2000 })
-    expect((screen.getByRole('button', { name: /Continue to pay/ }) as HTMLButtonElement).disabled).toBe(false)
+    await typeAmount('1624000')
+    const cta = screen.getByRole('button', { name: /Continue to pay/ }) as HTMLButtonElement
+    await waitFor(() => expect(cta).toBeEnabled())
 
     vi.mocked(apiClient.createQuote).mockRejectedValue(new Error('daily limit exceeded'))
     await act(async () => {
@@ -318,39 +309,50 @@ describe('BuyForm — quote expires while the review sheet is open', () => {
     mockCreateOrder.mockClear()
   })
 
+  afterEach(() => {
+    vi.mocked(apiClient.createQuote).mockReset()
+    vi.restoreAllMocks()
+  })
+
   it('closes the sheet (no stale quote gets confirmed)', async () => {
     const { createQuote } = await import('@lolipay/api-client')
 
-    vi.mocked(createQuote).mockImplementation(async () => ({
-      quote_id: 'q-short',
-      usdc_amount: '3125000000',
-      fiat_amount: '5030000',
-      rate: '16000',
-      platform_fee_bps: 30,
-      lp_fee_bps: 120,
-      expires_at: new Date(Date.now() + 1500).toISOString(),
-    }))
+    const openedAt = Date.now()
+    let now = openedAt
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      vi.mocked(createQuote).mockImplementation(async () => ({
+        quote_id: 'q-short',
+        usdc_amount: '3125000000',
+        fiat_amount: '5030000',
+        rate: '16000',
+        platform_fee_bps: 30,
+        lp_fee_bps: 120,
+        expires_at: new Date(Date.now() + 1500).toISOString(),
+      }))
 
-    render(
-      <TestProviders>
-        <BuyForm />
-      </TestProviders>,
-    )
+      render(
+        <TestProviders>
+          <BuyForm />
+        </TestProviders>,
+      )
 
-    const input = screen.getByRole('textbox')
-    fireEvent.change(input, { target: { value: '5000000' } })
-    await waitFor(() => expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy(), { timeout: 2000 })
+      await typeAmount('5000000')
 
-    fireEvent.click(screen.getByRole('button', { name: /continue to pay/i }))
-    expect(screen.getByText('Review order')).toBeTruthy()
+      await openReviewSheet()
 
-    await waitFor(
-      () => {
-        expect(screen.queryByText('Review order')).toBeNull()
-      },
-      { timeout: 4000 },
-    )
-    expect(mockCreateOrder).not.toHaveBeenCalled()
+      now = openedAt + 1500
+
+      await waitFor(
+        () => {
+          expect(screen.queryByText('Review order')).toBeNull()
+        },
+        { timeout: 4000 },
+      )
+      expect(mockCreateOrder).not.toHaveBeenCalled()
+    } finally {
+      clock.mockRestore()
+    }
   })
 })
 
@@ -358,6 +360,10 @@ describe('BuyForm — the review sheet is immune to a background quote refetch',
   beforeEach(() => {
     queryClient.clear()
     mockCreateOrder.mockClear()
+  })
+
+  afterEach(() => {
+    vi.mocked(apiClient.createQuote).mockReset()
   })
 
   it('keeps showing the ORIGINAL quote and submits the ORIGINAL quote_id even after the live quote query refetches a new one underneath it', async () => {
@@ -392,12 +398,9 @@ describe('BuyForm — the review sheet is immune to a background quote refetch',
       </TestProviders>,
     )
 
-    const input = screen.getByRole('textbox')
-    fireEvent.change(input, { target: { value: '1624000' } })
-    await waitFor(() => expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy(), { timeout: 2000 })
+    await typeAmount('1624000')
 
-    fireEvent.click(screen.getByRole('button', { name: /continue to pay/i }))
-    expect(screen.getByText('Review order')).toBeTruthy()
+    await openReviewSheet()
 
     const sheet = () =>
       within(screen.getByText('Review order').closest('div.flex.flex-col') as HTMLElement)

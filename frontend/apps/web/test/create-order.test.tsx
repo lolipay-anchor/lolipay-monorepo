@@ -56,13 +56,26 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
 })
 
 const { BuyForm } = await import('@/components/BuyForm')
+const apiClient = await import('@lolipay/api-client')
 
 async function driveValidQuote() {
+  const quotesBefore = vi.mocked(apiClient.createQuote).mock.calls.length
   const input = screen.getByRole('textbox')
   fireEvent.change(input, { target: { value: '1624000' } })
-  await waitFor(() => expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy(), {
-    timeout: 2000,
-  })
+  await waitFor(
+    () =>
+      expect(vi.mocked(apiClient.createQuote).mock.calls.length).toBeGreaterThan(quotesBefore),
+    { timeout: 2000 },
+  )
+  await waitFor(() => expect(screen.getByTestId('quote-net')).toBeTruthy())
+  expect(screen.getByText(/1 USDC = Rp/)).toBeTruthy()
+}
+
+async function openReviewSheet() {
+  const cta = screen.getByRole('button', { name: /continue to pay/i })
+  await waitFor(() => expect(cta).toBeEnabled())
+  fireEvent.click(cta)
+  expect(screen.getByText('Review order')).toBeTruthy()
 }
 
 describe('create-order', () => {
@@ -82,10 +95,7 @@ describe('create-order', () => {
 
     await driveValidQuote()
 
-    const btn = screen.getByRole('button', { name: /continue to pay/i })
-    fireEvent.click(btn)
-
-    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    await openReviewSheet()
     expect(mockCreateOrder).not.toHaveBeenCalled()
     expect(push).not.toHaveBeenCalled()
 
@@ -108,9 +118,7 @@ describe('create-order', () => {
 
     await driveValidQuote()
 
-    const btn = screen.getByRole('button', { name: /continue to pay/i })
-    fireEvent.click(btn)
-    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    await openReviewSheet()
 
     fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
 
@@ -131,8 +139,7 @@ describe('create-order', () => {
     )
 
     await driveValidQuote()
-    fireEvent.click(screen.getByRole('button', { name: /continue to pay/i }))
-    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    await openReviewSheet()
 
     fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
 
@@ -143,8 +150,7 @@ describe('create-order', () => {
     expect(screen.getAllByRole('alert')).toHaveLength(1)
     expect(push).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: /continue to pay/i }))
-    await waitFor(() => expect(screen.getByText('Review order')).toBeTruthy())
+    await openReviewSheet()
     expect(screen.queryByTestId('order-refusal')).toBeNull()
   })
 
