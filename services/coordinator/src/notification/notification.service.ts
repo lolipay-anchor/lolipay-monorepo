@@ -1,10 +1,17 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { OutboxService } from '../outbox/outbox.service';
 import { PersonService } from '../person/person.service';
 import { EMAIL_OUTBOX_KIND } from '../email/email.service';
 import { signingCutoffSecs } from '../config/contract-limits';
+
+const NOTIFICATIONS_PAGE_SIZE = 50;
+const NOTIFICATIONS_ORDER: Prisma.NotificationOrderByWithRelationInput[] = [
+  { createdAt: 'desc' },
+  { id: 'desc' },
+];
 
 type Role = 'user' | 'lp';
 interface Msg {
@@ -135,10 +142,10 @@ export class NotificationService {
     });
   }
 
-  list(address: string, take = 50) {
+  list(address: string, take = NOTIFICATIONS_PAGE_SIZE) {
     return this.prisma.notification.findMany({
       where: { address },
-      orderBy: { createdAt: 'desc' },
+      orderBy: NOTIFICATIONS_ORDER,
       take,
     });
   }
@@ -147,9 +154,16 @@ export class NotificationService {
     return this.prisma.notification.count({ where: { address, read: false } });
   }
 
-  async markAllRead(address: string) {
+  async markAllRead(address: string, take = NOTIFICATIONS_PAGE_SIZE) {
+    const shown = await this.prisma.notification.findMany({
+      where: { address },
+      orderBy: NOTIFICATIONS_ORDER,
+      take,
+      select: { id: true },
+    });
+    if (shown.length === 0) return;
     await this.prisma.notification.updateMany({
-      where: { address, read: false },
+      where: { id: { in: shown.map((r) => r.id) }, read: false },
       data: { read: true },
     });
   }

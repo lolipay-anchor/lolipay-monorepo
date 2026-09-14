@@ -45,12 +45,100 @@ describe('NotificationService', () => {
     expect(prisma.notification.createMany).not.toHaveBeenCalled();
   });
 
-  it('markAllRead flips the caller\'s unread notifications', async () => {
-    const { svc, prisma } = make();
-    await svc.markAllRead('GU');
-    expect(prisma.notification.updateMany).toHaveBeenCalledWith({
-      where: { address: 'GU', read: false },
-      data: { read: true },
+  describe('markAllRead is scoped to what list() would actually show', () => {
+    function row(id: string, address: string, createdAt: number, read = false) {
+      return { id, address, orderId: null, event: 'x', title: 't', body: 'b', read, createdAt };
+    }
+
+    function makeStateful() {
+      const rows: any[] = [];
+      const prisma = {
+        notification: {
+          findMany: jest.fn(async (args: any) => {
+            let result = rows.filter((r) => r.address === args.where.address);
+            if (args.where.read !== undefined) {
+              result = result.filter((r) => r.read === args.where.read);
+            }
+            result = [...result].sort((a, b) =>
+              b.createdAt !== a.createdAt ? b.createdAt - a.createdAt : b.id.localeCompare(a.id),
+            );
+            if (args.take !== undefined) result = result.slice(0, args.take);
+            return args.select ? result.map((r) => ({ id: r.id })) : result;
+          }),
+          updateMany: jest.fn(async (args: any) => {
+            const ids: string[] = args.where.id?.in ?? [];
+            let count = 0;
+            for (const r of rows) {
+              if (ids.includes(r.id) && (args.where.read === undefined || r.read === args.where.read)) {
+                Object.assign(r, args.data);
+                count++;
+              }
+            }
+            return { count };
+          }),
+        },
+      } as any;
+      const svc = new NotificationService(prisma, {} as any, {} as any, undefined);
+      return {
+        svc,
+        seed: (newRows: any[]) => rows.push(...newRows),
+        rowsFor: (address: string) => rows.filter((r) => r.address === address),
+      };
+    }
+
+    it('marks every unread row read when there are fewer than the page size (the caller\'s unread notifications are flipped)', async () => {
+      const { svc, seed, rowsFor } = makeStateful();
+      seed([row('a', 'GU', 3), row('b', 'GU', 2), row('c', 'GU', 1)]);
+      await svc.markAllRead('GU');
+      expect(rowsFor('GU').every((r) => r.read)).toBe(true);
+    });
+
+    it('leaves rows beyond the shown page unread — the bug this fixes', async () => {
+      const { svc, seed, rowsFor } = makeStateful();
+      const seeded = Array.from({ length: 60 }, (_, i) => row(`r${i}`, 'GU', 60 - i));
+      expect(seeded).toHaveLength(60);
+      seed(seeded);
+      await svc.markAllRead('GU');
+      const sorted = rowsFor('GU').sort((a, b) => b.createdAt - a.createdAt);
+      expect(sorted.slice(0, 50).every((r) => r.read)).toBe(true);
+      expect(sorted.slice(50).every((r) => !r.read)).toBe(true);
+    });
+
+    it('does not reach past the page even when older rows are unread and newer ones are already read', async () => {
+      const { svc, seed, rowsFor } = makeStateful();
+      const seeded = [
+        ...Array.from({ length: 10 }, (_, i) => row(`read${i}`, 'GU', 100 - i, true)),
+        ...Array.from({ length: 40 }, (_, i) => row(`shown${i}`, 'GU', 90 - i, false)),
+        ...Array.from({ length: 10 }, (_, i) => row(`unseen${i}`, 'GU', 50 - i, false)),
+      ];
+      expect(seeded).toHaveLength(60);
+      seed(seeded);
+      await svc.markAllRead('GU');
+      expect(rowsFor('GU').filter((r) => r.id.startsWith('unseen')).every((r) => !r.read)).toBe(true);
+      expect(rowsFor('GU').filter((r) => r.id.startsWith('shown')).every((r) => r.read)).toBe(true);
+    });
+
+    it('breaks createdAt ties the same way in list() and markAllRead(), so the two windows agree', async () => {
+      const { svc, seed, rowsFor } = makeStateful();
+      const tieTime = 1000;
+      const seeded = [
+        ...Array.from({ length: 5 }, (_, i) => row(`tie${i}`, 'GU', tieTime)),
+        ...Array.from({ length: 47 }, (_, i) => row(`older${i}`, 'GU', tieTime - 1 - i)),
+      ];
+      expect(seeded).toHaveLength(52);
+      seed(seeded);
+      const shownIds = (await svc.list('GU')).map((r: any) => r.id);
+      expect(shownIds).toHaveLength(50);
+      await svc.markAllRead('GU');
+      const readIds = rowsFor('GU').filter((r) => r.read).map((r) => r.id);
+      expect(new Set(readIds)).toEqual(new Set(shownIds));
+    });
+
+    it('touches no other caller\'s rows', async () => {
+      const { svc, seed, rowsFor } = makeStateful();
+      seed([row('mine', 'GU', 2), row('theirs', 'GL', 1)]);
+      await svc.markAllRead('GU');
+      expect(rowsFor('GL').every((r) => !r.read)).toBe(true);
     });
   });
 
