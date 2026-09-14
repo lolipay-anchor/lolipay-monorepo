@@ -17,10 +17,11 @@ export default function NotificationsPage() {
   })
 
   React.useEffect(() => {
+    if (!data) return
     markNotificationsRead(client)
       .then(() => qc.invalidateQueries({ queryKey: ['notifications-unread'] }))
       .catch(() => {})
-  }, [qc])
+  }, [qc, data])
 
   return (
     <div className={`flex min-h-screen flex-col bg-lp-paper ${NAV_CLEARANCE_CLASS}`}>

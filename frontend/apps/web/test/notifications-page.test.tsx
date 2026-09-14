@@ -124,4 +124,18 @@ describe('NotificationsPage', () => {
     await screen.findByText('Order funded')
     expect(mockMarkNotificationsRead).toHaveBeenCalledTimes(1)
   })
+
+  it('never marks notifications read when the list could not be fetched', async () => {
+    authed()
+    mockGetNotifications.mockRejectedValue(new Error('boom'))
+
+    render(
+      <TestProviders>
+        <NotificationsPage />
+      </TestProviders>,
+    )
+
+    expect(await screen.findByText('Failed to load notifications.')).toBeTruthy()
+    expect(mockMarkNotificationsRead).not.toHaveBeenCalled()
+  })
 })
