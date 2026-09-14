@@ -106,11 +106,11 @@ describe('NotificationsPage (LP)', () => {
 
   it('does not mark notifications read until the fetched list has been shown', async () => {
     authed()
-    let resolveNotifications: (v: { items: unknown[]; unread: number }) => void = () => {}
+    const pendingResolves: Array<(v: { items: unknown[]; unread: number }) => void> = []
     mockGetNotifications.mockImplementation(
       () =>
         new Promise((resolve) => {
-          resolveNotifications = resolve
+          pendingResolves.push(resolve)
         }),
     )
 
@@ -123,9 +123,23 @@ describe('NotificationsPage (LP)', () => {
     await waitFor(() => expect(mockGetNotifications).toHaveBeenCalled())
     expect(mockMarkNotificationsRead).not.toHaveBeenCalled()
 
-    resolveNotifications({ items: [makeNotif()], unread: 1 })
+    for (const resolve of pendingResolves) resolve({ items: [makeNotif()], unread: 1 })
 
     expect(await screen.findByText('Order funded')).toBeTruthy()
-    expect(mockMarkNotificationsRead).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(mockMarkNotificationsRead).toHaveBeenCalledTimes(1))
+  })
+
+  it('never marks notifications read when the list could not be fetched', async () => {
+    authed()
+    mockGetNotifications.mockRejectedValue(new Error('boom'))
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <NotificationsPage />
+      </TestProviders>,
+    )
+
+    expect(await screen.findByText('Failed to load notifications.')).toBeTruthy()
+    expect(mockMarkNotificationsRead).not.toHaveBeenCalled()
   })
 })

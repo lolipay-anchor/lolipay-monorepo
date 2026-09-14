@@ -96,7 +96,7 @@ describe('AppHeader (LP)', () => {
       </TestProviders>,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Notifications/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }))
 
     expect(mockPush).toHaveBeenCalledWith('/notifications')
     expect(mockMarkNotificationsRead).not.toHaveBeenCalled()
