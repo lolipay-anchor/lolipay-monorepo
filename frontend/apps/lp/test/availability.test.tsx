@@ -87,7 +87,7 @@ describe('DashboardPage — Availability', () => {
     queryClient.clear()
     vi.clearAllMocks()
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(false))
-    vi.mocked(apiClient.getLpEligibility).mockResolvedValue(noStake)
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
     vi.mocked(apiClient.setAvailability).mockResolvedValue({ ok: true })
     vi.mocked(apiClient.heartbeat).mockResolvedValue({ ok: true })
   })
@@ -257,7 +257,7 @@ describe('DashboardPage — Availability', () => {
     expect(screen.getByTestId('availability-state').textContent).toBe('Online — accepting orders')
   })
 
-  it('does not say "accepting orders" for a provider whose only active method is QRIS, because every shipped order door creates a BANK-rail order', async () => {
+  it('does not say "accepting orders" for a provider whose only active method is QRIS, because every first-party order door creates a BANK-rail order', async () => {
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true, [qrisMethod()]))
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
     render(
@@ -328,6 +328,7 @@ describe('DashboardPage — Availability', () => {
 
   it('does not tell a provider with no eligible stake that orders are being accepted, because the matcher will pass them over', async () => {
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true))
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue(noStake)
     render(
       <TestProviders kit={fakeKit}>
         <DashboardPage />
