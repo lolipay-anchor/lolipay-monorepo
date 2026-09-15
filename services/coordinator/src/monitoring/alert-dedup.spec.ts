@@ -544,6 +544,12 @@ describe('a message that never arrived is itself a condition', () => {
     expect(a!.text).toContain('did not arrive');
   });
 
+  it('says the failures are recent, so an operator can tell a live outage from an old scar', async () => {
+    const alerts = await withOutbox({ failed: 2, stalled: 0 }).buildAlerts(metrics);
+    const a = alerts.find((x: Alert) => x.key === 'delivery_failing');
+    expect(a!.text).toContain('3.55 hours');
+  });
+
   it('also notices messages that are merely stuck, not yet given up', async () => {
     const alerts = await withOutbox({ failed: 0, stalled: 4 }).buildAlerts(metrics);
     expect(alerts.some((x: Alert) => x.key === 'delivery_failing')).toBe(true);

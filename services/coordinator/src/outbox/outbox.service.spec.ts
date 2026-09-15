@@ -210,4 +210,16 @@ describe('the queue does not keep what it has delivered forever', () => {
     const counts = await new OutboxService(prisma).stuckCounts();
     expect(counts).toEqual({ failed: 2, stalled: 1 });
   });
+
+  it('asks only for the rows that gave up recently, so one permanent failure cannot page forever', async () => {
+    const { prisma } = makePrisma([]);
+    const now = new Date('2026-09-15T00:00:00Z');
+
+    await new OutboxService(prisma).stuckCounts(now);
+
+    expect(prisma.outboxMessage.count.mock.calls[0][0].where).toEqual({
+      status: 'FAILED',
+      nextAttemptAt: { gte: new Date(now.getTime() - totalRetryWindowMs() * 2) },
+    });
+  });
 });

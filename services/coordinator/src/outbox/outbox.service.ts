@@ -80,7 +80,12 @@ export class OutboxService {
 
   async stuckCounts(now: Date = new Date()): Promise<{ failed: number; stalled: number }> {
     const [failed, stalled] = await Promise.all([
-      this.prisma.outboxMessage.count({ where: { status: 'FAILED' } }),
+      this.prisma.outboxMessage.count({
+        where: {
+          status: 'FAILED',
+          nextAttemptAt: { gte: new Date(now.getTime() - totalRetryWindowMs() * 2) },
+        },
+      }),
       this.prisma.outboxMessage.count({
         where: {
           status: 'PENDING',

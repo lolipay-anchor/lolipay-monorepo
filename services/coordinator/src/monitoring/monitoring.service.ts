@@ -284,7 +284,7 @@ export class MonitoringService {
         key: 'delivery_failing',
         fingerprint: `${stuck.failed}/${stuck.stalled}`,
         urgency: 'routine',
-        text: `${stuck.failed} message(s) gave up and ${stuck.stalled} have been waiting too long — something this service tried to tell you did not arrive`,
+        text: `${stuck.failed} message(s) gave up in the last 3.55 hours and ${stuck.stalled} have been waiting too long — something this service tried to tell you did not arrive`,
       });
     }
 
