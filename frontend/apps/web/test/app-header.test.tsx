@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TestProviders, fakeKit } from './helpers'
 import { queryClient } from '@/app/providers'
@@ -30,12 +30,14 @@ vi.mock('next/navigation', () => ({
 }))
 
 const mockGetNotifications = vi.fn(async () => ({ unread: 0 }))
+const mockMarkNotificationsRead = vi.hoisted(() => vi.fn(async () => ({})))
 
 vi.mock('@lolipay/api-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@lolipay/api-client')>()
   return {
     ...actual,
     getNotifications: () => mockGetNotifications(),
+    markNotificationsRead: mockMarkNotificationsRead,
   }
 })
 
@@ -149,5 +151,21 @@ describe('AppHeader', () => {
       </TestProviders>,
     )
     expect(await screen.findByTestId('bell-dot')).toBeTruthy()
+  })
+
+  it('the bell links to the notifications route, and clicking it marks nothing read', async () => {
+    authed()
+    render(
+      <TestProviders kit={fakeKit}>
+        <AppHeader />
+      </TestProviders>,
+    )
+
+    const bell = await screen.findByRole('link', { name: 'Notifications' })
+    expect(bell).toHaveAttribute('href', '/notifications')
+
+    fireEvent.click(bell)
+
+    expect(mockMarkNotificationsRead).not.toHaveBeenCalled()
   })
 })
