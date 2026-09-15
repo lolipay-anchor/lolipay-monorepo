@@ -213,6 +213,7 @@ describe('DashboardPage — Availability', () => {
   })
 
   it('does not claim orders are being accepted while the refetch that would prove it has failed', async () => {
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
     vi.mocked(apiClient.setAvailability).mockImplementation(async () => {
       vi.mocked(apiClient.getLpMe).mockRejectedValue(new Error('transient blip'))
       return { ok: true }
@@ -288,6 +289,7 @@ describe('DashboardPage — Availability', () => {
 
   it('withholds the live ring from a provider no order can reach, so the light agrees with the sentence', async () => {
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, false))
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
     render(
       <TestProviders kit={fakeKit}>
         <DashboardPage />
