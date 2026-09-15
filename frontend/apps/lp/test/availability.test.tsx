@@ -232,6 +232,7 @@ describe('DashboardPage — Availability', () => {
 
   it('tells a provider the platform cannot match that orders are not reaching them, even with the switch on', async () => {
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, false))
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
     render(
       <TestProviders kit={fakeKit}>
         <DashboardPage />
@@ -256,7 +257,7 @@ describe('DashboardPage — Availability', () => {
     expect(screen.getByTestId('availability-state').textContent).toBe('Online — accepting orders')
   })
 
-  it('does not say "accepting orders" for a provider whose only active method is QRIS, because every order door creates a BANK-rail order', async () => {
+  it('does not say "accepting orders" for a provider whose only active method is QRIS, because every shipped order door creates a BANK-rail order', async () => {
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true, [qrisMethod()]))
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
     render(
@@ -273,6 +274,7 @@ describe('DashboardPage — Availability', () => {
 
   it('says Offline when the switch is off, whatever the platform thinks of the provider', async () => {
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(false, true))
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
     render(
       <TestProviders kit={fakeKit}>
         <DashboardPage />
@@ -281,6 +283,7 @@ describe('DashboardPage — Availability', () => {
 
     await waitFor(() => screen.getByTestId('availability-toggle'))
     expect(screen.getByTestId('availability-state').textContent).toBe('Offline')
+    expect(screen.queryByTestId('online-ring')).toBeNull()
   })
 
   it('withholds the live ring from a provider no order can reach, so the light agrees with the sentence', async () => {
