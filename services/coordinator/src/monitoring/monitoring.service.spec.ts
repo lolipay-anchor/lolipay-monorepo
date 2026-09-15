@@ -20,6 +20,7 @@ function make(opts: {
   webhook?: string;
   kycRequireAml?: boolean;
   matchableLps?: number | 'throws';
+  stuckCounts?: 'throws';
 }) {
   const prisma = {
     order: {
@@ -62,7 +63,14 @@ function make(opts: {
   } as any;
   const refusals = new DiditRefusalsService();
   refusals.workflowPerformsAml(false);
-  return { refusals, svc: new MonitoringService(prisma, alerts, refusals, { stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })), prune: jest.fn(async () => 0) } as any, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any, { escrowContractId: 'CESCROW', kycRequireAml: opts.kycRequireAml ?? true } as any), prisma, alerts, raised };
+  const outbox = {
+    stuckCounts:
+      opts.stuckCounts === 'throws'
+        ? jest.fn().mockRejectedValue(new Error('outbox count unreadable'))
+        : jest.fn(async () => ({ failed: 0, stalled: 0 })),
+    prune: jest.fn(async () => 0),
+  } as any;
+  return { refusals, svc: new MonitoringService(prisma, alerts, refusals, outbox, { getTradeStatus: jest.fn(async () => null), getSlashedSoFar: jest.fn(async () => 0n) } as any, { escrowContractId: 'CESCROW', kycRequireAml: opts.kycRequireAml ?? true } as any), prisma, alerts, raised };
 }
 
 describe('MonitoringService', () => {
@@ -418,5 +426,21 @@ describe('the platform going dark is an alert, because nothing else notices', ()
     expect(blind).toHaveLength(1);
     expect(blind[0].urgency).toBe('urgent');
     expect(blind[0].fingerprint).toBe('unreadable');
+  });
+
+  it('still raises every other family when the delivery queue cannot be counted', async () => {
+    const { svc, alerts, raised } = make({
+      disputes: 1,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 1000,
+      stuckCounts: 'throws',
+    });
+    await svc.checkAndAlert();
+
+    expect(alerts.raise).toHaveBeenCalledTimes(1);
+    expect(raised[0].list.some((a: any) => a.key === 'open_dispute:d0')).toBe(true);
+    expect(raised[0].incomplete.has('delivery_failing')).toBe(true);
+    expect(raised[0].list.some((a: any) => a.key === 'delivery_failing')).toBe(false);
   });
 });

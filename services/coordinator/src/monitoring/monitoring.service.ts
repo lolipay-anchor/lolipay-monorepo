@@ -278,14 +278,21 @@ export class MonitoringService {
       incomplete.add('slash_window_open');
     }
 
-    const stuck = await this.outbox.stuckCounts();
-    if (stuck.failed > 0 || stuck.stalled > 0) {
-      alerts.push({
-        key: 'delivery_failing',
-        fingerprint: `${stuck.failed}/${stuck.stalled}`,
-        urgency: 'routine',
-        text: `${stuck.failed} message(s) gave up in the last 3.55 hours and ${stuck.stalled} have been waiting too long — something this service tried to tell you did not arrive`,
-      });
+    try {
+      const stuck = await this.outbox.stuckCounts();
+      if (stuck.failed > 0 || stuck.stalled > 0) {
+        alerts.push({
+          key: 'delivery_failing',
+          fingerprint: `${stuck.failed}/${stuck.stalled}`,
+          urgency: 'routine',
+          text: `${stuck.failed} message(s) gave up in the last 3.55 hours and ${stuck.stalled} have been waiting too long — something this service tried to tell you did not arrive`,
+        });
+      }
+    } catch (e) {
+      incomplete.add('delivery_failing');
+      this.log.warn(
+        `could not count the messages this service failed to deliver: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
 
     try {
