@@ -476,7 +476,7 @@ export class MonitoringService {
       alerts.push({
         key: 'didit_budget_exhausted',
         fingerprint: 'budget',
-        urgency: 'routine',
+        urgency: 'urgent',
         text:
           `${refusals.overBudget} customers were turned away because ${refusals.budgetReason}. ` +
           `This is the ceiling this anchor was configured with, not a provider failure.`,

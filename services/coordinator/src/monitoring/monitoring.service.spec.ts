@@ -381,6 +381,15 @@ describe('an operator can tell an outage, a probe and a spending ceiling apart',
     expect(keys).toContain('didit_budget_exhausted');
     expect(keys).not.toContain('didit_provider_unreachable');
   });
+
+  it('pages a spent budget as urgently as a provider outage, because no new customer can start verification either way', async () => {
+    const { svc, raised, refusals } = quiet();
+    refusals.budgetExhausted('this anchor has already opened 200 verifications in the last day, which is its whole budget');
+    await svc.checkAndAlert();
+    const alert = raised.flatMap((r) => r.list).find((a: any) => a.key === 'didit_budget_exhausted');
+    expect(alert).toBeDefined();
+    expect(alert.urgency).toBe('urgent');
+  });
 });
 
 describe('a new alert reaches the operator only if its family is in scope', () => {
