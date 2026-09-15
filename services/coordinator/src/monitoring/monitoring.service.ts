@@ -13,8 +13,10 @@ import { checkAnchorIdentity } from '../anchor/consistency';
 import { heartbeatStaleMs, matchableLpWhere } from '../matching/matching.service';
 import {
   ALERT_SAMPLE_LIMIT,
+  AlertHistory,
   DISPUTE_STALE_DAYS,
   SLASH_SCAN_LIMIT,
+  alertAgeSentence,
   slashCandidatesWhere,
   fiatPaymentOverdueWhere,
   nowSeconds,
@@ -263,6 +265,7 @@ export class MonitoringService {
       }
     try {
       if ((await this.prisma.lp.count({ where: matchableLpWhere() })) === 0) {
+        const history = await this.noLpMatchableHistory();
         alerts.push({
           key: 'no_lp_matchable',
           fingerprint: 'none',
@@ -270,18 +273,20 @@ export class MonitoringService {
           text:
             'no liquidity provider is matchable — every attempt to open an order is refused with "no eligible LP available". ' +
             `A provider counts only while it is APPROVED, online, has an active payment method, and has sent a heartbeat within ${heartbeatStaleMs() / 1000}s. ` +
-            'Silence here does not prove orders succeed: this check ignores the rail and currency of a particular order, on-chain stake eligibility, and remaining capacity',
+            'Silence here does not prove orders succeed: this check ignores the rail and currency of a particular order, on-chain stake eligibility, and remaining capacity. ' +
+            `${alertAgeSentence(history)}.`,
         });
       }
     } catch (e) {
       incomplete.add('no_lp_matchable');
+      const history = await this.noLpMatchableHistory();
       alerts.push({
         key: 'no_lp_matchable',
         fingerprint: 'unreadable',
         urgency: 'urgent',
         text:
           `the count of matchable liquidity providers could not be read (${e instanceof Error ? e.message : String(e)}) — ` +
-          'this check is blind, and while it is blind an outage of the whole order path would go unreported',
+          `this check is blind, and while it is blind an outage of the whole order path would go unreported. ${alertAgeSentence(history)}.`,
       });
     }
 
@@ -521,6 +526,15 @@ export class MonitoringService {
       });
     }
     return alerts;
+  }
+
+  private async noLpMatchableHistory(): Promise<AlertHistory> {
+    try {
+      const row = await this.prisma.alertState.findUnique({ where: { key: 'no_lp_matchable' } });
+      return row ? { kind: 'known', firstSeenAt: row.firstSeenAt, sendCount: row.sendCount } : { kind: 'first' };
+    } catch {
+      return { kind: 'unreadable' };
+    }
   }
 
   private async sample(

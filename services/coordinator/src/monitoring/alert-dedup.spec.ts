@@ -96,6 +96,12 @@ describe('when an alert speaks', () => {
     expect(cleared).toEqual(['open_dispute:o1']);
   });
 
+  it('deletes the cleared row from persisted state, so a condition that returns later starts its age from zero rather than continuing an old clock', async () => {
+    const { svc, state } = makeAlerts([seen('open_dispute:o1', 'o1', 1000)]);
+    await svc.raise(SCOPE, [], new Set(), NOW);
+    expect(state.deleteMany).toHaveBeenCalledWith({ where: { key: { in: ['open_dispute:o1'] } } });
+  });
+
   it('when the state table cannot be read it talks too much rather than falling silent', async () => {
     const { svc, state } = makeAlerts([]);
     state.findMany.mockRejectedValue(new Error('db down'));

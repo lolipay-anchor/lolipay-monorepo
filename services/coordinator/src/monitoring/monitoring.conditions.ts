@@ -33,3 +33,30 @@ export function slashCandidatesWhere(now: Date = new Date()): Prisma.OrderWhereI
     slashDeadline: { gt: BigInt(Math.floor(now.getTime() / 1000)) },
   };
 }
+
+export type AlertHistory =
+  | { kind: 'first' }
+  | { kind: 'unreadable' }
+  | { kind: 'known'; firstSeenAt: Date; sendCount: number };
+
+export function humanDuration(ms: number): string {
+  const seconds = Math.floor(Math.max(0, ms) / 1000);
+  if (seconds < 60) return seconds === 0 ? 'moments' : `${seconds} second${seconds === 1 ? '' : 's'}`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'}`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'}`;
+}
+
+export function alertAgeSentence(history: AlertHistory, now: number = Date.now()): string {
+  switch (history.kind) {
+    case 'first':
+      return 'first noticed just now';
+    case 'unreadable':
+      return 'how long this has been going on and how many times it was sent could not be read';
+    case 'known':
+      return `first noticed ${humanDuration(now - history.firstSeenAt.getTime())} ago, sent ${history.sendCount} time(s) before this one`;
+  }
+}

@@ -22,6 +22,7 @@ function make(opts: {
   kycRequireAml?: boolean;
   matchableLps?: number | 'throws';
   stuckCounts?: 'throws';
+  alertHistoryRow?: { firstSeenAt: Date; sendCount: number } | null | 'throws';
 }) {
   const prisma = {
     order: {
@@ -55,6 +56,12 @@ function make(opts: {
         opts.matchableLps === 'throws'
           ? jest.fn().mockRejectedValue(new Error('database unreachable'))
           : jest.fn().mockResolvedValue(opts.matchableLps ?? 1),
+    },
+    alertState: {
+      findUnique:
+        opts.alertHistoryRow === 'throws'
+          ? jest.fn().mockRejectedValue(new Error('alert state unreachable'))
+          : jest.fn().mockResolvedValue(opts.alertHistoryRow ?? null),
     },
   } as any;
   const raised: any[] = [];
@@ -434,6 +441,94 @@ describe('the platform going dark is an alert, because nothing else notices', ()
     expect(blind).toHaveLength(1);
     expect(blind[0].urgency).toBe('urgent');
     expect(blind[0].fingerprint).toBe('unreadable');
+  });
+
+  it('states how long the outage has lasted and how many times it has already been sent, from the persisted alert state', async () => {
+    const { svc } = make({
+      disputes: 0,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 1000,
+      matchableLps: 0,
+      alertHistoryRow: { firstSeenAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000), sendCount: 29 },
+    });
+    const alerts = await svc.buildAlerts(await svc.metrics(), new Set());
+    const dark = alerts.find((a) => a.key === 'no_lp_matchable');
+    expect(dark!.text).toContain('6 days');
+    expect(dark!.text).toContain('29');
+  });
+
+  it('reads sensibly on the very first tick the platform goes dark, never "for 0 seconds"', async () => {
+    const { svc } = make({
+      disputes: 0,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 1000,
+      matchableLps: 0,
+      alertHistoryRow: null,
+    });
+    const alerts = await svc.buildAlerts(await svc.metrics(), new Set());
+    const dark = alerts.find((a) => a.key === 'no_lp_matchable');
+    expect(dark!.text).not.toMatch(/0 seconds/);
+    expect(dark!.text).toMatch(/just now/);
+  });
+
+  it('survives a restart: two independently constructed services backed by the same database row report the same age', async () => {
+    const row = { firstSeenAt: new Date(Date.now() - 3 * 60 * 60 * 1000), sendCount: 7 };
+    const before = make({ disputes: 0, releaseOverdue: 0, fiatOverdue: 0, indexerAgeMs: 1000, matchableLps: 0, alertHistoryRow: row });
+    const afterRestart = make({ disputes: 0, releaseOverdue: 0, fiatOverdue: 0, indexerAgeMs: 1000, matchableLps: 0, alertHistoryRow: row });
+    const beforeAlerts = await before.svc.buildAlerts(await before.svc.metrics(), new Set());
+    const afterAlerts = await afterRestart.svc.buildAlerts(await afterRestart.svc.metrics(), new Set());
+    const beforeText = beforeAlerts.find((a) => a.key === 'no_lp_matchable')!.text;
+    const afterText = afterAlerts.find((a) => a.key === 'no_lp_matchable')!.text;
+    expect(afterText).toBe(beforeText);
+    expect(afterText).toContain('7');
+  });
+
+  it('never turns a clock going backwards into a negative or nonsense duration', async () => {
+    const { svc } = make({
+      disputes: 0,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 1000,
+      matchableLps: 0,
+      alertHistoryRow: { firstSeenAt: new Date(Date.now() + 999_000), sendCount: 2 },
+    });
+    const alerts = await svc.buildAlerts(await svc.metrics(), new Set());
+    const dark = alerts.find((a) => a.key === 'no_lp_matchable');
+    expect(dark!.text).not.toMatch(/-\d/);
+  });
+
+  it('keeps the caveat about what this check ignores when the age is added', async () => {
+    const { svc } = make({
+      disputes: 0,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 1000,
+      matchableLps: 0,
+      alertHistoryRow: { firstSeenAt: new Date(Date.now() - 60_000), sendCount: 1 },
+    });
+    const alerts = await svc.buildAlerts(await svc.metrics(), new Set());
+    const dark = alerts.find((a) => a.key === 'no_lp_matchable');
+    expect(dark!.text).toContain('ignores the rail and currency');
+    expect(dark!.text).toContain('on-chain stake eligibility');
+    expect(dark!.text).toContain('remaining capacity');
+  });
+
+  it('a failure to read the alert history does not get mistaken for the LP query failing, and the alert stays the confident "none" alert', async () => {
+    const { svc } = make({
+      disputes: 0,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 1000,
+      matchableLps: 0,
+      alertHistoryRow: 'throws',
+    });
+    const alerts = await svc.buildAlerts(await svc.metrics(), new Set());
+    const dark = alerts.find((a) => a.key === 'no_lp_matchable');
+    expect(dark!.fingerprint).toBe('none');
+    expect(dark!.text).not.toContain('the count of matchable liquidity providers could not be read');
+    expect(dark!.text).toMatch(/could not be read/);
   });
 
   it('still raises every other family when the delivery queue cannot be counted', async () => {
