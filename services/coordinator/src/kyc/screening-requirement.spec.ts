@@ -136,14 +136,17 @@ describe('the popup reads the screening fields and the session-freshness fields 
     const lines = readFileSync(join(__dirname, '..', 'sep24', 'sep24.service.ts'), 'utf8')
       .split('\n')
       .map((l) => l.trim())
-      .filter((l) => /\b(screenedAt|deliveredAt|verifiedAt|popupMayOfferVendor|awaitingProvider|staleAcceptance|stillInFlight|providerRef|updatedAt)\b/.test(l));
+      .filter((l) => /\b(screenedAt|deliveredAt|verifiedAt|popupMayOfferVendor|awaitingProvider|staleAcceptance|stillInFlight|providerRef|updatedAt|sessionDied)\b/.test(l));
     expect(lines).toEqual([
       "import { acceptedForFunds, popupMayOfferVendor, staleAcceptance } from '../kyc/screening-requirement';",
       "import { Sep12Service, stillInFlight } from '../kyc/sep12.service';",
+      'const restarted = this.sessionDied(kyc)',
       'if (vendor && popupMayOfferVendor(kyc)) {',
+      'private sessionDied(',
       '| { status: KycStatus; providerRef: string | null; updatedAt: Date | null; screenedAt: Date | null; deliveredAt: Date | null; verifiedAt: Date | null }',
       "return (kyc?.status === 'PROCESSING' && !stillInFlight(kyc)) || staleAcceptance(kyc ?? undefined);",
       '| { status: KycStatus; providerRef: string | null; updatedAt: Date | null; screenedAt: Date | null; deliveredAt: Date | null; verifiedAt: Date | null }',
+      "kycStatus: screened ? 'ACCEPTED' : this.sessionDied(kyc) ? 'NEEDS_INFO' : (kyc?.status ?? null),",
     ]);
   });
 });
