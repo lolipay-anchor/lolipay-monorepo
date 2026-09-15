@@ -7,7 +7,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { acceptedForFunds, popupMayOfferVendor } from '../kyc/screening-requirement';
+import { acceptedForFunds, popupMayOfferVendor, staleAcceptance } from '../kyc/screening-requirement';
 import { RESOLVER_WINDOW_SECS, signingCutoffSecs } from '../config/contract-limits';
 import { refundOpensAt } from '../order/dispute.util';
 import { RefundSignerService } from '../stellar/refund-signer.service';
@@ -455,7 +455,7 @@ export class Sep24Service {
     const screened = Boolean(state?.screenedElsewhere);
     const sessionWentStale = kyc?.status === 'PROCESSING' && !stillInFlight(kyc);
     return interactiveScreen({
-      kycStatus: screened ? 'ACCEPTED' : sessionWentStale ? 'NEEDS_INFO' : (kyc?.status ?? null),
+      kycStatus: screened ? 'ACCEPTED' : sessionWentStale || staleAcceptance(kyc) ? 'NEEDS_INFO' : (kyc?.status ?? null),
       screened,
       orderStatus: (row.order?.status as any) ?? null,
       flow: row.flow,

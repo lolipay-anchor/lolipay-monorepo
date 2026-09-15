@@ -80,4 +80,37 @@ describe('a second press of Continue lands on the screen that is current, not on
 
     expect(sep12.put).toHaveBeenCalledWith('GABC', { first_name: 'A' });
   });
+
+  it('shows the form again to someone accepted long ago whose result the provider never delivered, because the popup is the only surface they have and it was telling them to keep waiting forever', async () => {
+    const longAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
+    const { svc, sep12, token } = build({
+      status: 'ACCEPTED',
+      providerRef: 'p1',
+      verificationUrl: 'https://verify.didit.me/s/1',
+      updatedAt: longAgo,
+      verifiedAt: longAgo,
+      screenedAt: null,
+      deliveredAt: null,
+    });
+
+    await svc.submitIdentity('tx-1', token, { first_name: 'A' });
+
+    expect(sep12.put).toHaveBeenCalledWith('GABC', { first_name: 'A' });
+  });
+
+  it('keeps waiting on an acceptance written moments ago, so the screen the anchor test suite reads back within seconds is unchanged', async () => {
+    const { svc, sep12, token } = build({
+      status: 'ACCEPTED',
+      providerRef: 'p1',
+      verificationUrl: 'https://verify.didit.me/s/1',
+      updatedAt: new Date(),
+      verifiedAt: new Date(),
+      screenedAt: null,
+      deliveredAt: null,
+    });
+
+    await svc.submitIdentity('tx-1', token, { first_name: 'A' });
+
+    expect(sep12.put).not.toHaveBeenCalled();
+  });
 });

@@ -1,5 +1,5 @@
 import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
-import { awaitingProvider, popupMayOfferVendor } from './screening-requirement';
+import { awaitingProvider, popupMayOfferVendor, staleAcceptance, SESSION_LIFETIME_MS } from './screening-requirement';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonService } from '../person/person.service';
 import { AppConfigService } from '../config/app-config.service';
@@ -13,8 +13,6 @@ import {
   REQUIRED_KYC_FIELDS,
 } from './kyc-provider';
 import { isStorableEmailAddress } from './email-address';
-
-const SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
 export function stillInFlight(
   row: { status?: string; providerRef?: string | null; updatedAt?: Date | null } | null | undefined,
@@ -184,6 +182,9 @@ export class Sep12Service {
     if (row.status === 'NEEDS_INFO') {
       return { id: row.customerRef, status: row.status, fields: KYC_FIELD_DESCRIPTORS };
     }
+    if (staleAcceptance(row)) {
+      return { id: row.customerRef, status: 'NEEDS_INFO', fields: KYC_FIELD_DESCRIPTORS };
+    }
     if (awaitingProvider(row, this.cfg.kycRequireAml)) {
       return {
         id: row.customerRef,
@@ -260,7 +261,7 @@ export class Sep12Service {
     }
 
     const inFlight = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
-    if (inFlight?.status === 'ACCEPTED') {
+    if (inFlight?.status === 'ACCEPTED' && !staleAcceptance(inFlight)) {
       return { id: customerRef };
     }
     if (stillInFlight(inFlight)) {
@@ -290,7 +291,7 @@ export class Sep12Service {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${person.id}))`;
         const settledMeanwhile = await tx.kycVerification.findUnique({ where: { customerRef } });
         if (
-          settledMeanwhile?.status === 'ACCEPTED' ||
+          (settledMeanwhile?.status === 'ACCEPTED' && !staleAcceptance(settledMeanwhile)) ||
           (stillInFlight(settledMeanwhile) && settledMeanwhile!.providerRef !== decision.providerRef)
         ) {
           this.log.warn(

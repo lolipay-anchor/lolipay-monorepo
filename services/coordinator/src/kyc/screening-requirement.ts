@@ -18,6 +18,15 @@ export function awaitingProvider(
   return requireAml ? row.screenedAt === null : row.deliveredAt === null;
 }
 
+export const SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
+
+export function staleAcceptance(
+  row: { status: string; screenedAt?: Date | null; deliveredAt?: Date | null; verifiedAt?: Date | null } | null | undefined,
+): boolean {
+  if (row?.status !== 'ACCEPTED' || row.deliveredAt != null || row.screenedAt != null) return false;
+  return row.verifiedAt != null && row.verifiedAt.getTime() < Date.now() - SESSION_LIFETIME_MS;
+}
+
 export function deliveredButUnreadable() {
   return { status: 'NEEDS_INFO' as const, rejectionReason: UNREADABLE_SCREENING };
 }

@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
-import { acceptedForFunds, acceptedUnscreenedSince, awaitingProvider, popupMayOfferVendor, deliveredButUnreadable, refusedAfterDelivery, screeningDidNotRun, HIT_REFUSAL, SCREENING_DID_NOT_RUN, SCREENING_REQUIRED_FAILED, UNREADABLE_DECLINE, UNREADABLE_SCREENING } from './screening-requirement';
+import { acceptedForFunds, acceptedUnscreenedSince, awaitingProvider, popupMayOfferVendor, staleAcceptance, SESSION_LIFETIME_MS, deliveredButUnreadable, refusedAfterDelivery, screeningDidNotRun, HIT_REFUSAL, SCREENING_DID_NOT_RUN, SCREENING_REQUIRED_FAILED, UNREADABLE_DECLINE, UNREADABLE_SCREENING } from './screening-requirement';
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -37,7 +37,7 @@ describe('whether a customer may move funds depends on one predicate that reads 
     const allowed = ['screening-requirement.ts', 'sep12.service.ts', 'sep24.service.ts'];
     const offenders = sourceFiles(join(__dirname, '..'))
       .filter((p) => !allowed.some((a) => p.endsWith(a)))
-      .filter((p) => /\b(screenedAt|deliveredAt|popupMayOfferVendor|awaitingProvider)\b/.test(readFileSync(p, 'utf8')));
+      .filter((p) => /\b(screenedAt|deliveredAt|popupMayOfferVendor|awaitingProvider|staleAcceptance)\b/.test(readFileSync(p, 'utf8')));
     expect(offenders).toEqual([]);
   });
 
@@ -45,9 +45,9 @@ describe('whether a customer may move funds depends on one predicate that reads 
     const lines = readFileSync(join(__dirname, 'sep12.service.ts'), 'utf8')
       .split('\n')
       .map((l) => l.trim())
-      .filter((l) => /\b(screenedAt|deliveredAt|popupMayOfferVendor|awaitingProvider)\b/.test(l));
+      .filter((l) => /\b(screenedAt|deliveredAt|popupMayOfferVendor|awaitingProvider|staleAcceptance)\b/.test(l));
     expect(lines).toEqual([
-      "import { awaitingProvider, popupMayOfferVendor } from './screening-requirement';",
+      "import { awaitingProvider, popupMayOfferVendor, staleAcceptance, SESSION_LIFETIME_MS } from './screening-requirement';",
       'async applyDelivery(conclusion: DiditConclusion, deliveredAt: Date): Promise<void> {',
       'if (!refusing && standing.deliveredAt && standing.deliveredAt > deliveredAt) return;',
       'await this.writeDelivery(tx, customerRef, person.id, conclusion, deliveredAt, standing);',
@@ -56,11 +56,14 @@ describe('whether a customer may move funds depends on one predicate that reads 
       'deliveredAt: conclusion.notStarted ? (standing?.deliveredAt ?? null) : deliveredAt,',
       'screenedAt: screened ? deliveredAt : null,',
       "verifiedAt: conclusion.status === 'ACCEPTED' ? deliveredAt : null,",
+      'if (staleAcceptance(row)) {',
       'if (awaitingProvider(row, this.cfg.kycRequireAml)) {',
       "const providerPage = row.verificationUrl?.startsWith('https://') && popupMayOfferVendor(row) && stillInFlight(row) ? row.verificationUrl : null;",
       'data: { rejectionReason: null, screenedAt: null, verifiedAt: null, verificationUrl: null, providerRef: null, environment: null },',
+      "if (inFlight?.status === 'ACCEPTED' && !staleAcceptance(inFlight)) {",
       'screenedAt: null,',
       'deliveredAt: null,',
+      "(settledMeanwhile?.status === 'ACCEPTED' && !staleAcceptance(settledMeanwhile)) ||",
     ]);
   });
 
@@ -74,6 +77,8 @@ describe('whether a customer may move funds depends on one predicate that reads 
       ": { status: 'ACCEPTED' as const, deliveredAt: { not: null } };",
       'row: { status: string; screenedAt: Date | null; deliveredAt: Date | null },',
       'return requireAml ? row.screenedAt === null : row.deliveredAt === null;',
+      'row: { status: string; screenedAt?: Date | null; deliveredAt?: Date | null; verifiedAt?: Date | null } | null | undefined,',
+      "if (row?.status !== 'ACCEPTED' || row.deliveredAt != null || row.screenedAt != null) return false;",
       "return { status: 'REJECTED' as const, deliveredAt: { gte: since } };",
       "return { status: 'ACCEPTED' as const, screenedAt: null, deliveredAt: { gte: since } };",
       'export function popupMayOfferVendor(row: { status: string; deliveredAt: Date | null } | null | undefined): boolean {',
@@ -116,10 +121,57 @@ describe('the popup reads the screening fields only through the shared predicate
     const lines = readFileSync(join(__dirname, '..', 'sep24', 'sep24.service.ts'), 'utf8')
       .split('\n')
       .map((l) => l.trim())
-      .filter((l) => /\b(screenedAt|deliveredAt|popupMayOfferVendor|awaitingProvider)\b/.test(l));
+      .filter((l) => /\b(screenedAt|deliveredAt|popupMayOfferVendor|awaitingProvider|staleAcceptance)\b/.test(l));
     expect(lines).toEqual([
-      "import { acceptedForFunds, popupMayOfferVendor } from '../kyc/screening-requirement';",
+      "import { acceptedForFunds, popupMayOfferVendor, staleAcceptance } from '../kyc/screening-requirement';",
       'if (vendor && popupMayOfferVendor(kyc)) {',
+      "kycStatus: screened ? 'ACCEPTED' : sessionWentStale || staleAcceptance(kyc) ? 'NEEDS_INFO' : (kyc?.status ?? null),",
     ]);
+  });
+});
+
+
+describe('an acceptance the provider never delivered, old enough that it never will, reopens the form instead of reporting progress that cannot happen', () => {
+  const now = 1_800_000_000_000;
+  let clock: jest.SpyInstance;
+
+  beforeEach(() => {
+    clock = jest.spyOn(Date, 'now').mockReturnValue(now);
+  });
+
+  afterEach(() => {
+    clock.mockRestore();
+  });
+
+  const stale = new Date(now - (SESSION_LIFETIME_MS + 60_000));
+  const fresh = new Date(now - 60_000);
+
+  it('reopens an accepted row that carries no delivery and was verified longer ago than a session can live', () => {
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, verifiedAt: stale })).toBe(true);
+  });
+
+  it('leaves an acceptance written seconds ago alone, because that is the shape a synchronous provider writes on the PUT itself, and staleness is the only thing separating it from a row that has been lying to someone for months', () => {
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, verifiedAt: fresh })).toBe(false);
+  });
+
+  it('leaves a delivered acceptance alone however old it is, because deliveredAt is the field the money gate already keys on and one field is one truth', () => {
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: stale, verifiedAt: stale })).toBe(false);
+  });
+
+  it('leaves a screened acceptance alone, so nobody the money gate admits under either value of the AML switch is ever sent round again', () => {
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: stale, screenedAt: stale, verifiedAt: stale })).toBe(false);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: stale, verifiedAt: stale })).toBe(false);
+  });
+
+  it('leaves a row nothing ever stamped alone, because a null verification time compares as zero and would otherwise reopen every unstamped acceptance ever written', () => {
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, verifiedAt: null })).toBe(false);
+  });
+
+  it('reads two row columns and never which provider is bound, so it cannot behave one way in the suite and another in production', () => {
+    expect(staleAcceptance({ status: 'PROCESSING', deliveredAt: null, verifiedAt: stale })).toBe(false);
+    expect(staleAcceptance({ status: 'NEEDS_INFO', deliveredAt: null, verifiedAt: stale })).toBe(false);
+    expect(staleAcceptance({ status: 'REJECTED', deliveredAt: null, verifiedAt: stale })).toBe(false);
+    expect(staleAcceptance(null)).toBe(false);
+    expect(staleAcceptance(undefined)).toBe(false);
   });
 });
