@@ -39,8 +39,10 @@ function make(opts: {
         .fn()
         .mockResolvedValueOnce(rows('d', opts.disputes))
         .mockResolvedValueOnce(rows('r', opts.releaseOverdue))
-        .mockResolvedValueOnce(rows('f', opts.fiatOverdue)),
+        .mockResolvedValueOnce(rows('f', opts.fiatOverdue))
+        .mockResolvedValue([]),
     },
+    config: { findUnique: jest.fn().mockResolvedValue(null) },
     indexerState: {
       findUnique: jest.fn().mockResolvedValue(
         opts.indexerAgeMs == null ? null : { updatedAt: new Date(Date.now() - opts.indexerAgeMs) },
