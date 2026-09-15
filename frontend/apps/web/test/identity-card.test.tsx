@@ -92,6 +92,32 @@ describe('the identity card is this app’s own door to verification', () => {
     })
   })
 
+  it('replaces the form with the provider page once the anchor has opened one, so nobody submits the same details twice', async () => {
+    let asked = 0
+    mockRequest.mockImplementation(async (method: string) => {
+      if (method === 'GET') {
+        asked += 1
+        return asked === 1
+          ? { status: 'NEEDS_INFO', fields: FIELDS }
+          : { id: 'GDCP', status: 'PROCESSING', message: OPEN_AT_PROVIDER }
+      }
+      return { id: 'GDCP' }
+    })
+    mount()
+    await screen.findByTestId('identity-form')
+    for (const name of Object.keys(FIELDS)) {
+      fireEvent.change(document.querySelector(`input[name="${name}"]`)!, { target: { value: 'x' } })
+    }
+    fireEvent.submit(screen.getByTestId('identity-form'))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('identity-form')).toBeNull()
+    })
+    expect(
+      screen.getByTestId('identity-card').querySelector('a')?.getAttribute('href'),
+    ).toBe('https://verify.didit.me/s/abc123')
+  })
+
   it('will not let a half-filled submission leave the browser, because the anchor records it as incomplete rather than refusing it', async () => {
     answering({ status: 'NEEDS_INFO', fields: FIELDS })
     mount()
