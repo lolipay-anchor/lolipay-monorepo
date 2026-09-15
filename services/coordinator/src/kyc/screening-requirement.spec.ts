@@ -33,28 +33,36 @@ describe('whether a customer may move funds depends on one predicate that reads 
     expect(deliveredButUnreadable()).toEqual({ status: 'NEEDS_INFO', rejectionReason: UNREADABLE_SCREENING });
   });
 
-  it('no other source file reads screenedAt or deliveredAt, so no gate can require or skip the provider behind the switch', () => {
+  it('no other source file reads the screening fields or calls the session-freshness predicate, so no gate can require or skip the provider behind the switch and no fourth caller can judge a session stale', () => {
     const allowed = ['screening-requirement.ts', 'sep12.service.ts', 'sep24.service.ts'];
     const offenders = sourceFiles(join(__dirname, '..'))
       .filter((p) => !allowed.some((a) => p.endsWith(a)))
-      .filter((p) => /\b(screenedAt|deliveredAt|verifiedAt|popupMayOfferVendor|awaitingProvider|staleAcceptance)\b/.test(readFileSync(p, 'utf8')));
+      .filter((p) => /\b(screenedAt|deliveredAt|verifiedAt|popupMayOfferVendor|awaitingProvider|staleAcceptance|stillInFlight)\b/.test(readFileSync(p, 'utf8')));
     expect(offenders).toEqual([]);
   });
 
-  it('sep12.service touches screenedAt and deliveredAt, directly or through the popup predicate, only on the lines listed here, so any new read there fails until it is consciously listed', () => {
+  it('sep12.service touches the screening fields and the session-freshness fields, directly or through a shared predicate, only on the lines listed here, so any new read there fails until it is consciously listed', () => {
     const lines = readFileSync(join(__dirname, 'sep12.service.ts'), 'utf8')
       .split('\n')
       .map((l) => l.trim())
-      .filter((l) => /\b(screenedAt|deliveredAt|verifiedAt|popupMayOfferVendor|awaitingProvider|staleAcceptance)\b/.test(l));
+      .filter((l) => /\b(screenedAt|deliveredAt|verifiedAt|popupMayOfferVendor|awaitingProvider|staleAcceptance|stillInFlight|providerRef|updatedAt)\b/.test(l));
     expect(lines).toEqual([
       "import { awaitingProvider, popupMayOfferVendor, staleAcceptance, SESSION_LIFETIME_MS } from './screening-requirement';",
+      'export function stillInFlight(',
+      'row: { status: string; providerRef: string | null; updatedAt: Date | null } | null | undefined,',
+      "if (row?.status !== 'PROCESSING' || !row.providerRef) return false;",
+      'return row.updatedAt == null || row.updatedAt.getTime() > Date.now() - SESSION_LIFETIME_MS;',
       "if ((settled?.status === 'ACCEPTED' && !staleAcceptance(settled)) || stillInFlight(settled)) return;",
+      'providerRef: null,',
       'verifiedAt: null,',
       'async applyDelivery(conclusion: DiditConclusion, deliveredAt: Date): Promise<void> {',
+      'standing.providerRef &&',
+      'standing.providerRef !== conclusion.providerRef',
       'if (!refusing && standing.deliveredAt && standing.deliveredAt > deliveredAt) return;',
       'await this.writeDelivery(tx, customerRef, person.id, conclusion, deliveredAt, standing);',
       'deliveredAt: Date,',
-      'standing: { deliveredAt?: Date | null } | null,',
+      'standing: { deliveredAt: Date | null } | null,',
+      'providerRef: conclusion.providerRef ?? null,',
       'deliveredAt: conclusion.notStarted ? (standing?.deliveredAt ?? null) : deliveredAt,',
       'screenedAt: screened ? deliveredAt : null,',
       "verifiedAt: conclusion.status === 'ACCEPTED' ? deliveredAt : null,",
@@ -63,10 +71,13 @@ describe('whether a customer may move funds depends on one predicate that reads 
       "const providerPage = row.verificationUrl?.startsWith('https://') && popupMayOfferVendor(row) && stillInFlight(row) ? row.verificationUrl : null;",
       'data: { rejectionReason: null, screenedAt: null, verifiedAt: null, verificationUrl: null, providerRef: null, environment: null },',
       "if (inFlight?.status === 'ACCEPTED' && !staleAcceptance(inFlight)) {",
+      'if (stillInFlight(inFlight)) {',
+      'providerRef: decision.providerRef ?? null,',
       "verifiedAt: decision.status === 'ACCEPTED' ? new Date() : null,",
       'screenedAt: null,',
       'deliveredAt: null,',
       "(settledMeanwhile?.status === 'ACCEPTED' && !staleAcceptance(settledMeanwhile)) ||",
+      '(stillInFlight(settledMeanwhile) && settledMeanwhile!.providerRef !== decision.providerRef)',
     ]);
   });
 
@@ -74,7 +85,7 @@ describe('whether a customer may move funds depends on one predicate that reads 
     const lines = readFileSync(join(__dirname, 'screening-requirement.ts'), 'utf8')
       .split('\n')
       .map((l) => l.trim())
-      .filter((l) => /\b(screenedAt|deliveredAt|verifiedAt)\b/.test(l));
+      .filter((l) => /\b(screenedAt|deliveredAt|verifiedAt|stillInFlight|providerRef|updatedAt)\b/.test(l));
     expect(lines).toEqual([
       "? { status: 'ACCEPTED' as const, screenedAt: { not: null } }",
       ": { status: 'ACCEPTED' as const, deliveredAt: { not: null } };",
@@ -120,15 +131,18 @@ describe('whether the popup may still offer the vendor page, which decides only 
   });
 });
 
-describe('the popup reads the screening fields only through the shared predicate, on the lines listed here', () => {
+describe('the popup reads the screening fields and the session-freshness fields only through the shared predicates, on the lines listed here', () => {
   it('sep24.service touches them on exactly these lines, so any new read there fails until it is consciously listed', () => {
     const lines = readFileSync(join(__dirname, '..', 'sep24', 'sep24.service.ts'), 'utf8')
       .split('\n')
       .map((l) => l.trim())
-      .filter((l) => /\b(screenedAt|deliveredAt|verifiedAt|popupMayOfferVendor|awaitingProvider|staleAcceptance)\b/.test(l));
+      .filter((l) => /\b(screenedAt|deliveredAt|verifiedAt|popupMayOfferVendor|awaitingProvider|staleAcceptance|stillInFlight|providerRef|updatedAt)\b/.test(l));
     expect(lines).toEqual([
       "import { acceptedForFunds, popupMayOfferVendor, staleAcceptance } from '../kyc/screening-requirement';",
+      "import { Sep12Service, stillInFlight } from '../kyc/sep12.service';",
       'if (vendor && popupMayOfferVendor(kyc)) {',
+      '| { status: KycStatus; providerRef: string | null; updatedAt: Date | null; screenedAt: Date | null; deliveredAt: Date | null; verifiedAt: Date | null }',
+      "const sessionWentStale = kyc?.status === 'PROCESSING' && !stillInFlight(kyc);",
       "kycStatus: screened ? 'ACCEPTED' : sessionWentStale || staleAcceptance(kyc) ? 'NEEDS_INFO' : (kyc?.status ?? null),",
     ]);
   });
@@ -173,7 +187,7 @@ describe('an acceptance the provider never delivered, old enough that it never w
     expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: stale, verifiedAt: stale })).toBe(false);
   });
 
-  it('treats a row nothing ever stamped as not stale, because the branch beside it reopens every unstamped acceptance ever written', () => {
+  it('treats a row nothing ever stamped as not stale, because writing that comparison the other way round reopens every unstamped acceptance ever written', () => {
     expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: null })).toBe(false);
   });
 

@@ -395,7 +395,7 @@ describe('registering a customer does not spend on every attempt', () => {
 
   it('leaves an acceptance that landed between the check and the write untouched, instead of demoting a customer the provider just accepted', async () => {
     const { svc, prisma, store } = putSvc(null);
-    const accepted = { customerRef: REF, status: 'ACCEPTED', providerRef: 'sess-1', screenedAt: new Date('2026-09-05'), deliveredAt: new Date('2026-09-05') };
+    const accepted = { customerRef: REF, status: 'ACCEPTED', providerRef: 'sess-1', screenedAt: new Date('2026-09-05'), deliveredAt: new Date('2026-09-05'), verifiedAt: null };
     prisma.kycVerification.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(accepted);
     const res = await svc.put(REF, { first_name: 'Budi' });
     expect(res).toEqual({ id: REF });

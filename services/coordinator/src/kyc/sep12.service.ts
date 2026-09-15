@@ -15,7 +15,7 @@ import {
 import { isStorableEmailAddress } from './email-address';
 
 export function stillInFlight(
-  row: { status?: string; providerRef?: string | null; updatedAt?: Date | null } | null | undefined,
+  row: { status: string; providerRef: string | null; updatedAt: Date | null } | null | undefined,
 ): boolean {
   if (row?.status !== 'PROCESSING' || !row.providerRef) return false;
   return row.updatedAt == null || row.updatedAt.getTime() > Date.now() - SESSION_LIFETIME_MS;
@@ -122,7 +122,7 @@ export class Sep12Service {
     personId: string,
     conclusion: DiditConclusion,
     deliveredAt: Date,
-    standing: { deliveredAt?: Date | null } | null,
+    standing: { deliveredAt: Date | null } | null,
   ): Promise<void> {
     const person = { id: personId };
     const screened = conclusion.screened;

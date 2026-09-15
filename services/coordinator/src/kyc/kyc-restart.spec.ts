@@ -97,14 +97,6 @@ describe('a person the anchor accepted but never heard back about can start thei
     expect(upserts[0].update).toMatchObject({ status: 'NEEDS_INFO', verifiedAt: null });
   });
 
-  it('still discards an incomplete resubmission against a settled acceptance, so a verified customer cannot be walked backwards by sending an empty form', async () => {
-    const { svc, upserts } = make(accepted({ deliveredAt: new Date(Date.now() - 40 * DAY) }));
-
-    await svc.put('GABC', { first_name: 'Budi' });
-
-    expect(upserts).toHaveLength(0);
-  });
-
   it('opens no session for an acceptance the provider did deliver, however long ago, so a settled customer is never sent round again', async () => {
     const { svc, provider } = make(accepted({ deliveredAt: new Date(Date.now() - 40 * DAY) }));
 

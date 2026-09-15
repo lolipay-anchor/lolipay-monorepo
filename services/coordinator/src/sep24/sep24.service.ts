@@ -8,6 +8,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { acceptedForFunds, popupMayOfferVendor, staleAcceptance } from '../kyc/screening-requirement';
+import { KycStatus } from '../generated/prisma/client';
 import { RESOLVER_WINDOW_SECS, signingCutoffSecs } from '../config/contract-limits';
 import { refundOpensAt } from '../order/dispute.util';
 import { RefundSignerService } from '../stellar/refund-signer.service';
@@ -448,7 +449,13 @@ export class Sep24Service {
     await this.sep12.put(row.stellarAccount, fields);
   }
 
-  private screenFor(row: any, kyc: any, state?: { screenedElsewhere?: unknown; refusedAnywhere?: unknown }) {
+  private screenFor(
+    row: any,
+    kyc:
+      | { status: KycStatus; providerRef: string | null; updatedAt: Date | null; screenedAt: Date | null; deliveredAt: Date | null; verifiedAt: Date | null }
+      | null,
+    state?: { screenedElsewhere?: unknown; refusedAnywhere?: unknown },
+  ) {
     if (state?.refusedAnywhere) {
       return interactiveScreen({ kycStatus: 'REJECTED', screened: false, orderStatus: null });
     }
