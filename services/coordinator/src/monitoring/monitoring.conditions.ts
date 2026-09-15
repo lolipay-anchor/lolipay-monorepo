@@ -57,6 +57,6 @@ export function alertAgeSentence(history: AlertHistory, now: number = Date.now()
     case 'unreadable':
       return 'how long this has been going on and how many times it was sent could not be read';
     case 'known':
-      return `first noticed ${humanDuration(now - history.firstSeenAt.getTime())} ago, sent ${history.sendCount} time(s) before this one`;
+      return `first noticed ${humanDuration(now - history.firstSeenAt.getTime())} ago, sent ${history.sendCount} time${history.sendCount === 1 ? '' : 's'} before this one`;
   }
 }

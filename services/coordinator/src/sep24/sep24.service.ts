@@ -322,9 +322,12 @@ export class Sep24Service {
     }
     if (screen === 'identity') {
       const fields = REQUIRED_KYC_FIELDS.map((f) => identityField(f)).join('');
+      const restarted = this.sessionDied(kyc)
+        ? '<p>Your last verification never reached this anchor within a day, so it can no longer be used. Send your details again below to start a fresh one.</p>'
+        : '';
       return page(
         'Verify your identity',
-        `${credits}<p>Next, our verification partner Didit checks your document — have your KTP or passport ready and your phone nearby.</p><form method="post" action="${escapeHtml(post('/identity'))}">${fields}<button type="submit">Continue</button></form>`,
+        `${credits}${restarted}<p>Next, our verification partner Didit checks your document — have your KTP or passport ready and your phone nearby.</p><form method="post" action="${escapeHtml(post('/identity'))}">${fields}<button type="submit">Continue</button></form>`,
       );
     }
     if (screen === 'waiting_on_identity') {
@@ -449,6 +452,14 @@ export class Sep24Service {
     await this.sep12.put(row.stellarAccount, fields);
   }
 
+  private sessionDied(
+    kyc:
+      | { status: KycStatus; providerRef: string | null; updatedAt: Date | null; screenedAt: Date | null; deliveredAt: Date | null; verifiedAt: Date | null }
+      | null,
+  ): boolean {
+    return (kyc?.status === 'PROCESSING' && !stillInFlight(kyc)) || staleAcceptance(kyc ?? undefined);
+  }
+
   private screenFor(
     row: any,
     kyc:
@@ -460,9 +471,8 @@ export class Sep24Service {
       return interactiveScreen({ kycStatus: 'REJECTED', screened: false, orderStatus: null });
     }
     const screened = Boolean(state?.screenedElsewhere);
-    const sessionWentStale = kyc?.status === 'PROCESSING' && !stillInFlight(kyc);
     return interactiveScreen({
-      kycStatus: screened ? 'ACCEPTED' : sessionWentStale || staleAcceptance(kyc) ? 'NEEDS_INFO' : (kyc?.status ?? null),
+      kycStatus: screened ? 'ACCEPTED' : this.sessionDied(kyc) ? 'NEEDS_INFO' : (kyc?.status ?? null),
       screened,
       orderStatus: (row.order?.status as any) ?? null,
       flow: row.flow,

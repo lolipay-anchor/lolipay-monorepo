@@ -142,8 +142,8 @@ describe('the popup reads the screening fields and the session-freshness fields 
       "import { Sep12Service, stillInFlight } from '../kyc/sep12.service';",
       'if (vendor && popupMayOfferVendor(kyc)) {',
       '| { status: KycStatus; providerRef: string | null; updatedAt: Date | null; screenedAt: Date | null; deliveredAt: Date | null; verifiedAt: Date | null }',
-      "const sessionWentStale = kyc?.status === 'PROCESSING' && !stillInFlight(kyc);",
-      "kycStatus: screened ? 'ACCEPTED' : sessionWentStale || staleAcceptance(kyc) ? 'NEEDS_INFO' : (kyc?.status ?? null),",
+      "return (kyc?.status === 'PROCESSING' && !stillInFlight(kyc)) || staleAcceptance(kyc ?? undefined);",
+      '| { status: KycStatus; providerRef: string | null; updatedAt: Date | null; screenedAt: Date | null; deliveredAt: Date | null; verifiedAt: Date | null }',
     ]);
   });
 });
