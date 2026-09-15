@@ -3,14 +3,10 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { useWallet } from '@lolipay/wallet'
-import { WalletPill, NotificationBell } from '@lolipay/ui'
-import { getNotifications, markNotificationsRead } from '@lolipay/api-client'
+import { WalletPill } from '@lolipay/ui'
 import { useAuth } from '@/app/providers'
-import { client } from '@/lib/client'
-import { useRealtimeChannel } from '@/hooks/useRealtimeChannel'
 
 interface AppHeaderProps {
   title?: string
@@ -21,32 +17,11 @@ export function AppHeader({ title, showBack = false }: AppHeaderProps) {
   const auth = useAuth()
   const wallet = useWallet()
   const router = useRouter()
-  const qc = useQueryClient()
-
-  const { data: notifications } = useQuery({
-    queryKey: ['notifications-unread'],
-    queryFn: () => getNotifications(client),
-    enabled: !!auth.token,
-    refetchInterval: 15_000,
-  })
-  const unread = notifications?.unread ?? 0
-
-  useRealtimeChannel({
-    onOrderUpdate: () => {
-      qc.invalidateQueries({ queryKey: ['notifications-unread'] })
-    },
-  })
 
   const handleSignOut = () => {
     wallet.disconnect()
     auth.logout()
     router.replace('/')
-  }
-
-  const handleBellClick = () => {
-    markNotificationsRead(client)
-      .then(() => qc.invalidateQueries({ queryKey: ['notifications-unread'] }))
-      .catch(() => {})
   }
 
   return (
@@ -84,7 +59,6 @@ export function AppHeader({ title, showBack = false }: AppHeaderProps) {
         {}
         {auth.address && (
           <div className="flex shrink-0 items-center gap-2">
-            <NotificationBell unread={unread} onClick={handleBellClick} />
             <WalletPill address={auth.address} online />
             <button
               onClick={handleSignOut}

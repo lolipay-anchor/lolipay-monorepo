@@ -52,9 +52,11 @@ describe('exported prop types', () => {
     expect(props.deadline).toBeTypeOf('number')
   })
 
-  it('NotificationBellProps has the expected shape', () => {
-    const props: NotificationBellProps = { unread: 3 }
-    expect(props.unread).toBe(3)
+  it('NotificationBellProps requires href and offers no click handler', () => {
+    const props: NotificationBellProps = { unread: 3, href: '/notifications' }
+    const hrefIsRequired: {} extends Pick<NotificationBellProps, 'href'> ? never : true = true
+    const thereIsNoOnClick: 'onClick' extends keyof NotificationBellProps ? never : true = true
+    expect([props.unread, props.href, hrefIsRequired, thereIsNoOnClick]).toEqual([3, '/notifications', true, true])
   })
 
   it('ButtonVariant includes outline alongside primary/ghost', () => {

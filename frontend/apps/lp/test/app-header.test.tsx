@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TestProviders, fakeKit } from './helpers'
 import { queryClient } from '@/app/providers'
@@ -24,19 +24,16 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-const mockPush = vi.hoisted(() => vi.fn())
 vi.mock('next/navigation', () => ({
   usePathname: vi.fn(() => '/'),
-  useRouter: vi.fn(() => ({ back: vi.fn(), push: mockPush })),
+  useRouter: vi.fn(() => ({ back: vi.fn() })),
 }))
 
-const mockMarkNotificationsRead = vi.hoisted(() => vi.fn(async () => ({})))
 vi.mock('@lolipay/api-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@lolipay/api-client')>()
   return {
     ...actual,
     getNotifications: vi.fn(async () => ({ unread: 0 })),
-    markNotificationsRead: mockMarkNotificationsRead,
   }
 })
 
@@ -51,8 +48,6 @@ describe('AppHeader (LP)', () => {
   beforeEach(() => {
     sessionStorage.clear()
     queryClient.clear()
-    mockPush.mockClear()
-    mockMarkNotificationsRead.mockClear()
   })
 
   it('renders the title only once (row 2) when showBack is false', () => {
@@ -88,7 +83,7 @@ describe('AppHeader (LP)', () => {
     expect(back.className).toContain('p-2.5')
   })
 
-  it('clicking the bell navigates to the notifications route, without marking anything read itself', () => {
+  it('the bell is a link to the notifications route, so there is no handler that could mark anything read', () => {
     authed()
     render(
       <TestProviders kit={fakeKit}>
@@ -96,9 +91,6 @@ describe('AppHeader (LP)', () => {
       </TestProviders>,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }))
-
-    expect(mockPush).toHaveBeenCalledWith('/notifications')
-    expect(mockMarkNotificationsRead).not.toHaveBeenCalled()
+    expect(screen.getByRole('link', { name: 'Notifications' })).toHaveAttribute('href', '/notifications')
   })
 })

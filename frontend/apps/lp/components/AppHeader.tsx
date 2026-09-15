@@ -43,10 +43,6 @@ export function AppHeader({ title, showBack = false }: AppHeaderProps) {
     router.replace('/')
   }
 
-  const handleBellClick = () => {
-    router.push('/notifications')
-  }
-
   return (
     <div className="border-b border-lp-line bg-lp-paper">
       <header className="flex items-center gap-3 px-[18px] py-3">
@@ -79,7 +75,7 @@ export function AppHeader({ title, showBack = false }: AppHeaderProps) {
         {}
         {auth.address && (
           <div className="flex shrink-0 items-center gap-2">
-            <NotificationBell unread={unread} onClick={handleBellClick} />
+            <NotificationBell unread={unread} href="/notifications" />
             <WalletPill address={auth.address} online />
             <button
               onClick={handleSignOut}

@@ -20,15 +20,6 @@ vi.mock('next/navigation', () => ({
   usePathname: vi.fn(() => '/'),
 }))
 
-vi.mock('@lolipay/api-client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@lolipay/api-client')>()
-  return {
-    ...actual,
-    getNotifications: async () => ({ unread: 0 }),
-    markNotificationsRead: async () => ({}),
-  }
-})
-
 const { AppHeader } = await import('@/components/AppHeader')
 
 describe('AppHeader (admin)', () => {
