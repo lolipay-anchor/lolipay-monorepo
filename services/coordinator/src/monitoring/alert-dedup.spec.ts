@@ -1,5 +1,6 @@
 import { MonitoringService, MONITORING_ALERT_SCOPE } from './monitoring.service';
 import { DiditRefusalsService } from './didit-refusals.service';
+import { totalRetryWindowMs, backoffFor, OUTBOX_MAX_ATTEMPTS } from '../outbox/outbox.service';
 
 const knownRefusals = () => {
   const r = new DiditRefusalsService();
@@ -544,10 +545,12 @@ describe('a message that never arrived is itself a condition', () => {
     expect(a!.text).toContain('did not arrive');
   });
 
-  it('says the failures are recent, so an operator can tell a live outage from an old scar', async () => {
+  it('names the window it counts, so the sentence cannot drift from the constants that produce it', async () => {
     const alerts = await withOutbox({ failed: 2, stalled: 0 }).buildAlerts(metrics);
     const a = alerts.find((x: Alert) => x.key === 'delivery_failing');
-    expect(a!.text).toContain('3.55 hours');
+    expect(a!.text).toContain(
+      `${((totalRetryWindowMs() * 2 + backoffFor(OUTBOX_MAX_ATTEMPTS)) / 3_600_000).toFixed(2)} hours`,
+    );
   });
 
   it('also notices messages that are merely stuck, not yet given up', async () => {
