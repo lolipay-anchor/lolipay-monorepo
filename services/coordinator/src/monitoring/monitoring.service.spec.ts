@@ -499,7 +499,7 @@ describe('the platform going dark is an alert, because nothing else notices', ()
     const beforeText = beforeAlerts.find((a) => a.key === 'no_lp_matchable')!.text;
     const afterText = afterAlerts.find((a) => a.key === 'no_lp_matchable')!.text;
     expect(afterText).toBe(beforeText);
-    expect(afterText).toContain('7');
+    expect(afterText).toContain('3 hours');
   });
 
   it('never turns a clock going backwards into a negative or nonsense duration', async () => {
