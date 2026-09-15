@@ -22,7 +22,7 @@ function make(opts: {
   kycRequireAml?: boolean;
   matchableLps?: number | 'throws';
   stuckCounts?: 'throws';
-  alertHistoryRow?: { firstSeenAt: Date; sendCount: number } | null | 'throws';
+  alertHistoryRow?: { fingerprint: string; firstSeenAt: Date; sendCount: number } | null | 'throws';
 }) {
   const prisma = {
     order: {
@@ -459,7 +459,7 @@ describe('the platform going dark is an alert, because nothing else notices', ()
       fiatOverdue: 0,
       indexerAgeMs: 1000,
       matchableLps: 'throws',
-      alertHistoryRow: { firstSeenAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000), sendCount: 29 },
+      alertHistoryRow: { fingerprint: 'none', firstSeenAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000), sendCount: 29 },
     });
     const alerts = await svc.buildAlerts(await svc.metrics(), new Set());
     const blind = alerts.find((a) => a.key === 'no_lp_matchable');
@@ -476,7 +476,7 @@ describe('the platform going dark is an alert, because nothing else notices', ()
       fiatOverdue: 0,
       indexerAgeMs: 1000,
       matchableLps: 0,
-      alertHistoryRow: { firstSeenAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000), sendCount: 29 },
+      alertHistoryRow: { fingerprint: 'none', firstSeenAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000), sendCount: 29 },
     });
     const alerts = await svc.buildAlerts(await svc.metrics(), new Set());
     const dark = alerts.find((a) => a.key === 'no_lp_matchable');
@@ -499,8 +499,29 @@ describe('the platform going dark is an alert, because nothing else notices', ()
     expect(dark!.text).toMatch(/just now/);
   });
 
+  it('says the outage started just now on the first tick it is genuinely dark, rather than borrowing the age of the blind period that preceded it under the same key', async () => {
+    const { svc } = make({
+      disputes: 0,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 1000,
+      matchableLps: 0,
+      alertHistoryRow: {
+        fingerprint: 'unreadable',
+        firstSeenAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000),
+        sendCount: 29,
+      },
+    });
+    const alerts = await svc.buildAlerts(await svc.metrics(), new Set());
+    const dark = alerts.find((a) => a.key === 'no_lp_matchable');
+    expect(dark!.fingerprint).toBe('none');
+    expect(dark!.text).toContain('first noticed just now');
+    expect(dark!.text).not.toContain('6 days');
+    expect(dark!.text).not.toContain('29');
+  });
+
   it('survives a restart: two independently constructed services backed by the same database row report the same age', async () => {
-    const row = { firstSeenAt: new Date(Date.now() - 3 * 60 * 60 * 1000), sendCount: 7 };
+    const row = { fingerprint: 'none', firstSeenAt: new Date(Date.now() - 3 * 60 * 60 * 1000), sendCount: 7 };
     const before = make({ disputes: 0, releaseOverdue: 0, fiatOverdue: 0, indexerAgeMs: 1000, matchableLps: 0, alertHistoryRow: row });
     const afterRestart = make({ disputes: 0, releaseOverdue: 0, fiatOverdue: 0, indexerAgeMs: 1000, matchableLps: 0, alertHistoryRow: row });
     const beforeAlerts = await before.svc.buildAlerts(await before.svc.metrics(), new Set());
@@ -518,7 +539,7 @@ describe('the platform going dark is an alert, because nothing else notices', ()
       fiatOverdue: 0,
       indexerAgeMs: 1000,
       matchableLps: 0,
-      alertHistoryRow: { firstSeenAt: new Date(Date.now() + 999_000), sendCount: 2 },
+      alertHistoryRow: { fingerprint: 'none', firstSeenAt: new Date(Date.now() + 999_000), sendCount: 2 },
     });
     const alerts = await svc.buildAlerts(await svc.metrics(), new Set());
     const dark = alerts.find((a) => a.key === 'no_lp_matchable');
@@ -532,7 +553,7 @@ describe('the platform going dark is an alert, because nothing else notices', ()
       fiatOverdue: 0,
       indexerAgeMs: 1000,
       matchableLps: 0,
-      alertHistoryRow: { firstSeenAt: new Date(Date.now() - 60_000), sendCount: 1 },
+      alertHistoryRow: { fingerprint: 'none', firstSeenAt: new Date(Date.now() - 60_000), sendCount: 1 },
     });
     const alerts = await svc.buildAlerts(await svc.metrics(), new Set());
     const dark = alerts.find((a) => a.key === 'no_lp_matchable');

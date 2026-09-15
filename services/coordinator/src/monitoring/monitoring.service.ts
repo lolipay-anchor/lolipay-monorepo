@@ -265,10 +265,11 @@ export class MonitoringService {
       }
     try {
       if ((await this.prisma.lp.count({ where: matchableLpWhere() })) === 0) {
-        const history = await this.noLpMatchableHistory();
+        const fingerprint = 'none';
+        const history = await this.noLpMatchableHistory(fingerprint);
         alerts.push({
           key: 'no_lp_matchable',
-          fingerprint: 'none',
+          fingerprint,
           urgency: 'urgent',
           text:
             'no liquidity provider is matchable — every attempt to open an order is refused with "no eligible LP available". ' +
@@ -527,10 +528,12 @@ export class MonitoringService {
     return alerts;
   }
 
-  private async noLpMatchableHistory(): Promise<AlertHistory> {
+  private async noLpMatchableHistory(fingerprint: string): Promise<AlertHistory> {
     try {
       const row = await this.prisma.alertState.findUnique({ where: { key: 'no_lp_matchable' } });
-      return row ? { kind: 'known', firstSeenAt: row.firstSeenAt, sendCount: row.sendCount } : { kind: 'first' };
+      return row && row.fingerprint === fingerprint
+        ? { kind: 'known', firstSeenAt: row.firstSeenAt, sendCount: row.sendCount }
+        : { kind: 'first' };
     } catch {
       return { kind: 'unreadable' };
     }

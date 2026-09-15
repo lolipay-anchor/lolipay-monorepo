@@ -102,7 +102,7 @@ describe('when an alert speaks', () => {
     expect(state.deleteMany).toHaveBeenCalledWith({ where: { key: { in: ['open_dispute:o1'] } } });
   });
 
-  it('does not delete the row on a single clean tick, so an alert cannot lose its firstSeenAt to one good sample', async () => {
+  it('does not delete a row whose last send was a second ago, so the 45-minute clear window an urgent family stays inside on its 15-minute cadence protects it from one good sample — a routine family on a six-hour cadence is already outside that window and gets none of this', async () => {
     const { svc, state } = makeAlerts([seen('open_dispute:o1', 'o1', 1000)]);
     const { cleared } = await svc.raise(SCOPE, [], new Set(), NOW);
     expect(cleared).toEqual([]);
@@ -206,6 +206,17 @@ describe('delivery is the queue job, not the tick job', () => {
     const { svc, state } = makeAlerts([prior]);
     await svc.raise(SCOPE, [routine('open_dispute:o1', 'o1')], new Set(), NOW);
     expect(state.createMany.mock.calls[0][0].data[0].firstSeenAt).toEqual(prior.firstSeenAt);
+  });
+
+  it('starts the first sighting and the send count again when the fingerprint changes under the same key, so a new condition never inherits the age of the one it replaced', async () => {
+    const prior = seen('indexer_stalled', 'never', 6 * 60 * 60 * 1000);
+    prior.sendCount = 11;
+    const { svc, state } = makeAlerts([prior]);
+    await svc.raise(SCOPE, [routine('indexer_stalled', 'lagging')], new Set(), NOW);
+    const written = state.createMany.mock.calls[0][0].data[0];
+    expect(written.fingerprint).toBe('lagging');
+    expect(written.firstSeenAt).toEqual(NOW);
+    expect(written.sendCount).toBe(1);
   });
 
   it('enqueues nothing at all while no webhook is configured', async () => {
@@ -630,5 +641,126 @@ describe('an urgent alert must not be budgeted out of its own message', () => {
     expect(recorded.length).toBe(sent.length);
     expect(recorded.length).toBeLessThan(many.length);
     expect(recorded).toContain('slash_window_open:victim');
+  });
+});
+
+describe('the first tick the platform is genuinely dark, after a stretch when the check could not see', () => {
+  type Row = {
+    key: string;
+    fingerprint: string;
+    lastSentAt: Date;
+    firstSeenAt: Date;
+    sendCount: number;
+  };
+
+  function darkHarness() {
+    const rows = new Map<string, Row>();
+    const alertState = {
+      findMany: jest.fn(async () => [...rows.values()]),
+      findUnique: jest.fn(async ({ where }: any) => rows.get(where.key) ?? null),
+      deleteMany: jest.fn(async ({ where }: any) => {
+        let count = 0;
+        for (const key of where.key.in as string[]) if (rows.delete(key)) count += 1;
+        return { count };
+      }),
+      createMany: jest.fn(async ({ data }: any) => {
+        for (const row of data) rows.set(row.key, { ...row });
+        return { count: data.length };
+      }),
+    };
+    let lps: number | 'blind' = 'blind';
+    const prisma = {
+      order: {
+        groupBy: jest.fn(async () => []),
+        count: jest.fn(async () => 0),
+        findMany: jest.fn(async () => []),
+      },
+      config: { findUnique: jest.fn(async () => null) },
+      indexerState: { findUnique: jest.fn(async () => ({ updatedAt: new Date() })) },
+      kycVerification: { count: jest.fn(async () => 0) },
+      lp: {
+        count: jest.fn(async () => {
+          if (lps === 'blind') throw new Error('database unreachable');
+          return lps;
+        }),
+      },
+      alertState,
+      $transaction: jest.fn(async (fn: any) => fn({ alertState })),
+    } as any;
+    const outbox = {
+      register: jest.fn(),
+      enqueue: jest.fn(async () => undefined),
+      stuckCounts: jest.fn(async () => ({ failed: 0, stalled: 0 })),
+      prune: jest.fn(async () => 0),
+    } as any;
+    const alerts = new AlertsService(
+      prisma,
+      { alertWebhookUrl: 'https://hook.invalid/x' } as any,
+      outbox,
+    );
+    const svc = new MonitoringService(
+      prisma,
+      alerts,
+      knownRefusals(),
+      outbox,
+      {
+        getTradeStatus: jest.fn(async () => null),
+        getSlashedSoFar: jest.fn(async () => 0n),
+        stakingCooldownSecs: jest.fn(async () => 349_201),
+      } as any,
+      { escrowContractId: 'CESCROW' } as any,
+    );
+    return {
+      rows,
+      goBlind: () => {
+        lps = 'blind';
+      },
+      goDark: () => {
+        lps = 0;
+      },
+      tick: async (now: Date) => {
+        const incomplete = new Set<string>();
+        const built = await svc.buildAlerts(await svc.metrics(), incomplete);
+        await alerts.raise(MONITORING_ALERT_SCOPE, built, incomplete, now);
+        return built.find((a: Alert) => a.key === 'no_lp_matchable')!;
+      },
+    };
+  }
+
+  const SIX_DAYS_MS = 6 * 24 * 60 * 60 * 1000;
+  const QUARTER_HOUR_MS = 15 * 60 * 1000;
+
+  it('says the outage is new and keeps saying something true on the tick after that, instead of reporting the age and the send count of the blind stretch that shares its row', async () => {
+    const h = darkHarness();
+    const blindStart = new Date(Date.now() - SIX_DAYS_MS);
+
+    h.goBlind();
+    for (let i = 0; i < 3; i += 1) {
+      const blind = await h.tick(new Date(blindStart.getTime() + i * QUARTER_HOUR_MS));
+      expect(blind.fingerprint).toBe('unreadable');
+    }
+    expect(h.rows.get('no_lp_matchable')).toMatchObject({
+      fingerprint: 'unreadable',
+      firstSeenAt: blindStart,
+      sendCount: 3,
+    });
+
+    h.goDark();
+    const firstDarkAt = new Date();
+    const firstDark = await h.tick(firstDarkAt);
+    expect(firstDark.fingerprint).toBe('none');
+    expect(firstDark.text).toContain('first noticed just now');
+    expect(firstDark.text).not.toContain('6 days');
+    expect(firstDark.text).not.toContain('3 times');
+
+    expect(h.rows.get('no_lp_matchable')).toMatchObject({
+      fingerprint: 'none',
+      firstSeenAt: firstDarkAt,
+      sendCount: 1,
+    });
+
+    const secondDark = await h.tick(new Date(firstDarkAt.getTime() + QUARTER_HOUR_MS));
+    expect(secondDark.text).toContain('sent 1 time before this one');
+    expect(secondDark.text).not.toContain('6 days');
   });
 });

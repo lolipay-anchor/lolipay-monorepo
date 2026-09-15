@@ -148,7 +148,7 @@ export class AlertsService implements OnModuleInit {
   private async commit(
     sent: Alert[],
     cleared: string[],
-    byKey: Map<string, { firstSeenAt: Date; sendCount: number }>,
+    byKey: Map<string, { fingerprint: string; firstSeenAt: Date; sendCount: number }>,
     now: Date,
   ): Promise<void> {
     if (sent.length === 0 && cleared.length === 0) return;
@@ -160,12 +160,13 @@ export class AlertsService implements OnModuleInit {
           await tx.alertState.createMany({
             data: sent.map((a) => {
               const prior = byKey.get(a.key);
+              const continued = prior?.fingerprint === a.fingerprint ? prior : undefined;
               return {
                 key: a.key,
                 fingerprint: a.fingerprint,
                 lastSentAt: now,
-                firstSeenAt: prior?.firstSeenAt ?? now,
-                sendCount: (prior?.sendCount ?? 0) + 1,
+                firstSeenAt: continued?.firstSeenAt ?? now,
+                sendCount: (continued?.sendCount ?? 0) + 1,
               };
             }),
           });
