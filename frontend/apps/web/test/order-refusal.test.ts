@@ -29,7 +29,7 @@ describe('what a refused order tells the person', () => {
 describe('the refusals the anchor sends most often are said in plain words', () => {
   it.each([
     ['platform is paused', 'Trading is paused right now. Please try again later.'],
-    ['no eligible LP available', 'No provider can take this order right now. Try again in a few minutes.'],
+    ['no eligible LP available', 'No provider can take this order right now. This can last hours — try again later.'],
     ['quote amount is outside current limits', 'This amount is outside the current limits. Try a different amount.'],
     ['daily limit exceeded', 'This order would go past your 24-hour limit. Try a smaller amount, or try again later.'],
     ['quote already used', 'That price expired. Get a new quote and try again.'],

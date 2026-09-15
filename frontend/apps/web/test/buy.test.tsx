@@ -252,7 +252,7 @@ describe('BuyForm — the quote door refuses in plain words too', () => {
     await waitFor(
       () => {
         expect(screen.getByTestId('order-refusal').textContent).toBe(
-          'No provider can take this order right now. Try again in a few minutes.',
+          'No provider can take this order right now. This can last hours — try again later.',
         )
       },
       { timeout: 2000 },
