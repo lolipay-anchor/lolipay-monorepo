@@ -67,6 +67,14 @@ describe('LpService.apply — a provider must not be able to clear its own sanct
     expect(data.personId).toBeUndefined();
   });
 
+  it('fills in a personId on re-application that an admin-registered provider never had', async () => {
+    const { service, prisma } = svc({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'APPROVED', personId: null });
+    prisma.walletLink.findUnique.mockResolvedValue({ stellarAddress: LP_ADDR, personId: 'person-1', status: 'ACTIVE' });
+    await service.apply(LP_ADDR, 'x@y.z', 'proof');
+    const data = prisma.lp.update.mock.calls[0][0].data;
+    expect(data.personId).toBe('person-1');
+  });
+
   it('still accepts a first-time applicant', async () => {
     const { service, prisma } = svc(null);
     await service.apply(LP_ADDR, 'x@y.z', 'proof');

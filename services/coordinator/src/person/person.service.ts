@@ -13,14 +13,6 @@ const LINK_PREFIX = 'lolipay-wallet-link';
 
 export type LinkProof = { challenge: string; signature: string };
 
-export async function personIdForWallet(
-  prisma: PrismaService,
-  stellarAddress: string,
-): Promise<string | null> {
-  const link = await prisma.walletLink.findUnique({ where: { stellarAddress } });
-  return link && link.status === 'ACTIVE' ? link.personId : null;
-}
-
 @Injectable()
 export class PersonService {
   constructor(private prisma: PrismaService) {}

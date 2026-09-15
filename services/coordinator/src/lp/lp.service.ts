@@ -4,9 +4,16 @@ import { StellarReadService } from '../stellar/stellar-read.service';
 import { OrderStatus, Prisma, Rail } from '../generated/prisma/client';
 import { applyBps, baseUnitsToUsdc } from '../money/money';
 import { matchableLpWhere } from '../matching/matching.service';
-import { personIdForWallet } from '../person/person.service';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+export async function personIdForWallet(
+  prisma: PrismaService,
+  stellarAddress: string,
+): Promise<string | null> {
+  const link = await prisma.walletLink.findUnique({ where: { stellarAddress } });
+  return link && link.status === 'ACTIVE' ? link.personId : null;
+}
 
 function startOfUtcDay(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
