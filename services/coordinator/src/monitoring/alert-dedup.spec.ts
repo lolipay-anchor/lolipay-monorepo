@@ -7,7 +7,7 @@ const knownRefusals = () => {
   r.workflowPerformsAml(false);
   return r;
 };
-import { Alert, AlertsService, summarise, byUrgencyFirst, fitToBudget } from './alerts.service';
+import { Alert, AlertsService, summarise, byUrgencyFirst, fitToBudget, CLEAR_AFTER_MS } from './alerts.service';
 import { ALERT_SAMPLE_LIMIT } from './monitoring.conditions';
 
 const SCOPE = MONITORING_ALERT_SCOPE;
@@ -90,16 +90,23 @@ describe('when an alert speaks', () => {
   });
 
   it('reports a condition that has cleared', async () => {
-    const { svc } = makeAlerts([seen('open_dispute:o1', 'o1', 1000)]);
+    const { svc } = makeAlerts([seen('open_dispute:o1', 'o1', CLEAR_AFTER_MS + 1)]);
     const { sent, cleared } = await svc.raise(SCOPE, [], new Set(), NOW);
     expect(sent).toEqual([]);
     expect(cleared).toEqual(['open_dispute:o1']);
   });
 
   it('deletes the cleared row from persisted state, so a condition that returns later starts its age from zero rather than continuing an old clock', async () => {
-    const { svc, state } = makeAlerts([seen('open_dispute:o1', 'o1', 1000)]);
+    const { svc, state } = makeAlerts([seen('open_dispute:o1', 'o1', CLEAR_AFTER_MS + 1)]);
     await svc.raise(SCOPE, [], new Set(), NOW);
     expect(state.deleteMany).toHaveBeenCalledWith({ where: { key: { in: ['open_dispute:o1'] } } });
+  });
+
+  it('does not delete the row on a single clean tick, so an alert cannot lose its firstSeenAt to one good sample', async () => {
+    const { svc, state } = makeAlerts([seen('open_dispute:o1', 'o1', 1000)]);
+    const { cleared } = await svc.raise(SCOPE, [], new Set(), NOW);
+    expect(cleared).toEqual([]);
+    expect(state.deleteMany).not.toHaveBeenCalled();
   });
 
   it('when the state table cannot be read it talks too much rather than falling silent', async () => {
@@ -152,7 +159,7 @@ describe('an urgent alert keeps its own clock', () => {
 describe('one detector never clears another detector alerts', () => {
   it('ignores keys outside the scope it was given', async () => {
     const { svc } = makeAlerts([
-      seen('open_dispute:o1', 'o1', 1000),
+      seen('open_dispute:o1', 'o1', CLEAR_AFTER_MS + 1),
       seen('escrow_divergence:o9', 'o9', 1000),
     ]);
     const { cleared } = await svc.raise(SCOPE, [], new Set(), NOW);
@@ -265,7 +272,7 @@ describe('delivery is the queue job, not the tick job', () => {
 describe('a new problem is always news, even when the count did not move', () => {
   it('announces a fresh dispute that replaced a resolved one', async () => {
     const { svc } = makeAlerts([
-      seen('open_dispute:ord-1', 'ord-1', 1000),
+      seen('open_dispute:ord-1', 'ord-1', CLEAR_AFTER_MS + 1),
       seen('open_dispute:ord-2', 'ord-2', 1000),
     ]);
     const live = [routine('open_dispute:ord-2', 'ord-2'), routine('open_dispute:ord-3', 'ord-3')];
@@ -277,15 +284,15 @@ describe('a new problem is always news, even when the count did not move', () =>
 
 describe('a truncated list never reports anything as cleared', () => {
   it('holds back every clearance in the family whose list was incomplete', async () => {
-    const { svc } = makeAlerts([seen('open_dispute:d0', 'd0', 1000)]);
+    const { svc } = makeAlerts([seen('open_dispute:d0', 'd0', CLEAR_AFTER_MS + 1)]);
     const { cleared } = await svc.raise(SCOPE, [], new Set(['open_dispute']), NOW);
     expect(cleared).toEqual([]);
   });
 
   it('still reports a clearance in a family that was complete', async () => {
     const { svc } = makeAlerts([
-      seen('open_dispute:d0', 'd0', 1000),
-      seen('release_overdue:r9', 'r9', 1000),
+      seen('open_dispute:d0', 'd0', CLEAR_AFTER_MS + 1),
+      seen('release_overdue:r9', 'r9', CLEAR_AFTER_MS + 1),
     ]);
     const { cleared } = await svc.raise(SCOPE, [], new Set(['open_dispute']), NOW);
     expect(cleared).toEqual(['release_overdue:r9']);

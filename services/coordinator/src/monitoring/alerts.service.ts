@@ -8,6 +8,7 @@ import { ALERT_TEXT_BUDGET } from './monitoring.conditions';
 export const ALERT_OUTBOX_KIND = 'ops_alert';
 export const REMINDER_INTERVAL_MS = 6 * 60 * 60 * 1000;
 export const URGENT_REMINDER_INTERVAL_MS = 15 * 60 * 1000;
+export const CLEAR_AFTER_MS = 3 * URGENT_REMINDER_INTERVAL_MS;
 export const WEBHOOK_TIMEOUT_MS = 5000;
 
 export type Urgency = 'routine' | 'urgent';
@@ -130,6 +131,7 @@ export class AlertsService implements OnModuleInit {
 
     const cleared = ownedKnown
       .filter((k) => !live.has(k.key))
+      .filter((k) => now.getTime() - k.lastSentAt.getTime() >= CLEAR_AFTER_MS)
       .map((k) => k.key)
       .filter((key) => !incomplete.has(familyOf(key)));
 
