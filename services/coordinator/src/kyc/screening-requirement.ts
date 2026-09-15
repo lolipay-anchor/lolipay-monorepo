@@ -21,7 +21,7 @@ export function awaitingProvider(
 export const SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
 export function staleAcceptance(
-  row: { status: string; screenedAt?: Date | null; deliveredAt?: Date | null; verifiedAt?: Date | null } | null | undefined,
+  row: { status: string; screenedAt: Date | null; deliveredAt: Date | null; verifiedAt: Date | null } | null | undefined,
 ): boolean {
   if (row?.status !== 'ACCEPTED' || row.deliveredAt != null || row.screenedAt != null) return false;
   return row.verifiedAt != null && row.verifiedAt.getTime() < Date.now() - SESSION_LIFETIME_MS;

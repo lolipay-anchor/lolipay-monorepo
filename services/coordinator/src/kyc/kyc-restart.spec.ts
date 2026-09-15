@@ -69,7 +69,7 @@ describe('a person the anchor accepted but never heard back about can start thei
     expect(upserts[0].update).toMatchObject({ status: 'PROCESSING', providerRef: 'session-2' });
   });
 
-  it('still reports a fresh acceptance as accepted and opens no session for it, which is the row the SEP-12 suite creates and reads back within seconds', async () => {
+  it('still reports a fresh acceptance as PROCESSING and opens no session for it, which is the row the SEP-12 suite creates and reads back within seconds', async () => {
     const { svc, provider } = make(accepted({ verifiedAt: new Date(), updatedAt: new Date() }));
 
     await expect(svc.get('GABC')).resolves.toMatchObject({ status: 'PROCESSING' });
@@ -85,6 +85,24 @@ describe('a person the anchor accepted but never heard back about can start thei
 
     expect(provider.start).toHaveBeenCalledTimes(1);
     expect(upserts[0].update).toMatchObject({ status: 'PROCESSING', providerRef: 'session-2' });
+  });
+
+  it('records an incomplete resubmission against a stale acceptance instead of discarding it, so the one row the anchor is telling to send details is not also the one row that ignores them', async () => {
+    const { svc, provider, upserts } = make(accepted());
+
+    await svc.put('GABC', { first_name: 'Budi' });
+
+    expect(provider.start).not.toHaveBeenCalled();
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].update).toMatchObject({ status: 'NEEDS_INFO', verifiedAt: null });
+  });
+
+  it('still discards an incomplete resubmission against a settled acceptance, so a verified customer cannot be walked backwards by sending an empty form', async () => {
+    const { svc, upserts } = make(accepted({ deliveredAt: new Date(Date.now() - 40 * DAY) }));
+
+    await svc.put('GABC', { first_name: 'Budi' });
+
+    expect(upserts).toHaveLength(0);
   });
 
   it('opens no session for an acceptance the provider did deliver, however long ago, so a settled customer is never sent round again', async () => {

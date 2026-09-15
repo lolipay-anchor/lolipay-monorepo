@@ -46,7 +46,7 @@ export class Sep12Service {
       });
       if (refused) throw new ForbiddenException('this identity was refused and cannot be resubmitted here');
       const settled = await tx.kycVerification.findUnique({ where: { customerRef } });
-      if (settled?.status === 'ACCEPTED' || stillInFlight(settled)) return;
+      if ((settled?.status === 'ACCEPTED' && !staleAcceptance(settled)) || stillInFlight(settled)) return;
       await tx.kycVerification.upsert({
         where: { customerRef },
         create: { customerRef, personId, status: 'NEEDS_INFO' },
