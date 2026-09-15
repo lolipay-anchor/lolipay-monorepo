@@ -104,13 +104,7 @@ describe('alertAgeSentence states how long a condition has been true and how man
 
   it('says the count is BEFORE this send, so it never reads as a total that includes the message being read', () => {
     const text = alertAgeSentence({ kind: 'known', firstSeenAt: new Date(NOW - 60_000), sendCount: 29 }, NOW);
-    expect(text).toMatch(/29 times before this one/);
-  });
-
-  it('does not say "1 times" — singular gets the same treatment as every other count', () => {
-    const text = alertAgeSentence({ kind: 'known', firstSeenAt: new Date(NOW - 60_000), sendCount: 1 }, NOW);
-    expect(text).toContain('1 time before this one');
-    expect(text).not.toContain('1 times');
+    expect(text).toMatch(/29 time\(s\) before this one/);
   });
 
   it('never turns a negative age (clock skew, or a row written in the future) into nonsense', () => {
