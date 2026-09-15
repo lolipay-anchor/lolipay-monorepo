@@ -151,6 +151,23 @@ jobs:
           fi
 
       - name: no secret anywhere in history
-        uses: gitleaks/gitleaks-action@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          curl -sSLf -o "$RUNNER_TEMP/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+          tar xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          cat > "$RUNNER_TEMP/.gitleaksignore" <<'IGNORE'
+          f30af5f08cf0ea3092f1cd393138ce0e15feb4a8:services/coordinator/src/anchor/anchor-identity.spec.ts:generic-api-key:5
+          f30af5f08cf0ea3092f1cd393138ce0e15feb4a8:services/coordinator/src/anchor/anchor-identity.spec.ts:generic-api-key:11
+          af49dd9dc3ad460ed2c2d7a9bb66386439a2a977:.env.example:generic-api-key:20
+          IGNORE
+          "$RUNNER_TEMP/gitleaks" git . --no-banner --redact -v -i "$RUNNER_TEMP"
+
+      - name: the secret shapes this project's own scanner knows, across every commit
+        run: |
+          set -euo pipefail
+          git log -p --no-color | python3 .githooks/secret_scan.py
