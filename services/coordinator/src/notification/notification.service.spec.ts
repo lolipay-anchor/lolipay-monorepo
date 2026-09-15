@@ -254,16 +254,73 @@ describe('NotificationService', () => {
     });
   });
 
-  it('CANCELLED: no in-app notification message (deliberately, not a "you lost" event) but realtime still emits', async () => {
+  it('CANCELLED: BOTH parties are told, and realtime still emits', async () => {
     const { svc, prisma, realtime } = make(true);
     await svc.notifyOrderStatus(
       { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' },
       'CANCELLED',
     );
-    expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    const arg = prisma.notification.createMany.mock.calls[0][0];
+    expect(arg.data).toHaveLength(2);
+    expect(arg.data.map((r: any) => r.address).sort()).toEqual(['GL', 'GU']);
+    expect(arg.data.every((r: any) => r.event === 'CANCELLED' && r.orderId === 'o1')).toBe(true);
+    expect(arg.data.every((r: any) => r.title && r.body)).toBe(true);
     expect(realtime.emitOrderUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'o1', status: 'CANCELLED' }),
     );
+  });
+
+  it('CANCELLED: the provider is told, because the MATCHED message told them to lock USDC and funding a cancelled order revives it', async () => {
+    const { svc, prisma } = make();
+    await svc.notifyOrderStatus(
+      { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' },
+      'CANCELLED',
+    );
+    const rows = prisma.notification.createMany.mock.calls[0][0].data;
+    const user = rows.find((r: any) => r.address === 'GU');
+    const lp = rows.find((r: any) => r.address === 'GL');
+    expect(user.body).not.toEqual(lp.body);
+    expect(lp.body).toMatch(/free to accept other orders/);
+  });
+
+  it('CANCELLED: neither message names who cancelled — either party may cancel and messageFor is never told which', async () => {
+    const { svc, prisma } = make();
+    await svc.notifyOrderStatus(
+      { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' },
+      'CANCELLED',
+    );
+    const rows = prisma.notification.createMany.mock.calls[0][0].data;
+    for (const r of rows) {
+      expect(`${r.title} ${r.body}`).not.toMatch(/you cancelled|buyer cancelled|seller cancelled|merchant cancelled|cancelled by/i);
+    }
+  });
+
+  it('CANCELLED before any provider was matched: exactly one row, the user\'s — nobody is invented to notify', async () => {
+    const { svc, prisma } = make();
+    await svc.notifyOrderStatus(
+      { id: 'o1', userAddress: 'GU', lpWallet: null, flow: 'TOP_UP' },
+      'CANCELLED',
+    );
+    const rows = prisma.notification.createMany.mock.calls[0][0].data;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].address).toBe('GU');
+  });
+
+  it('CANCELLED: the copy never promises the money is untouched — a cancelled order can still hold escrow (maintenance auto-refunds it) and can revive to FUNDED', async () => {
+    const { svc, prisma } = make();
+    for (const flow of ['TOP_UP', 'WITHDRAW']) {
+      prisma.notification.createMany.mockClear();
+      await svc.notifyOrderStatus(
+        { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow },
+        'CANCELLED',
+      );
+      const rows = prisma.notification.createMany.mock.calls[0][0].data;
+      for (const r of rows) {
+        expect(`${r.title} ${r.body}`).not.toMatch(
+          /nothing (was|is) (locked|taken)|nothing to refund|no longer active|has been refunded/i,
+        );
+      }
+    }
   });
 
   it('DISPUTED with settledAt null (pre-settlement, FIAT_PAID → DISPUTED) → the normal dispute message', async () => {
@@ -398,7 +455,7 @@ describe('NotificationService', () => {
 
     it('queues nothing at all when the status produces no notification', async () => {
       const { svc, enqueued, prisma } = make();
-      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'CANCELLED');
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'CREATED');
 
       expect(prisma.notification.createMany).not.toHaveBeenCalled();
       expect(enqueued).toHaveLength(0);

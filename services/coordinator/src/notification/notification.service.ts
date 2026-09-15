@@ -49,6 +49,10 @@ function messageFor(
       return role === 'user'
         ? { title: 'Order expired', body: 'Your order was not completed on-chain in time and was cancelled.' }
         : { title: 'Assignment expired', body: 'The order assigned to you was not completed on-chain in time — you are free to accept other orders.' };
+    case 'CANCELLED':
+      return role === 'user'
+        ? { title: 'Order cancelled', body: 'Your order was cancelled before it was funded on-chain.' }
+        : { title: 'Assignment cancelled', body: 'The order assigned to you was cancelled — nothing is needed from you, and you are free to accept other orders.' };
     case 'FUNDED':
       if (isBuy)
         return role === 'user'
