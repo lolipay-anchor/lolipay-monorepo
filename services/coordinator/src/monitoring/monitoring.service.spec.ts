@@ -1,5 +1,6 @@
 import { MonitoringService, MONITORING_ALERT_SCOPE } from './monitoring.service';
 import { DiditRefusalsService } from './didit-refusals.service';
+import { byUrgencyFirst } from './alerts.service';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -133,8 +134,8 @@ describe('MonitoringService', () => {
     expect(raised[0].list).toEqual([]);
   });
 
-  it('raises nothing at all when the conditions cannot be read, rather than an empty set', async () => {
-    const { svc, alerts, prisma } = make({
+  it('raises the blindness itself when the conditions cannot be read, with every family incomplete, so nothing clears AND the operator hears — not an empty set, and not silence', async () => {
+    const { svc, alerts, raised, prisma } = make({
       disputes: 1,
       releaseOverdue: 0,
       fiatOverdue: 0,
@@ -142,7 +143,12 @@ describe('MonitoringService', () => {
     });
     prisma.order.findMany = jest.fn().mockRejectedValue(new Error('db down'));
     await svc.checkAndAlert();
-    expect(alerts.raise).not.toHaveBeenCalled();
+    expect(alerts.raise).toHaveBeenCalledTimes(1);
+    expect(raised[0].list.map((a: any) => a.key)).toEqual(['monitoring_blind']);
+    expect(raised[0].list[0].fingerprint).toBe('all');
+    expect(raised[0].list[0].urgency).toBe('urgent');
+    expect(raised[0].list[0].text).toContain('db down');
+    expect([...raised[0].incomplete].sort()).toEqual([...MONITORING_ALERT_SCOPE].sort());
   });
 
   it('alerts when the indexer has never run', async () => {
@@ -444,5 +450,91 @@ describe('the platform going dark is an alert, because nothing else notices', ()
     expect(raised[0].list.some((a: any) => a.key === 'open_dispute:d0')).toBe(true);
     expect(raised[0].incomplete.has('delivery_failing')).toBe(true);
     expect(raised[0].list.some((a: any) => a.key === 'delivery_failing')).toBe(false);
+  });
+});
+
+describe('a check that cannot read its input says so out loud in the same tick', () => {
+  it('marking a family incomplete is not a signal: its only reader withholds a false all-clear, so blindness that raises nothing reaches nobody', async () => {
+    const src = readFileSync(join(__dirname, 'alerts.service.ts'), 'utf8');
+    const readers = src.split('\n').filter((l) => /incomplete\.has\(/.test(l));
+    expect(readers).toHaveLength(1);
+    expect(readers[0]).toContain('filter');
+  });
+
+  it('when its own metrics cannot be read it raises the blindness rather than returning, because a bare return also drops the fifteen-minute reminder of every standing urgent alert', async () => {
+    const { svc, alerts, raised, prisma } = make({
+      disputes: 0,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 5000,
+    });
+    prisma.order.groupBy = jest.fn().mockRejectedValue(new Error('metrics db down'));
+    await svc.checkAndAlert();
+    expect(alerts.raise).toHaveBeenCalledTimes(1);
+    expect(raised[0].list.map((a: any) => a.key)).toEqual(['monitoring_blind']);
+    expect(raised[0].list[0].fingerprint).toBe('all');
+    expect(raised[0].list[0].urgency).toBe('urgent');
+    expect(raised[0].list[0].text).toContain('metrics db down');
+    expect([...raised[0].incomplete].sort()).toEqual([...MONITORING_ALERT_SCOPE].sort());
+  });
+
+  it('a family that went blind and raised nothing of its own is named in one roll-up alert, not one alert per family', async () => {
+    const { svc, raised } = make({
+      disputes: 0,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 1000,
+      stuckCounts: 'throws',
+    });
+    await svc.checkAndAlert();
+    const rollups = raised[0].list.filter((a: any) => a.key === 'monitoring_blind');
+    expect(rollups).toHaveLength(1);
+    expect(rollups[0].fingerprint).toBe('delivery_failing');
+    expect(rollups[0].text).toContain('delivery_failing');
+    expect(raised[0].incomplete.has('delivery_failing')).toBe(true);
+  });
+
+  it('the roll-up is prepended and urgent, because fitToBudget breaks at the first alert that does not fit and a stable sort would leave a routine one behind every urgent', async () => {
+    const { svc, raised } = make({
+      disputes: 0,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 1000,
+      matchableLps: 0,
+      stuckCounts: 'throws',
+    });
+    await svc.checkAndAlert();
+    expect(raised[0].list[0].key).toBe('monitoring_blind');
+    expect(raised[0].list[0].urgency).toBe('urgent');
+    expect(raised[0].list.some((a: any) => a.key === 'no_lp_matchable')).toBe(true);
+    expect(byUrgencyFirst(raised[0].list)[0].key).toBe('monitoring_blind');
+  });
+
+  it('a family that went blind but said so itself is left out of the roll-up, so the operator is not told the same thing twice', async () => {
+    const { svc, raised } = make({
+      disputes: 0,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 1000,
+      matchableLps: 'throws',
+      stuckCounts: 'throws',
+    });
+    await svc.checkAndAlert();
+    const rollup = raised[0].list.find((a: any) => a.key === 'monitoring_blind');
+    expect(raised[0].incomplete.has('no_lp_matchable')).toBe(true);
+    expect(rollup.fingerprint).toBe('delivery_failing');
+    expect(rollup.text).not.toContain('no_lp_matchable');
+  });
+
+  it('a tick that read everything raises no roll-up at all', async () => {
+    const { svc, raised } = make({
+      disputes: 0,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 1000,
+    });
+    await svc.checkAndAlert();
+    expect(raised[0].incomplete.size).toBe(0);
+    expect(raised[0].list).toEqual([]);
   });
 });

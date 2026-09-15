@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../generated/prisma/client';
-import { Alert, AlertsService, Urgency } from './alerts.service';
+import { Alert, AlertsService, Urgency, familyOf } from './alerts.service';
 import { DiditRefusalsService } from './didit-refusals.service';
 import { acceptedUnscreenedSince, deliveredButUnreadable, refusedAfterDelivery, screeningDidNotRun } from '../kyc/screening-requirement';
 import { OutboxService } from '../outbox/outbox.service';
@@ -43,6 +43,7 @@ export const MONITORING_ALERT_SCOPE = [
   'didit_provider_unreachable',
   'didit_deliveries_unauthenticated',
   'didit_budget_exhausted',
+  'monitoring_blind',
 ];
 
 @Injectable()
@@ -156,12 +157,24 @@ export class MonitoringService {
     }
   }
 
+  private async raiseBlind(text: string): Promise<void> {
+    await this.alerts.raise(
+      MONITORING_ALERT_SCOPE,
+      [{ key: 'monitoring_blind', fingerprint: 'all', urgency: 'urgent', text }],
+      new Set(MONITORING_ALERT_SCOPE),
+    );
+  }
+
   private async runCheck() {
     let m: Awaited<ReturnType<MonitoringService['metrics']>>;
     try {
       m = await this.metrics();
     } catch (e) {
-      this.log.error(`metrics query failed: ${e instanceof Error ? e.message : String(e)}`);
+      const why = e instanceof Error ? e.message : String(e);
+      this.log.error(`metrics query failed: ${why}`);
+      await this.raiseBlind(
+        `this coordinator could not read the counts every one of its checks is built on (${why}), so not one of them ran this tick — nothing here is clear, it is unread, and nothing will be reported as cleared until it can be read again`,
+      );
       return;
     }
 
@@ -170,8 +183,10 @@ export class MonitoringService {
     try {
       alerts = await this.buildAlerts(m, incomplete);
     } catch (e) {
-      this.log.error(
-        `alert conditions could not be read: ${e instanceof Error ? e.message : String(e)}`,
+      const why = e instanceof Error ? e.message : String(e);
+      this.log.error(`alert conditions could not be read: ${why}`);
+      await this.raiseBlind(
+        `the alert conditions could not be read (${why}), so every check this coordinator performs is blind this tick — nothing here is clear, it is unread, and nothing will be reported as cleared until it can be read again`,
       );
       return;
     }
@@ -489,6 +504,20 @@ export class MonitoringService {
         fingerprint: 'lagging',
         urgency: 'urgent',
         text: `indexer lag ${m.indexer_lag_seconds}s (stalled?)`,
+      });
+    }
+
+    const silentlyBlind = [...incomplete]
+      .filter((family) => !alerts.some((a) => familyOf(a.key) === family))
+      .sort();
+    if (silentlyBlind.length > 0) {
+      alerts.unshift({
+        key: 'monitoring_blind',
+        fingerprint: silentlyBlind.join(','),
+        urgency: 'urgent',
+        text:
+          `${silentlyBlind.length} check(s) could not read what they watch this tick and raised nothing of their own: ${silentlyBlind.join(', ')} ` +
+          `— each of those is unread rather than clear, so nothing in them will be reported as cleared and their silence proves nothing`,
       });
     }
     return alerts;
