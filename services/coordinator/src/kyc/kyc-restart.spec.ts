@@ -61,7 +61,7 @@ describe('a person the anchor accepted but never heard back about can start thei
     });
   });
 
-  it('says that to nobody else, because the other two answers that ask for details are given to people no verification was ever opened for, and the sentence would be asserting a thing that never existed', async () => {
+  it('gives that sentence to a stale acceptance alone, and to neither of the other two answers that ask for details', async () => {
     const neverOpened = await make(accepted({ status: 'NEEDS_INFO' })).svc.get('GABC');
     const noRowAtAll = await make(null).svc.get('GABC');
 
