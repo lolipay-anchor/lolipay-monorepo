@@ -11,6 +11,7 @@ describe('LpService.apply — trustline guard', () => {
         create: jest.fn().mockResolvedValue({ id: 'lp1', stellarAddress: ADDR, status: 'PENDING' }),
         update: jest.fn().mockResolvedValue({ id: 'lp1', stellarAddress: ADDR, status: 'PENDING' }),
       },
+      walletLink: { findUnique: jest.fn().mockResolvedValue(null) },
     } as any;
     const stellar = { hasUsdcTrustline: jest.fn().mockResolvedValue(hasTrustline) } as any;
     return { svc: new LpService(prisma, stellar), prisma, stellar };

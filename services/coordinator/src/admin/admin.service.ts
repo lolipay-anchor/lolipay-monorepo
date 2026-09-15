@@ -12,7 +12,7 @@ import { refundOpensAt } from '../order/dispute.util';
 import { LpStatus, Market, OrderStatus, Prisma } from '../generated/prisma/client';
 import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
-import { PersonId } from '../person/person.service';
+import { PersonId, personIdForWallet } from '../person/person.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { recordAudit, auditPayload } from './admin-audit';
 import { windowsFitTheContract } from '../config/contract-limits';
@@ -113,6 +113,7 @@ export class AdminService {
       );
     }
     const approve = dto.approve !== false;
+    const personId = await personIdForWallet(this.prisma, dto.stellarAddress);
     try {
       return await this.prisma.$transaction(async (tx) => {
         const created = await tx.lp.create({
@@ -123,6 +124,7 @@ export class AdminService {
             status: approve ? LpStatus.APPROVED : LpStatus.PENDING,
             approvalNote: 'Registered by admin',
             approvedAt: approve ? new Date() : null,
+            personId,
           },
         });
         await recordAudit(tx as any, {

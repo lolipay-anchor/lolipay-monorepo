@@ -11,6 +11,7 @@ function makePrisma() {
       create: jest.fn(async ({ data }: any) => ({ id: 'new', ...data })),
       update: jest.fn(async ({ data }: any) => ({ id: 'existing', ...data })),
     },
+    walletLink: { findUnique: jest.fn().mockResolvedValue(null) },
     config: {
       findUnique: jest.fn(async () => ({ id: 1, platformFeeBps: 30, lpFeeBps: 120, minOrder: 1n, maxOrder: 9n })),
       update: jest.fn(async ({ data }: any) => ({ id: 1, ...data })),
@@ -135,6 +136,27 @@ describe('AdminService.register', () => {
       svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any, 'GADMINTEST'),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.lp.create).not.toHaveBeenCalled();
+  });
+
+  it('registers a provider with no proven wallet as an Lp with no personId, rather than throwing', async () => {
+    const prisma = makePrisma();
+    prisma.lp.findUnique.mockResolvedValue(null);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    const lp = await svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any, 'GADMINTEST');
+
+    expect(lp.personId).toBeNull();
+  });
+
+  it('attaches the personId of the wallet\'s proven identity when one already exists', async () => {
+    const prisma = makePrisma();
+    prisma.lp.findUnique.mockResolvedValue(null);
+    prisma.walletLink.findUnique.mockResolvedValue({ stellarAddress: ADDR, personId: 'person-1', status: 'ACTIVE' });
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    const lp = await svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any, 'GADMINTEST');
+
+    expect(lp.personId).toBe('person-1');
   });
 });
 

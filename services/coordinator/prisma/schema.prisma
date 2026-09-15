@@ -60,6 +60,8 @@ model Lp {
   orders          Order[]
   createdAt       DateTime @default(now())
   approvedAt      DateTime?
+  person          Person?  @relation(fields: [personId], references: [id], onDelete: Restrict)
+  personId        String?
 }
 
 model PaymentMethod {
@@ -275,6 +277,7 @@ model Person {
   orders      Order[]
   kyc         KycVerification[]
   sep24       Sep24Transaction[]
+  lps         Lp[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 }

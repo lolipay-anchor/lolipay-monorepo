@@ -15,6 +15,7 @@ function makePrisma(lpRow: any) {
       update: jest.fn().mockImplementation(async ({ data }: any) => ({ ...lpRow, ...data })),
       create: jest.fn().mockImplementation(async ({ data }: any) => ({ id: 'new-lp', ...data })),
     },
+    walletLink: { findUnique: jest.fn().mockResolvedValue(null) },
     adminAudit: { create: jest.fn().mockImplementation(async ({ data }: any) => { audits.push(data); return data; }) },
     config: {
       findUnique: jest.fn().mockResolvedValue({
@@ -58,10 +59,25 @@ describe('LpService.apply — a provider must not be able to clear its own sanct
     expect(data.status).toBe('PENDING');
   });
 
+  it('never clears an already-recorded personId when the wallet link cannot be resolved (e.g. revoked)', async () => {
+    const { service, prisma } = svc({ id: 'lp-1', stellarAddress: LP_ADDR, status: 'APPROVED', personId: 'person-1' });
+    prisma.walletLink.findUnique.mockResolvedValue(null);
+    await service.apply(LP_ADDR, 'x@y.z', 'proof');
+    const data = prisma.lp.update.mock.calls[0][0].data;
+    expect(data.personId).toBeUndefined();
+  });
+
   it('still accepts a first-time applicant', async () => {
     const { service, prisma } = svc(null);
     await service.apply(LP_ADDR, 'x@y.z', 'proof');
     expect(prisma.lp.create).toHaveBeenCalled();
+  });
+
+  it('attaches the personId of the proven wallet on first application', async () => {
+    const { service, prisma } = svc(null);
+    prisma.walletLink.findUnique.mockResolvedValue({ stellarAddress: LP_ADDR, personId: 'person-1', status: 'ACTIVE' });
+    await service.apply(LP_ADDR, 'x@y.z', 'proof');
+    expect(prisma.lp.create.mock.calls[0][0].data.personId).toBe('person-1');
   });
 });
 

@@ -4,6 +4,7 @@ import { StellarReadService } from '../stellar/stellar-read.service';
 import { OrderStatus, Prisma, Rail } from '../generated/prisma/client';
 import { applyBps, baseUnitsToUsdc } from '../money/money';
 import { matchableLpWhere } from '../matching/matching.service';
+import { personIdForWallet } from '../person/person.service';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -54,15 +55,17 @@ export class LpService {
       );
     }
 
+    const personId = await personIdForWallet(this.prisma, address);
+
     if (existing) {
       return this.prisma.lp.update({
         where: { stellarAddress: address },
-        data: { contact, liquidityProof, status: 'PENDING', approvedAt: null },
+        data: { contact, liquidityProof, status: 'PENDING', approvedAt: null, personId: personId ?? undefined },
       });
     }
 
     return this.prisma.lp.create({
-      data: { stellarAddress: address, contact, liquidityProof },
+      data: { stellarAddress: address, contact, liquidityProof, personId },
     });
   }
 

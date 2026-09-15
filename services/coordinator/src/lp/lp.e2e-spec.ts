@@ -466,4 +466,49 @@ describe('LP registry + admin actions (e2e)', () => {
       .expect(200);
     expect(getRes.body.manualRateOverride).toBeUndefined();
   });
+
+  it('a provider who has proven a wallet gets that identity attached on application', async () => {
+    const kp = Keypair.random();
+    const jwt = await mintJwt(app, kp);
+    const res = await request(app.getHttpServer())
+      .post('/lp/apply')
+      .set('Authorization', `Bearer ${jwt}`)
+      .send({ contact: 'personid@test.com', liquidityProof: 'proof' })
+      .expect(201);
+
+    const link = await prisma.walletLink.findUnique({ where: { stellarAddress: kp.publicKey() } });
+    expect(link).not.toBeNull();
+    const row = await prisma.lp.findUnique({ where: { id: res.body.id } });
+    expect(row?.personId).toBe(link?.personId);
+  });
+
+  it('an administrator registering a wallet that never proved itself creates a provider with no personId', async () => {
+    const kp = Keypair.random();
+    const res = await request(app.getHttpServer())
+      .post('/admin/lps')
+      .set('Authorization', `Bearer ${adminJwt}`)
+      .send({ stellarAddress: kp.publicKey(), contact: 'never-logged-in@test.com' })
+      .expect(201);
+
+    const row = await prisma.lp.findUnique({ where: { id: res.body.id } });
+    expect(row?.personId).toBeNull();
+    const link = await prisma.walletLink.findUnique({ where: { stellarAddress: kp.publicKey() } });
+    expect(link).toBeNull();
+  });
+
+  it("the database refuses to delete a person an Lp's own foreign key still points at", async () => {
+    const person = await prisma.person.create({ data: {} });
+    const lp = await prisma.lp.create({
+      data: {
+        stellarAddress: Keypair.random().publicKey(),
+        contact: 'restrict-me@test.com',
+        liquidityProof: 'proof',
+        personId: person.id,
+      },
+    });
+    const walletLink = await prisma.walletLink.findUnique({ where: { stellarAddress: lp.stellarAddress } });
+    expect(walletLink).toBeNull();
+
+    await expect(prisma.person.delete({ where: { id: person.id } })).rejects.toThrow();
+  });
 });
