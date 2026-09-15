@@ -4,7 +4,7 @@ import { mintInteractiveToken } from './interactive-token';
 
 const DAY = 24 * 60 * 60 * 1000;
 const RESTART_SENTENCE =
-  'Your last verification never reached this anchor within a day, so it can no longer be used. Send your details again below to start a fresh one.';
+  'Your previous verification did not finish, so lolipay can no longer use it. Enter your details below and we will start a new one — this does not affect the USDC in your wallet.';
 const IDENTITY_FORM_TITLE = '<h1>Verify your identity</h1>';
 
 function harness(kycRow: any) {

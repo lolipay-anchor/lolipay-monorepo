@@ -323,7 +323,7 @@ export class Sep24Service {
     if (screen === 'identity') {
       const fields = REQUIRED_KYC_FIELDS.map((f) => identityField(f)).join('');
       const restarted = this.sessionDied(kyc)
-        ? '<p>Your last verification never reached this anchor within a day, so it can no longer be used. Send your details again below to start a fresh one.</p>'
+        ? '<p>Your previous verification did not finish, so lolipay can no longer use it. Enter your details below and we will start a new one — this does not affect the USDC in your wallet.</p>'
         : '';
       return page(
         'Verify your identity',
