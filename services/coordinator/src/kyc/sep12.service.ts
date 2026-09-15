@@ -183,7 +183,13 @@ export class Sep12Service {
       return { id: row.customerRef, status: row.status, fields: KYC_FIELD_DESCRIPTORS };
     }
     if (staleAcceptance(row)) {
-      return { id: row.customerRef, status: 'NEEDS_INFO', fields: KYC_FIELD_DESCRIPTORS };
+      return {
+        id: row.customerRef,
+        status: 'NEEDS_INFO',
+        fields: KYC_FIELD_DESCRIPTORS,
+        message:
+          'this verification did not complete, so no trade can be opened yet; submit your details again and a new one will be opened',
+      };
     }
     if (awaitingProvider(row, this.cfg.kycRequireAml)) {
       return {

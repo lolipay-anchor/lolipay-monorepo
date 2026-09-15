@@ -56,7 +56,18 @@ describe('a person the anchor accepted but never heard back about can start thei
       id: 'GABC',
       status: 'NEEDS_INFO',
       fields: KYC_FIELD_DESCRIPTORS,
+      message:
+        'this verification did not complete, so no trade can be opened yet; submit your details again and a new one will be opened',
     });
+  });
+
+  it('says that to nobody else, because the other two answers that ask for details are given to people no verification was ever opened for, and the sentence would be asserting a thing that never existed', async () => {
+    const neverOpened = await make(accepted({ status: 'NEEDS_INFO' })).svc.get('GABC');
+    const noRowAtAll = await make(null).svc.get('GABC');
+
+    expect(neverOpened).not.toHaveProperty('message');
+    expect(noRowAtAll).not.toHaveProperty('message');
+    expect(noRowAtAll).not.toHaveProperty('id');
   });
 
   it('re-submitting actually writes the new session, because a guard inside the transaction reads the same untouched row and would otherwise discard the session it just paid the vendor to open', async () => {
