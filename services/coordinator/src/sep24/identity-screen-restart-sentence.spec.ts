@@ -5,6 +5,7 @@ import { mintInteractiveToken } from './interactive-token';
 const DAY = 24 * 60 * 60 * 1000;
 const RESTART_SENTENCE =
   'Your last verification never reached this anchor within a day, so it can no longer be used. Send your details again below to start a fresh one.';
+const IDENTITY_FORM_TITLE = '<h1>Verify your identity</h1>';
 
 function harness(kycRow: any) {
   const prisma = {
@@ -52,7 +53,7 @@ describe('the identity form explains a dead verification instead of greeting a r
 
     const html = await svc.renderInteractive('tx-1', mintInteractiveToken(cfg, 'tx-1', 'GABC'));
 
-    expect(html).toContain('Verify your identity');
+    expect(html).toContain(IDENTITY_FORM_TITLE);
     expect(html).toContain(RESTART_SENTENCE);
   });
 
@@ -69,7 +70,7 @@ describe('the identity form explains a dead verification instead of greeting a r
 
     const html = await svc.renderInteractive('tx-1', mintInteractiveToken(cfg, 'tx-1', 'GABC'));
 
-    expect(html).toContain('Verify your identity');
+    expect(html).toContain(IDENTITY_FORM_TITLE);
     expect(html).toContain(RESTART_SENTENCE);
   });
 
@@ -78,7 +79,24 @@ describe('the identity form explains a dead verification instead of greeting a r
 
     const html = await svc.renderInteractive('tx-1', mintInteractiveToken(cfg, 'tx-1', 'GABC'));
 
-    expect(html).toContain('Verify your identity');
+    expect(html).toContain(IDENTITY_FORM_TITLE);
+    expect(html).not.toContain(RESTART_SENTENCE);
+  });
+
+  it('says nothing of the kind to a row genuinely marked NEEDS_INFO, whose incomplete answer this is not', async () => {
+    const { svc, cfg } = harness({
+      status: 'NEEDS_INFO',
+      providerRef: 'p1',
+      verificationUrl: 'https://verify.didit.me/s/1',
+      updatedAt: new Date(),
+      verifiedAt: null,
+      screenedAt: null,
+      deliveredAt: new Date(),
+    });
+
+    const html = await svc.renderInteractive('tx-1', mintInteractiveToken(cfg, 'tx-1', 'GABC'));
+
+    expect(html).toContain(IDENTITY_FORM_TITLE);
     expect(html).not.toContain(RESTART_SENTENCE);
   });
 });
