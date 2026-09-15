@@ -102,7 +102,7 @@ describe('when an alert speaks', () => {
     expect(state.deleteMany).toHaveBeenCalledWith({ where: { key: { in: ['open_dispute:o1'] } } });
   });
 
-  it('does not delete a row whose last send was a second ago, so the 45-minute clear window an urgent family stays inside on its 15-minute cadence protects it from one good sample — a routine family on a six-hour cadence is already outside that window and gets none of this', async () => {
+  it('does not delete a row whose last send was a second ago, so the 45-minute clear window protects it from one good sample — an urgent family stays inside that window on its 15-minute cadence, and a routine family on a six-hour cadence is outside it for all but the first 45 minutes of each interval', async () => {
     const { svc, state } = makeAlerts([seen('open_dispute:o1', 'o1', 1000)]);
     const { cleared } = await svc.raise(SCOPE, [], new Set(), NOW);
     expect(cleared).toEqual([]);
