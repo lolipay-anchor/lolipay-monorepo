@@ -443,6 +443,23 @@ describe('the platform going dark is an alert, because nothing else notices', ()
     expect(blind[0].fingerprint).toBe('unreadable');
   });
 
+  it('does not borrow the "none" branch\'s age when it goes blind instead, even though both branches share one row', async () => {
+    const { svc } = make({
+      disputes: 0,
+      releaseOverdue: 0,
+      fiatOverdue: 0,
+      indexerAgeMs: 1000,
+      matchableLps: 'throws',
+      alertHistoryRow: { firstSeenAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000), sendCount: 29 },
+    });
+    const alerts = await svc.buildAlerts(await svc.metrics(), new Set());
+    const blind = alerts.find((a) => a.key === 'no_lp_matchable');
+    expect(blind!.fingerprint).toBe('unreadable');
+    expect(blind!.text).not.toContain('6 days');
+    expect(blind!.text).not.toContain('29');
+    expect(blind!.text).not.toMatch(/first noticed/);
+  });
+
   it('states how long the outage has lasted and how many times it has already been sent, from the persisted alert state', async () => {
     const { svc } = make({
       disputes: 0,

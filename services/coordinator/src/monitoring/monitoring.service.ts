@@ -279,14 +279,13 @@ export class MonitoringService {
       }
     } catch (e) {
       incomplete.add('no_lp_matchable');
-      const history = await this.noLpMatchableHistory();
       alerts.push({
         key: 'no_lp_matchable',
         fingerprint: 'unreadable',
         urgency: 'urgent',
         text:
           `the count of matchable liquidity providers could not be read (${e instanceof Error ? e.message : String(e)}) — ` +
-          `this check is blind, and while it is blind an outage of the whole order path would go unreported. ${alertAgeSentence(history)}.`,
+          `this check is blind, and while it is blind an outage of the whole order path would go unreported.`,
       });
     }
 
