@@ -8,6 +8,7 @@ import { DarkHeroCard, Skeleton, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
 import { useAuth } from '@/app/providers'
 import { shortAddress, tierLabel, tierBadgeClasses, nextTier, nextTierThreshold, formatUsdcAmount } from '@/lib/format'
 import { AppHeader } from '@/components/AppHeader'
+import { IdentityCard } from '@/components/IdentityCard'
 import { useToast } from '@/components/Toast'
 import { useUsdcBalance } from '@/hooks/useUsdcBalance'
 import { useMyProfile } from '@/hooks/useMyProfile'
@@ -147,6 +148,8 @@ export default function ProfilePage() {
         </DarkHeroCard>
 
         <TierCard />
+
+        <IdentityCard />
 
         <div className="overflow-hidden rounded-lp-card border border-lp-line bg-lp-surface">
           <a

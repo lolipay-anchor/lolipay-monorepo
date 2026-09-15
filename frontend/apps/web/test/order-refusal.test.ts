@@ -6,6 +6,12 @@ describe('what a refused order tells the person', () => {
     expect(explainOrderRefusal('identity verification is required before a trade can be opened')).toBe(IDENTITY_REQUIRED)
   })
 
+  it('no longer sends a person to another wallet, because this app now carries the verification path itself', () => {
+    expect(IDENTITY_REQUIRED).not.toMatch(/cannot start verification/i)
+    expect(IDENTITY_REQUIRED).not.toMatch(/demo wallet/i)
+    expect(IDENTITY_REQUIRED).toMatch(/profile/i)
+  })
+
   it('passes every other refusal through untouched, because the anchor already wrote it for a person', () => {
     expect(explainOrderRefusal('Add a USDC trustline to your wallet before ordering — you need it to receive USDC.')).toBe(
       'Add a USDC trustline to your wallet before ordering — you need it to receive USDC.',

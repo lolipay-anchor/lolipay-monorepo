@@ -25,6 +25,9 @@ vi.mock('@/components/Toast', () => ({
   ToastProvider: ({ children }: { children: React.ReactNode }) => children,
 }))
 
+const mockRequest = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/client', () => ({ client: { request: mockRequest } }))
+
 const mockGetMyProfile = vi.hoisted(() => vi.fn())
 vi.mock('@lolipay/api-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@lolipay/api-client')>()
@@ -60,6 +63,8 @@ describe('ProfilePage', () => {
     queryClient.clear()
     replace.mockClear()
     toastMock.mockClear()
+    mockRequest.mockReset()
+    mockRequest.mockRejectedValue(new Error('no /customer answer stubbed'))
     mockUseUsdcBalance.mockReset()
     mockUseUsdcBalance.mockReturnValue({
       balance: undefined,
@@ -174,6 +179,23 @@ describe('ProfilePage', () => {
     expect(screen.queryByText(/trusted trader/i)).toBeNull()
   })
 
+  it('carries the identity card, which is the only place in this app a person can start verification', async () => {
+    authed()
+    mockRequest.mockResolvedValue({
+      status: 'NEEDS_INFO',
+      fields: {
+        first_name: { type: 'string', description: 'given name as it appears on the identity document' },
+      },
+    })
+    render(
+      <TestProviders>
+        <ProfilePage />
+      </TestProviders>,
+    )
+    expect(await screen.findByTestId('identity-card')).toBeTruthy()
+    expect(mockRequest).toHaveBeenCalledWith('GET', '/customer')
+  })
+
   it('renders the non-custodial footer', async () => {
     authed()
     render(
@@ -210,6 +232,8 @@ describe('ProfilePage — tier card', () => {
     queryClient.clear()
     replace.mockClear()
     toastMock.mockClear()
+    mockRequest.mockReset()
+    mockRequest.mockRejectedValue(new Error('no /customer answer stubbed'))
     mockUseUsdcBalance.mockReset()
     mockUseUsdcBalance.mockReturnValue({
       balance: undefined,
