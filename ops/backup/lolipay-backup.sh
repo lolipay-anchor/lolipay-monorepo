@@ -141,7 +141,7 @@ dump_secrets() {
   if ! tar -C / --exclude="$SECRETS_EXCLUDE" -cf - \
          "$SECRETS_ENV" "$SECRETS_KEYSTORE" "$SECRETS_ETC" | encrypt_to "$tmp"; then
     rm -f "$tmp"
-    die "secrets archive failed; the postgres and minio artifacts for this stamp were KEPT, because a database plus its object store still restores to an arbitrable trade"
+    die "secrets archive failed; the postgres and minio artifacts for this stamp were kept AND ALREADY VERIFIED, because a database plus its object store still restores to an arbitrable trade; only the environment has to be rebuilt by hand"
   fi
   [ -s "$tmp" ] || { rm -f "$tmp"; die "secrets archive produced an empty file"; }
   mv "$tmp" "$out"
@@ -268,9 +268,9 @@ main() {
       drift_report || log "WARNING the repository and the installed copies disagree. THIS RUN USED THE INSTALLED COPY, and it is going ahead: a stale backup is worth far more than no backup. Reinstall with: $(drift_fix_hint)"
       pg_file="$(dump_postgres)"
       minio_file="$(dump_minio)"
-      secrets_file="$(dump_secrets)"
       verify_readable "$pg_file"
       verify_readable "$minio_file"
+      secrets_file="$(dump_secrets)"
       verify_readable "$secrets_file"
       ship_offsite "$pg_file" "$minio_file" "$secrets_file"
       prune_old
