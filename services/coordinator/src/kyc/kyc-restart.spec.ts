@@ -27,7 +27,7 @@ function accepted(over: Record<string, unknown> = {}) {
   };
 }
 
-function make(row: any) {
+function make(row: any, kycRequireAml = false) {
   const upserts: any[] = [];
   const prisma: any = {
     person: { update: jest.fn(async () => ({})) },
@@ -43,7 +43,7 @@ function make(row: any) {
   const provider = {
     start: jest.fn(async () => ({ status: 'PROCESSING', providerRef: 'session-2', verificationUrl: 'https://verify.didit.me/s/2' })),
   } as any;
-  const cfg = { kycRequireAml: false } as any;
+  const cfg = { kycRequireAml } as any;
   const refusals = { workflowPerformsAml: jest.fn(), providerFailed: jest.fn(), providerRecovered: jest.fn() } as any;
   return { svc: new Sep12Service(prisma, people, provider, cfg, refusals), provider, upserts };
 }
@@ -61,7 +61,7 @@ describe('a person the anchor accepted but never heard back about can start thei
     });
   });
 
-  it('gives that sentence to a stale acceptance alone, and to neither of the other two answers that ask for details', async () => {
+  it('withholds that sentence from the two answers that ask for details with no dead verification behind them: a row nothing was ever opened for, and no row at all', async () => {
     const neverOpened = await make(accepted({ status: 'NEEDS_INFO' })).svc.get('GABC');
     const noRowAtAll = await make(null).svc.get('GABC');
 
@@ -108,11 +108,21 @@ describe('a person the anchor accepted but never heard back about can start thei
     expect(upserts[0].update).toMatchObject({ status: 'NEEDS_INFO', verifiedAt: null });
   });
 
-  it('opens no session for an acceptance the provider did deliver, however long ago, so a settled customer is never sent round again', async () => {
+  it('opens no session for an acceptance the provider did deliver where a delivery is the whole of what the money gate asks for, however long ago, so a settled customer is never sent round again', async () => {
     const { svc, provider } = make(accepted({ deliveredAt: new Date(Date.now() - 40 * DAY) }));
 
     await svc.put('GABC', { ...FIELDS });
 
     expect(provider.start).not.toHaveBeenCalled();
+  });
+
+  it('opens one for that same row where the money gate asks for a screening, because that is the row the anchor now sends back to the form and a form that opened nothing would be the dead end again', async () => {
+    const { svc, provider, upserts } = make(accepted({ deliveredAt: new Date(Date.now() - 40 * DAY) }), true);
+
+    await svc.put('GABC', { ...FIELDS });
+
+    expect(provider.start).toHaveBeenCalledTimes(1);
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].update).toMatchObject({ status: 'PROCESSING', providerRef: 'session-2' });
   });
 });
