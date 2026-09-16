@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { ConflictException, Logger } from '@nestjs/common';
 import { AdminService } from './admin.service';
 
 const LP_ID = 'lp-1';
@@ -12,6 +12,10 @@ function row(id: string, status: string, lpId = LP_ID): Row {
 
 function matches(r: Row, where: any): boolean {
   if (where.lpId !== undefined && r.lpId !== where.lpId) return false;
+  if (where.id !== undefined) {
+    if (typeof where.id === 'string' && r.id !== where.id) return false;
+    if (where.id?.in !== undefined && !where.id.in.includes(r.id)) return false;
+  }
   if (where.status !== undefined) {
     if (typeof where.status === 'string' && r.status !== where.status) return false;
     if (where.status?.in !== undefined && !where.status.in.includes(r.status)) return false;
@@ -19,7 +23,7 @@ function matches(r: Row, where: any): boolean {
   return true;
 }
 
-function build(lpStatus = 'APPROVED') {
+function build(lpStatus = 'APPROVED', advanceBetweenStatements?: { id: string; to: string }) {
   const rows: Row[] = [
     row('created', 'CREATED'),
     row('matched', 'MATCHED'),
@@ -42,7 +46,14 @@ function build(lpStatus = 'APPROVED') {
       update: jest.fn(async ({ data }: any) => ({ id: LP_ID, ...data })),
     },
     order: {
-      findMany: jest.fn(async ({ where }: any) => rows.filter((r) => matches(r, where))),
+      findMany: jest.fn(async ({ where }: any) => {
+        const snapshot = rows.filter((r) => matches(r, where)).map((r) => ({ ...r }));
+        if (advanceBetweenStatements) {
+          const moved = rows.find((r) => r.id === advanceBetweenStatements.id);
+          if (moved) moved.status = advanceBetweenStatements.to;
+        }
+        return snapshot;
+      }),
       updateMany: jest.fn(async ({ where, data }: any) => {
         const hit = rows.filter((r) => matches(r, where));
         hit.forEach((r) => Object.assign(r, data));
@@ -124,14 +135,17 @@ describe('withdrawing a provider approval cancels the orders it can still reach'
     expect(statusOf(atTransactionClose, 'matched')).toBe('CANCELLED');
   });
 
-  it('cancels by provider and pre-chain status alone, never by a wider net', async () => {
+  it('writes only to the orders the read returned, and only while they are still pre-chain', async () => {
     const { svc, client } = build();
 
     await svc.setStatus(LP_ID, 'REVOKED', 'stood down', 'GADMINTEST');
 
     expect(client.order.updateMany).toHaveBeenCalledTimes(1);
     expect(client.order.updateMany.mock.calls[0][0]).toEqual({
-      where: { lpId: LP_ID, status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN'] } },
+      where: {
+        id: { in: ['created', 'matched', 'awaiting'] },
+        status: { in: ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN'] },
+      },
       data: { status: 'CANCELLED' },
     });
   });
@@ -155,5 +169,41 @@ describe('withdrawing a provider approval cancels the orders it can still reach'
     await expect(svc.setStatus(LP_ID, 'REVOKED', 'stood down', 'GADMINTEST')).resolves.toMatchObject({
       status: 'REVOKED',
     });
+  });
+});
+
+describe('an order that moves on between the read and the write is never announced as cancelled', () => {
+  const racing = () => build('APPROVED', { id: 'awaiting', to: 'FUNDED' });
+
+  it('refuses the stand-down when the write reaches fewer orders than the read returned', async () => {
+    const { svc } = racing();
+
+    await expect(svc.setStatus(LP_ID, 'REVOKED', 'stood down', 'GADMINTEST')).rejects.toThrow(
+      ConflictException,
+    );
+  });
+
+  it('tells nobody their order was cancelled, because one of the orders read was not cancelled', async () => {
+    const { svc, notifications } = racing();
+
+    await svc.setStatus(LP_ID, 'REVOKED', 'stood down', 'GADMINTEST').catch(() => undefined);
+
+    expect(notifications.notifyOrderStatus).not.toHaveBeenCalled();
+  });
+
+  it('writes no audit row naming an order the write never reached', async () => {
+    const { svc, client } = racing();
+
+    await svc.setStatus(LP_ID, 'REVOKED', 'stood down', 'GADMINTEST').catch(() => undefined);
+
+    expect(client.adminAudit.create).not.toHaveBeenCalled();
+  });
+
+  it('leaves the order that moved on at FUNDED, where its escrow is', async () => {
+    const { svc, rows } = racing();
+
+    await svc.setStatus(LP_ID, 'REVOKED', 'stood down', 'GADMINTEST').catch(() => undefined);
+
+    expect(statusOf(rows, 'awaiting')).toBe('FUNDED');
   });
 });

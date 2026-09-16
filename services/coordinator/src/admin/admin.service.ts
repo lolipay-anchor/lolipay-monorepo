@@ -208,10 +208,16 @@ export class AdminService {
           })
         : [];
       if (reachable.length > 0) {
-        await tx.order.updateMany({
-          where: { lpId: id, status: { in: PRE_CHAIN_STATUSES as OrderStatus[] } },
+        const ids = reachable.map((o) => o.id);
+        const { count } = await tx.order.updateMany({
+          where: { id: { in: ids }, status: { in: PRE_CHAIN_STATUSES as OrderStatus[] } },
           data: { status: 'CANCELLED' },
         });
+        if (count !== ids.length) {
+          throw new ConflictException(
+            "one of this provider's orders moved on while you were deciding — reload and decide again",
+          );
+        }
       }
 
       await recordAudit(tx as any, {
