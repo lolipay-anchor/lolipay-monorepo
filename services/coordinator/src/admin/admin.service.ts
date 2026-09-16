@@ -10,7 +10,6 @@ import {
 } from '@nestjs/common';
 import { refundOpensAt } from '../order/dispute.util';
 import { PRE_CHAIN_STATUSES } from '../order/order.service';
-import { acceptedForFunds } from '../kyc/screening-requirement';
 import { LpStatus, Market, OrderStatus, Prisma } from '../generated/prisma/client';
 import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
@@ -86,33 +85,10 @@ export class AdminService {
     private notifications: NotificationService,
   ) {}
 
-  async list(status?: LpStatus) {
-    const lps = await this.prisma.lp.findMany({
+  list(status?: LpStatus) {
+    return this.prisma.lp.findMany({
       where: status ? { status } : {},
     });
-    const personIds = [...new Set(lps.map((l) => l.personId).filter((p): p is string => !!p))];
-    if (personIds.length === 0) {
-      return lps.map((lp) => ({ ...lp, identityVerified: false }));
-    }
-
-    const [accepted, refused] = await Promise.all([
-      this.prisma.kycVerification.findMany({
-        where: { personId: { in: personIds }, ...acceptedForFunds(this.cfg.kycRequireAml) },
-        select: { personId: true },
-      }),
-      this.prisma.kycVerification.findMany({
-        where: { personId: { in: personIds }, status: 'REJECTED' },
-        select: { personId: true },
-      }),
-    ]);
-
-    const proven = new Set(accepted.map((r) => r.personId));
-    for (const r of refused) proven.delete(r.personId);
-
-    return lps.map((lp) => ({
-      ...lp,
-      identityVerified: lp.personId !== null && proven.has(lp.personId),
-    }));
   }
 
   async register(dto: RegisterLpDto, actorAddress: string) {
