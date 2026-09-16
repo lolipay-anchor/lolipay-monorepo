@@ -153,9 +153,12 @@ export class OrderProofService {
     if (!order) throw new NotFoundException('order not found');
 
     const isUser = order.userAddress === callerAddress;
-    const isApprovedLp = order.lp?.stellarAddress === callerAddress && order.lp.status === 'APPROVED';
+    const orderIsDisputed = order.status === 'DISPUTED' || order.disputeAt != null;
+    const isPartyLp =
+      order.lp?.stellarAddress === callerAddress &&
+      (order.lp.status === 'APPROVED' || orderIsDisputed);
     const isAdmin = this.cfg.adminAddresses.includes(callerAddress);
-    if (!isUser && !isApprovedLp && !isAdmin) {
+    if (!isUser && !isPartyLp && !isAdmin) {
       throw new ForbiddenException('not authorized to view this order’s dispute evidence');
     }
 

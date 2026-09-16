@@ -5,20 +5,22 @@ const LP_ADDR = 'GLP';
 const ADMIN_ADDR = 'GADMIN';
 const CONTRACT = 'CREVOKEDFILES';
 
-function makeOrder(lpStatus: string): any {
+function makeOrder(lpStatus: string, overrides: Record<string, unknown> = {}): any {
   return {
     id: 'order-1',
     userAddress: USER_ADDR,
     flow: 'WITHDRAW',
     status: 'DISPUTED',
+    disputeAt: new Date('2026-09-01T00:00:00Z'),
     proofUrl: 'proofs/order-1.jpg',
     disputeEvidenceUrl: 'evidence/order-1.png',
     lp: { id: 'lp-1', stellarAddress: LP_ADDR, status: lpStatus },
+    ...overrides,
   };
 }
 
-function build(lpStatus: string, adminAddresses: string[] = []) {
-  const order = makeOrder(lpStatus);
+function build(lpStatus: string, adminAddresses: string[] = [], overrides: Record<string, unknown> = {}) {
+  const order = makeOrder(lpStatus, overrides);
   const prisma = {
     order: { findUnique: jest.fn().mockResolvedValue(order) },
   } as any;
@@ -39,15 +41,44 @@ describe('a provider whose approval was withdrawn stops receiving the order file
   );
 
   it.each([['REVOKED'], ['SUSPENDED']])(
-    'refuses the dispute evidence to a %s provider',
+    'still serves the dispute evidence to a %s provider, because they are party to the dispute and their stake is still slashable over it',
     async (lpStatus) => {
       const proofs = build(lpStatus);
+
+      await expect(proofs.getDisputeEvidenceFile('order-1', LP_ADDR)).resolves.toEqual({
+        key: 'evidence/order-1.png',
+        contentType: 'image/png',
+        ext: 'png',
+      });
+    },
+  );
+
+  it.each([['REVOKED'], ['SUSPENDED']])(
+    'refuses the dispute evidence to a %s provider on an order carrying no dispute at all',
+    async (lpStatus) => {
+      const proofs = build(lpStatus, [], { status: 'FIAT_PAID', disputeAt: null });
 
       await expect(proofs.getDisputeEvidenceFile('order-1', LP_ADDR)).rejects.toThrow(
         'not authorized to view this order’s dispute evidence',
       );
     },
   );
+
+  it('serves a stood-down provider a settled order whose post-settlement dispute was raised after release', async () => {
+    const proofs = build('REVOKED', [], { status: 'RELEASED' });
+
+    await expect(proofs.getDisputeEvidenceFile('order-1', LP_ADDR)).resolves.toMatchObject({
+      key: 'evidence/order-1.png',
+    });
+  });
+
+  it('still refuses the payment proof to a stood-down provider on that same disputed order, so the bank account stays shut', async () => {
+    const proofs = build('REVOKED');
+
+    await expect(proofs.getProofFile('order-1', LP_ADDR)).rejects.toThrow(
+      'not authorized to view this order’s payment proof',
+    );
+  });
 
   it('still serves the payment proof to an APPROVED provider', async () => {
     const proofs = build('APPROVED');
