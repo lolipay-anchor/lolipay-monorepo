@@ -12,12 +12,55 @@ COMPOSE_PROJECT="${COMPOSE_PROJECT:-lolipayprod}"
 PG_USER="${PG_USER:-lolipay}"
 PG_DB="${PG_DB:-lolipay}"
 OFFSITE_CMD="${BACKUP_OFFSITE_CMD:-}"
+REPO_DIR="${BACKUP_REPO_DIR:-/home/lolipay/lolipay-monorepo/ops/backup}"
+
+INSTALLED_PAIRS=(
+  "lolipay-backup.sh:/usr/local/sbin/lolipay-backup.sh"
+  "lolipay-backup-failed.sh:/usr/local/sbin/lolipay-backup-failed.sh"
+  "lolipay-backup.service:/etc/systemd/system/lolipay-backup.service"
+  "lolipay-backup-verify.service:/etc/systemd/system/lolipay-backup-verify.service"
+  "lolipay-backup-failed@.service:/etc/systemd/system/lolipay-backup-failed@.service"
+  "lolipay-backup.timer:/etc/systemd/system/lolipay-backup.timer"
+  "lolipay-backup-verify.timer:/etc/systemd/system/lolipay-backup-verify.timer"
+)
+
+SECRETS_ENV="home/lolipay/lolipay-monorepo/services/coordinator/.env"
+SECRETS_KEYSTORE="home/lolipay/.config/stellar/identity"
+SECRETS_ETC="etc/lolipay"
+SECRETS_EXCLUDE="etc/lolipay/backup.key"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 LOG_TAG="lolipay-backup"
 
 log()  { printf '%s [%s] %s\n' "$(date -u +%FT%TZ)" "$LOG_TAG" "$*" >&2; }
 die()  { printf '%s [%s] FATAL %s\n' "$(date -u +%FT%TZ)" "$LOG_TAG" "$*" >&2; exit 1; }
+
+drift_fix_hint() {
+  printf 'cd %s && sudo install -o root -g root -m 755 lolipay-backup.sh lolipay-backup-failed.sh /usr/local/sbin/ && sudo install -o root -g root -m 644 lolipay-backup.service lolipay-backup-verify.service lolipay-backup-failed@.service lolipay-backup.timer lolipay-backup-verify.timer /etc/systemd/system/ && sudo systemctl daemon-reload' "$REPO_DIR"
+}
+
+drift_report() {
+  local pair name installed repo drifted=0
+  for pair in "${INSTALLED_PAIRS[@]}"; do
+    name="${pair%%:*}"
+    installed="${pair#*:}"
+    repo="$REPO_DIR/$name"
+    if [ ! -f "$repo" ]; then
+      log "DRIFT $name: no repository copy at $repo, so this comparison is BLIND; that is not the same as clean"
+      drifted=1
+    elif [ ! -f "$installed" ]; then
+      log "DRIFT $name: nothing is installed at $installed"
+      drifted=1
+    elif ! cmp -s "$repo" "$installed"; then
+      log "DRIFT $name: $installed differs from $repo"
+      drifted=1
+    fi
+  done
+  if [ "$drifted" -ne 0 ]; then
+    return 1
+  fi
+  log "installed copies match the repository (${#INSTALLED_PAIRS[@]} artifacts compared byte for byte)"
+}
 
 resolve_container() {
   local service="$1" explicit="$2" ids
@@ -91,6 +134,21 @@ dump_minio() {
   printf '%s' "$out"
 }
 
+dump_secrets() {
+  local out="$BACKUP_DIR/secrets-$STAMP.tar.gpg"
+  local tmp="$out.partial"
+  log "archiving secrets: coordinator environment, stellar keystore, $SECRETS_ETC without $SECRETS_EXCLUDE"
+  if ! tar -C / --exclude="$SECRETS_EXCLUDE" -cf - \
+         "$SECRETS_ENV" "$SECRETS_KEYSTORE" "$SECRETS_ETC" | encrypt_to "$tmp"; then
+    rm -f "$tmp"
+    die "secrets archive failed; the postgres and minio artifacts for this stamp were KEPT, because a database plus its object store still restores to an arbitrable trade"
+  fi
+  [ -s "$tmp" ] || { rm -f "$tmp"; die "secrets archive produced an empty file"; }
+  mv "$tmp" "$out"
+  log "secrets archive written: $out ($(du -h "$out" | cut -f1))"
+  printf '%s' "$out"
+}
+
 verify_readable() {
   local f="$1"
   gpg --batch --quiet --pinentry-mode loopback \
@@ -106,6 +164,28 @@ verify_readable() {
       [ "$entries" -ge 2 ] \
         || die "$f decrypts but holds $entries tar entries; an archive of nothing is not a backup"
       log "verified decryptable and a real archive ($entries entries): $(basename "$f")"
+      ;;
+    secrets-*)
+      local members env_present keystore_live keystore_archived
+      members="$(gpg --batch --quiet --pinentry-mode loopback \
+                   --passphrase-file "$PASSPHRASE_FILE" --decrypt "$f" 2>/dev/null \
+                 | tar -tf - 2>/dev/null)"
+      if printf '%s\n' "$members" | grep -qxF "$SECRETS_EXCLUDE"; then
+        die "$f CONTAINS $SECRETS_EXCLUDE, which is the passphrase every one of these archives is encrypted with; carrying it inside one is the same as shipping them all in plaintext"
+      fi
+      env_present="$(printf '%s\n' "$members" | grep -cxF "$SECRETS_ENV" || true)"
+      if [ "$env_present" != "1" ]; then
+        die "$f does not carry $SECRETS_ENV; without it the coordinator cannot boot from this backup"
+      fi
+      keystore_live="$(ls -1 "/$SECRETS_KEYSTORE"/*.toml 2>/dev/null | wc -l)"
+      keystore_archived="$(printf '%s\n' "$members" | grep -F "$SECRETS_KEYSTORE/" | grep -c '\.toml$' || true)"
+      if [ "$keystore_live" -lt 1 ]; then
+        die "the live keystore /$SECRETS_KEYSTORE holds no identity files; refusing to call this archive verified against nothing"
+      fi
+      if [ "$keystore_archived" != "$keystore_live" ]; then
+        die "$f holds $keystore_archived keystore identities but the live keystore has $keystore_live"
+      fi
+      log "verified decryptable: $(printf '%s\n' "$members" | wc -l) members, coordinator environment present, $keystore_archived of $keystore_live keystore identities, $SECRETS_EXCLUDE absent: $(basename "$f")"
       ;;
     *)
       log "verified decryptable end to end: $(basename "$f")"
@@ -184,17 +264,21 @@ main() {
 
   case "${1:-backup}" in
     backup)
-      local pg_file minio_file
+      local pg_file minio_file secrets_file
+      drift_report || log "WARNING the repository and the installed copies disagree. THIS RUN USED THE INSTALLED COPY, and it is going ahead: a stale backup is worth far more than no backup. Reinstall with: $(drift_fix_hint)"
       pg_file="$(dump_postgres)"
       minio_file="$(dump_minio)"
+      secrets_file="$(dump_secrets)"
       verify_readable "$pg_file"
       verify_readable "$minio_file"
-      ship_offsite "$pg_file" "$minio_file"
+      verify_readable "$secrets_file"
+      ship_offsite "$pg_file" "$minio_file" "$secrets_file"
       prune_old
       log "backup complete"
       ;;
     restore-test)
       restore_test "${2:-}"
+      drift_report || die "the restore above proves the INSTALLED copy works, and the installed copy is not what the repository says it should be, so this week's proof describes code that is not the source of truth. Reinstall with: $(drift_fix_hint)"
       ;;
     *)
       die "usage: $0 [backup|restore-test [dump-file]]"

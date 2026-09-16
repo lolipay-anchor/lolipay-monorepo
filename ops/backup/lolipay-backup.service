@@ -13,7 +13,7 @@ Environment=BACKUP_PASSPHRASE_FILE=/etc/lolipay/backup.key
 Environment=BACKUP_RETENTION_DAYS=60
 Environment=COMPOSE_FILE=/home/lolipay/lolipay-monorepo/services/coordinator/docker-compose.prod.yml
 Environment=COMPOSE_PROJECT=lolipayprod
-ExecStart=/home/lolipay/lolipay-monorepo/ops/backup/lolipay-backup.sh backup
+ExecStart=/usr/local/sbin/lolipay-backup.sh backup
 TimeoutStartSec=3600
 Nice=10
 IOSchedulingClass=idle

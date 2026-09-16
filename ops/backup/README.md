@@ -6,6 +6,10 @@ The escrow lives on Stellar and survives anything that happens to this machine. 
 
 It does not prove that the rupiah moved. Only Postgres and MinIO ever knew that — who was matched with whom, which bank reference was quoted, what the payment proof looked like, what evidence a dispute carried. Lose those and every in-flight or disputed trade becomes unarbitrable: you can see the on-chain half and nothing else.
 
+And restoring both of those onto a fresh machine still gets you nothing runnable, because the coordinator cannot boot without its environment and cannot sign without its keystore. So there is a third leg: the coordinator's environment file, the Stellar CLI keystore (ten identities, including the escrow admin, the resolver and the fiat attestor), and `/etc/lolipay`.
+
+`/etc/lolipay/backup.key` is **excluded, deliberately and permanently**. It is the passphrase every one of these archives is encrypted with; putting it inside one is the same as shipping them all in plaintext. The exclusion is asserted on every run, not merely configured — see step 5.
+
 That is the whole justification. It is not "databases should have backups".
 
 ## What it does
@@ -15,11 +19,14 @@ That is the whole justification. It is not "databases should have backups".
 1. Refuses to start unless the passphrase file exists with mode 600 or 400, both containers are running, and there is at least 1 GiB free.
 2. `pg_dump -Fc` out of the running Postgres container, straight into `gpg --symmetric --cipher-algo AES256`. The plaintext never touches disk.
 3. Tars MinIO's `/data` through the same encryption.
-4. **Decrypts both files end to end** to confirm they are readable and intact before doing anything else. AES256 in GPG carries an integrity check, so a file that cannot be decrypted fails here, and a minio archive that decrypts to fewer than two tar entries fails here too rather than on the day you need it.
-5. Ships off-site, if `BACKUP_OFFSITE_CMD` is set. If it is not set, it says so loudly.
-6. Only then prunes anything older than the retention window.
+4. Tars the secrets leg — coordinator environment, Stellar keystore, `/etc/lolipay` minus the passphrase — through the same encryption, with the same passphrase and the same retention. One scheduler, one key, one shape.
+5. **Decrypts all three files end to end** to confirm they are readable and intact before doing anything else. AES256 in GPG carries an integrity check, so a file that cannot be decrypted fails here, and a minio archive that decrypts to fewer than two tar entries fails here too rather than on the day you need it. The secrets archive additionally fails here unless the environment file is present **by name**, the keystore identity count matches the live keystore exactly, and `etc/lolipay/backup.key` is **absent**. Names only — no member's content is ever read or printed.
+6. Ships off-site, if `BACKUP_OFFSITE_CMD` is set. If it is not set, it says so loudly.
+7. Only then prunes anything older than the retention window.
 
-The ordering in 4–6 is the point. **A failed run never deletes a good backup**, and never leaves a partial file behind.
+The ordering in 5–7 is the point. **A failed run never deletes a good backup**, and never leaves a partial file behind.
+
+If the secrets leg fails, the postgres and minio artifacts for that stamp are **kept**, unlike the pg/minio pair which is torn down together. The pair is atomic because a database without its object store restores to an unarbitrable trade; a database and object store without the secrets still restore, they just need the environment rebuilt by hand.
 
 `lolipay-backup.sh restore-test` restores the newest dump into a scratch database, counts the tables, drops the scratch database, and reports how long it took. An untested backup is a belief, not a control — this is what turns it into one, and the elapsed time it prints is the real measured recovery time for the database leg.
 
@@ -40,11 +47,25 @@ sudo chmod 600 /etc/lolipay/backup.key
 
 **Write that passphrase down somewhere that is not this machine, right now.** Every backup is encrypted with it. If the disk dies and the passphrase died with it, the backups are noise.
 
+The scripts are executed by root, so root must own them. They are installed to `/usr/local/sbin`
+and the units point there — **never** at the working tree, which `lolipay` can write and therefore
+rewrite under root's feet at 03:15 every morning.
+
 ```bash
-sudo cp ops/backup/lolipay-backup*.service ops/backup/lolipay-backup*.timer /etc/systemd/system/
+cd ops/backup
+sudo install -o root -g root -m 755 lolipay-backup.sh lolipay-backup-failed.sh /usr/local/sbin/
+sudo install -o root -g root -m 644 lolipay-backup.service lolipay-backup-verify.service \
+  lolipay-backup-failed@.service lolipay-backup.timer lolipay-backup-verify.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now lolipay-backup.timer lolipay-backup-verify.timer
 ```
+
+Re-run that block after **every** edit here: this directory is the source of truth, and the
+installed copy is what actually runs. The two can drift silently, so they are compared on every
+run — `drift_report` checks all seven installed artifacts byte for byte. A backup that finds drift
+**warns and backs up anyway** (a stale backup beats no backup); the weekly restore test **fails**
+on drift, after completing the restore, so the proof is kept and `OnFailure` raises the alert.
+A missing repository copy is reported as blind, never as clean.
 
 Then prove it works rather than assuming:
 
@@ -111,6 +132,28 @@ The `tar` form that used to be documented here **cannot work**: the `minio/minio
 no `tar`. That is the same defect that stopped the backup leg from ever running, and it was
 left in the recovery leg for a day after the backup leg was fixed.
 
+Secrets — the leg that decides whether any of the above can actually be served:
+
+```bash
+sudo gpg --batch --pinentry-mode loopback \
+  --passphrase-file /etc/lolipay/backup.key \
+  --decrypt /var/backups/lolipay/secrets-<stamp>.tar.gpg | tar -tvf -
+
+sudo gpg --batch --pinentry-mode loopback \
+  --passphrase-file /etc/lolipay/backup.key \
+  --decrypt /var/backups/lolipay/secrets-<stamp>.tar.gpg \
+  | sudo tar -C / -xf -
+```
+
+**List it first and read the member names; never print a member's contents.** The archive stores
+paths relative to `/`, so `tar -C / -xf` puts every file back where it came from, with its original
+mode and ownership — the keystore returns as `0600 lolipay`, not as root-owned. It restores the
+coordinator environment, ten Stellar identities and `/etc/lolipay`.
+
+It does **not** restore `/etc/lolipay/backup.key`, by design — that is the passphrase you used to
+decrypt this archive, so on a rebuild you already have it in hand. If you do not, nothing above
+runs, which is why the install section says to write it down somewhere that is not this machine.
+
 Get the container names with `sudo docker compose -f services/coordinator/docker-compose.yml ps`.
 
 ## Retention
@@ -121,5 +164,6 @@ Get the container names with `sudo docker compose -f services/coordinator/docker
 
 - **The MinIO archive is taken while MinIO is running.** Proof and evidence objects are written once and never modified, so a file is either fully present or absent from the archive. An object uploaded during the tar could be missed and would be caught by the next run.
 - **The restore test covers the database only.** The MinIO archive is verified as decryptable and intact, but nothing extracts it and checks the objects.
-- **Failure is only visible in the journal.** `ALERT_WEBHOOK_URL` is not set anywhere, so the coordinator's alerting path does nothing. Until that is wired, add `OnFailure=` to both service units pointing at whatever notification you do have — otherwise a backup that has been failing for a month looks exactly like one that has been working.
-- **The host's own configuration is not backed up here.** Six nginx site files and four systemd units exist only on this machine and in no repository. Losing them means rebuilding the serving layer from memory.
+- ~~**Failure is only visible in the journal.** `ALERT_WEBHOOK_URL` is not set anywhere~~ — **corrected 2026-09-16: both clauses were false.** `OnFailure=lolipay-backup-failed@…` is wired on both service units and has fired at least once (2026-08-26), and `ALERT_WEBHOOK_URL` is present in the running coordinator's environment, checked by presence and never by value. So a failed run does reach the webhook. What is still true: nothing alerts if the timer itself stops being scheduled.
+- **The host's serving layer is still not in the encrypted set** — measured 2026-09-16, and the previous wording was wrong in both numbers. There are **7** enabled nginx site files, not six: six are tracked under `ops/host/nginx/sites-available/`, of which five are byte-identical to what nginx serves, `lolipay` **differs from the served copy**, and `lolipay-www` is tracked nowhere. There are **11** lolipay systemd units, not four: nine are tracked, and `lolipay-heartbeat.service` / `lolipay-heartbeat.timer` are tracked nowhere. None of these are inside a backup archive — git is the only copy, and for three of them there is no copy at all.
+- **Off-site shipping is still not configured**, so every archive — now including the secrets leg — lives on the same disk as the data it protects. That is the next item and it has a precondition the founder owns by hand.
