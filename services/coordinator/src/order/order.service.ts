@@ -38,7 +38,7 @@ import { PROVIDER_LOST_WHERE } from '../reputation/dispute-outcome';
 
 export const MAX_REF_ATTEMPTS = 5;
 
-const PRE_CHAIN_STATUSES = ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN'];
+export const PRE_CHAIN_STATUSES = ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN'];
 
 const FUNDED_OR_LATER = ['FUNDED', 'FIAT_PAID', 'RELEASED', 'REFUNDED', 'DISPUTED'];
 
@@ -319,7 +319,9 @@ export class OrderService {
     const fiatPayer = currentOrder.lp
       ? getFiatPayer(currentOrder.flow as Flow, currentOrder.userAddress, currentOrder.lp.stellarAddress)
       : undefined;
-    const mayReveal = isFundedOrLater && fiatPayer !== undefined && callerAddress === fiatPayer;
+    const providerStandsDown = isLp && order.lp!.status !== 'APPROVED';
+    const mayReveal =
+      isFundedOrLater && fiatPayer !== undefined && callerAddress === fiatPayer && !providerStandsDown;
     const shouldReveal =
       mayReveal &&
       (await this.identityVerified(currentOrder.personId, this.prisma));
@@ -502,7 +504,10 @@ export class OrderService {
 
       const serialized = serializeOrderBase(currentOrder);
       const fiatPayer = getFiatPayer(flow, currentOrder.userAddress, lpAddress);
-      const lpMayReveal = fiatPayer === lpAddress && FUNDED_OR_LATER.includes(currentOrder.status);
+      const lpMayReveal =
+        fiatPayer === lpAddress &&
+        FUNDED_OR_LATER.includes(currentOrder.status) &&
+        lp.status === 'APPROVED';
       if (lpMayReveal && (await this.identityVerified(currentOrder.personId, this.prisma))) {
         serialized.payment_instructions = getPaymentInstructions(currentOrder);
       } else if (lpMayReveal) {

@@ -9,6 +9,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { refundOpensAt } from '../order/dispute.util';
+import { PRE_CHAIN_STATUSES } from '../order/order.service';
 import { LpStatus, Market, OrderStatus, Prisma } from '../generated/prisma/client';
 import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
@@ -153,10 +154,13 @@ export class AdminService {
     note: string | null | undefined,
     actorAddress: string,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    const standingDown = status === 'SUSPENDED' || status === 'REVOKED';
+    const { updated, cancelled } = await this.prisma.$transaction(async (tx) => {
       const lp = await tx.lp.findUnique({ where: { id } });
       if (!lp) throw new NotFoundException();
-      if (lp.status === status && (note == null || note === lp.approvalNote)) return lp;
+      if (lp.status === status && (note == null || note === lp.approvalNote)) {
+        return { updated: lp, cancelled: [] as { id: string }[] };
+      }
 
       const updated = await tx.lp
         .update({
@@ -174,17 +178,45 @@ export class AdminService {
           throw e;
         });
 
+      const reachable = standingDown
+        ? await tx.order.findMany({
+            where: { lpId: id, status: { in: PRE_CHAIN_STATUSES as OrderStatus[] } },
+          })
+        : [];
+      if (reachable.length > 0) {
+        await tx.order.updateMany({
+          where: { lpId: id, status: { in: PRE_CHAIN_STATUSES as OrderStatus[] } },
+          data: { status: 'CANCELLED' },
+        });
+      }
+
       await recordAudit(tx as any, {
         actorAddress,
         action: 'lp.setStatus',
         targetType: 'Lp',
         targetId: id,
         before: { status: lp.status, approvalNote: lp.approvalNote },
-        after: { status: updated.status, approvalNote: updated.approvalNote },
+        after: {
+          status: updated.status,
+          approvalNote: updated.approvalNote,
+          cancelledOrderIds: reachable.map((o) => o.id),
+        },
       });
 
-      return updated;
+      return { updated, cancelled: reachable };
     });
+
+    for (const order of cancelled) {
+      try {
+        await this.notifications.notifyOrderStatus(order as any, 'CANCELLED');
+      } catch (err) {
+        this.log.warn(
+          `setStatus: notify failed for order ${order.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    return updated;
   }
 
   listOrders(

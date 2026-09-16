@@ -16,6 +16,10 @@ function makePrisma(lpRow: any) {
       create: jest.fn().mockImplementation(async ({ data }: any) => ({ id: 'new-lp', ...data })),
     },
     walletLink: { findUnique: jest.fn().mockResolvedValue(null) },
+    order: {
+      findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     adminAudit: { create: jest.fn().mockImplementation(async ({ data }: any) => { audits.push(data); return data; }) },
     config: {
       findUnique: jest.fn().mockResolvedValue({

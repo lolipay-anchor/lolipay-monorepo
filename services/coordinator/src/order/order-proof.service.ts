@@ -132,9 +132,9 @@ export class OrderProofService {
     if (!order) throw new NotFoundException('order not found');
 
     const isUser = order.userAddress === callerAddress;
-    const isLp = order.lp?.stellarAddress === callerAddress;
+    const isApprovedLp = order.lp?.stellarAddress === callerAddress && order.lp.status === 'APPROVED';
     const isAdmin = this.cfg.adminAddresses.includes(callerAddress);
-    if (!isUser && !isLp && !isAdmin) {
+    if (!isUser && !isApprovedLp && !isAdmin) {
       throw new ForbiddenException('not authorized to view this order’s payment proof');
     }
 
@@ -153,9 +153,9 @@ export class OrderProofService {
     if (!order) throw new NotFoundException('order not found');
 
     const isUser = order.userAddress === callerAddress;
-    const isLp = order.lp?.stellarAddress === callerAddress;
+    const isApprovedLp = order.lp?.stellarAddress === callerAddress && order.lp.status === 'APPROVED';
     const isAdmin = this.cfg.adminAddresses.includes(callerAddress);
-    if (!isUser && !isLp && !isAdmin) {
+    if (!isUser && !isApprovedLp && !isAdmin) {
       throw new ForbiddenException('not authorized to view this order’s dispute evidence');
     }
 
