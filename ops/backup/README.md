@@ -154,6 +154,20 @@ It does **not** restore `/etc/lolipay/backup.key`, by design — that is the pas
 decrypt this archive, so on a rebuild you already have it in hand. If you do not, nothing above
 runs, which is why the install section says to write it down somewhere that is not this machine.
 
+Two things to fix by hand after extracting onto a **fresh** machine, because tar restores the
+members it holds and nothing above them:
+
+```bash
+sudo chown lolipay:lolipay /home/lolipay/.config /home/lolipay/.config/stellar
+sudo chmod 600 /home/lolipay/lolipay-monorepo/services/coordinator/.env
+```
+
+The archive carries `…/.config/stellar/identity/` but not its two parent directories, so on a bare
+host `tar -C / -xf` creates them `root:root` and the CLI cannot read its own keystore. And any
+archive taken before 2026-09-16 12:17 UTC carries the environment file at mode **664**, which was
+the live mode until it was tightened — restoring one of those reintroduces a world-readable file
+holding the attestor secret. Check the mode with `tar -tvf` before extracting, not after.
+
 Get the container names with `sudo docker compose -f services/coordinator/docker-compose.yml ps`.
 
 ## Retention

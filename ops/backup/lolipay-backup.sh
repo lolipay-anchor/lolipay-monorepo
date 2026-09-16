@@ -39,17 +39,32 @@ drift_fix_hint() {
   printf 'cd %s && sudo install -o root -g root -m 755 lolipay-backup.sh lolipay-backup-failed.sh /usr/local/sbin/ && sudo install -o root -g root -m 644 lolipay-backup.service lolipay-backup-verify.service lolipay-backup-failed@.service lolipay-backup.timer lolipay-backup-verify.timer /etc/systemd/system/ && sudo systemctl daemon-reload' "$REPO_DIR"
 }
 
+root_owned_unwritable() {
+  local p="$1" owner mode
+  owner="$(stat -c '%U' "$p" 2>/dev/null)" || { printf 'cannot be stat-ed, so this check is blind'; return 1; }
+  mode="$(stat -c '%a' "$p" 2>/dev/null)" || { printf 'cannot be stat-ed, so this check is blind'; return 1; }
+  [ "$owner" = "root" ] || { printf 'is owned by %s, not root' "$owner"; return 1; }
+  [ $(( 8#$mode & 8#022 )) -eq 0 ] || { printf 'has mode %s, which lets group or other write it' "$mode"; return 1; }
+}
+
 drift_report() {
-  local pair name installed repo drifted=0
+  local pair name installed repo why dir drifted=0
   for pair in "${INSTALLED_PAIRS[@]}"; do
     name="${pair%%:*}"
     installed="${pair#*:}"
     repo="$REPO_DIR/$name"
+    dir="$(dirname "$installed")"
     if [ ! -f "$repo" ]; then
       log "DRIFT $name: no repository copy at $repo, so this comparison is BLIND; that is not the same as clean"
       drifted=1
     elif [ ! -f "$installed" ]; then
       log "DRIFT $name: nothing is installed at $installed"
+      drifted=1
+    elif ! why="$(root_owned_unwritable "$installed")"; then
+      log "DRIFT $name: $installed $why, and root executes it"
+      drifted=1
+    elif ! why="$(root_owned_unwritable "$dir")"; then
+      log "DRIFT $name: its directory $dir $why, so the file root executes can be replaced wholesale"
       drifted=1
     elif ! cmp -s "$repo" "$installed"; then
       log "DRIFT $name: $installed differs from $repo"
@@ -59,7 +74,7 @@ drift_report() {
   if [ "$drifted" -ne 0 ]; then
     return 1
   fi
-  log "installed copies match the repository (${#INSTALLED_PAIRS[@]} artifacts compared byte for byte)"
+  log "installed copies match the repository, are root-owned and are writable by nobody else (${#INSTALLED_PAIRS[@]} artifacts compared)"
 }
 
 resolve_container() {
