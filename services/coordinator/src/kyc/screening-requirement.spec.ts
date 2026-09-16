@@ -37,7 +37,7 @@ describe('whether a customer may move funds depends on one predicate that reads 
     const allowed = ['screening-requirement.ts', 'sep12.service.ts', 'sep24.service.ts'];
     const offenders = sourceFiles(join(__dirname, '..'))
       .filter((p) => !allowed.some((a) => p.endsWith(a)))
-      .filter((p) => /\b(screenedAt|deliveredAt|verifiedAt|popupMayOfferVendor|awaitingProvider|staleAcceptance|stillInFlight)\b/.test(readFileSync(p, 'utf8')));
+      .filter((p) => /\b(screenedAt|deliveredAt|verifiedAt|popupMayOfferVendor|awaitingProvider|staleAcceptance|stillInFlight|needsNewSession)\b/.test(readFileSync(p, 'utf8')));
     expect(offenders).toEqual([]);
   });
 
@@ -45,14 +45,21 @@ describe('whether a customer may move funds depends on one predicate that reads 
     const lines = readFileSync(join(__dirname, 'sep12.service.ts'), 'utf8')
       .split('\n')
       .map((l) => l.trim())
-      .filter((l) => /\b(screenedAt|deliveredAt|verifiedAt|popupMayOfferVendor|awaitingProvider|staleAcceptance|stillInFlight|providerRef|updatedAt)\b/.test(l));
+      .filter((l) => /\b(screenedAt|deliveredAt|verifiedAt|popupMayOfferVendor|awaitingProvider|staleAcceptance|stillInFlight|needsNewSession|providerRef|updatedAt)\b/.test(l));
     expect(lines).toEqual([
       "import { awaitingProvider, popupMayOfferVendor, staleAcceptance, SESSION_LIFETIME_MS } from './screening-requirement';",
       'export function stillInFlight(',
       'row: { status: string; providerRef: string | null; updatedAt: Date | null } | null | undefined,',
       "if (row?.status !== 'PROCESSING' || !row.providerRef) return false;",
       'return row.updatedAt == null || row.updatedAt.getTime() > Date.now() - SESSION_LIFETIME_MS;',
-      "if ((settled?.status === 'ACCEPTED' && !staleAcceptance(settled)) || stillInFlight(settled)) return;",
+      'export function needsNewSession(',
+      'providerRef: string | null;',
+      'updatedAt: Date | null;',
+      'screenedAt: Date | null;',
+      'deliveredAt: Date | null;',
+      'verifiedAt: Date | null;',
+      "return (row?.status === 'PROCESSING' && !stillInFlight(row)) || staleAcceptance(row, requireAml);",
+      "if ((settled?.status === 'ACCEPTED' && !staleAcceptance(settled, this.cfg.kycRequireAml)) || stillInFlight(settled)) return;",
       'providerRef: null,',
       'verifiedAt: null,',
       'async applyDelivery(conclusion: DiditConclusion, deliveredAt: Date): Promise<void> {',
@@ -66,17 +73,17 @@ describe('whether a customer may move funds depends on one predicate that reads 
       'deliveredAt: conclusion.notStarted ? (standing?.deliveredAt ?? null) : deliveredAt,',
       'screenedAt: screened ? deliveredAt : null,',
       "verifiedAt: conclusion.status === 'ACCEPTED' ? deliveredAt : null,",
-      'if (staleAcceptance(row)) {',
+      'if (needsNewSession(row, this.cfg.kycRequireAml)) {',
       'if (awaitingProvider(row, this.cfg.kycRequireAml)) {',
       "const providerPage = row.verificationUrl?.startsWith('https://') && popupMayOfferVendor(row) && stillInFlight(row) ? row.verificationUrl : null;",
       'data: { rejectionReason: null, screenedAt: null, verifiedAt: null, verificationUrl: null, providerRef: null, environment: null },',
-      "if (inFlight?.status === 'ACCEPTED' && !staleAcceptance(inFlight)) {",
+      "if (inFlight?.status === 'ACCEPTED' && !staleAcceptance(inFlight, this.cfg.kycRequireAml)) {",
       'if (stillInFlight(inFlight)) {',
       'providerRef: decision.providerRef ?? null,',
       "verifiedAt: decision.status === 'ACCEPTED' ? new Date() : null,",
       'screenedAt: null,',
       'deliveredAt: null,',
-      "(settledMeanwhile?.status === 'ACCEPTED' && !staleAcceptance(settledMeanwhile)) ||",
+      "(settledMeanwhile?.status === 'ACCEPTED' && !staleAcceptance(settledMeanwhile, this.cfg.kycRequireAml)) ||",
       '(stillInFlight(settledMeanwhile) && settledMeanwhile!.providerRef !== decision.providerRef)',
     ]);
   });
@@ -85,14 +92,15 @@ describe('whether a customer may move funds depends on one predicate that reads 
     const lines = readFileSync(join(__dirname, 'screening-requirement.ts'), 'utf8')
       .split('\n')
       .map((l) => l.trim())
-      .filter((l) => /\b(screenedAt|deliveredAt|verifiedAt|stillInFlight|providerRef|updatedAt)\b/.test(l));
+      .filter((l) => /\b(screenedAt|deliveredAt|verifiedAt|stillInFlight|needsNewSession|providerRef|updatedAt)\b/.test(l));
     expect(lines).toEqual([
       "? { status: 'ACCEPTED' as const, screenedAt: { not: null } }",
       ": { status: 'ACCEPTED' as const, deliveredAt: { not: null } };",
       'row: { status: string; screenedAt: Date | null; deliveredAt: Date | null },',
       'return requireAml ? row.screenedAt === null : row.deliveredAt === null;',
       'row: { status: string; screenedAt: Date | null; deliveredAt: Date | null; verifiedAt: Date | null } | null | undefined,',
-      "if (row?.status !== 'ACCEPTED' || row.deliveredAt != null || row.screenedAt != null) return false;",
+      "if (row?.status !== 'ACCEPTED' || row.screenedAt != null) return false;",
+      'if (row.deliveredAt != null) return requireAml;',
       'return row.verifiedAt != null && row.verifiedAt.getTime() < Date.now() - SESSION_LIFETIME_MS;',
       "return { status: 'REJECTED' as const, deliveredAt: { gte: since } };",
       "return { status: 'ACCEPTED' as const, screenedAt: null, deliveredAt: { gte: since } };",
@@ -136,17 +144,14 @@ describe('the popup reads the screening fields and the session-freshness fields 
     const lines = readFileSync(join(__dirname, '..', 'sep24', 'sep24.service.ts'), 'utf8')
       .split('\n')
       .map((l) => l.trim())
-      .filter((l) => /\b(screenedAt|deliveredAt|verifiedAt|popupMayOfferVendor|awaitingProvider|staleAcceptance|stillInFlight|providerRef|updatedAt|sessionDied)\b/.test(l));
+      .filter((l) => /\b(screenedAt|deliveredAt|verifiedAt|popupMayOfferVendor|awaitingProvider|staleAcceptance|stillInFlight|needsNewSession|providerRef|updatedAt)\b/.test(l));
     expect(lines).toEqual([
-      "import { acceptedForFunds, popupMayOfferVendor, staleAcceptance } from '../kyc/screening-requirement';",
-      "import { Sep12Service, stillInFlight } from '../kyc/sep12.service';",
-      'const restarted = this.sessionDied(kyc)',
+      "import { acceptedForFunds, popupMayOfferVendor } from '../kyc/screening-requirement';",
+      "import { Sep12Service, needsNewSession } from '../kyc/sep12.service';",
+      'const restarted = needsNewSession(kyc, this.cfg.kycRequireAml)',
       'if (vendor && popupMayOfferVendor(kyc)) {',
-      'private sessionDied(',
       '| { status: KycStatus; providerRef: string | null; updatedAt: Date | null; screenedAt: Date | null; deliveredAt: Date | null; verifiedAt: Date | null }',
-      "return (kyc?.status === 'PROCESSING' && !stillInFlight(kyc)) || staleAcceptance(kyc ?? undefined);",
-      '| { status: KycStatus; providerRef: string | null; updatedAt: Date | null; screenedAt: Date | null; deliveredAt: Date | null; verifiedAt: Date | null }',
-      "kycStatus: screened ? 'ACCEPTED' : this.sessionDied(kyc) ? 'NEEDS_INFO' : (kyc?.status ?? null),",
+      "kycStatus: screened ? 'ACCEPTED' : needsNewSession(kyc, this.cfg.kycRequireAml) ? 'NEEDS_INFO' : (kyc?.status ?? null),",
     ]);
   });
 });
@@ -169,36 +174,50 @@ describe('an acceptance the provider never delivered, old enough that it never w
 
   it('holds the window at exactly one day, stated as a literal here so that moving the constant or loosening the comparison turns this red instead of riding along with the fixtures', () => {
     const DAY = 24 * 60 * 60 * 1000;
-    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: new Date(now - DAY) })).toBe(false);
-    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: new Date(now - DAY - 1) })).toBe(true);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: new Date(now - DAY) }, true)).toBe(false);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: new Date(now - DAY) }, false)).toBe(false);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: new Date(now - DAY - 1) }, true)).toBe(true);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: new Date(now - DAY - 1) }, false)).toBe(true);
   });
 
   it('reopens an accepted row that carries no delivery and was verified longer ago than a session can live', () => {
-    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: stale })).toBe(true);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: stale }, true)).toBe(true);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: stale }, false)).toBe(true);
   });
 
   it('leaves an acceptance written seconds ago alone, because that is the shape a synchronous provider writes on the PUT itself, and staleness is the only thing separating it from a row that has been lying to someone for months', () => {
-    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: fresh })).toBe(false);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: fresh }, true)).toBe(false);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: fresh }, false)).toBe(false);
   });
 
-  it('leaves a delivered acceptance alone however old it is, because deliveredAt is the field the money gate already keys on and one field is one truth', () => {
-    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: stale, screenedAt: null, verifiedAt: stale })).toBe(false);
+  it('leaves a delivered acceptance alone however old it is where a delivery is the whole of what the money gate asks for, because that customer is settled and must never be sent round again', () => {
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: stale, screenedAt: null, verifiedAt: stale }, false)).toBe(false);
+  });
+
+  it('reopens that same row where the money gate asks for a screening, because the provider has already answered for that session and will never answer it again, so reporting progress on it promises an event that cannot happen', () => {
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: stale, screenedAt: null, verifiedAt: stale }, true)).toBe(true);
   });
 
   it('leaves a screened acceptance alone, so nobody the money gate admits under either value of the AML switch is ever sent round again', () => {
-    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: stale, screenedAt: stale, verifiedAt: stale })).toBe(false);
-    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: stale, verifiedAt: stale })).toBe(false);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: stale, screenedAt: stale, verifiedAt: stale }, true)).toBe(false);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: stale, screenedAt: stale, verifiedAt: stale }, false)).toBe(false);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: stale, verifiedAt: stale }, true)).toBe(false);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: stale, verifiedAt: stale }, false)).toBe(false);
   });
 
   it('treats a row nothing ever stamped as not stale, because writing that comparison the other way round reopens every unstamped acceptance ever written', () => {
-    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: null })).toBe(false);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: null }, true)).toBe(false);
+    expect(staleAcceptance({ status: 'ACCEPTED', deliveredAt: null, screenedAt: null, verifiedAt: null }, false)).toBe(false);
   });
 
-  it('reads two row columns and never which provider is bound, so it cannot behave one way in the suite and another in production', () => {
-    expect(staleAcceptance({ status: 'PROCESSING', deliveredAt: null, screenedAt: null, verifiedAt: stale })).toBe(false);
-    expect(staleAcceptance({ status: 'NEEDS_INFO', deliveredAt: null, screenedAt: null, verifiedAt: stale })).toBe(false);
-    expect(staleAcceptance({ status: 'REJECTED', deliveredAt: null, screenedAt: null, verifiedAt: stale })).toBe(false);
-    expect(staleAcceptance(null)).toBe(false);
-    expect(staleAcceptance(undefined)).toBe(false);
+  it('reads the row and the AML switch it is handed, and never which provider is bound, so it cannot behave one way in the suite and another in production', () => {
+    for (const requireAml of [true, false]) {
+      expect(staleAcceptance({ status: 'PROCESSING', deliveredAt: null, screenedAt: null, verifiedAt: stale }, requireAml)).toBe(false);
+      expect(staleAcceptance({ status: 'NEEDS_INFO', deliveredAt: null, screenedAt: null, verifiedAt: stale }, requireAml)).toBe(false);
+      expect(staleAcceptance({ status: 'REJECTED', deliveredAt: null, screenedAt: null, verifiedAt: stale }, requireAml)).toBe(false);
+      expect(staleAcceptance({ status: 'REJECTED', deliveredAt: stale, screenedAt: null, verifiedAt: stale }, requireAml)).toBe(false);
+      expect(staleAcceptance(null, requireAml)).toBe(false);
+      expect(staleAcceptance(undefined, requireAml)).toBe(false);
+    }
   });
 });

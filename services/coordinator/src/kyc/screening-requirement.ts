@@ -22,8 +22,10 @@ export const SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
 export function staleAcceptance(
   row: { status: string; screenedAt: Date | null; deliveredAt: Date | null; verifiedAt: Date | null } | null | undefined,
+  requireAml: boolean,
 ): boolean {
-  if (row?.status !== 'ACCEPTED' || row.deliveredAt != null || row.screenedAt != null) return false;
+  if (row?.status !== 'ACCEPTED' || row.screenedAt != null) return false;
+  if (row.deliveredAt != null) return requireAml;
   return row.verifiedAt != null && row.verifiedAt.getTime() < Date.now() - SESSION_LIFETIME_MS;
 }
 

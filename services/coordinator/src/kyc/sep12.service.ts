@@ -21,6 +21,23 @@ export function stillInFlight(
   return row.updatedAt == null || row.updatedAt.getTime() > Date.now() - SESSION_LIFETIME_MS;
 }
 
+export function needsNewSession(
+  row:
+    | {
+        status: string;
+        providerRef: string | null;
+        updatedAt: Date | null;
+        screenedAt: Date | null;
+        deliveredAt: Date | null;
+        verifiedAt: Date | null;
+      }
+    | null
+    | undefined,
+  requireAml: boolean,
+): boolean {
+  return (row?.status === 'PROCESSING' && !stillInFlight(row)) || staleAcceptance(row, requireAml);
+}
+
 const PROVIDED = Object.fromEntries(
   REQUIRED_KYC_FIELDS.map((f) => [f, KYC_FIELD_DESCRIPTORS[f]]),
 );
@@ -46,7 +63,7 @@ export class Sep12Service {
       });
       if (refused) throw new ForbiddenException('this identity was refused and cannot be resubmitted here');
       const settled = await tx.kycVerification.findUnique({ where: { customerRef } });
-      if ((settled?.status === 'ACCEPTED' && !staleAcceptance(settled)) || stillInFlight(settled)) return;
+      if ((settled?.status === 'ACCEPTED' && !staleAcceptance(settled, this.cfg.kycRequireAml)) || stillInFlight(settled)) return;
       await tx.kycVerification.upsert({
         where: { customerRef },
         create: { customerRef, personId, status: 'NEEDS_INFO' },
@@ -182,7 +199,7 @@ export class Sep12Service {
     if (row.status === 'NEEDS_INFO') {
       return { id: row.customerRef, status: row.status, fields: KYC_FIELD_DESCRIPTORS };
     }
-    if (staleAcceptance(row)) {
+    if (needsNewSession(row, this.cfg.kycRequireAml)) {
       return {
         id: row.customerRef,
         status: 'NEEDS_INFO',
@@ -267,7 +284,7 @@ export class Sep12Service {
     }
 
     const inFlight = await this.prisma.kycVerification.findUnique({ where: { customerRef } });
-    if (inFlight?.status === 'ACCEPTED' && !staleAcceptance(inFlight)) {
+    if (inFlight?.status === 'ACCEPTED' && !staleAcceptance(inFlight, this.cfg.kycRequireAml)) {
       return { id: customerRef };
     }
     if (stillInFlight(inFlight)) {
@@ -297,7 +314,7 @@ export class Sep12Service {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${person.id}))`;
         const settledMeanwhile = await tx.kycVerification.findUnique({ where: { customerRef } });
         if (
-          (settledMeanwhile?.status === 'ACCEPTED' && !staleAcceptance(settledMeanwhile)) ||
+          (settledMeanwhile?.status === 'ACCEPTED' && !staleAcceptance(settledMeanwhile, this.cfg.kycRequireAml)) ||
           (stillInFlight(settledMeanwhile) && settledMeanwhile!.providerRef !== decision.providerRef)
         ) {
           this.log.warn(

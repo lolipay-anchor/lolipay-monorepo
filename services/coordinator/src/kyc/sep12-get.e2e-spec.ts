@@ -3,6 +3,7 @@ import request from 'supertest';
 import { Keypair } from '@stellar/stellar-sdk';
 import { bootAuthApp, anchorToken, sessionToken } from '../auth/auth-test-helpers';
 import { PrismaService } from '../prisma/prisma.service';
+import { KYC_FIELD_DESCRIPTORS } from './kyc-provider';
 
 describe('GET /customer tells a caller where their verification stands', () => {
   let app: INestApplication;
@@ -319,7 +320,7 @@ describe('GET /customer tells a caller where their verification stands', () => {
     expect(String(plainRes.body.message)).not.toContain('javascript:');
   });
 
-  it('withholds the provider page for a session past its day, the same row the popup sends back to the identity form', async () => {
+  it('sends a session past its day back to the identity form, the same answer the popup gives that row, and still never hands out the dead provider page', async () => {
     const kp = Keypair.random();
     const jwt = await anchorToken(app, kp);
     await prisma.kycVerification.create({
@@ -337,8 +338,11 @@ describe('GET /customer tells a caller where their verification stands', () => {
       .get('/customer')
       .set('Authorization', `Bearer ${jwt}`)
       .expect(200);
-    expect(res.body.status).toBe('PROCESSING');
-    expect(String(res.body.message)).toMatch(/submit your details again after a day/);
-    expect(String(res.body.message)).not.toContain('verify.didit.me');
+    expect(res.body.status).toBe('NEEDS_INFO');
+    expect(res.body.fields).toEqual(KYC_FIELD_DESCRIPTORS);
+    expect(res.body.message).toBe(
+      'this verification did not complete, so no trade can be opened yet; submit your details again and a new one will be opened',
+    );
+    expect(JSON.stringify(res.body)).not.toContain('verify.didit.me');
   });
 });

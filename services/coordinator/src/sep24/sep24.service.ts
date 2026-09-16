@@ -7,14 +7,14 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { acceptedForFunds, popupMayOfferVendor, staleAcceptance } from '../kyc/screening-requirement';
+import { acceptedForFunds, popupMayOfferVendor } from '../kyc/screening-requirement';
 import { KycStatus } from '../generated/prisma/client';
 import { RESOLVER_WINDOW_SECS, signingCutoffSecs } from '../config/contract-limits';
 import { refundOpensAt } from '../order/dispute.util';
 import { RefundSignerService } from '../stellar/refund-signer.service';
 import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
-import { Sep12Service, stillInFlight } from '../kyc/sep12.service';
+import { Sep12Service, needsNewSession } from '../kyc/sep12.service';
 import { RateService } from '../rate/rate.service';
 import { OrderService } from '../order/order.service';
 import { OrderTxService } from '../order/order-tx.service';
@@ -322,7 +322,7 @@ export class Sep24Service {
     }
     if (screen === 'identity') {
       const fields = REQUIRED_KYC_FIELDS.map((f) => identityField(f)).join('');
-      const restarted = this.sessionDied(kyc)
+      const restarted = needsNewSession(kyc, this.cfg.kycRequireAml)
         ? '<p>Your previous verification did not finish, so lolipay can no longer use it. Enter your details below and we will start a new one — this does not affect the USDC in your wallet.</p>'
         : '';
       return page(
@@ -452,14 +452,6 @@ export class Sep24Service {
     await this.sep12.put(row.stellarAccount, fields);
   }
 
-  private sessionDied(
-    kyc:
-      | { status: KycStatus; providerRef: string | null; updatedAt: Date | null; screenedAt: Date | null; deliveredAt: Date | null; verifiedAt: Date | null }
-      | null,
-  ): boolean {
-    return (kyc?.status === 'PROCESSING' && !stillInFlight(kyc)) || staleAcceptance(kyc ?? undefined);
-  }
-
   private screenFor(
     row: any,
     kyc:
@@ -472,7 +464,7 @@ export class Sep24Service {
     }
     const screened = Boolean(state?.screenedElsewhere);
     return interactiveScreen({
-      kycStatus: screened ? 'ACCEPTED' : this.sessionDied(kyc) ? 'NEEDS_INFO' : (kyc?.status ?? null),
+      kycStatus: screened ? 'ACCEPTED' : needsNewSession(kyc, this.cfg.kycRequireAml) ? 'NEEDS_INFO' : (kyc?.status ?? null),
       screened,
       orderStatus: (row.order?.status as any) ?? null,
       flow: row.flow,
