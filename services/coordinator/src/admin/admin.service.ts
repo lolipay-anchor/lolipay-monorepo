@@ -9,7 +9,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { refundOpensAt } from '../order/dispute.util';
-import { PRE_CHAIN_STATUSES } from '../order/order.service';
+import { PRE_CHAIN_STATUSES } from '../order/order-status.service';
 import { LpStatus, Market, OrderStatus, Prisma } from '../generated/prisma/client';
 import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';

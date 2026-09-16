@@ -16,6 +16,8 @@ export const REFRESH_FROM_CHAIN_STATUSES = [
   'DISPUTED',
 ];
 
+export const PRE_CHAIN_STATUSES = ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN'];
+
 export const STATUS_ORDER = [
   'CREATED',
   'MATCHED',

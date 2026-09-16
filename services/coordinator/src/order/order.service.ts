@@ -21,7 +21,7 @@ import { NotificationService } from '../notification/notification.service';
 import { mapRoles, newTradeId, Flow, getFiatPayer } from './order.params';
 import { serializeOrderBase } from './order.serialize';
 import { lpExposure, LP_CAPACITY_LOCK_NAMESPACE } from './lp-exposure';
-import { settlementFieldsFrom } from './order-status.service';
+import { PRE_CHAIN_STATUSES, settlementFieldsFrom } from './order-status.service';
 import { ConfigCache } from '../config/config-cache';
 import {
   OrderStatusService,
@@ -37,8 +37,6 @@ import { PROVIDER_LOST_WHERE } from '../reputation/dispute-outcome';
 
 
 export const MAX_REF_ATTEMPTS = 5;
-
-export const PRE_CHAIN_STATUSES = ['CREATED', 'MATCHED', 'AWAITING_ONCHAIN'];
 
 const FUNDED_OR_LATER = ['FUNDED', 'FIAT_PAID', 'RELEASED', 'REFUNDED', 'DISPUTED'];
 
@@ -319,7 +317,7 @@ export class OrderService {
     const fiatPayer = currentOrder.lp
       ? getFiatPayer(currentOrder.flow as Flow, currentOrder.userAddress, currentOrder.lp.stellarAddress)
       : undefined;
-    const providerStandsDown = isLp && order.lp!.status !== 'APPROVED';
+    const providerStandsDown = isLp && currentOrder.lp!.status !== 'APPROVED';
     const mayReveal =
       isFundedOrLater && fiatPayer !== undefined && callerAddress === fiatPayer && !providerStandsDown;
     const shouldReveal =

@@ -54,7 +54,7 @@ function makeOrder(lpStatus: string, overrides: Partial<any> = {}): any {
   };
 }
 
-function build(order: any) {
+function build(order: any, refreshedOrder: any = order) {
   const prisma = {
     kycVerification: verifiedCustomerStub(),
     order: {
@@ -80,7 +80,7 @@ function build(order: any) {
     adminAddresses: [],
   } as any;
   const status = orderStatusFor(prisma, stellar, cfg);
-  jest.spyOn(status, 'refreshOrderStatus').mockResolvedValue(order);
+  jest.spyOn(status, 'refreshOrderStatus').mockResolvedValue(refreshedOrder);
   const svc = new OrderService(
     prisma,
     stellar,
@@ -157,5 +157,28 @@ describe('a provider whose approval was withdrawn stops receiving the counterpar
 
     expect(rows).toHaveLength(1);
     expect(rows[0].order.payment_instructions).toBe(USER_BANK);
+  });
+});
+
+describe('the reveal reads the provider row the refresh returned, not the one the request opened with', () => {
+  it('withholds the bank account when the approval was withdrawn while the order was refreshing from chain', async () => {
+    const opened = makeOrder('APPROVED');
+    const refreshed = { ...opened, lp: lpRow('REVOKED') };
+    const { svc } = build(opened, refreshed);
+
+    const serialized = await svc.getOrder('order-1', LP_ADDR);
+
+    expect(serialized.payment_instructions).toBeUndefined();
+    expect(JSON.stringify(serialized)).not.toContain(USER_BANK);
+  });
+
+  it('hands over the bank account when the approval was restored while the order was refreshing from chain', async () => {
+    const opened = makeOrder('REVOKED');
+    const refreshed = { ...opened, lp: lpRow('APPROVED') };
+    const { svc } = build(opened, refreshed);
+
+    const serialized = await svc.getOrder('order-1', LP_ADDR);
+
+    expect(serialized.payment_instructions).toBe(USER_BANK);
   });
 });
