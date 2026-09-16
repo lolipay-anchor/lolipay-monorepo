@@ -163,7 +163,7 @@ function RegisterLpForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
   const [stellarAddress, setStellarAddress] = React.useState('')
   const [contact, setContact] = React.useState('')
   const [liquidityProof, setLiquidityProof] = React.useState('')
-  const [approve, setApprove] = React.useState(true)
+  const [approve, setApprove] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
   const addrValid = G_ADDRESS.test(stellarAddress.trim())

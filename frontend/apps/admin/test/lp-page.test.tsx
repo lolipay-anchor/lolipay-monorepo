@@ -66,7 +66,34 @@ describe('LPs page', () => {
     queryClient.clear()
   })
 
-  it('registers an LP via the admin form', async () => {
+  it('registers an LP via the admin form, unapproved unless the administrator ticks the box', async () => {
+    vi.mocked(apiClient.getLps).mockResolvedValue([])
+    vi.mocked(apiClient.registerLp).mockResolvedValueOnce({ ...MOCK_LP, status: 'PENDING' })
+    const ADDR = 'G' + 'A'.repeat(55)
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <LPsPage />
+      </TestProviders>,
+    )
+
+    fireEvent.click(await screen.findByTestId('open-register'))
+
+    expect(screen.getByTestId('reg-approve')).not.toBeChecked()
+
+    fireEvent.change(screen.getByTestId('reg-address'), { target: { value: ADDR } })
+    fireEvent.change(screen.getByTestId('reg-contact'), { target: { value: 'tg:@lp_budi' } })
+    fireEvent.click(screen.getByTestId('reg-submit'))
+
+    await waitFor(() =>
+      expect(apiClient.registerLp).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ stellarAddress: ADDR, contact: 'tg:@lp_budi', approve: false }),
+      ),
+    )
+  })
+
+  it('registers an approved LP when the administrator ticks the box, so approval stays reachable', async () => {
     vi.mocked(apiClient.getLps).mockResolvedValue([])
     vi.mocked(apiClient.registerLp).mockResolvedValueOnce({ ...MOCK_LP, status: 'APPROVED' })
     const ADDR = 'G' + 'A'.repeat(55)
@@ -81,6 +108,7 @@ describe('LPs page', () => {
 
     fireEvent.change(screen.getByTestId('reg-address'), { target: { value: ADDR } })
     fireEvent.change(screen.getByTestId('reg-contact'), { target: { value: 'tg:@lp_budi' } })
+    fireEvent.click(screen.getByTestId('reg-approve'))
     fireEvent.click(screen.getByTestId('reg-submit'))
 
     await waitFor(() =>

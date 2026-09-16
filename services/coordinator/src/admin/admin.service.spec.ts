@@ -73,15 +73,15 @@ function makeMarkets(overrides: Record<string, any> = {}) {
 }
 
 describe('AdminService.register', () => {
-  it('creates an APPROVED LP by default (admin vouches)', async () => {
+  it('creates a PENDING LP when the registration says nothing about approval, so approval is never reached by omission', async () => {
     const prisma = makePrisma();
     prisma.lp.findUnique.mockResolvedValue(null);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
     const lp = await svc.register({ stellarAddress: ADDR, contact: 'tg:@lp' } as any, 'GADMINTEST');
 
-    expect(lp.status).toBe('APPROVED');
-    expect(lp.approvedAt).toBeInstanceOf(Date);
+    expect(lp.status).toBe('PENDING');
+    expect(lp.approvedAt).toBeNull();
     expect(lp.stellarAddress).toBe(ADDR);
 
     expect(lp.liquidityProof).toBe('Registered by admin');
