@@ -26,8 +26,7 @@ INSTALLED_PAIRS=(
 
 SECRETS_ENV="home/lolipay/lolipay-monorepo/services/coordinator/.env"
 SECRETS_KEYSTORE="home/lolipay/.config/stellar/identity"
-SECRETS_ETC="etc/lolipay"
-SECRETS_EXCLUDE="etc/lolipay/backup.key"
+SECRETS_FORBIDDEN_PREFIX="etc/lolipay/"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 LOG_TAG="lolipay-backup"
@@ -156,9 +155,9 @@ dump_minio() {
 dump_secrets() {
   local out="$BACKUP_DIR/secrets-$STAMP.tar.gpg"
   local tmp="$out.partial"
-  log "archiving secrets: coordinator environment, stellar keystore, $SECRETS_ETC without $SECRETS_EXCLUDE"
-  if ! tar -C / --exclude="$SECRETS_EXCLUDE" -cf - \
-         "$SECRETS_ENV" "$SECRETS_KEYSTORE" "$SECRETS_ETC" | encrypt_to "$tmp"; then
+  log "archiving secrets: coordinator environment and stellar keystore; nothing under $SECRETS_FORBIDDEN_PREFIX is named, so nothing there can be swept in"
+  if ! tar -C / -cf - \
+         "$SECRETS_ENV" "$SECRETS_KEYSTORE" | encrypt_to "$tmp"; then
     rm -f "$tmp"
     die "secrets archive failed; the postgres and minio artifacts for this stamp were kept AND ALREADY VERIFIED, because a database plus its object store still restores to an arbitrable trade; only the environment has to be rebuilt by hand"
   fi
@@ -189,8 +188,8 @@ verify_readable() {
       members="$(gpg --batch --quiet --pinentry-mode loopback \
                    --passphrase-file "$PASSPHRASE_FILE" --decrypt "$f" 2>/dev/null \
                  | tar -tf - 2>/dev/null)"
-      if printf '%s\n' "$members" | grep -qxF "$SECRETS_EXCLUDE"; then
-        die "$f CONTAINS $SECRETS_EXCLUDE, which is the passphrase every one of these archives is encrypted with; carrying it inside one is the same as shipping them all in plaintext"
+      if printf '%s\n' "$members" | grep -q "^$SECRETS_FORBIDDEN_PREFIX"; then
+        die "$f CONTAINS a member under $SECRETS_FORBIDDEN_PREFIX, which is where the passphrase every one of these archives is encrypted with lives; carrying anything from that directory inside one is the same as shipping them all in plaintext"
       fi
       env_present="$(printf '%s\n' "$members" | grep -cxF "$SECRETS_ENV" || true)"
       if [ "$env_present" != "1" ]; then
@@ -204,7 +203,7 @@ verify_readable() {
       if [ "$keystore_archived" != "$keystore_live" ]; then
         die "$f holds $keystore_archived keystore identities but the live keystore has $keystore_live"
       fi
-      log "verified decryptable: $(printf '%s\n' "$members" | wc -l) members, coordinator environment present, $keystore_archived of $keystore_live keystore identities, $SECRETS_EXCLUDE absent: $(basename "$f")"
+      log "verified decryptable: $(printf '%s\n' "$members" | wc -l) members, coordinator environment present, $keystore_archived of $keystore_live keystore identities, no member under $SECRETS_FORBIDDEN_PREFIX: $(basename "$f")"
       ;;
     *)
       log "verified decryptable end to end: $(basename "$f")"

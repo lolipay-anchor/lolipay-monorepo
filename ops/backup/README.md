@@ -6,9 +6,9 @@ The escrow lives on Stellar and survives anything that happens to this machine. 
 
 It does not prove that the rupiah moved. Only Postgres and MinIO ever knew that — who was matched with whom, which bank reference was quoted, what the payment proof looked like, what evidence a dispute carried. Lose those and every in-flight or disputed trade becomes unarbitrable: you can see the on-chain half and nothing else.
 
-And restoring both of those onto a fresh machine still gets you nothing runnable, because the coordinator cannot boot without its environment and cannot sign without its keystore. So there is a third leg: the coordinator's environment file, the Stellar CLI keystore (ten identities, including the escrow admin, the resolver and the fiat attestor), and `/etc/lolipay`.
+And restoring both of those onto a fresh machine still gets you nothing runnable, because the coordinator cannot boot without its environment and cannot sign without its keystore. So there is a third leg: the coordinator's environment file and the Stellar CLI keystore (ten identities, including the escrow admin, the resolver and the fiat attestor).
 
-`/etc/lolipay/backup.key` is **excluded, deliberately and permanently**. It is the passphrase every one of these archives is encrypted with; putting it inside one is the same as shipping them all in plaintext. The exclusion is asserted on every run, not merely configured — see step 5.
+**`/etc/lolipay` is not archived at all.** It is the directory holding `backup.key`, the passphrase every one of these archives is encrypted with; putting that inside one is the same as shipping them all in plaintext. Until 2026-09-17 the directory *was* named for archiving and the key removed again with `tar --exclude=etc/lolipay/backup.key`, which is a filter that matches one exact name: `backup.key~`, `backup.key.bak` and `backup.key.new` all walked straight through it, and the assertion on the other side — an exact match on that same one name — then reported the key **absent**. `/etc/lolipay` held exactly one file the whole time, so no archive on disk was ever affected; the trigger would have been the first passphrase **rotation**, which is the one operation that puts a second file in that directory. Naming nothing there is what removed the class: there is no exclusion to get wrong, and step 5 now refuses any member under `etc/lolipay/` whatsoever. If a non-secret file ever has to be carried from there, it gets its own explicit member — never the directory.
 
 That is the whole justification. It is not "databases should have backups".
 
@@ -19,8 +19,8 @@ That is the whole justification. It is not "databases should have backups".
 1. Refuses to start unless the passphrase file exists with mode 600 or 400, both containers are running, and there is at least 1 GiB free.
 2. `pg_dump -Fc` out of the running Postgres container, straight into `gpg --symmetric --cipher-algo AES256`. The plaintext never touches disk.
 3. Tars MinIO's `/data` through the same encryption.
-4. Tars the secrets leg — coordinator environment, Stellar keystore, `/etc/lolipay` minus the passphrase — through the same encryption, with the same passphrase and the same retention. One scheduler, one key, one shape.
-5. **Decrypts all three files end to end** to confirm they are readable and intact before doing anything else. AES256 in GPG carries an integrity check, so a file that cannot be decrypted fails here, and a minio archive that decrypts to fewer than two tar entries fails here too rather than on the day you need it. The secrets archive additionally fails here unless the environment file is present **by name**, the keystore identity count matches the live keystore exactly, and `etc/lolipay/backup.key` is **absent**. Names only — no member's content is ever read or printed.
+4. Tars the secrets leg — coordinator environment and Stellar keystore — through the same encryption, with the same passphrase and the same retention. One scheduler, one key, one shape.
+5. **Decrypts all three files end to end** to confirm they are readable and intact before doing anything else. AES256 in GPG carries an integrity check, so a file that cannot be decrypted fails here, and a minio archive that decrypts to fewer than two tar entries fails here too rather than on the day you need it. The secrets archive additionally fails here unless the environment file is present **by name**, the keystore identity count matches the live keystore exactly, and **no member at all** lives under `etc/lolipay/`. Names only — no member's content is ever read or printed.
 6. Ships off-site, if `BACKUP_OFFSITE_CMD` is set. If it is not set, it says so loudly.
 7. Only then prunes anything older than the retention window.
 
@@ -158,11 +158,13 @@ sudo gpg --batch --pinentry-mode loopback \
 **List it first and read the member names; never print a member's contents.** The archive stores
 paths relative to `/`, so `tar -C / -xf` puts every file back where it came from, with its original
 mode and ownership — the keystore returns as `0600 lolipay`, not as root-owned. It restores the
-coordinator environment, ten Stellar identities and `/etc/lolipay`.
+coordinator environment and ten Stellar identities, and that is the whole of it: eleven files plus
+the keystore directory entry, twelve members in all.
 
-It does **not** restore `/etc/lolipay/backup.key`, by design — that is the passphrase you used to
-decrypt this archive, so on a rebuild you already have it in hand. If you do not, nothing above
-runs, which is why the install section says to write it down somewhere that is not this machine.
+It restores nothing from `/etc/lolipay`, by design — that is where the passphrase you used to
+decrypt this archive lives, so on a rebuild you already have it in hand. If you do not, nothing
+above runs, which is why the install section says to write it down somewhere that is not this
+machine.
 
 Two things to fix by hand after extracting onto a **fresh** machine, because tar restores the
 members it holds and nothing above them:
