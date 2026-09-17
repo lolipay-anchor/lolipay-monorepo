@@ -17,7 +17,11 @@ describe('a second press of Continue lands on the screen that is current, not on
       },
       kycVerification: {
         findUnique: jest.fn(async () => kyc),
-        findFirst: jest.fn(async () => null),
+        findFirst: jest.fn(async ({ where }: any) =>
+          where?.status === 'REJECTED' && kyc?.status === 'REJECTED'
+            ? { rejectionReason: kyc.rejectionReason ?? null }
+            : null,
+        ),
       },
     };
     const cfg = {
@@ -96,6 +100,23 @@ describe('a second press of Continue lands on the screen that is current, not on
     await svc.submitIdentity('tx-1', token, { first_name: 'A' });
 
     expect(sep12.put).toHaveBeenCalledWith('GABC', { first_name: 'A' });
+  });
+
+  it('never sends the details of an identity this anchor has refused, because the refused screen is not a form and a permanent refusal must not be shown a retry', async () => {
+    const { svc, sep12, token } = build({
+      status: 'REJECTED',
+      rejectionReason: 'sanctions or watchlist match',
+      providerRef: 'p1',
+      verificationUrl: 'https://verify.didit.me/s/1',
+      updatedAt: new Date(),
+      verifiedAt: new Date(),
+      screenedAt: null,
+      deliveredAt: null,
+    });
+
+    await svc.submitIdentity('tx-1', token, { first_name: 'A' });
+
+    expect(sep12.put).not.toHaveBeenCalled();
   });
 
   it('keeps waiting on an acceptance written moments ago, so the screen the anchor test suite reads back within seconds is unchanged', async () => {

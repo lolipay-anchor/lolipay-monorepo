@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import { InteractiveErrorFilter } from './interactive-error.filter';
-import { withInteractiveSentence, withOwnSentence } from './interactive-sentence';
+import { NO_PROVIDER_SENTENCE, withInteractiveSentence, withOwnSentence } from './interactive-sentence';
 
 function hostWith(params: Record<string, string> = {}) {
   const headers: Record<string, string> = {};
@@ -166,11 +166,11 @@ describe('a thrower that opts in supplies the paragraph, and only the paragraph'
   it('shows the no-provider sentence under the unavailable title instead of the generic body', () => {
     const refusal = withInteractiveSentence(
       new ServiceUnavailableException('no eligible LP available'),
-      'No provider can take an order of this size right now. It is not anything you did. A smaller amount may go through — otherwise, come back to this page later.',
+      NO_PROVIDER_SENTENCE,
     );
     const html = rendered(refusal);
     expect(html).toContain(UNAVAILABLE_TITLE);
-    expect(html).toContain('A smaller amount may go through');
+    expect(html).toContain('This can last hours');
     expect(html).not.toContain(UNAVAILABLE_BODY);
     expect(html).not.toContain('no eligible LP available');
   });

@@ -12,8 +12,8 @@ export function interactiveSentenceOf(exception: unknown): string | undefined {
 }
 
 export const NO_PROVIDER_SENTENCE =
-  'No provider can take an order of this size right now. It is not anything you did. ' +
-  'A smaller amount may go through — otherwise, come back to this page later.';
+  'No provider is available to take this order right now. It is not anything you did. ' +
+  'This can last hours — come back to this page later.';
 
 export const IDENTITY_REFUSED_SENTENCE =
   'This anchor has refused this identity, and that decision does not change. ' +

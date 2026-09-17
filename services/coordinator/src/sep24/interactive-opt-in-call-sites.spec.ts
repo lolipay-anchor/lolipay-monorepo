@@ -50,6 +50,12 @@ describe('every refusal this commit opted in still carries its marker at the thr
     }
   });
 
+  it('builds the one page it ever builds under the title the status chose, so no opt-in can reach the popup chrome', () => {
+    const filter = flattened('sep24/interactive-error.filter.ts');
+    expect(filter.split('page(').length - 1).toBe(1);
+    expect(filter).toContain('page(told.title, ');
+  });
+
   it('reads the source, so it proves the marker is written at the throw and not that it survives at runtime', () => {
     expect(flattened('matching/matching.service.ts')).toContain(
       "from '../sep24/interactive-sentence'",
