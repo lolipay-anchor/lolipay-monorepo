@@ -505,7 +505,7 @@ export class OrderService {
       const lpMayReveal =
         fiatPayer === lpAddress &&
         FUNDED_OR_LATER.includes(currentOrder.status) &&
-        lp.status === 'APPROVED';
+        (currentOrder.lp ?? lp).status === 'APPROVED';
       if (lpMayReveal && (await this.identityVerified(currentOrder.personId, this.prisma))) {
         serialized.payment_instructions = getPaymentInstructions(currentOrder);
       } else if (lpMayReveal) {

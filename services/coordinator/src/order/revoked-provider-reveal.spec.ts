@@ -54,7 +54,8 @@ function makeOrder(lpStatus: string, overrides: Partial<any> = {}): any {
   };
 }
 
-function build(order: any, refreshedOrder: any = order) {
+function build(order: any, refreshedOrder?: any, openedLp?: any) {
+  const { lp: assignedLp, ...listRow } = order;
   const prisma = {
     kycVerification: verifiedCustomerStub(),
     order: {
@@ -62,11 +63,11 @@ function build(order: any, refreshedOrder: any = order) {
       update: jest.fn().mockResolvedValue(order),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       count: jest.fn().mockResolvedValue(0),
-      findMany: jest.fn().mockResolvedValue([order]),
+      findMany: jest.fn().mockResolvedValue([listRow]),
     },
     quote: {},
     config: { upsert: jest.fn().mockResolvedValue({ platformWallet: PLATFORM, requireProof: false }) },
-    lp: { findUnique: jest.fn().mockResolvedValue(order.lp) },
+    lp: { findUnique: jest.fn().mockResolvedValue(openedLp ?? assignedLp) },
   } as any;
   const stellar = {
     getStakeInfo: jest.fn().mockResolvedValue(null),
@@ -80,7 +81,9 @@ function build(order: any, refreshedOrder: any = order) {
     adminAddresses: [],
   } as any;
   const status = orderStatusFor(prisma, stellar, cfg);
-  jest.spyOn(status, 'refreshOrderStatus').mockResolvedValue(refreshedOrder);
+  jest
+    .spyOn(status, 'refreshOrderStatus')
+    .mockImplementation(async (_id: string, opened: any) => refreshedOrder ?? opened);
   const svc = new OrderService(
     prisma,
     stellar,
@@ -180,5 +183,28 @@ describe('the reveal reads the provider row the refresh returned, not the one th
     const serialized = await svc.getOrder('order-1', LP_ADDR);
 
     expect(serialized.payment_instructions).toBe(USER_BANK);
+  });
+
+  it('withholds the bank account on the assignment list when the approval was withdrawn while the order was refreshing from chain', async () => {
+    const opened = makeOrder('APPROVED');
+    const refreshed = { ...opened, lp: lpRow('REVOKED') };
+    const { svc } = build(opened, refreshed);
+
+    const rows = await svc.listLpAssignments(LP_ADDR);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].order.payment_instructions).toBeUndefined();
+    expect(JSON.stringify(rows[0])).not.toContain(USER_BANK);
+  });
+
+  it('hands over the bank account on the assignment list when the approval was restored while the order was refreshing from chain', async () => {
+    const opened = makeOrder('REVOKED');
+    const refreshed = { ...opened, lp: lpRow('APPROVED') };
+    const { svc } = build(opened, refreshed);
+
+    const rows = await svc.listLpAssignments(LP_ADDR);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].order.payment_instructions).toBe(USER_BANK);
   });
 });
