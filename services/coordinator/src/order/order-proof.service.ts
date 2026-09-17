@@ -153,7 +153,7 @@ export class OrderProofService {
     if (!order) throw new NotFoundException('order not found');
 
     const isUser = order.userAddress === callerAddress;
-    const orderIsDisputed = order.status === 'DISPUTED' || order.disputeAt != null;
+    const orderIsDisputed = order.disputeAt != null;
     const isPartyLp =
       order.lp?.stellarAddress === callerAddress &&
       (order.lp.status === 'APPROVED' || orderIsDisputed);
