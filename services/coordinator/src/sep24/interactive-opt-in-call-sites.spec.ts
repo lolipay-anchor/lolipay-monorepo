@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const SRC = join(__dirname, '..');
@@ -8,6 +8,14 @@ const OPTED_IN: Array<[string, string, number, string]> = [
   ['order/order.service.ts', "new ServiceUnavailableException('no eligible LP available')", 1, 'NO_PROVIDER_SENTENCE'],
   ['kyc/sep12.service.ts', "new ForbiddenException('this identity was refused and cannot be resubmitted here')", 2, 'IDENTITY_REFUSED_SENTENCE'],
 ];
+
+function everySourceFile(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) return e.name === 'generated' ? [] : everySourceFile(full);
+    return e.name.endsWith('.ts') && !e.name.includes('.spec.') ? [full] : [];
+  });
+}
 
 function flattened(relative: string): string {
   return readFileSync(join(SRC, relative), 'utf8').replace(/\s+/g, ' ');
@@ -29,6 +37,18 @@ describe('every refusal this commit opted in still carries its marker at the thr
       }
     },
   );
+
+  it('opts in exactly the eight amount-step refusals that already speak to the person, and nothing anywhere else', () => {
+    const amountStep = flattened('sep24/sep24.service.ts');
+    expect(amountStep.split('throw withOwnSentence(').length - 1).toBe(8);
+    const elsewhere = everySourceFile(SRC).filter(
+      (f) => !f.endsWith('sep24/sep24.service.ts') && !f.endsWith('sep24/interactive-sentence.ts'),
+    );
+    expect(elsewhere.length).toBeGreaterThan(50);
+    for (const f of elsewhere) {
+      expect(readFileSync(f, 'utf8')).not.toContain('withOwnSentence(');
+    }
+  });
 
   it('reads the source, so it proves the marker is written at the throw and not that it survives at runtime', () => {
     expect(flattened('matching/matching.service.ts')).toContain(

@@ -314,7 +314,9 @@ describe('the withdrawal door, with the switch on', () => {
       .set('Origin', base)
       .send({ fiat_amount: '1000000' });
 
-    expect(String(res.text)).not.toMatch(/will not turn one into a deposit/i);
+    expect(String(res.text)).not.toMatch(
+      /bank account this anchor should pay|those bank details/i,
+    );
   });
 
   it('surfaces the row through the read endpoints as a withdrawal', async () => {

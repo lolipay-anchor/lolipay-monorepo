@@ -30,6 +30,7 @@ import {
 } from './interactive-token';
 import { effectiveIdrPerUsdc, escapeHtml, formatFiat, formatUsdc, interactiveScreen, page, settledRefreshSecs, identityField } from './interactive-page';
 import { explorerTxUrl } from './explorer-url';
+import { withOwnSentence } from './interactive-sentence';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
 import { PersonService } from '../person/person.service';
 import { sep24Status } from './sep24-status';
@@ -505,36 +506,38 @@ export class Sep24Service {
     const { row, kyc } = state;
     if (row.orderId) return;
     if (this.screenFor(row, kyc, state) !== 'amount') {
-      throw new ForbiddenException(
-        'this transaction is not at the point of naming an amount; reopen the page to see where it is',
+      throw withOwnSentence(
+        new ForbiddenException(
+          'this transaction is not at the point of naming an amount; reopen the page to see where it is',
+        ),
       );
     }
 
     if (typeof rawAmount !== 'string') {
-      throw new BadRequestException('name an amount in rupiah');
+      throw withOwnSentence(new BadRequestException('name an amount in rupiah'));
     }
     if (!fiatInputAccepted(rawAmount)) {
-      throw new BadRequestException(FIAT_INPUT_REFUSAL);
+      throw withOwnSentence(new BadRequestException(FIAT_INPUT_REFUSAL));
     }
     const digits = fiatDigits(rawAmount);
     if (digits.length === 0 || digits.length > 18 || BigInt(digits) === 0n) {
-      throw new BadRequestException('name an amount in rupiah');
+      throw withOwnSentence(new BadRequestException('name an amount in rupiah'));
     }
 
     let userPaymentMethod: string | undefined;
     if (row.flow === 'WITHDRAW') {
       if (typeof rawPaymentMethod !== 'string') {
-        throw new BadRequestException('name the bank account this anchor should pay the rupiah into');
+        throw withOwnSentence(new BadRequestException('name the bank account this anchor should pay the rupiah into'));
       }
       userPaymentMethod = rawPaymentMethod.trim();
       if (userPaymentMethod.length === 0) {
-        throw new BadRequestException('name the bank account this anchor should pay the rupiah into');
+        throw withOwnSentence(new BadRequestException('name the bank account this anchor should pay the rupiah into'));
       }
       if (userPaymentMethod.length > USER_PAYMENT_METHOD_MAX) {
-        throw new BadRequestException('those bank details are too long');
+        throw withOwnSentence(new BadRequestException('those bank details are too long'));
       }
       if (!NO_CONTROL_CHARS_RE.test(userPaymentMethod)) {
-        throw new BadRequestException('those bank details contain characters this anchor will not send on');
+        throw withOwnSentence(new BadRequestException('those bank details contain characters this anchor will not send on'));
       }
     }
 

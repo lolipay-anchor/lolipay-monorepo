@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   HttpException,
   HttpStatus,
@@ -7,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import { InteractiveErrorFilter } from './interactive-error.filter';
-import { withInteractiveSentence } from './interactive-sentence';
+import { withInteractiveSentence, withOwnSentence } from './interactive-sentence';
 
 function hostWith(params: Record<string, string> = {}) {
   const headers: Record<string, string> = {};
@@ -195,6 +196,22 @@ describe('a thrower that opts in supplies the paragraph, and only the paragraph'
     expect(marked.getResponse()).toEqual(bare.getResponse());
     expect(JSON.stringify(marked.getResponse())).toBe(JSON.stringify(bare.getResponse()));
     expect(Object.keys(marked)).toEqual(Object.keys(bare));
+  });
+
+  it('carries a thrower own words through withOwnSentence, digits and all, because that thrower wrote them for this screen', () => {
+    const spelt = 'Enter the amount in plain digits, like 200.000, with no comma and no decimals.';
+    expect(new BadRequestException(spelt).message).toBe(spelt);
+    const html = rendered(withOwnSentence(new BadRequestException(spelt)));
+    expect(html).toContain('Enter the amount in plain digits');
+    expect(html).toContain('200.000');
+    expect(html).not.toContain(ANYTHING_ELSE_BODY);
+    expect(html).toContain(ANYTHING_ELSE_TITLE);
+  });
+
+  it('still says the fixed thing for a thrower beside it that did not opt in, so withOwnSentence widens nothing by itself', () => {
+    const html = rendered(new BadRequestException('an internal detail nobody outside should read'));
+    expect(html).toContain(ANYTHING_ELSE_BODY);
+    expect(html).not.toContain('an internal detail');
   });
 
   it('ignores a marker that is not a sentence, so a stray property cannot become the page', () => {

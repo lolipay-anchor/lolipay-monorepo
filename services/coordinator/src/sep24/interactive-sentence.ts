@@ -18,3 +18,7 @@ export const NO_PROVIDER_SENTENCE =
 export const IDENTITY_REFUSED_SENTENCE =
   'This anchor has refused this identity, and that decision does not change. ' +
   'Sending your details here again will not reopen it, so there is nothing to wait for.';
+
+export function withOwnSentence<E extends HttpException>(exception: E): E {
+  return withInteractiveSentence(exception, exception.message);
+}
