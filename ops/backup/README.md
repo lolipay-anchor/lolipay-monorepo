@@ -20,7 +20,7 @@ That is the whole justification. It is not "databases should have backups".
 2. `pg_dump -Fc` out of the running Postgres container, straight into `gpg --symmetric --cipher-algo AES256`. The plaintext never touches disk.
 3. Tars MinIO's `/data` through the same encryption.
 4. Tars the secrets leg — coordinator environment and Stellar keystore — through the same encryption, with the same passphrase and the same retention. One scheduler, one key, one shape.
-5. **Decrypts all three files end to end** to confirm they are readable and intact before doing anything else. AES256 in GPG carries an integrity check, so a file that cannot be decrypted fails here, and a minio archive that decrypts to fewer than two tar entries fails here too rather than on the day you need it. Decrypting is not the same as being usable, and each leg is asked a question only its own format can answer: the postgres dump is piped into `pg_restore -l` and must yield at least one table-of-contents entry. A dump of *nothing* is 71 bytes of GPG wrapping zero bytes, decrypts perfectly and passes any `[ -s ]` test, which is exactly what this closes. The secrets archive additionally fails here unless the environment file is present **by name**, the keystore identity count matches the live keystore exactly, and **no member at all** lives under `etc/lolipay/`. Names only — no member's content is ever read or printed.
+5. **Decrypts all three files end to end** to confirm they are readable and intact before doing anything else. AES256 in GPG carries an integrity check, so a file that cannot be decrypted fails here, and a minio archive that decrypts to fewer than two tar entries fails here too rather than on the day you need it. Decrypting is not the same as being usable, and each leg is asked a question only its own format can answer: the postgres dump is piped into `pg_restore -l` and must yield at least one table-of-contents entry. A dump of *nothing* is 71 bytes of GPG wrapping zero bytes, decrypts perfectly and passes any `[ -s ]` test, which is exactly what this closes. The secrets archive additionally fails here unless the environment file is present **by name** and stored at mode `0600` or `0400`, the keystore identity count matches the live keystore exactly, and **no member at all** lives under `etc/lolipay/`. Names and modes only — no member's content is ever read or printed.
 6. Ships off-site, if `BACKUP_OFFSITE_CMD` is set. If it is not set, it says so loudly.
 7. Only then prunes anything older than the retention window.
 
@@ -195,10 +195,34 @@ sudo chmod 600 /home/lolipay/lolipay-monorepo/services/coordinator/.env
 ```
 
 The archive carries `…/.config/stellar/identity/` but not its two parent directories, so on a bare
-host `tar -C / -xf` creates them `root:root` and the CLI cannot read its own keystore. And any
-archive taken before 2026-09-16 12:17 UTC carries the environment file at mode **664**, which was
-the live mode until it was tightened — restoring one of those reintroduces a world-readable file
-holding the attestor secret. Check the mode with `tar -tvf` before extracting, not after.
+host `tar -C / -xf` creates them `root:root` and the CLI cannot read its own keystore.
+
+**Three archives on this disk carry the environment file at mode `0664`**, which was its live mode
+until it was tightened at 2026-09-16 12:17 UTC. `tar -C / -xf` restores the mode stored in the
+archive, so recovering from one of those three re-creates a world-readable file holding the
+attestor secret. They are, and this is the whole list rather than a rule of thumb:
+
+```
+secrets-20260916T101156Z.tar.gpg
+secrets-20260916T110532Z.tar.gpg
+secrets-20260916T121152Z.tar.gpg
+```
+
+Re-derive it rather than trusting the list — every archive after them is `0600`, and retention
+removes these three 60 days after they were written:
+
+```bash
+for f in /var/backups/lolipay/secrets-*.tar.gpg; do
+  printf '%s ' "$(basename "$f")"
+  sudo gpg --batch --quiet --pinentry-mode loopback --passphrase-file /etc/lolipay/backup.key \
+    --decrypt "$f" 2>/dev/null | tar -tvf - | head -1
+done
+```
+
+Since 2026-09-17 a **new** archive cannot be written with that defect: step 5 reads the archived
+mode with `tar -tvf` and refuses anything but `0600` or `0400`, so this stops depending on whoever
+is restoring remembering to look. The `chmod 600` in the block above is still the belt to that
+braces, and is harmless whichever archive you restored.
 
 Get the container names with `sudo docker compose -f services/coordinator/docker-compose.yml ps`.
 

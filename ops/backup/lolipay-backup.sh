@@ -210,6 +210,18 @@ verify_readable() {
       if [ "$env_present" != "1" ]; then
         die "$f does not carry $SECRETS_ENV; without it the coordinator cannot boot from this backup"
       fi
+      local modes env_line env_mode
+      modes="$(gpg --batch --quiet --pinentry-mode loopback \
+                 --passphrase-file "$PASSPHRASE_FILE" --decrypt "$f" 2>/dev/null \
+               | tar -tvf - 2>/dev/null)"
+      env_line="$(printf '%s\n' "$modes" | grep -F -- " $SECRETS_ENV" || true)"
+      env_mode="${env_line%% *}"
+      case "$env_mode" in
+        -rw-------|-r--------) ;;
+        *)
+          die "$f carries $SECRETS_ENV at mode '$env_mode'; tar -C / -xf restores the mode stored in the archive, so recovering from this one would put the coordinator environment back readable by somebody other than its owner"
+          ;;
+      esac
       keystore_live="$(ls -1 "/$SECRETS_KEYSTORE"/*.toml 2>/dev/null | wc -l)"
       keystore_archived="$(printf '%s\n' "$members" | grep -F "$SECRETS_KEYSTORE/" | grep -c '\.toml$' || true)"
       if [ "$keystore_live" -lt 1 ]; then
@@ -218,7 +230,7 @@ verify_readable() {
       if [ "$keystore_archived" != "$keystore_live" ]; then
         die "$f holds $keystore_archived keystore identities but the live keystore has $keystore_live"
       fi
-      log "verified decryptable: $(printf '%s\n' "$members" | wc -l) members, coordinator environment present, $keystore_archived of $keystore_live keystore identities, no member under $SECRETS_FORBIDDEN_PREFIX: $(basename "$f")"
+      log "verified decryptable: $(printf '%s\n' "$members" | wc -l) members, coordinator environment present at mode $env_mode, $keystore_archived of $keystore_live keystore identities, no member under $SECRETS_FORBIDDEN_PREFIX: $(basename "$f")"
       ;;
     *)
       log "verified decryptable end to end: $(basename "$f")"
