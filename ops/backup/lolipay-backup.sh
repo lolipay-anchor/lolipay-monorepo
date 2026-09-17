@@ -177,6 +177,18 @@ verify_readable() {
       --decrypt "$f" >/dev/null 2>&1 \
     || die "cannot decrypt $f with the configured passphrase; treating this run as failed"
   case "$(basename "$f")" in
+    pg-*)
+      local toc entries
+      if ! toc="$(gpg --batch --quiet --pinentry-mode loopback \
+                    --passphrase-file "$PASSPHRASE_FILE" --decrypt "$f" 2>/dev/null \
+                  | docker exec -i "$PG_NAME" pg_restore -l 2>/dev/null)"; then
+        die "$f decrypts, but pg_restore cannot read a table of contents out of it; gpg accepting a file is not postgres accepting a dump"
+      fi
+      entries="$(printf '%s\n' "$toc" | grep -cE '^[0-9]+;' || true)"
+      [ "$entries" -ge 1 ] \
+        || die "$f decrypts and pg_restore reads it, but its table of contents holds $entries entries; a dump of nothing restores to an empty database"
+      log "verified decryptable and a real dump ($entries table-of-contents entries): $(basename "$f")"
+      ;;
     minio-*)
       local entries
       entries="$(gpg --batch --quiet --pinentry-mode loopback \
