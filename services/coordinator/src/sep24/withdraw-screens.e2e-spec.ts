@@ -428,7 +428,9 @@ describe('a withdrawal is never described to the user as a deposit', () => {
 
     const landed = await http().get(`/sep24/interactive/${id}`).set('Cookie', cookie);
     expect(landed.status).toBe(200);
-    expect(landed.text).not.toMatch(/could not continue/i);
+    expect(landed.text).not.toMatch(
+      /Too many requests from this connection|This page can no longer be used|This cannot go ahead right now|This step did not go through/,
+    );
     expect(landed.text).not.toMatch(/deposit status/i);
   });
 

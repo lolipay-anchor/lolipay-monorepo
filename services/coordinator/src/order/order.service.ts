@@ -9,6 +9,7 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
+import { NO_PROVIDER_SENTENCE, withInteractiveSentence } from '../sep24/interactive-sentence';
 import { acceptedForFunds } from '../kyc/screening-requirement';
 import { signingDeadlineSecs } from '../config/contract-limits';
 import { Prisma } from '../generated/prisma/client';
@@ -251,7 +252,10 @@ export class OrderService {
             this.log.warn(
               `match refused: lp ${lp.id} is committed ${committed} of ${lpBond} and cannot take ${quote.usdcAmount}`,
             );
-            throw new ServiceUnavailableException('no eligible LP available');
+            throw withInteractiveSentence(
+              new ServiceUnavailableException('no eligible LP available'),
+              NO_PROVIDER_SENTENCE,
+            );
           }
 
           const used = await this.userReputation.used24hBaseUnits(personId, tx);

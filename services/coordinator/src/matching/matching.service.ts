@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { NO_PROVIDER_SENTENCE, withInteractiveSentence } from '../sep24/interactive-sentence';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonId, PersonService } from '../person/person.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
@@ -101,6 +102,9 @@ export class MatchingService {
     if (refusedOwn && others.length === 0) {
       throw new ForbiddenException('you cannot be matched with your own order');
     }
-    throw new ServiceUnavailableException('no eligible LP available');
+    throw withInteractiveSentence(
+      new ServiceUnavailableException('no eligible LP available'),
+      NO_PROVIDER_SENTENCE,
+    );
   }
 }

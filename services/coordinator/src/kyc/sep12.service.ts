@@ -1,4 +1,5 @@
 import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
+import { IDENTITY_REFUSED_SENTENCE, withInteractiveSentence } from '../sep24/interactive-sentence';
 import { awaitingProvider, popupMayOfferVendor, staleAcceptance, SESSION_LIFETIME_MS } from './screening-requirement';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonService } from '../person/person.service';
@@ -61,7 +62,11 @@ export class Sep12Service {
       const refused = await tx.kycVerification.findFirst({
         where: { status: 'REJECTED', OR: [{ customerRef }, { personId }] },
       });
-      if (refused) throw new ForbiddenException('this identity was refused and cannot be resubmitted here');
+      if (refused)
+        throw withInteractiveSentence(
+          new ForbiddenException('this identity was refused and cannot be resubmitted here'),
+          IDENTITY_REFUSED_SENTENCE,
+        );
       const settled = await tx.kycVerification.findUnique({ where: { customerRef } });
       if ((settled?.status === 'ACCEPTED' && !staleAcceptance(settled, this.cfg.kycRequireAml)) || stillInFlight(settled)) return;
       await tx.kycVerification.upsert({
@@ -274,7 +279,10 @@ export class Sep12Service {
       where: { status: 'REJECTED', OR: [{ customerRef }, { personId: person.id }] },
     });
     if (refused) {
-      throw new ForbiddenException('this identity was refused and cannot be resubmitted here');
+      throw withInteractiveSentence(
+        new ForbiddenException('this identity was refused and cannot be resubmitted here'),
+        IDENTITY_REFUSED_SENTENCE,
+      );
     }
     if (isStorableEmailAddress(fields.email_address)) {
       await this.prisma.person.update({
