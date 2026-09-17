@@ -17,9 +17,16 @@ if [ -r "$ENV_FILE" ]; then
 fi
 
 if [ -z "$webhook" ]; then
-  log "ALERT_WEBHOOK_URL is unset, so this failure reaches the journal and nobody else"
-  exit 0
+  log "ALERT_WEBHOOK_URL is empty or unreadable in $ENV_FILE, so this failure reaches the journal and nobody else; exiting non-zero so that an alert nobody receives is itself a failed unit"
+  exit 1
 fi
+
+case "$webhook" in
+  *[\"\']*)
+    log "ALERT_WEBHOOK_URL is quoted in $ENV_FILE; the quotes are part of the value this handler read, so it is not a URL anything can post to. Exiting non-zero rather than reporting a delivery that cannot happen"
+    exit 1
+    ;;
+esac
 
 text="🔴 lolipay: $UNIT failed on $(hostname). The backup that protects the arbitration record did not complete. Last lines: $(printf '%s' "$detail" | tr '\n' ' ' | cut -c1-800)"
 payload="$(printf '{"text":%s,"content":%s}' "$(printf '%s' "$text" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" "$(printf '%s' "$text" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')")"
@@ -27,5 +34,7 @@ payload="$(printf '{"text":%s,"content":%s}' "$(printf '%s' "$text" | python3 -c
 if curl -fsS -m 15 -X POST -H 'content-type: application/json' -d "$payload" "$webhook" >/dev/null 2>&1; then
   log "failure reported to the alert webhook"
 else
-  log "could not reach the alert webhook; the failure is in the journal only"
+  status=$?
+  log "could not reach the alert webhook, curl exited $status; exiting non-zero so this undelivered alert shows in systemctl --failed instead of only in a journal nobody is reading"
+  exit 1
 fi
