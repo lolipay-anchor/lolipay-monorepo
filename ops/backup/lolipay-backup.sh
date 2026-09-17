@@ -36,7 +36,11 @@ log()  { printf '%s [%s] %s\n' "$(date -u +%FT%TZ)" "$LOG_TAG" "$*" >&2; }
 die()  { printf '%s [%s] FATAL %s\n' "$(date -u +%FT%TZ)" "$LOG_TAG" "$*" >&2; exit 1; }
 
 drift_fix_hint() {
-  printf 'cd %s && sudo install -o root -g root -m 755 lolipay-backup.sh lolipay-backup-failed.sh /usr/local/sbin/ && sudo install -o root -g root -m 644 lolipay-backup.service lolipay-backup-verify.service lolipay-backup-failed@.service lolipay-backup.timer lolipay-backup-verify.timer /etc/systemd/system/ && sudo systemctl daemon-reload' "$REPO_DIR"
+  printf 'commit ops/backup first, because this compares against HEAD and not against the checkout, then: cd %s && sudo install -o root -g root -m 755 lolipay-backup.sh lolipay-backup-failed.sh /usr/local/sbin/ && sudo install -o root -g root -m 644 lolipay-backup.service lolipay-backup-verify.service lolipay-backup-failed@.service lolipay-backup.timer lolipay-backup-verify.timer /etc/systemd/system/ && sudo systemctl daemon-reload' "$REPO_DIR"
+}
+
+git_repo() {
+  git -C "$REPO_DIR" -c safe.directory='*' --no-pager "$@"
 }
 
 root_owned_unwritable() {
@@ -48,14 +52,14 @@ root_owned_unwritable() {
 }
 
 drift_report() {
-  local pair name installed repo why dir drifted=0
+  local pair name installed why dir drifted=0 head
+  head="$(git_repo rev-parse --short HEAD 2>/dev/null || true)"
   for pair in "${INSTALLED_PAIRS[@]}"; do
     name="${pair%%:*}"
     installed="${pair#*:}"
-    repo="$REPO_DIR/$name"
     dir="$(dirname "$installed")"
-    if [ ! -f "$repo" ]; then
-      log "DRIFT $name: no repository copy at $repo, so this comparison is BLIND; that is not the same as clean"
+    if ! git_repo cat-file -e "HEAD:./$name" 2>/dev/null; then
+      log "DRIFT $name: git cannot read HEAD:./$name in $REPO_DIR, so this comparison is BLIND; that is not the same as clean"
       drifted=1
     elif [ ! -f "$installed" ]; then
       log "DRIFT $name: nothing is installed at $installed"
@@ -66,15 +70,15 @@ drift_report() {
     elif ! why="$(root_owned_unwritable "$dir")"; then
       log "DRIFT $name: its directory $dir $why, so the file root executes can be replaced wholesale"
       drifted=1
-    elif ! cmp -s "$repo" "$installed"; then
-      log "DRIFT $name: $installed differs from $repo"
+    elif ! git_repo show "HEAD:./$name" | cmp -s - "$installed"; then
+      log "DRIFT $name: $installed differs from $name at HEAD $head, which is the source of truth; an uncommitted edit in $REPO_DIR is NOT what this is reporting"
       drifted=1
     fi
   done
   if [ "$drifted" -ne 0 ]; then
     return 1
   fi
-  log "installed copies match the repository, are root-owned and are writable by nobody else (${#INSTALLED_PAIRS[@]} artifacts compared)"
+  log "installed copies match HEAD $head, are root-owned and are writable by nobody else (${#INSTALLED_PAIRS[@]} artifacts compared)"
 }
 
 resolve_container() {

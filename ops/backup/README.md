@@ -60,12 +60,22 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now lolipay-backup.timer lolipay-backup-verify.timer
 ```
 
-Re-run that block after **every** edit here: this directory is the source of truth, and the
-installed copy is what actually runs. The two can drift silently, so they are compared on every
-run — `drift_report` checks all seven installed artifacts byte for byte. A backup that finds drift
-**warns and backs up anyway** (a stale backup beats no backup); the weekly restore test **fails**
-on drift, after completing the restore, so the proof is kept and `OnFailure` raises the alert.
-A missing repository copy is reported as blind, never as clean.
+Commit, then re-run that block, after **every** edit here: the installed copy is what actually
+runs, and the two can drift silently, so they are compared on every run — `drift_report` checks
+all seven installed artifacts byte for byte. A backup that finds drift **warns and backs up
+anyway** (a stale backup beats no backup); the weekly restore test **fails** on drift, after
+completing the restore, so the proof is kept and `OnFailure` raises the alert.
+
+**The reference is `HEAD`, not the checkout.** `git -C ops/backup show HEAD:./<name>` is what each
+installed copy is compared against, so an uncommitted edit in the working tree — an agent mid-task,
+a half-finished change at 03:15 — is invisible to this check, and the alarm means *the installed
+copy no longer matches the committed source*. Before 2026-09-17 the reference was the checkout, and
+a dirty tree produced a false red: had the Sunday timer landed in such a window, `drift_report ||
+die` would have failed the weekly restore proof and alerted with every backup healthy and the
+restore itself passed. A file git cannot read at `HEAD` — not committed, not a repository, or git
+refusing the directory — is reported as **blind**, never as clean. It runs as root against a
+`lolipay`-owned repository, so it passes `-c safe.directory='*'`; the repository side is a
+reference, not a trust anchor, and the protection on the installed side is root ownership.
 
 Then prove it works rather than assuming:
 
