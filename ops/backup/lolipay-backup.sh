@@ -51,7 +51,7 @@ root_owned_unwritable() {
 }
 
 drift_report() {
-  local pair name installed why dir drifted=0 head
+  local pair name installed why dir drifted=0 unsafe=0 head
   head="$(git_repo rev-parse --short HEAD 2>/dev/null || true)"
   for pair in "${INSTALLED_PAIRS[@]}"; do
     name="${pair%%:*}"
@@ -64,16 +64,19 @@ drift_report() {
       log "DRIFT $name: nothing is installed at $installed"
       drifted=1
     elif ! why="$(root_owned_unwritable "$installed")"; then
-      log "DRIFT $name: $installed $why, and root executes it"
-      drifted=1
+      log "UNSAFE $name: $installed $why, and root executes it"
+      unsafe=1
     elif ! why="$(root_owned_unwritable "$dir")"; then
-      log "DRIFT $name: its directory $dir $why, so the file root executes can be replaced wholesale"
-      drifted=1
+      log "UNSAFE $name: its directory $dir $why, so the file root executes can be replaced wholesale"
+      unsafe=1
     elif ! git_repo show "HEAD:./$name" | cmp -s - "$installed"; then
       log "DRIFT $name: $installed differs from $name at HEAD $head, which is the source of truth; an uncommitted edit in $REPO_DIR is NOT what this is reporting"
       drifted=1
     fi
   done
+  if [ "$unsafe" -ne 0 ]; then
+    return 2
+  fi
   if [ "$drifted" -ne 0 ]; then
     return 1
   fi
@@ -274,6 +277,10 @@ restore_test() {
 }
 
 main() {
+  local drift_rc=0
+  drift_report || drift_rc=$?
+  [ "$drift_rc" -ne 2 ] || die "an installed artifact is not root-owned, or is writable by group or other, and every one of these units runs as root. Refusing before anything is dumped: the next artifact root executes is the one that was left writable. Fix the ownership and mode named above, then: $(drift_fix_hint)"
+
   preflight
   PG_NAME="$(resolve_container postgres "$PG_CONTAINER")"
   MINIO_NAME="$(resolve_container minio "$MINIO_CONTAINER")"
@@ -283,7 +290,7 @@ main() {
   case "${1:-backup}" in
     backup)
       local pg_file minio_file secrets_file
-      drift_report || log "WARNING the repository and the installed copies disagree. THIS RUN USED THE INSTALLED COPY, and it is going ahead: a stale backup is worth far more than no backup. Reinstall with: $(drift_fix_hint)"
+      [ "$drift_rc" -eq 0 ] || log "WARNING the committed source and the installed copies disagree. THIS RUN USED THE INSTALLED COPY, and it is going ahead: a stale backup is worth far more than no backup. Reinstall with: $(drift_fix_hint)"
       pg_file="$(dump_postgres)"
       minio_file="$(dump_minio)"
       verify_readable "$pg_file"
@@ -296,7 +303,7 @@ main() {
       ;;
     restore-test)
       restore_test "${2:-}"
-      drift_report || die "the restore above proves the INSTALLED copy works, and the installed copy is not what the repository says it should be, so this week's proof describes code that is not the source of truth. Reinstall with: $(drift_fix_hint)"
+      [ "$drift_rc" -eq 0 ] || die "the restore above proves the INSTALLED copy works, and the installed copy is not what HEAD says it should be, so this week's proof describes code that is not the source of truth. Reinstall with: $(drift_fix_hint)"
       ;;
     *)
       die "usage: $0 [backup|restore-test [dump-file]]"

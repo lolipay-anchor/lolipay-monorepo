@@ -62,9 +62,29 @@ sudo systemctl enable --now lolipay-backup.timer lolipay-backup-verify.timer
 
 Commit, then re-run that block, after **every** edit here: the installed copy is what actually
 runs, and the two can drift silently, so they are compared on every run — `drift_report` checks
-all seven installed artifacts byte for byte. A backup that finds drift **warns and backs up
-anyway** (a stale backup beats no backup); the weekly restore test **fails** on drift, after
-completing the restore, so the proof is kept and `OnFailure` raises the alert.
+all seven installed artifacts byte for byte, and checks that each one and its directory are
+root-owned and writable by nobody else.
+
+Those are two different findings and they no longer share an outcome:
+
+| What was found | What happens |
+|---|---|
+| content differs from `HEAD`, or git cannot read it there (**blind**) | **warn and back up anyway** — a stale backup is worth far more than no backup. The weekly restore test still **dies** on it, *after* completing the restore, so the proof is kept and the alert is raised. |
+| an artifact or its directory is **not root-owned, or group/other-writable** | **abort**, before `dump_postgres` and before the restore, in both subcommands |
+
+The second was warn-and-continue until 2026-09-17, which is the wrong outcome for it: root
+executes all seven, so a run that notices one of them is writable by somebody else and then goes
+on to dump the database and the keystore is doing privileged work under an artifact set it has
+just reported as tampered.
+
+**Two limits on that, stated rather than implied.** `drift_report` runs *inside*
+`lolipay-backup.sh` and checks `lolipay-backup.sh` among its seven, so it is structurally
+incapable of vouching for itself — if that file is the one that was rewritten, the rewritten copy
+is what is doing the checking. It is meaningful for the other six. And aborting does **not** stop
+systemd from invoking a tampered `lolipay-backup-failed.sh` as root: the abort is a non-zero exit
+like any other, so `OnFailure` fires. What the abort buys is that no dump, no keystore archive and
+no decryption happen first. Check the seven by hand with
+`stat -c '%U:%G %a %n' /usr/local/sbin/lolipay-backup*.sh /etc/systemd/system/lolipay-backup*`.
 
 **The reference is `HEAD`, not the checkout.** `git -C ops/backup show HEAD:./<name>` is what each
 installed copy is compared against, so an uncommitted edit in the working tree — an agent mid-task,
