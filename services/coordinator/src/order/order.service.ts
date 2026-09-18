@@ -9,7 +9,14 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { LP_CAPACITY_LOST_SENTENCE, withInteractiveSentence } from '../sep24/interactive-sentence';
+import {
+  LP_CAPACITY_LOST_SENTENCE,
+  PAYMENT_DESTINATION_BAD_CHARS_SENTENCE,
+  PAYMENT_DESTINATION_MISSING_SENTENCE,
+  PAYMENT_DESTINATION_TOO_LONG_SENTENCE,
+  PAYMENT_DESTINATION_TOO_SHORT_SENTENCE,
+  withInteractiveSentence,
+} from '../sep24/interactive-sentence';
 import { acceptedForFunds } from '../kyc/screening-requirement';
 import { signingDeadlineSecs } from '../config/contract-limits';
 import { Prisma } from '../generated/prisma/client';
@@ -38,6 +45,39 @@ import { PROVIDER_LOST_WHERE } from '../reputation/dispute-outcome';
 
 
 export const MAX_REF_ATTEMPTS = 5;
+
+const PAYMENT_DESTINATION_MAX_LEN = 500;
+const PAYMENT_DESTINATION_MIN_WORD_CHARS = 6;
+
+export function validatePaymentDestination(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.trim().length === 0) {
+    throw withInteractiveSentence(
+      new BadRequestException(PAYMENT_DESTINATION_MISSING_SENTENCE),
+      PAYMENT_DESTINATION_MISSING_SENTENCE,
+    );
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length > PAYMENT_DESTINATION_MAX_LEN) {
+    throw withInteractiveSentence(
+      new BadRequestException(PAYMENT_DESTINATION_TOO_LONG_SENTENCE),
+      PAYMENT_DESTINATION_TOO_LONG_SENTENCE,
+    );
+  }
+  if (/[\p{Cc}\p{Cf}]/u.test(trimmed)) {
+    throw withInteractiveSentence(
+      new BadRequestException(PAYMENT_DESTINATION_BAD_CHARS_SENTENCE),
+      PAYMENT_DESTINATION_BAD_CHARS_SENTENCE,
+    );
+  }
+  const wordChars = trimmed.match(/[\p{L}\p{N}]/gu)?.length ?? 0;
+  if (wordChars < PAYMENT_DESTINATION_MIN_WORD_CHARS) {
+    throw withInteractiveSentence(
+      new BadRequestException(PAYMENT_DESTINATION_TOO_SHORT_SENTENCE),
+      PAYMENT_DESTINATION_TOO_SHORT_SENTENCE,
+    );
+  }
+  return trimmed;
+}
 
 const FUNDED_OR_LATER = ['FUNDED', 'FIAT_PAID', 'RELEASED', 'REFUNDED', 'DISPUTED'];
 
@@ -153,9 +193,8 @@ export class OrderService {
     if (new Date() > quote.expiresAt) throw new BadRequestException('quote expired');
 
     const flow = quote.flow as Flow;
-    if (flow === 'WITHDRAW' && !userPaymentMethod) {
-      throw new BadRequestException('userPaymentMethod is required for WITHDRAW');
-    }
+    const userPaymentDetails =
+      flow === 'WITHDRAW' ? validatePaymentDestination(userPaymentMethod) : undefined;
 
     const config = await this.getConfig();
     if (config.paused) throw new ServiceUnavailableException('platform is paused');
@@ -187,8 +226,6 @@ export class OrderService {
     const lpBond = lp.staked;
 
     const roles = mapRoles(flow, userAddress, lp.stellarAddress);
-
-    const userPaymentDetails = flow === 'WITHDRAW' ? userPaymentMethod : undefined;
 
     const releaseRecipients = Array.from(
       new Set([roles.usdcRecipient, platformWallet, lp.stellarAddress]),

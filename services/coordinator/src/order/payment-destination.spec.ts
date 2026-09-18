@@ -1,0 +1,85 @@
+import {
+  PAYMENT_DESTINATION_BAD_CHARS_SENTENCE,
+  PAYMENT_DESTINATION_MISSING_SENTENCE,
+  PAYMENT_DESTINATION_TOO_LONG_SENTENCE,
+  PAYMENT_DESTINATION_TOO_SHORT_SENTENCE,
+} from '../sep24/interactive-sentence';
+import { validatePaymentDestination } from './order.service';
+
+describe('validatePaymentDestination trims and returns a well-formed destination', () => {
+  it('trims surrounding whitespace and returns the trimmed value', () => {
+    expect(validatePaymentDestination('  BNI 999  ')).toBe('BNI 999');
+  });
+
+  it.each(['BNI 999', 'BCA 001', 'BCA 123'])(
+    'accepts %s, an existing e2e fixture with exactly six word characters',
+    (raw) => {
+      expect(validatePaymentDestination(raw)).toBe(raw);
+    },
+  );
+
+  it('accepts exactly 500 characters after trimming', () => {
+    const raw = 'B'.repeat(500);
+    expect(validatePaymentDestination(raw)).toBe(raw);
+  });
+});
+
+describe('validatePaymentDestination refuses a missing destination', () => {
+  it.each<[string, unknown]>([
+    ['undefined', undefined],
+    ['a number', 200000],
+    ['an array', ['BCA 1', 'BCA 2']],
+    ['an object', { toString: 'x' }],
+    ['an empty string', ''],
+    ['a whitespace-only string', '   '],
+  ])('refuses %s', (_label, raw) => {
+    expect(() => validatePaymentDestination(raw)).toThrow(PAYMENT_DESTINATION_MISSING_SENTENCE);
+  });
+});
+
+describe('validatePaymentDestination enforces the six-word-character floor', () => {
+  it('refuses five word characters as too short', () => {
+    expect(() => validatePaymentDestination('BNI 99')).toThrow(PAYMENT_DESTINATION_TOO_SHORT_SENTENCE);
+  });
+
+  it('does not count punctuation toward the floor, unlike the regex it replaces', () => {
+    expect(() => validatePaymentDestination('------')).toThrow(PAYMENT_DESTINATION_TOO_SHORT_SENTENCE);
+  });
+
+  it('does not count underscores as word characters, unlike \\w', () => {
+    expect(() => validatePaymentDestination('______')).toThrow(PAYMENT_DESTINATION_TOO_SHORT_SENTENCE);
+  });
+
+  it('the floor stays at six, so a fixture with exactly six passes and one with five does not', () => {
+    expect(validatePaymentDestination('BNI99X')).toBe('BNI99X');
+    expect(() => validatePaymentDestination('BNI9X')).toThrow(PAYMENT_DESTINATION_TOO_SHORT_SENTENCE);
+  });
+});
+
+describe('validatePaymentDestination refuses length and format violations', () => {
+  it('refuses a destination longer than 500 characters after trimming', () => {
+    expect(() => validatePaymentDestination(`  ${'B'.repeat(501)}  `)).toThrow(
+      PAYMENT_DESTINATION_TOO_LONG_SENTENCE,
+    );
+  });
+
+  const DANGEROUS_CODE_POINTS: Array<[string, string]> = [
+    ['U+200B ZERO WIDTH SPACE', '\u200B'],
+    ['U+200E LEFT-TO-RIGHT MARK', '\u200E'],
+    ['U+202E RIGHT-TO-LEFT OVERRIDE', '\u202E'],
+    ['U+00AD SOFT HYPHEN', '\u00AD'],
+    ['U+0000 NULL', '\u0000'],
+    ['U+0007 BELL', '\u0007'],
+    ['U+001B ESCAPE', '\u001B'],
+  ];
+
+  it.each(DANGEROUS_CODE_POINTS)(
+    'refuses a destination carrying %s, which the old LP regex /^(?:\\s*\\S){6}/ would have admitted',
+    (_label, codePoint) => {
+      expect(() => validatePaymentDestination(`BCA 123${codePoint}456`)).toThrow(
+        PAYMENT_DESTINATION_BAD_CHARS_SENTENCE,
+      );
+      expect(/^(?:\s*\S){6}/.test(`X${codePoint}XXXXX`)).toBe(true);
+    },
+  );
+});

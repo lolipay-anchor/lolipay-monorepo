@@ -16,7 +16,7 @@ import { StrKey } from '@stellar/stellar-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { Sep12Service, needsNewSession } from '../kyc/sep12.service';
 import { RateService } from '../rate/rate.service';
-import { OrderService } from '../order/order.service';
+import { OrderService, validatePaymentDestination } from '../order/order.service';
 import { OrderTxService } from '../order/order-tx.service';
 import { OrderStatusService, REFRESH_FROM_CHAIN_STATUSES } from '../order/order-status.service';
 import { accountOf } from '../sep10/account-signers.service';
@@ -40,9 +40,6 @@ import {
   TransactionsQueryDto,
   TransactionQueryDto,
 } from './sep24-query.dto';
-import { NO_CONTROL_CHARS_RE } from '../order/dto/create-order.dto';
-
-const USER_PAYMENT_METHOD_MAX = 500;
 
 const ORDER_FIELDS = {
   status: true,
@@ -524,22 +521,8 @@ export class Sep24Service {
       throw withOwnSentence(new BadRequestException('name an amount in rupiah'));
     }
 
-    let userPaymentMethod: string | undefined;
-    if (row.flow === 'WITHDRAW') {
-      if (typeof rawPaymentMethod !== 'string') {
-        throw withOwnSentence(new BadRequestException('name the bank account this anchor should pay the rupiah into'));
-      }
-      userPaymentMethod = rawPaymentMethod.trim();
-      if (userPaymentMethod.length === 0) {
-        throw withOwnSentence(new BadRequestException('name the bank account this anchor should pay the rupiah into'));
-      }
-      if (userPaymentMethod.length > USER_PAYMENT_METHOD_MAX) {
-        throw withOwnSentence(new BadRequestException('those bank details are too long'));
-      }
-      if (!NO_CONTROL_CHARS_RE.test(userPaymentMethod)) {
-        throw withOwnSentence(new BadRequestException('those bank details contain characters this anchor will not send on'));
-      }
-    }
+    const userPaymentMethod =
+      row.flow === 'WITHDRAW' ? validatePaymentDestination(rawPaymentMethod) : undefined;
 
     const quote = await this.rate.createQuote(accountOf(row.stellarAccount), row.flow, 'BANK', {
       fiatAmount: BigInt(digits),
