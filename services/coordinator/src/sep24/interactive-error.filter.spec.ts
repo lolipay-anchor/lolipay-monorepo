@@ -170,7 +170,7 @@ describe('a thrower that opts in supplies the paragraph, and only the paragraph'
     );
     const html = rendered(refusal);
     expect(html).toContain(UNAVAILABLE_TITLE);
-    expect(html).toContain('This can last hours');
+    expect(html).toContain(NO_PROVIDER_SENTENCE);
     expect(html).not.toContain(UNAVAILABLE_BODY);
     expect(html).not.toContain('no eligible LP available');
   });

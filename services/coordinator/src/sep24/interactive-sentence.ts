@@ -12,8 +12,14 @@ export function interactiveSentenceOf(exception: unknown): string | undefined {
 }
 
 export const NO_PROVIDER_SENTENCE =
-  'No provider is available to take this order right now. It is not anything you did. ' +
-  'This can last hours — come back to this page later.';
+  'This anchor could not match a provider to this order right now. ' +
+  'It is not anything you did, and no money has moved. ' +
+  'You can go back and try again, or come back to this page later.';
+
+export const LP_CAPACITY_LOST_SENTENCE =
+  'The provider this anchor matched you with no longer has room for this order. ' +
+  'Nothing you entered was wrong and no money has moved. ' +
+  'Go back and submit again — this anchor will look for another provider.';
 
 export const IDENTITY_REFUSED_SENTENCE =
   'This anchor has refused this identity, and that decision does not change. ' +

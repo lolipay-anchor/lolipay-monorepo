@@ -5,7 +5,7 @@ const SRC = join(__dirname, '..');
 
 const OPTED_IN: Array<[string, string, number, string]> = [
   ['matching/matching.service.ts', "new ServiceUnavailableException('no eligible LP available')", 1, 'NO_PROVIDER_SENTENCE'],
-  ['order/order.service.ts', "new ServiceUnavailableException('no eligible LP available')", 1, 'NO_PROVIDER_SENTENCE'],
+  ['order/order.service.ts', "new ServiceUnavailableException('no eligible LP available')", 1, 'LP_CAPACITY_LOST_SENTENCE'],
   ['kyc/sep12.service.ts', "new ForbiddenException('this identity was refused and cannot be resubmitted here')", 2, 'IDENTITY_REFUSED_SENTENCE'],
 ];
 

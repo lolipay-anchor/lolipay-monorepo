@@ -2,6 +2,11 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { LP_CAPACITY_LOCK_NAMESPACE } from './lp-exposure';
 import { orderStatusFor, orderTxFor, verifiedCustomerStub } from './test-helpers';
+import {
+  LP_CAPACITY_LOST_SENTENCE,
+  NO_PROVIDER_SENTENCE,
+  interactiveSentenceOf,
+} from '../sep24/interactive-sentence';
 
 describe('OrderService.createFromQuote — advisory-lock transaction wiring (SECURITY MEDIUM fix wave)', () => {
   const USER = 'GUSER';
@@ -145,6 +150,19 @@ describe('OrderService.createFromQuote — advisory-lock transaction wiring (SEC
     await expect(svc.createFromQuote(USER, 'q1', 'bank details')).rejects.toThrow(
       'no eligible LP available',
     );
+  });
+
+  it('hands the lost-capacity refusal the sentence that blames the lost headroom, not the matcher\'s global-absence sentence', async () => {
+    const { svc, tx } = makeSvc();
+    (tx.$queryRaw as jest.Mock).mockResolvedValue([{ total: '999999999999999' }]);
+
+    expect.assertions(2);
+    try {
+      await svc.createFromQuote(USER, 'q1', 'bank details');
+    } catch (e) {
+      expect(interactiveSentenceOf(e)).toBe(LP_CAPACITY_LOST_SENTENCE);
+      expect(interactiveSentenceOf(e)).not.toBe(NO_PROVIDER_SENTENCE);
+    }
   });
 
   it('never takes the advisory lock (or touches quote/order) on the OUTSIDE-of-tx prisma client', async () => {

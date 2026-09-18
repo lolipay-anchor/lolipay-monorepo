@@ -9,7 +9,7 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { NO_PROVIDER_SENTENCE, withInteractiveSentence } from '../sep24/interactive-sentence';
+import { LP_CAPACITY_LOST_SENTENCE, withInteractiveSentence } from '../sep24/interactive-sentence';
 import { acceptedForFunds } from '../kyc/screening-requirement';
 import { signingDeadlineSecs } from '../config/contract-limits';
 import { Prisma } from '../generated/prisma/client';
@@ -254,7 +254,7 @@ export class OrderService {
             );
             throw withInteractiveSentence(
               new ServiceUnavailableException('no eligible LP available'),
-              NO_PROVIDER_SENTENCE,
+              LP_CAPACITY_LOST_SENTENCE,
             );
           }
 
