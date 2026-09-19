@@ -513,7 +513,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
   });
 
   it('PATCH /admin/config surfaces AdminService ORDER_BOUNDS_INVALID as 400', async () => {
-    mockAdminService.updateConfigTransactional.mockRejectedValue(
+    mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
       new Error('ORDER_BOUNDS_INVALID'),
     );
 
@@ -528,7 +528,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
   it('PATCH /admin/config surfaces AdminService DAILY_LIMIT_BELOW_MIN_ORDER as 400 with the reason, never as a 500', async () => {
     mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
       new Error(
-        'DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 4 USDC is below minOrder (5.0000000 USDC), so nobody in that tier could place an order at all',
+        'DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 4 USDC is below minOrder (5.0000000 USDC), so every order that tier could place would be refused as over the daily limit',
       ),
     );
 
@@ -538,8 +538,18 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
       .expect(400);
 
     expect(res.body.message).toBe(
-      'the BRONZE daily limit of 4 USDC is below minOrder (5.0000000 USDC), so nobody in that tier could place an order at all',
+      'the BRONZE daily limit of 4 USDC is below minOrder (5.0000000 USDC), so every order that tier could place would be refused as over the daily limit',
     );
+  });
+
+  it('PATCH /admin/config refuses an explicit null dailyLimitByTier, which would return all four tiers to the code defaults in one request', async () => {
+    const res = await request(app.getHttpServer())
+      .patch('/admin/config')
+      .send({ dailyLimitByTier: null })
+      .expect(400);
+
+    expect(JSON.stringify(res.body.message)).toMatch(/must name every tier/);
+    expect(mockAdminService.updateConfigTransactional).not.toHaveBeenCalled();
   });
 
   it('PATCH /admin/config surfaces AdminService PLATFORM_WALLET_DIVERGES_FROM_CHAIN as 400 with the reason', async () => {

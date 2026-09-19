@@ -8,6 +8,7 @@ import {
   Max,
   Min,
   registerDecorator,
+  ValidateIf,
   ValidationOptions,
 } from 'class-validator';
 import {
@@ -44,7 +45,7 @@ function IsDailyLimitByTier(validationOptions?: ValidationOptions) {
           });
         },
         defaultMessage() {
-          return `dailyLimitByTier must name every tier (${VALID_TIERS.join('|')}) and nothing else, each an integer from 1 to ${MAX_DAILY_LIMIT_USDC}, because the stored value replaces the whole map rather than merging into it`;
+          return `dailyLimitByTier must name every tier (${VALID_TIERS.join('|')}) and nothing else, each an integer from 1 to ${MAX_DAILY_LIMIT_USDC}: send all four values, including the ones you are not changing`;
         },
       },
     });
@@ -89,7 +90,7 @@ export class UpdateConfigDto {
 
   @IsObject()
   @IsDailyLimitByTier()
-  @IsOptional()
+  @ValidateIf((o: UpdateConfigDto) => o.dailyLimitByTier !== undefined)
   dailyLimitByTier?: Record<string, number>;
 
   @IsInt()

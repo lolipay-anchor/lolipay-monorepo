@@ -25,7 +25,7 @@ import { MarketsService } from '../market/markets.service';
 import { UpdateConfigDto } from './dto/update-config.dto';
 import { UpdateMarketDto } from './dto/update-market.dto';
 import { RegisterLpDto } from './dto/register-lp.dto';
-import { UserReputationService, UserTierName } from '../reputation/user-reputation.service';
+import { TIER_LEVELS, UserReputationService, UserTierName } from '../reputation/user-reputation.service';
 import { applyBps, baseUnitsToUsdc, baseUnitsToUsdcString } from '../money/money';
 import { MetricsRange } from './dto/metrics-overview-query.dto';
 import { NotificationService } from '../notification/notification.service';
@@ -34,7 +34,6 @@ import { contractIdFor } from '../order/order.params';
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const USDC_BASE_UNITS = 10_000_000n;
 
 const METRICS_RANGE_MS: Record<MetricsRange, number> = {
   '24h': DAY_MS,
@@ -331,13 +330,22 @@ export class AdminService {
         throw new Error('ORDER_BOUNDS_INVALID');
       }
 
-      if (patch.dailyLimitByTier) {
-        const belowFloor = Object.entries(patch.dailyLimitByTier).find(
-          ([, usdc]) => BigInt(usdc) * USDC_BASE_UNITS < nextMinOrder,
-        );
-        if (belowFloor) {
+      if (minOrderPatch !== undefined || patch.dailyLimitByTier !== undefined) {
+        const nextLimits =
+          patch.dailyLimitByTier !== undefined
+            ? patch.dailyLimitByTier
+            : current?.dailyLimitByTier;
+        const belowFloor = TIER_LEVELS.map((tier) => ({
+          tier,
+          base: this.userReputation.dailyLimitBaseUnits(tier, { dailyLimitByTier: nextLimits }),
+        }))
+          .filter(({ base }) => base < nextMinOrder)
+          .map(({ tier, base }) => `the ${tier} daily limit of ${baseUnitsToUsdc(base)} USDC`);
+
+        if (belowFloor.length > 0) {
+          const many = belowFloor.length > 1;
           throw new Error(
-            `DAILY_LIMIT_BELOW_MIN_ORDER: the ${belowFloor[0]} daily limit of ${belowFloor[1]} USDC is below minOrder (${baseUnitsToUsdcString(nextMinOrder)} USDC), so every order that tier could place would be refused as over the daily limit`,
+            `DAILY_LIMIT_BELOW_MIN_ORDER: ${belowFloor.join(', ')} ${many ? 'are' : 'is'} below minOrder (${baseUnitsToUsdcString(nextMinOrder)} USDC), so every order ${many ? 'those tiers' : 'that tier'} could place would be refused as over the daily limit`,
           );
         }
       }

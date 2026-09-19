@@ -1,6 +1,7 @@
 import { BadGatewayException, BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { ConfigCache } from '../config/config-cache';
+import { UserReputationService } from '../reputation/user-reputation.service';
 
 const ADDR = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
 
@@ -57,7 +58,7 @@ function makeUserReputation(overrides: Record<string, any> = {}) {
       disputesLost: 0,
       completionRate: null,
     }),
-    dailyLimitBaseUnits: jest.fn().mockReturnValue(100_0000000n),
+    dailyLimitBaseUnits: jest.fn(UserReputationService.prototype.dailyLimitBaseUnits),
     used24hBaseUnits: jest.fn().mockResolvedValue(0n),
     ...overrides,
   } as any;
@@ -547,7 +548,7 @@ describe('AdminService.updateConfigTransactional', () => {
     });
   });
 
-  it('writes a null dailyLimitByTier through untouched, because the floor check has no tier to measure', async () => {
+  it('writes a null dailyLimitByTier through only because the code defaults it falls back to all clear minOrder', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
@@ -557,6 +558,78 @@ describe('AdminService.updateConfigTransactional', () => {
       where: { id: 1 },
       data: { dailyLimitByTier: null },
     });
+  });
+
+  it('measures a null dailyLimitByTier against the code defaults it falls back to, never against the map it is erasing', async () => {
+    const { prisma, configApi } = makeConfigPrisma({
+      ...CURRENT,
+      minOrder: 2_000_000_000n,
+      dailyLimitByTier: { BRONZE: 500, SILVER: 500, TRUSTED: 600, GOLD: 2222 },
+    });
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    await expect(
+      svc.updateConfigTransactional({ dailyLimitByTier: null } as any, 'GADMINTEST'),
+    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 100 USDC is below minOrder \(200\.0000000 USDC\)/);
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a minOrder that leaves no room under the code defaults, on a patch that says nothing about tier limits', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    await expect(
+      svc.updateConfigTransactional({ minOrder: '1000000001' } as any, 'GADMINTEST'),
+    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 100 USDC is below minOrder \(100\.0000001 USDC\)/);
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('measures a minOrder-only patch against the STORED tier limits, not against the code defaults', async () => {
+    const { prisma, configApi } = makeConfigPrisma({
+      ...CURRENT,
+      dailyLimitByTier: { BRONZE: 50, SILVER: 333, TRUSTED: 666, GOLD: 2222 },
+    });
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    await expect(
+      svc.updateConfigTransactional({ minOrder: '600000000' } as any, 'GADMINTEST'),
+    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 50 USDC is below minOrder \(60\.0000000 USDC\)/);
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('accepts a minOrder that every tier still clears, so the floor check is not a blanket refusal', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    await svc.updateConfigTransactional({ minOrder: '1000000000' } as any, 'GADMINTEST');
+
+    expect(configApi.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { minOrder: 1_000_000_000n },
+    });
+  });
+
+  it('leaves a stored map already below the floor alone on a patch that touches neither it nor minOrder', async () => {
+    const { prisma, configApi } = makeConfigPrisma({
+      ...CURRENT,
+      dailyLimitByTier: { BRONZE: 1, SILVER: 1, TRUSTED: 1, GOLD: 1 },
+    });
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    await svc.updateConfigTransactional({ paused: true } as any, 'GADMINTEST');
+
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { paused: true } });
+  });
+
+  it('names every tier below the floor, so raising the first one does not earn a second refusal', async () => {
+    const { prisma } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    await expect(
+      svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, BRONZE: 4, SILVER: 3 } } as any, 'GADMINTEST'),
+    ).rejects.toThrow(
+      /^DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 4 USDC, the SILVER daily limit of 3 USDC are below minOrder \(5\.0000000 USDC\), so every order those tiers could place would be refused as over the daily limit$/,
+    );
   });
 
   it('names the offending tier rather than the first one, so an operator is told which limit to raise', async () => {
