@@ -495,6 +495,79 @@ describe('AdminService.updateConfigTransactional', () => {
     });
   });
 
+  const LIMITS = { BRONZE: 111, SILVER: 333, TRUSTED: 666, GOLD: 2222 };
+
+  it('refuses a tier limit below the stored minOrder, because every quote in that tier would be refused as over the daily limit', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    await expect(
+      svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, BRONZE: 4 } } as any, 'GADMINTEST'),
+    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 4 USDC is below minOrder \(5\.0000000 USDC\)/);
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a tier limit below a minOrder raised in the SAME patch, not below the stored one', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    await expect(
+      svc.updateConfigTransactional(
+        { minOrder: '60000000', dailyLimitByTier: { ...LIMITS, BRONZE: 5 } } as any,
+        'GADMINTEST',
+      ),
+    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 5 USDC is below minOrder \(6\.0000000 USDC\)/);
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
+
+  it('accepts a tier limit under the stored minOrder when the SAME patch lowers minOrder beneath it', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    await svc.updateConfigTransactional(
+      { minOrder: '30000000', dailyLimitByTier: { ...LIMITS, BRONZE: 4 } } as any,
+      'GADMINTEST',
+    );
+
+    expect(configApi.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { dailyLimitByTier: { ...LIMITS, BRONZE: 4 }, minOrder: 30_000_000n },
+    });
+  });
+
+  it('accepts a tier limit exactly equal to minOrder, the smallest limit that still lets one order through', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    await svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, BRONZE: 5 } } as any, 'GADMINTEST');
+
+    expect(configApi.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { dailyLimitByTier: { ...LIMITS, BRONZE: 5 } },
+    });
+  });
+
+  it('writes a null dailyLimitByTier through untouched, because the floor check has no tier to measure', async () => {
+    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    await svc.updateConfigTransactional({ dailyLimitByTier: null } as any, 'GADMINTEST');
+
+    expect(configApi.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { dailyLimitByTier: null },
+    });
+  });
+
+  it('names the offending tier rather than the first one, so an operator is told which limit to raise', async () => {
+    const { prisma } = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    await expect(
+      svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, GOLD: 1 } } as any, 'GADMINTEST'),
+    ).rejects.toThrow(/the GOLD daily limit of 1 USDC/);
+  });
+
   it('leaves non-order fields untouched in the write payload (no stray minOrder/maxOrder when unpatched)', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);

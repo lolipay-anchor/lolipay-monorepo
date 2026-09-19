@@ -452,7 +452,11 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
   it.each([
     ['requireProof', { requireProof: false }],
     ['autoRefund', { autoRefund: false }],
-    ['dailyLimitByTier', { dailyLimitByTier: { BRONZE: 500, GOLD: 50000 } }],
+    ['dailyLimitByTier naming every tier', { dailyLimitByTier: { BRONZE: 111, SILVER: 333, TRUSTED: 666, GOLD: 2222 } }],
+    [
+      'dailyLimitByTier at the ten-million ceiling itself',
+      { dailyLimitByTier: { BRONZE: 10000000, SILVER: 10000000, TRUSTED: 10000000, GOLD: 10000000 } },
+    ],
     ['postSettleDisputeWindowSecs', { postSettleDisputeWindowSecs: 1800 }],
     ['payWindowSecs at the usable floor, twice the on-chain minimum', { payWindowSecs: 1200 }],
     ['confirmWindowSecs', { confirmWindowSecs: 900 }],
@@ -471,9 +475,29 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
     ['requireProof not a boolean', { requireProof: 'yes' }],
     ['autoRefund not a boolean', { autoRefund: 1 }],
     ['dailyLimitByTier empty object', { dailyLimitByTier: {} }],
-    ['dailyLimitByTier unknown tier key', { dailyLimitByTier: { PLATINUM: 100 } }],
-    ['dailyLimitByTier negative value', { dailyLimitByTier: { BRONZE: -5 } }],
-    ['dailyLimitByTier non-integer value', { dailyLimitByTier: { BRONZE: 1.5 } }],
+    [
+      'dailyLimitByTier naming only two tiers, which would return the other two to the code defaults',
+      { dailyLimitByTier: { BRONZE: 500, GOLD: 50000 } },
+    ],
+    [
+      'dailyLimitByTier naming every tier and an unknown one besides',
+      { dailyLimitByTier: { BRONZE: 111, SILVER: 333, TRUSTED: 666, GOLD: 2222, PLATINUM: 100 } },
+    ],
+    [
+      'dailyLimitByTier swapping one tier for an unknown one, so the count still looks right',
+      { dailyLimitByTier: { BRONZE: 111, SILVER: 333, TRUSTED: 666, PLATINUM: 2222 } },
+    ],
+    ['dailyLimitByTier negative value', { dailyLimitByTier: { BRONZE: -5, SILVER: 333, TRUSTED: 666, GOLD: 2222 } }],
+    ['dailyLimitByTier zero value', { dailyLimitByTier: { BRONZE: 0, SILVER: 333, TRUSTED: 666, GOLD: 2222 } }],
+    ['dailyLimitByTier non-integer value', { dailyLimitByTier: { BRONZE: 1.5, SILVER: 333, TRUSTED: 666, GOLD: 2222 } }],
+    [
+      'dailyLimitByTier one above the ten-million ceiling',
+      { dailyLimitByTier: { BRONZE: 10000001, SILVER: 333, TRUSTED: 666, GOLD: 2222 } },
+    ],
+    [
+      'dailyLimitByTier beyond the safe-integer range, where the enforced value is not the typed one',
+      { dailyLimitByTier: { BRONZE: 1e21, SILVER: 333, TRUSTED: 666, GOLD: 2222 } },
+    ],
     ['postSettleDisputeWindowSecs zero', { postSettleDisputeWindowSecs: 0 }],
     ['postSettleDisputeWindowSecs over the 7-day cap', { postSettleDisputeWindowSecs: 604801 }],
     ['payWindowSecs below the usable floor', { payWindowSecs: 599 }],
@@ -499,6 +523,23 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
       .expect(400);
 
     expect(res.body.message).toMatch(/minOrder must be less than maxOrder/i);
+  });
+
+  it('PATCH /admin/config surfaces AdminService DAILY_LIMIT_BELOW_MIN_ORDER as 400 with the reason, never as a 500', async () => {
+    mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
+      new Error(
+        'DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 4 USDC is below minOrder (5.0000000 USDC), so nobody in that tier could place an order at all',
+      ),
+    );
+
+    const res = await request(app.getHttpServer())
+      .patch('/admin/config')
+      .send({ dailyLimitByTier: { BRONZE: 4, SILVER: 333, TRUSTED: 666, GOLD: 2222 } })
+      .expect(400);
+
+    expect(res.body.message).toBe(
+      'the BRONZE daily limit of 4 USDC is below minOrder (5.0000000 USDC), so nobody in that tier could place an order at all',
+    );
   });
 
   it('PATCH /admin/config surfaces AdminService PLATFORM_WALLET_DIVERGES_FROM_CHAIN as 400 with the reason', async () => {

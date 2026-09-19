@@ -19,6 +19,7 @@ import {
 const MAX_DISPUTE_WINDOW_SECS = 604800;
 
 const VALID_TIERS = ['BRONZE', 'SILVER', 'TRUSTED', 'GOLD'] as const;
+const MAX_DAILY_LIMIT_USDC = 10_000_000;
 const POSITIVE_INT_STRING = /^[1-9]\d*$/;
 
 function IsDailyLimitByTier(validationOptions?: ValidationOptions) {
@@ -31,17 +32,19 @@ function IsDailyLimitByTier(validationOptions?: ValidationOptions) {
       validator: {
         validate(value: unknown) {
           if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-          const entries = Object.entries(value as Record<string, unknown>);
-          if (entries.length === 0) return false;
-          return entries.every(
-            ([tier, limit]) =>
-              (VALID_TIERS as readonly string[]).includes(tier) &&
+          const limits = value as Record<string, unknown>;
+          if (Object.keys(limits).length !== VALID_TIERS.length) return false;
+          return VALID_TIERS.every((tier) => {
+            const limit = limits[tier];
+            return (
               Number.isInteger(limit) &&
-              (limit as number) > 0,
-          );
+              (limit as number) > 0 &&
+              (limit as number) <= MAX_DAILY_LIMIT_USDC
+            );
+          });
         },
         defaultMessage() {
-          return `dailyLimitByTier must be a non-empty object mapping tier (${VALID_TIERS.join('|')}) to a positive integer`;
+          return `dailyLimitByTier must name every tier (${VALID_TIERS.join('|')}) and nothing else, each an integer from 1 to ${MAX_DAILY_LIMIT_USDC}, because the stored value replaces the whole map rather than merging into it`;
         },
       },
     });

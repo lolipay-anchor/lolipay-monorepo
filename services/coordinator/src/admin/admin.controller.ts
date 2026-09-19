@@ -120,6 +120,9 @@ export class AdminController {
       if (err?.message === 'ORDER_BOUNDS_INVALID') {
         throw new BadRequestException('minOrder must be less than maxOrder');
       }
+      if (typeof err?.message === 'string' && err.message.startsWith('DAILY_LIMIT_BELOW_MIN_ORDER: ')) {
+        throw new BadRequestException(err.message.slice('DAILY_LIMIT_BELOW_MIN_ORDER: '.length));
+      }
       if (typeof err?.message === 'string' && err.message.startsWith('SPREAD_TOO_NARROW: ')) {
         throw new BadRequestException(err.message.slice('SPREAD_TOO_NARROW: '.length));
       }
