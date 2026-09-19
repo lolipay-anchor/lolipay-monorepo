@@ -1148,7 +1148,7 @@ describe('Config page', () => {
     )
 
     await waitFor(() => screen.getByTestId('daily-limit-BRONZE'))
-    expect(document.body.textContent).toContain(
+    expect(screen.getByTestId('daily-limit-intro')).toHaveTextContent(
       'room comes back as each order passes its 24th hour — and at once if an order expires, is cancelled or is refunded.',
     )
   })
