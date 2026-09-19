@@ -20,7 +20,8 @@
     "anchor:test:sep12": "stellar-anchor-tests --home-domain \"${ANCHOR_TEST_DOMAIN:-lolipay.app}\" --seps 12 --sep-config anchor-tests/sep-config.json",
     "anchor:test:sep24": "stellar-anchor-tests --home-domain \"${ANCHOR_TEST_DOMAIN:-lolipay.app}\" --seps 24 --sep-config anchor-tests/sep-config.local.json",
     "anchor:fixtures:sep24": "ts-node -T src/scripts/sep24-fixtures.ts",
-    "anchor:consistency": "ts-node -T src/scripts/anchor-consistency.ts \"${ANCHOR_TEST_DOMAIN:-lolipay.app}\""
+    "anchor:consistency": "ts-node -T src/scripts/anchor-consistency.ts \"${ANCHOR_TEST_DOMAIN:-lolipay.app}\"",
+    "lp:activate-payment-method": "ts-node -T src/scripts/lp-activate-payment-method.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.1",
