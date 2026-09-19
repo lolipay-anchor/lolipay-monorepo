@@ -12,6 +12,7 @@ import { TIERS, limitsFromConfig, limitsToPatch, type DailyLimits } from '@/lib/
 import {
   DailyLimitConfirm,
   DailyLimitSection,
+  dailyLimitFloor,
   validateDailyLimits,
 } from './daily-limit-section'
 
@@ -227,7 +228,8 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
     form.postSettleDisputeWindowSecs,
     'postSettleDisputeWindowSecs',
   )
-  const dailyLimitErr = validateDailyLimits(form.dailyLimitByTier)
+  const dailyLimitFloorUsdc = dailyLimitFloor(minOrderErr ? initial.minOrder : form.minOrder)
+  const dailyLimitErr = validateDailyLimits(form.dailyLimitByTier, dailyLimitFloorUsdc)
 
   const hasValidationError =
     feeInvariantViolated ||
@@ -267,7 +269,7 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
 
   const limitsNeedConfirming = patch.dailyLimitByTier !== undefined
   const tiersOnDefault = TIERS.filter(
-    (tier) => typeof initial.dailyLimitByTier?.[tier] !== 'number',
+    (tier) => original.dailyLimitByTier[tier] !== initial.dailyLimitByTier?.[tier],
   )
   const maxOrderCeiling = POSITIVE_INT_STRING_RE.test(form.maxOrder)
     ? `${formatUSDC(BigInt(form.maxOrder))} USDC as currently entered`
@@ -448,6 +450,7 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
         disabled={mutation.isPending}
         tiersOnDefault={tiersOnDefault}
         maxOrderCeiling={maxOrderCeiling}
+        floor={dailyLimitFloorUsdc}
       />
 
       {}
@@ -488,7 +491,7 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
         open={confirmingLimits}
         from={original.dailyLimitByTier}
         to={form.dailyLimitByTier}
-        nothingStored={tiersOnDefault.length === TIERS.length}
+        tiersOnDefault={tiersOnDefault}
         canConfirm={canSave}
         onCancel={() => setConfirmingLimits(false)}
         onConfirm={() => {

@@ -2,18 +2,20 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { TIERS, DEFAULT_DAILY_LIMIT_USDC, limitsFromConfig, limitsToPatch } from '@/lib/daily-limit'
+import { MAX_DAILY_LIMIT_USDC, dailyLimitFloor } from '@/app/config/daily-limit-section'
 
-function coordinatorSource(): string {
+function coordinatorPath(relative: string): string {
   let dir = process.cwd()
   while (!existsSync(join(dir, 'services/coordinator'))) {
     const up = dirname(dir)
     if (up === dir) throw new Error(`no services/coordinator above ${process.cwd()}`)
     dir = up
   }
-  return join(dir, 'services/coordinator/src/reputation/user-reputation.service.ts')
+  return join(dir, 'services/coordinator', relative)
 }
 
-const COORDINATOR_SOURCE = coordinatorSource()
+const COORDINATOR_SOURCE = coordinatorPath('src/reputation/user-reputation.service.ts')
+const COORDINATOR_DTO = coordinatorPath('src/admin/dto/update-config.dto.ts')
 
 describe('daily limit defaults', () => {
   it('mirrors the coordinator constant this screen has no endpoint to read', () => {
@@ -53,5 +55,26 @@ describe('daily limit defaults', () => {
 
   it('keeps a stored zero rather than replacing it with the default, because the coordinator honours it', () => {
     expect(limitsFromConfig({ BRONZE: 0 })).toMatchObject({ BRONZE: 0 })
+  })
+
+  it('mirrors the ceiling the coordinator DTO refuses above, which this screen has no endpoint to read', () => {
+    const src = readFileSync(COORDINATOR_DTO, 'utf8')
+    const block = src.match(/const MAX_DAILY_LIMIT_USDC = ([\d_]+);/)
+    expect(block).not.toBeNull()
+    expect(Number(block![1].replace(/_/g, ''))).toBe(MAX_DAILY_LIMIT_USDC)
+  })
+
+  it('rounds the floor up to the next whole USDC, because a tier at the truncated value is below minOrder', () => {
+    expect(dailyLimitFloor('50000000')).toBe(5)
+    expect(dailyLimitFloor('50000001')).toBe(6)
+    expect(dailyLimitFloor('55000000')).toBe(6)
+    expect(dailyLimitFloor('10000000')).toBe(1)
+    expect(dailyLimitFloor('1')).toBe(1)
+  })
+
+  it('falls back to one whole USDC when the minimum order is not a figure it can read', () => {
+    expect(dailyLimitFloor('')).toBe(1)
+    expect(dailyLimitFloor('0')).toBe(1)
+    expect(dailyLimitFloor('not a number')).toBe(1)
   })
 })
