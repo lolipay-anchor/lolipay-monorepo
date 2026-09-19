@@ -7,6 +7,13 @@ import type { AdminConfig } from '@lolipay/api-client'
 import { Button, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
 import { AppHeader } from '@/components/AppHeader'
 import { client } from '@/lib/client'
+import { formatUSDC } from '@/lib/money'
+import { TIERS, limitsFromConfig, limitsToPatch, type DailyLimits } from '@/lib/daily-limit'
+import {
+  DailyLimitConfirm,
+  DailyLimitSection,
+  validateDailyLimits,
+} from './daily-limit-section'
 
 const STELLAR_ADDR_RE = /^G[A-Z2-7]{55}$/
 const POSITIVE_INT_STRING_RE = /^[1-9]\d*$/
@@ -55,6 +62,7 @@ type EditableFields = {
   requireProof: boolean
   autoRefund: boolean
   postSettleDisputeWindowSecs: number
+  dailyLimitByTier: DailyLimits
 }
 
 function configToForm(cfg: AdminConfig): EditableFields {
@@ -72,6 +80,7 @@ function configToForm(cfg: AdminConfig): EditableFields {
     requireProof: cfg.requireProof,
     autoRefund: cfg.autoRefund,
     postSettleDisputeWindowSecs: cfg.postSettleDisputeWindowSecs,
+    dailyLimitByTier: limitsFromConfig(cfg.dailyLimitByTier),
   }
 }
 
@@ -81,6 +90,13 @@ function computePatch(
 ): Partial<EditableFields> {
   const patch: Record<string, unknown> = {}
   for (const key of Object.keys(current) as (keyof EditableFields)[]) {
+    if (key === 'dailyLimitByTier') {
+      const changed = TIERS.some(
+        (tier) => current.dailyLimitByTier[tier] !== original.dailyLimitByTier[tier],
+      )
+      if (changed) patch[key] = limitsToPatch(current.dailyLimitByTier)
+      continue
+    }
     if (current[key] !== original[key]) patch[key] = current[key]
   }
   return patch as Partial<EditableFields>
@@ -181,6 +197,7 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
   const [form, setForm] = React.useState<EditableFields>(() => configToForm(initial))
   const [serverError, setServerError] = React.useState<string | null>(null)
   const [savedAt, setSavedAt] = React.useState<string | null>(null)
+  const [confirmingLimits, setConfirmingLimits] = React.useState(false)
 
   React.useEffect(() => {
     setForm(configToForm(initial))
@@ -209,6 +226,7 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
     form.postSettleDisputeWindowSecs,
     'postSettleDisputeWindowSecs',
   )
+  const dailyLimitErr = validateDailyLimits(form.dailyLimitByTier)
 
   const hasValidationError =
     feeInvariantViolated ||
@@ -221,7 +239,8 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
     !!payWindowErr ||
     !!confirmWindowErr ||
     !!disputeWindowErr ||
-    !!postSettleWindowErr
+    !!postSettleWindowErr ||
+    !!dailyLimitErr
 
   const original = React.useMemo(() => configToForm(initial), [initial])
   const patch = computePatch(original, form)
@@ -244,6 +263,14 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
   })
 
   const canSave = isDirty && !hasValidationError && !mutation.isPending
+
+  const limitsNeedConfirming = patch.dailyLimitByTier !== undefined
+  const noLimitStored = TIERS.every(
+    (tier) => typeof initial.dailyLimitByTier?.[tier] !== 'number',
+  )
+  const maxOrderCeiling = POSITIVE_INT_STRING_RE.test(form.maxOrder)
+    ? `${formatUSDC(BigInt(form.maxOrder))} USDC today`
+    : 'not a valid amount right now'
 
   return (
     <div className="space-y-4">
@@ -413,6 +440,16 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
         {disputeWindowErr && <p className="text-xs text-lp-danger">{disputeWindowErr}</p>}
       </section>
 
+
+      {}
+      <DailyLimitSection
+        limits={form.dailyLimitByTier}
+        onChange={(next) => set('dailyLimitByTier', next)}
+        disabled={mutation.isPending}
+        noLimitStored={noLimitStored}
+        maxOrderCeiling={maxOrderCeiling}
+      />
+
       {}
       <section className="bg-lp-raise border border-lp-line-2 rounded-lp-card p-[18px] space-y-2">
         <h2 className="font-geist-mono text-[11px] font-semibold uppercase tracking-[.1em] text-lp-muted">
@@ -441,11 +478,22 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
       <Button
         disabled={!canSave}
         loading={mutation.isPending}
-        onClick={() => mutation.mutate()}
+        onClick={() => (limitsNeedConfirming ? setConfirmingLimits(true) : mutation.mutate())}
         data-testid="save-config"
       >
         Save changes
       </Button>
+
+      <DailyLimitConfirm
+        open={confirmingLimits}
+        from={original.dailyLimitByTier}
+        to={form.dailyLimitByTier}
+        onCancel={() => setConfirmingLimits(false)}
+        onConfirm={() => {
+          setConfirmingLimits(false)
+          mutation.mutate()
+        }}
+      />
     </div>
   )
 }

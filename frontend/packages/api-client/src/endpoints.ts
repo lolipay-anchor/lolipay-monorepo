@@ -2,7 +2,7 @@ import { ApiClient } from './http'
 import { Quote, Order, OrderStatus, Rate, CreateOrderResponse, TxEnvelope,
   Lp, LpStatus, LpMe, PaymentMethod, AdminConfig, Assignment, Eligibility, Rail,
   NotificationsResponse, Market, PostDisputeResponse, DisputeReason,
-  UserProfile, OrderRisk, MetricsOverview, MetricsRange, LpEarnings } from './types'
+  UserProfile, OrderRisk, MetricsOverview, MetricsRange, LpEarnings, UserTier } from './types'
 
 export const getNotifications = (c: ApiClient) =>
   c.request<NotificationsResponse>('GET', '/notifications')
@@ -93,6 +93,7 @@ export const patchAdminConfig = (c: ApiClient, patch: Partial<{
   postSettleDisputeWindowSecs: number
   payWindowSecs: number; confirmWindowSecs: number; disputeWindowSecs: number
   minOrder: string; maxOrder: string
+  dailyLimitByTier: Record<UserTier, number>
 }>) =>
   c.request<AdminConfig>('PATCH', '/admin/config', patch)
 

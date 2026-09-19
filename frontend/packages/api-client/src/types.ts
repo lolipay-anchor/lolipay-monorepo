@@ -164,6 +164,7 @@ export interface AdminConfig {
   confirmWindowSecs: number
   disputeWindowSecs: number
   paused: boolean
+  dailyLimitByTier?: Partial<Record<UserTier, number>> | null
   updatedAt: string
 
   requireProof: boolean

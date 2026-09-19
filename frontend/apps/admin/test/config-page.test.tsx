@@ -370,4 +370,227 @@ describe('Config page', () => {
 
     expect(screen.getByText('Loading…')).toBeTruthy()
   })
+  it('shows the four built-in defaults, and says they are defaults, when the config has never stored them', async () => {
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValueOnce(MOCK_CONFIG)
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('daily-limit-BRONZE'))
+    expect((screen.getByTestId('daily-limit-BRONZE') as HTMLInputElement).value).toBe('100')
+    expect((screen.getByTestId('daily-limit-SILVER') as HTMLInputElement).value).toBe('300')
+    expect((screen.getByTestId('daily-limit-TRUSTED') as HTMLInputElement).value).toBe('600')
+    expect((screen.getByTestId('daily-limit-GOLD') as HTMLInputElement).value).toBe('2000')
+    expect(screen.getByTestId('daily-limit-defaults-note')).toHaveTextContent(
+      'These are the built-in defaults, in force now',
+    )
+  })
+
+  it('shows the stored values and drops the defaults note once the config carries them', async () => {
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValueOnce({
+      ...MOCK_CONFIG,
+      dailyLimitByTier: { BRONZE: 111, SILVER: 333, TRUSTED: 666, GOLD: 2222 },
+    })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('daily-limit-BRONZE'))
+    expect((screen.getByTestId('daily-limit-BRONZE') as HTMLInputElement).value).toBe('111')
+    expect((screen.getByTestId('daily-limit-GOLD') as HTMLInputElement).value).toBe('2222')
+    expect(screen.queryByTestId('daily-limit-defaults-note')).toBeNull()
+  })
+
+  it('fills a tier the stored object left out from its built-in default, the same way the coordinator does', async () => {
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValueOnce({
+      ...MOCK_CONFIG,
+      dailyLimitByTier: { BRONZE: 111 },
+    })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('daily-limit-BRONZE'))
+    expect((screen.getByTestId('daily-limit-BRONZE') as HTMLInputElement).value).toBe('111')
+    expect((screen.getByTestId('daily-limit-SILVER') as HTMLInputElement).value).toBe('300')
+    expect((screen.getByTestId('daily-limit-TRUSTED') as HTMLInputElement).value).toBe('600')
+    expect((screen.getByTestId('daily-limit-GOLD') as HTMLInputElement).value).toBe('2000')
+  })
+
+  it('sends all four tiers when only one was changed, because the server replaces the whole set', async () => {
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValue(MOCK_CONFIG)
+    vi.mocked(apiClient.patchAdminConfig).mockResolvedValueOnce(MOCK_CONFIG)
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('daily-limit-GOLD'))
+    fireEvent.change(screen.getByTestId('daily-limit-GOLD'), { target: { value: '2500' } })
+
+    fireEvent.click(screen.getByTestId('save-config'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Change the limit' }))
+
+    await waitFor(() => {
+      expect(apiClient.patchAdminConfig).toHaveBeenCalledOnce()
+    })
+    expect(vi.mocked(apiClient.patchAdminConfig).mock.calls[0][1]).toEqual({
+      dailyLimitByTier: { BRONZE: 100, SILVER: 300, TRUSTED: 600, GOLD: 2500 },
+    })
+  })
+
+  it('sends nothing at all when the confirmation is cancelled', async () => {
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValue(MOCK_CONFIG)
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('daily-limit-BRONZE'))
+    fireEvent.change(screen.getByTestId('daily-limit-BRONZE'), { target: { value: '150' } })
+
+    fireEvent.click(screen.getByTestId('save-config'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Change the limit' })).toBeNull()
+    })
+    expect(apiClient.patchAdminConfig).not.toHaveBeenCalled()
+  })
+
+  it('spells out both the old and the new set of four in the confirmation, per person per 24 hours', async () => {
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValue(MOCK_CONFIG)
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('daily-limit-GOLD'))
+    fireEvent.change(screen.getByTestId('daily-limit-GOLD'), { target: { value: '2500' } })
+    fireEvent.click(screen.getByTestId('save-config'))
+
+    const dialog = await screen.findByTestId('daily-limit-confirm')
+    expect(dialog).toHaveTextContent('Change the daily limit for everyone?')
+    expect(dialog).toHaveTextContent(
+      'From Bronze 100 · Silver 300 · Trusted 600 · Gold 2000',
+    )
+    expect(dialog).toHaveTextContent(
+      'to Bronze 100 · Silver 300 · Trusted 600 · Gold 2500, in USDC per 24 hours per person.',
+    )
+    expect(dialog).toHaveTextContent('This applies to the next order anyone places.')
+    expect(dialog).not.toHaveTextContent(/immediately/i)
+  })
+
+  it('asks for no confirmation when the daily limits were not touched', async () => {
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValue(MOCK_CONFIG)
+    vi.mocked(apiClient.patchAdminConfig).mockResolvedValueOnce({ ...MOCK_CONFIG, spreadBps: 75 })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByDisplayValue('50'))
+    fireEvent.change(screen.getByDisplayValue('50'), { target: { value: '75' } })
+    fireEvent.click(screen.getByTestId('save-config'))
+
+    await waitFor(() => {
+      expect(apiClient.patchAdminConfig).toHaveBeenCalledOnce()
+    })
+    expect(screen.queryByTestId('daily-limit-confirm')).toBeNull()
+    expect(vi.mocked(apiClient.patchAdminConfig).mock.calls[0][1]).toEqual({ spreadBps: 75 })
+  })
+
+  it('refuses a tier below 1 and disables save, because the server has no way to express no allowance', async () => {
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValueOnce(MOCK_CONFIG)
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('daily-limit-SILVER'))
+    fireEvent.change(screen.getByTestId('daily-limit-SILVER'), { target: { value: '0' } })
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          'Every tier needs a whole number of 1 or more. Saving without one would put that tier back to its built-in default.',
+        ),
+      ).toBeTruthy()
+    })
+    expect((screen.getByTestId('save-config') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('warns but still allows saving when Bronze is at or above Silver', async () => {
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValue(MOCK_CONFIG)
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('daily-limit-BRONZE'))
+    fireEvent.change(screen.getByTestId('daily-limit-BRONZE'), { target: { value: '300' } })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('daily-limit-ladder-warning')).toHaveTextContent(
+        'Bronze is at or above Silver.',
+      )
+    })
+    expect((screen.getByTestId('save-config') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('names the live max order in the ceiling note rather than a hardcoded one', async () => {
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValueOnce(MOCK_CONFIG)
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('daily-limit-other-ceilings'))
+    expect(screen.getByTestId('daily-limit-other-ceilings')).toHaveTextContent(
+      '(100.00 USDC today)',
+    )
+
+    fireEvent.change(screen.getByDisplayValue('1000000000'), { target: { value: '5000000000' } })
+    await waitFor(() => {
+      expect(screen.getByTestId('daily-limit-other-ceilings')).toHaveTextContent(
+        '(500.00 USDC today)',
+      )
+    })
+  })
+
+  it('never offers the word unlimited, because the coordinator has no such state', async () => {
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValueOnce(MOCK_CONFIG)
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('daily-limit-BRONZE'))
+    expect(document.body.textContent).not.toMatch(/unlimited/i)
+  })
 })
