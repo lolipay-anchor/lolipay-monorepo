@@ -201,6 +201,7 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
 
   React.useEffect(() => {
     setForm(configToForm(initial))
+    setConfirmingLimits(false)
   }, [initial.updatedAt]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = <K extends keyof EditableFields>(key: K, val: EditableFields[K]) => {
@@ -265,11 +266,11 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
   const canSave = isDirty && !hasValidationError && !mutation.isPending
 
   const limitsNeedConfirming = patch.dailyLimitByTier !== undefined
-  const noLimitStored = TIERS.every(
+  const tiersOnDefault = TIERS.filter(
     (tier) => typeof initial.dailyLimitByTier?.[tier] !== 'number',
   )
   const maxOrderCeiling = POSITIVE_INT_STRING_RE.test(form.maxOrder)
-    ? `${formatUSDC(BigInt(form.maxOrder))} USDC today`
+    ? `${formatUSDC(BigInt(form.maxOrder))} USDC as currently entered`
     : 'not a valid amount right now'
 
   return (
@@ -440,13 +441,12 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
         {disputeWindowErr && <p className="text-xs text-lp-danger">{disputeWindowErr}</p>}
       </section>
 
-
       {}
       <DailyLimitSection
         limits={form.dailyLimitByTier}
         onChange={(next) => set('dailyLimitByTier', next)}
         disabled={mutation.isPending}
-        noLimitStored={noLimitStored}
+        tiersOnDefault={tiersOnDefault}
         maxOrderCeiling={maxOrderCeiling}
       />
 
@@ -488,6 +488,8 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
         open={confirmingLimits}
         from={original.dailyLimitByTier}
         to={form.dailyLimitByTier}
+        nothingStored={tiersOnDefault.length === TIERS.length}
+        canConfirm={canSave}
         onCancel={() => setConfirmingLimits(false)}
         onConfirm={() => {
           setConfirmingLimits(false)

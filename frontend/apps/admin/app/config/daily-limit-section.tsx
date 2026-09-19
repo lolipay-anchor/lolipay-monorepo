@@ -5,38 +5,64 @@ import { BottomSheet, Button } from '@lolipay/ui'
 import { TIERS, limitsLine, type DailyLimits } from '@/lib/daily-limit'
 
 const TIER_LABELS: Record<(typeof TIERS)[number], string> = {
-  BRONZE: 'Bronze — under 5 completed trades',
-  SILVER: 'Silver — 5 or more',
-  TRUSTED: 'Trusted — 20 or more',
-  GOLD: 'Gold — 50 or more',
+  BRONZE: 'Bronze',
+  SILVER: 'Silver',
+  TRUSTED: 'Trusted',
+  GOLD: 'Gold',
 }
 
 const DAILY_LIMIT_ERROR =
-  'Every tier needs a whole number of 1 or more. Saving without one would put that tier back to its built-in default.'
+  'Every tier needs a whole number of 1 or more. You cannot save until all four have one.'
 
-const BRONZE_OVER_SILVER_WARNING =
-  'Bronze is at or above Silver. A brand-new depositor would be allowed more than one with 5 completed trades. Save anyway only if that is what you intend.'
+const TIER_RULE =
+  'Tier comes from completed trades — 5 for Silver, 20 for Trusted, 50 for Gold — and each lost dispute drops a person one tier.'
 
 export function validateDailyLimits(limits: DailyLimits): string | null {
-  const bad = TIERS.some((tier) => !Number.isInteger(limits[tier]) || limits[tier] < 1)
+  const bad = TIERS.some((tier) => !Number.isSafeInteger(limits[tier]) || limits[tier] < 1)
   return bad ? DAILY_LIMIT_ERROR : null
+}
+
+function invertedPairIndex(limits: DailyLimits): number {
+  return TIERS.findIndex(
+    (tier, i) => i < TIERS.length - 1 && limits[tier] >= limits[TIERS[i + 1]],
+  )
+}
+
+function ladderWarning(limits: DailyLimits): string | null {
+  const at = invertedPairIndex(limits)
+  if (at < 0) return null
+  const lower = TIER_LABELS[TIERS[at]]
+  const upper = TIER_LABELS[TIERS[at + 1]]
+  return `${lower} is at or above ${upper}. A depositor on ${lower} would be allowed at least as much per day as one on ${upper}, which is the higher tier. Save anyway only if that is what you intend.`
+}
+
+function defaultsNote(tiersOnDefault: readonly (typeof TIERS)[number][]): string | null {
+  if (tiersOnDefault.length === 0) return null
+  const tail =
+    'Saving writes all four as stored values, and a later change to the built-in defaults will not reach them.'
+  if (tiersOnDefault.length === TIERS.length) {
+    return `No daily limit has been stored, so these built-in defaults are what is in force right now. ${tail}`
+  }
+  const names = tiersOnDefault.map((tier) => TIER_LABELS[tier]).join(', ')
+  return `No limit is stored for ${names}, so their built-in defaults are what is in force right now. ${tail}`
 }
 
 export function DailyLimitSection({
   limits,
   onChange,
   disabled,
-  noLimitStored,
+  tiersOnDefault,
   maxOrderCeiling,
 }: {
   limits: DailyLimits
   onChange: (next: DailyLimits) => void
   disabled: boolean
-  noLimitStored: boolean
+  tiersOnDefault: readonly (typeof TIERS)[number][]
   maxOrderCeiling: string
 }) {
   const error = validateDailyLimits(limits)
-  const bronzeOverSilver = limits.BRONZE >= limits.SILVER
+  const ladder = ladderWarning(limits)
+  const defaults = defaultsNote(tiersOnDefault)
 
   return (
     <section className="bg-lp-surface border border-lp-line rounded-lp-card p-[18px] space-y-4">
@@ -45,15 +71,15 @@ export function DailyLimitSection({
       </h2>
 
       <p className="text-[11.5px] text-lp-muted">
-        The most one person may move in any 24 hours, counted across every wallet they link. A
-        second wallet does not give them a second allowance. It is a rolling 24 hours, not a daily
-        reset — room comes back as each order passes its 24th hour.
+        The most one person may put into orders in any 24 hours, counted across every wallet they
+        have linked to their account. Linking is something the person does deliberately — a wallet
+        they never link is a separate account with its own allowance. It is a rolling 24 hours, not
+        a daily reset — room comes back as each order passes its 24th hour.
       </p>
 
-      {noLimitStored && (
+      {defaults && (
         <p className="text-[11.5px] text-lp-muted" data-testid="daily-limit-defaults-note">
-          These are the built-in defaults, in force now. Nothing has been saved yet — saving stores
-          all four.
+          {defaults}
         </p>
       )}
 
@@ -63,6 +89,7 @@ export function DailyLimitSection({
           <input
             type="number"
             min={1}
+            max={Number.MAX_SAFE_INTEGER}
             step={1}
             value={limits[tier]}
             disabled={disabled}
@@ -74,19 +101,23 @@ export function DailyLimitSection({
         </label>
       ))}
 
+      <p className="text-[11.5px] text-lp-muted" data-testid="daily-limit-tier-rule">
+        {TIER_RULE}
+      </p>
+
       {error && (
         <p className="text-xs text-lp-danger" role="alert" data-testid="daily-limit-error">
           {error}
         </p>
       )}
 
-      {bronzeOverSilver && (
+      {ladder && (
         <p
           className="text-xs text-lp-ink-soft"
           role="status"
           data-testid="daily-limit-ladder-warning"
         >
-          {BRONZE_OVER_SILVER_WARNING}
+          {ladder}
         </p>
       )}
 
@@ -96,8 +127,10 @@ export function DailyLimitSection({
       </p>
 
       <p className="text-[11.5px] text-lp-muted" data-testid="daily-limit-other-ceilings">
-        This is not the only ceiling. A single order is still capped at <strong>Max order</strong>{' '}
-        above ({maxOrderCeiling}), and a provider can never take more than their own stake.
+        This is not the only ceiling — but it is usually the tightest. A single order is also capped
+        by <strong>Max order</strong> on this page ({maxOrderCeiling}), and a provider can never
+        hold more live orders at once than their own stake covers. Any tier set below the Max order
+        figure is the ceiling a person actually meets first.
       </p>
     </section>
   )
@@ -107,37 +140,52 @@ export function DailyLimitConfirm({
   open,
   from,
   to,
+  nothingStored,
+  canConfirm,
   onCancel,
   onConfirm,
 }: {
   open: boolean
   from: DailyLimits
   to: DailyLimits
+  nothingStored: boolean
+  canConfirm: boolean
   onCancel: () => void
   onConfirm: () => void
 }) {
+  const heading = nothingStored
+    ? 'Set the daily limit for everyone?'
+    : 'Change the daily limit for everyone?'
+  const fromLine = nothingStored
+    ? `From the built-in defaults — ${limitsLine(from)}, which is what is in force now.`
+    : `From the stored limits — ${limitsLine(from)}.`
+  const action = nothingStored ? 'Set the limit' : 'Change the limit'
+
   return (
     <BottomSheet open={open} onClose={onCancel} ariaLabelledBy="daily-limit-confirm-title">
       <div className="space-y-3" data-testid="daily-limit-confirm">
         <h3 id="daily-limit-confirm-title" className="text-[15px] font-semibold text-lp-ink">
-          Change the daily limit for everyone?
+          {heading}
         </h3>
 
-        <p className="text-[13px] text-lp-ink-soft">From {limitsLine(from)}</p>
+        <p className="text-[13px] text-lp-ink-soft">{fromLine}</p>
         <p className="text-[13px] text-lp-ink-soft">
           to {limitsLine(to)}, in USDC per 24 hours per person.
         </p>
 
         <p className="text-[12px] text-lp-muted">
-          This applies to the next order anyone places. Orders already open are not affected. The
-          change is recorded against your wallet.
+          Saving stores these four numbers for every depositor. They apply to the next quote or
+          order anyone requests. Orders already open are not affected, and a quote already issued is
+          re-checked when it becomes an order.
         </p>
 
         <div className="flex gap-2 pt-1">
           <Button variant="outline" onClick={onCancel}>
             Cancel
           </Button>
-          <Button onClick={onConfirm}>Change the limit</Button>
+          <Button disabled={!canConfirm} onClick={onConfirm}>
+            {action}
+          </Button>
         </div>
       </div>
     </BottomSheet>

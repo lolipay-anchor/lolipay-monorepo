@@ -50,4 +50,8 @@ describe('daily limit defaults', () => {
   it('always emits all four tiers, whatever the object it is handed holds', () => {
     expect(Object.keys(limitsToPatch({ BRONZE: 1 } as never))).toEqual([...TIERS])
   })
+
+  it('keeps a stored zero rather than replacing it with the default, because the coordinator honours it', () => {
+    expect(limitsFromConfig({ BRONZE: 0 })).toMatchObject({ BRONZE: 0 })
+  })
 })
