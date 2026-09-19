@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { NO_PROVIDER_SENTENCE, withInteractiveSentence } from '../sep24/interactive-sentence';
 import { PrismaService } from '../prisma/prisma.service';
 import { PersonId, PersonService } from '../person/person.service';
@@ -28,6 +28,8 @@ export function matchableLpWhere(now: Date = new Date()) {
 
 @Injectable()
 export class MatchingService {
+  private readonly log = new Logger('MatchingService');
+
   constructor(
     private prisma: PrismaService,
     private stellar: StellarReadService,
@@ -72,18 +74,29 @@ export class MatchingService {
 
     const nowSec = Math.floor(Date.now() / 1000);
 
+    let stakeUnreadable = 0;
+    let ineligibleOrUnbonding = 0;
+    let overCapacity = 0;
+
     for (const lp of others) {
       let stake: { staked: string; unbonding: string; eligible: boolean };
       try {
         stake = await this.stellar.getStakeInfo(lp.stellarAddress);
       } catch {
+        stakeUnreadable++;
         continue;
       }
-      if (!stake.eligible || BigInt(stake.unbonding) > 0n) continue;
+      if (!stake.eligible || BigInt(stake.unbonding) > 0n) {
+        ineligibleOrUnbonding++;
+        continue;
+      }
 
       const staked = BigInt(stake.staked);
       const committed = await lpExposure(this.prisma, lp.id, nowSec);
-      if (committed + amount > staked) continue;
+      if (committed + amount > staked) {
+        overCapacity++;
+        continue;
+      }
 
       const owner = await this.people.lookupPerson(lp.stellarAddress);
       if (excludePersonId && owner?.id === excludePersonId) {
@@ -102,6 +115,11 @@ export class MatchingService {
     if (refusedOwn && others.length === 0) {
       throw new ForbiddenException('you cannot be matched with your own order');
     }
+    this.log.warn(
+      `no provider took ${rail}/${fiat} for ${amount} base units — ${candidates.length} matchable, ` +
+        `${candidates.length - others.length} excluded as the requester's own, ${stakeUnreadable} stake unreadable, ` +
+        `${ineligibleOrUnbonding} ineligible or unbonding, ${overCapacity} over capacity`,
+    );
     throw withInteractiveSentence(
       new ServiceUnavailableException('no eligible LP available'),
       NO_PROVIDER_SENTENCE,

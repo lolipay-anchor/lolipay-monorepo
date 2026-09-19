@@ -1,5 +1,6 @@
-import { ServiceUnavailableException } from '@nestjs/common';
+import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import { MatchingService, matchableLpWhere } from './matching.service';
+import type { PersonId } from '../person/person.service';
 
 const PM = { id: 'pm1', rail: 'BANK', active: true, currency: 'IDR', details: 'BCA 123' };
 const PM2 = { id: 'pm2', rail: 'BANK', active: true, currency: 'IDR', details: 'BNI 456' };
@@ -223,5 +224,78 @@ describe('MatchingService.pickLp', () => {
 
     expect(result.paymentMethodId).toBe(PM_MULTI_PHP.id);
     expect(result.details).toBe(PM_MULTI_PHP.details);
+  });
+
+  it('logs a per-reason breakdown when no provider matches, so an operator can tell a full book from an outage without reading the sentence a depositor sees', async () => {
+    const own = makeCandidate('lp-own', 'GOWN', 0, PM);
+    const rpcDown = makeCandidate('lp-rpc', 'GRPC', 0, PM);
+    const ineligible = makeCandidate('lp-inel', 'GINEL', 0, PM);
+    const overCap = makeCandidate('lp-cap', 'GCAP', 0, PM);
+    const prisma = makePrisma([own, rpcDown, ineligible, overCap]);
+    const stellar = {
+      getStakeInfo: jest.fn((addr: string) => {
+        if (addr === 'GRPC') return Promise.reject(new Error('rpc unreachable'));
+        if (addr === 'GINEL') {
+          return Promise.resolve({ staked: '1000000000000', unbonding: '0', eligible: false });
+        }
+        if (addr === 'GCAP') {
+          return Promise.resolve({ staked: '0', unbonding: '0', eligible: true });
+        }
+        return Promise.resolve({ staked: '1000000000000', unbonding: '0', eligible: true });
+      }),
+    } as any;
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+    const svc = new MatchingService(prisma, stellar, {
+      walletsOf: jest.fn(async () => ['GOWN']),
+      lookupPerson: jest.fn(async () => null),
+    } as any);
+
+    await expect(svc.pickLp('BANK', 'IDR', 100n, 'person-1' as PersonId)).rejects.toThrow(
+      ServiceUnavailableException,
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      "no provider took BANK/IDR for 100 base units — 4 matchable, 1 excluded as the requester's own, " +
+        '1 stake unreadable, 1 ineligible or unbonding, 1 over capacity',
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('counts an eligible-but-unbonding LP under "ineligible or unbonding" too, so the disjunction is not proven by only one of its halves', async () => {
+    const unbonding = makeCandidate('lp-unbonding', 'GUNBOND', 0, PM);
+    const prisma = makePrisma([unbonding]);
+    const stellar = {
+      getStakeInfo: jest.fn(() =>
+        Promise.resolve({ staked: '1000000000000', unbonding: '1', eligible: true }),
+      ),
+    } as any;
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
+
+    await expect(svc.pickLp('BANK', 'IDR', 1n)).rejects.toThrow(ServiceUnavailableException);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      "no provider took BANK/IDR for 1 base units — 1 matchable, 0 excluded as the requester's own, " +
+        '0 stake unreadable, 1 ineligible or unbonding, 0 over capacity',
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('does not change the exception the depositor sees when logging the per-reason breakdown', async () => {
+    const rpcDown = makeCandidate('lp-rpc', 'GRPC', 0, PM);
+    const prisma = makePrisma([rpcDown]);
+    const stellar = { getStakeInfo: jest.fn(() => Promise.reject(new Error('rpc unreachable'))) } as any;
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
+
+    await expect(svc.pickLp('BANK', 'IDR', 1n)).rejects.toThrow(ServiceUnavailableException);
+    await expect(svc.pickLp('BANK', 'IDR', 1n)).rejects.toThrow('no eligible LP available');
+
+    (Logger.prototype.warn as jest.Mock).mockRestore();
   });
 });

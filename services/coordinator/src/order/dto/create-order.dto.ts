@@ -11,7 +11,6 @@ export class CreateOrderDto {
 
   @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(500)
   userPaymentMethod?: string;
 
