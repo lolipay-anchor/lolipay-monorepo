@@ -831,6 +831,27 @@ describe('Config page', () => {
     })
   })
 
+  it('refuses a minimum order raised past a tier nobody touched, the way the server measures it', async () => {
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValue(MOCK_CONFIG)
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('daily-limit-BRONZE'))
+    fireEvent.change(screen.getByDisplayValue('10000000'), { target: { value: '2000000000' } })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('daily-limit-error')).toHaveTextContent(
+        'Every tier needs a whole number of USDC from 200 to 10,000,000.',
+      )
+    })
+    expect((screen.getByTestId('daily-limit-BRONZE') as HTMLInputElement).value).toBe('100')
+    expect((screen.getByTestId('save-config') as HTMLButtonElement).disabled).toBe(true)
+  })
+
   it('rounds a fractional minimum order up, because the field cannot accept 5.5', async () => {
     vi.mocked(apiClient.getAdminConfig).mockResolvedValue(MOCK_CONFIG)
 

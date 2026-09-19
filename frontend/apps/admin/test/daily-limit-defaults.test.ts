@@ -57,6 +57,20 @@ describe('daily limit defaults', () => {
     expect(limitsFromConfig({ BRONZE: 0 })).toMatchObject({ BRONZE: 0 })
   })
 
+  it('mirrors the test the coordinator applies before it falls back to a default, the one the minOrder floor is measured through', () => {
+    const src = readFileSync(COORDINATOR_SOURCE, 'utf8')
+    const resolver = src.match(/dailyLimitBaseUnits\([\s\S]*?\n {2}\}/)
+    expect(resolver).not.toBeNull()
+    expect(resolver![0]).toContain(
+      "typeof val === 'number' && Number.isFinite(val) && val >= 0",
+    )
+
+    expect(limitsFromConfig({ BRONZE: -5 })).toMatchObject({ BRONZE: 100 })
+    expect(limitsFromConfig({ BRONZE: Number.NaN })).toMatchObject({ BRONZE: 100 })
+    expect(limitsFromConfig({ BRONZE: Number.POSITIVE_INFINITY })).toMatchObject({ BRONZE: 100 })
+    expect(limitsFromConfig({ BRONZE: '111' as never })).toMatchObject({ BRONZE: 100 })
+  })
+
   it('mirrors the ceiling the coordinator DTO refuses above, which this screen has no endpoint to read', () => {
     const src = readFileSync(COORDINATOR_DTO, 'utf8')
     const block = src.match(/const MAX_DAILY_LIMIT_USDC = ([\d_]+);/)
