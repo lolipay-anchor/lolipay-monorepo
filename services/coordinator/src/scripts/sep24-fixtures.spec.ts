@@ -26,6 +26,7 @@ import {
   fundedByMe,
   resumeNeedsFunding,
   RefusedToSign,
+  sessionJwt,
   assertTradeParties,
   staleMatchedFor,
   resumeAfterFailedFunding,
@@ -652,4 +653,71 @@ describe('a transient while polling the anchor does not end a run the escrow has
     ).rejects.toThrow(/did not reach completed within 12s$/);
     expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(4);
   }, 30_000);
+});
+
+describe('the fixture driver refuses to sign a challenge it did not recognise', () => {
+  const realFetch = globalThis.fetch;
+  const signer = Keypair.random();
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  function answering(nonce: string): jest.Mock {
+    const mock = jest.fn(async (url: unknown) => {
+      const target = String(url);
+      if (target.endsWith('/auth/challenge')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ nonce }) } as unknown as Response;
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify({ jwt: 'a.jwt.the.host.wanted' }) } as unknown as Response;
+    });
+    globalThis.fetch = mock as unknown as typeof fetch;
+    return mock;
+  }
+
+  it('signs a well-formed challenge that names its own account', async () => {
+    const mock = answering(`lolipay-auth:${signer.publicKey()}:deadbeef:${Date.now() + 60_000}:themac`);
+
+    await expect(sessionJwt(signer)).resolves.toBe('a.jwt.the.host.wanted');
+
+    expect(mock.mock.calls.some(([url]) => String(url).endsWith('/auth/verify'))).toBe(true);
+  });
+
+  it('refuses arbitrary bytes a host hands back, and never posts a signature over them', async () => {
+    const mock = answering('7b22616d6f756e74223a223939393939227d');
+
+    await expect(sessionJwt(signer)).rejects.toThrow(RefusedToSign);
+
+    expect(mock.mock.calls.some(([url]) => String(url).endsWith('/auth/verify'))).toBe(false);
+  });
+
+  it('refuses a five-part challenge from another realm, even when it names this very account', async () => {
+    const mock = answering(`another-realm:${signer.publicKey()}:deadbeef:${Date.now() + 60_000}:themac`);
+
+    await expect(sessionJwt(signer)).rejects.toThrow(RefusedToSign);
+
+    expect(mock.mock.calls.some(([url]) => String(url).endsWith('/auth/verify'))).toBe(false);
+  });
+
+  it('refuses a truncated lolipay challenge, even when it names this very account', async () => {
+    const mock = answering(`lolipay-auth:${signer.publicKey()}:deadbeef`);
+
+    await expect(sessionJwt(signer)).rejects.toThrow(RefusedToSign);
+
+    expect(mock.mock.calls.some(([url]) => String(url).endsWith('/auth/verify'))).toBe(false);
+  });
+
+  it('refuses a genuine lolipay challenge minted for somebody else, so a relayed one cannot be signed', async () => {
+    const mock = answering(`lolipay-auth:${Keypair.random().publicKey()}:deadbeef:${Date.now() + 60_000}:themac`);
+
+    await expect(sessionJwt(signer)).rejects.toThrow(RefusedToSign);
+
+    expect(mock.mock.calls.some(([url]) => String(url).endsWith('/auth/verify'))).toBe(false);
+  });
+
+  it('keeps the bytes it refused out of the message it prints', async () => {
+    answering('7b22616d6f756e74223a223939393939227d');
+
+    await expect(sessionJwt(signer)).rejects.toThrow(/^(?!.*7b22616d6f756e74).*$/s);
+  });
 });

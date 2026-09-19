@@ -512,7 +512,14 @@ function tokenSource(mint: () => Promise<string>): () => Promise<string> {
   };
 }
 
-async function sessionJwt(kp: Keypair): Promise<string> {
+export function refuseForeignChallenge(challenge: string, address: string, api: string): void {
+  const parts = challenge.split(':');
+  if (parts.length !== 5 || parts[0] !== 'lolipay-auth' || parts[1] !== address) {
+    throw new RefusedToSign(`${api} answered /auth/challenge with something other than a lolipay challenge for ${address}; refusing to sign it`);
+  }
+}
+
+export async function sessionJwt(kp: Keypair): Promise<string> {
   const challenge = await json<{ nonce: string }>(
     await fetch(`${API}/auth/challenge`, {
       method: 'POST',
@@ -521,6 +528,7 @@ async function sessionJwt(kp: Keypair): Promise<string> {
     }),
     'auth/challenge',
   );
+  refuseForeignChallenge(challenge.nonce, kp.publicKey(), API);
   const verified = await json<{ jwt: string }>(
     await fetch(`${API}/auth/verify`, {
       method: 'POST',

@@ -4,15 +4,20 @@ import { execFileSync } from 'child_process';
 import { Keypair } from '@stellar/stellar-sdk';
 import { main } from './lp-activate-payment-method';
 
-const API = 'http://coordinator.test';
+const API = 'https://api.lolipay.app';
 const IDENTITY = 'e2e-provider';
 const METHOD_ID = '35cec168-92d4-47cc-b745-0a4add0c6eed';
-const NONCE = 'a-nonce-from-the-coordinator';
 const JWT = 'the.session.jwt.the.coordinator.minted';
+const DESTINATION = 'THE-BANK-ACCOUNT-A-DEPOSITOR-PAYS-INTO';
 
 const execFileSyncMock = execFileSync as unknown as jest.Mock;
 const provider = Keypair.random();
 const realFetch = global.fetch;
+
+const challengeFor = (address: string) => `lolipay-auth:${address}:5f4d3c2b1a:${Date.now() + 60_000}:themac`;
+
+const activeRow = JSON.stringify({ id: METHOD_ID, label: 'BCA', active: true, details: DESTINATION });
+const inactiveRow = JSON.stringify({ id: METHOD_ID, label: 'BCA', active: false, details: DESTINATION });
 
 function response(status: number, body: string): Response {
   return {
@@ -22,10 +27,10 @@ function response(status: number, body: string): Response {
   } as unknown as Response;
 }
 
-function stubFetch(patch: { status: number; body: string }): jest.Mock {
+function stubFetch(patch: { status: number; body: string }, challenge = challengeFor(provider.publicKey())): jest.Mock {
   const fetchMock = jest.fn(async (url: unknown, init?: RequestInit) => {
     const target = String(url);
-    if (target === `${API}/auth/challenge`) return response(200, JSON.stringify({ nonce: NONCE }));
+    if (target === `${API}/auth/challenge`) return response(200, JSON.stringify({ nonce: challenge }));
     if (target === `${API}/auth/verify`) return response(200, JSON.stringify({ jwt: JWT }));
     if (target.startsWith(`${API}/lp/payment-methods/`)) return response(patch.status, patch.body);
     throw new Error(`the script asked for ${init?.method ?? 'GET'} ${target}, which this test does not stand in for`);
@@ -40,22 +45,33 @@ function patchCallOf(fetchMock: jest.Mock): [string, RequestInit] {
   return [String(call[0]), call[1] as RequestInit];
 }
 
+function printed(): string {
+  const said = (spy: jest.SpyInstance) => spy.mock.calls.map((args) => args.map(String).join(' ')).join('\n');
+  return `${said(logSpy)}\n${said(errorSpy)}`;
+}
+
+let logSpy: jest.SpyInstance;
+let errorSpy: jest.SpyInstance;
+
 describe('lp-activate-payment-method asks the coordinator to flip one provider payment method active', () => {
   beforeEach(() => {
-    process.env.SEP24_API = API;
     process.exitCode = 0;
     execFileSyncMock.mockReset();
     execFileSyncMock.mockReturnValue(`${provider.secret()}\n`);
+    logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
     process.exitCode = 0;
     global.fetch = realFetch;
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
     delete process.env.SEP24_API;
   });
 
   it('reads the named keystore identity and authenticates as it, never as some other key', async () => {
-    const fetchMock = stubFetch({ status: 200, body: JSON.stringify({ id: METHOD_ID, active: true }) });
+    const fetchMock = stubFetch({ status: 200, body: activeRow });
 
     await main([IDENTITY, METHOD_ID]);
 
@@ -65,7 +81,7 @@ describe('lp-activate-payment-method asks the coordinator to flip one provider p
   });
 
   it('PATCHes exactly {"active":true} as JSON at the named method, bearing the session token it just minted', async () => {
-    const fetchMock = stubFetch({ status: 200, body: JSON.stringify({ id: METHOD_ID, active: true }) });
+    const fetchMock = stubFetch({ status: 200, body: activeRow });
 
     await main([IDENTITY, METHOD_ID]);
 
@@ -81,28 +97,110 @@ describe('lp-activate-payment-method asks the coordinator to flip one provider p
     expect(process.exitCode).toBe(0);
   });
 
+  it('talks to the production coordinator even when the environment names another host, so no variable can redirect the key that signs', async () => {
+    process.env.SEP24_API = 'http://a-host-the-operator-did-not-choose.test';
+    const fetchMock = stubFetch({ status: 200, body: activeRow });
+
+    await main([IDENTITY, METHOD_ID]);
+
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(0);
+    for (const [url] of fetchMock.mock.calls) {
+      expect(String(url).startsWith(`${API}/`)).toBe(true);
+    }
+  });
+
+  it('refuses a challenge that is not a lolipay challenge for its own key, and never posts a signature over it', async () => {
+    const fetchMock = stubFetch({ status: 200, body: activeRow }, '7b22616d6f756e74223a2239393939397d');
+
+    await expect(main([IDENTITY, METHOD_ID])).rejects.toThrow(/refusing to sign/i);
+
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === `${API}/auth/verify`)).toBe(false);
+  });
+
+  it('refuses a well-formed lolipay challenge minted for another account, which is what a relayed one looks like', async () => {
+    const fetchMock = stubFetch({ status: 200, body: activeRow }, challengeFor(Keypair.random().publicKey()));
+
+    await expect(main([IDENTITY, METHOD_ID])).rejects.toThrow(/refusing to sign/i);
+
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === `${API}/auth/verify`)).toBe(false);
+  });
+
+  it('refuses to follow a redirect on either call, so a relocated responder cannot answer for the coordinator', async () => {
+    const fetchMock = stubFetch({ status: 200, body: activeRow });
+
+    await main([IDENTITY, METHOD_ID]);
+
+    expect(fetchMock.mock.calls.length).toBe(3);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect((init as RequestInit).redirect).toBe('error');
+    }
+  });
+
+  it('says out loud that the row is now active, rather than leaving an operator to read a status code', async () => {
+    stubFetch({ status: 200, body: activeRow });
+
+    await main([IDENTITY, METHOD_ID]);
+
+    expect(printed()).toMatch(/OK: active=true/);
+    expect(process.exitCode).toBe(0);
+  });
+
+  it('never prints the payment destination it just activated, on success', async () => {
+    stubFetch({ status: 200, body: activeRow });
+
+    await main([IDENTITY, METHOD_ID]);
+
+    expect(printed()).not.toContain(DESTINATION);
+    expect(printed()).toContain(METHOD_ID);
+  });
+
   it('exits non-zero when the coordinator refuses, instead of reporting success', async () => {
     stubFetch({ status: 403, body: JSON.stringify({ message: 'Forbidden resource' }) });
 
     await main([IDENTITY, METHOD_ID]);
 
     expect(process.exitCode).toBe(1);
+    expect(printed()).toMatch(/FAILED/);
+    expect(printed()).toContain('Forbidden resource');
   });
 
-  it('exits non-zero when a 200 hands back a row that is still inactive, so an ignored body cannot read as success', async () => {
-    stubFetch({ status: 200, body: JSON.stringify({ id: METHOD_ID, active: false }) });
+  it('exits non-zero when a 200 hands back a row that is still inactive, and says so instead of printing the row', async () => {
+    stubFetch({ status: 200, body: inactiveRow });
 
     await main([IDENTITY, METHOD_ID]);
 
     expect(process.exitCode).toBe(1);
+    expect(printed()).toMatch(/FAILED/);
+    expect(printed()).not.toContain(DESTINATION);
   });
 
-  it('refuses without an identity name and a method id, rather than asking the keystore for nothing', async () => {
-    const fetchMock = stubFetch({ status: 200, body: '{}' });
+  it.each([
+    ['neither argument', [] as string[]],
+    ['an empty identity name', ['', METHOD_ID]],
+    ['an identity name a keystore could read as a flag', ['-lolipay-attestor', METHOD_ID]],
+    ['no method id at all', [IDENTITY]],
+    ['a method id that is not a uuid', [IDENTITY, '../../admin/config']],
+  ])('refuses %s, rather than asking the keystore for a key', async (_what, argv) => {
+    const fetchMock = stubFetch({ status: 200, body: activeRow });
 
-    await expect(main([IDENTITY])).rejects.toThrow(/usage/i);
+    await expect(main(argv)).rejects.toThrow(/usage/i);
 
     expect(execFileSyncMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the seed out of scope when the keystore read fails, however the failure is later printed', async () => {
+    execFileSyncMock.mockImplementation(() => {
+      const failure = new Error('Command failed: stellar keys secret') as Error & { stdout?: string; output?: string[] };
+      failure.stdout = provider.secret();
+      failure.output = ['', provider.secret(), ''];
+      throw failure;
+    });
+    stubFetch({ status: 200, body: activeRow });
+
+    const raised = await main([IDENTITY, METHOD_ID]).catch((err: unknown) => err);
+
+    expect(JSON.stringify(raised, Object.getOwnPropertyNames(raised))).not.toContain(provider.secret());
+    expect((raised as Error).message).toMatch(/could not read keystore identity "e2e-provider"/);
   });
 });
