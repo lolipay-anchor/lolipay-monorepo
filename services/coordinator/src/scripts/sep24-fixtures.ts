@@ -484,7 +484,14 @@ const POLL_LIMIT_MS = 5 * 60_000;
 const TOKEN_REFRESH_MS = 10 * 60_000;
 const CONFIG_PATH = resolve(__dirname, '../../anchor-tests/sep-config.local.json');
 
-function identity(name: string): Keypair {
+export function refuseForeignHost(api: string): void {
+  if (api !== 'https://api.lolipay.app' && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(api)) {
+    throw new RefusedToSign(`SEP24_API names ${api}; this driver signs only for production or a loopback coordinator`);
+  }
+}
+
+export function identity(name: string): Keypair {
+  refuseForeignHost(API);
   const secret = execFileSync('stellar', ['keys', 'secret', name], { encoding: 'utf8' }).trim();
   return Keypair.fromSecret(secret);
 }

@@ -26,6 +26,7 @@ import {
   fundedByMe,
   resumeNeedsFunding,
   RefusedToSign,
+  refuseForeignHost,
   sessionJwt,
   assertTradeParties,
   staleMatchedFor,
@@ -719,5 +720,74 @@ describe('the fixture driver refuses to sign a challenge it did not recognise', 
     answering('7b22616d6f756e74223a223939393939227d');
 
     await expect(sessionJwt(signer)).rejects.toThrow(/^(?!.*7b22616d6f756e74).*$/s);
+  });
+});
+
+describe('the fixture driver will not take a signing key out of the keystore for a coordinator nobody chose', () => {
+  const previous = process.env.SEP24_API;
+  const NO_SUCH_IDENTITY = 'no-keystore-on-this-machine-holds-this-identity';
+  const REFUSAL = 'SEP24_API names https://evil.test; this driver signs only for production or a loopback coordinator';
+
+  afterEach(() => {
+    if (previous === undefined) delete process.env.SEP24_API;
+    else process.env.SEP24_API = previous;
+  });
+
+  function loadedWith(api: string): typeof import('./sep24-fixtures') {
+    process.env.SEP24_API = api;
+    let mod!: typeof import('./sep24-fixtures');
+    jest.isolateModules(() => {
+      mod = require('./sep24-fixtures') as typeof import('./sep24-fixtures');
+    });
+    return mod;
+  }
+
+  it.each([
+    'https://api.lolipay.app',
+    'http://localhost',
+    'http://localhost:3000',
+    'http://127.0.0.1',
+    'http://127.0.0.1:19000',
+    'https://localhost:8443',
+  ])('signs for %s, because production and a loopback coordinator are the two the driver has workflows for', (api) => {
+    expect(() => refuseForeignHost(api)).not.toThrow();
+  });
+
+  it.each([
+    'https://evil.test',
+    'https://api.lolipay.app.evil.test',
+    'https://evil.test/api.lolipay.app',
+    'http://localhost.evil.test',
+    'http://127.0.0.1.evil.test',
+    'https://staging.lolipay.app',
+  ])('refuses %s, because a host that relays a genuine challenge redeems the signature over it itself', (api) => {
+    expect(() => refuseForeignHost(api)).toThrow(RefusedToSign);
+  });
+
+  it.each([
+    'https://api.lolipay.app/',
+    'http://localhost:3000/sep24',
+  ])('refuses %s rather than guess what it meant, because the driver appends its own path to whatever this names', (api) => {
+    expect(() => refuseForeignHost(api)).toThrow(RefusedToSign);
+  });
+
+  it('refuses the run before the keystore is ever asked for a secret, and names the host it refused', () => {
+    const mod = loadedWith('https://evil.test');
+
+    expect(() => mod.identity(NO_SUCH_IDENTITY)).toThrow(REFUSAL);
+  });
+
+  it('asks the keystore when the environment names the production coordinator, so the pin never refuses the driver its own key', () => {
+    const mod = loadedWith('https://api.lolipay.app');
+    let caught: Error | null = null;
+
+    try {
+      mod.identity(NO_SUCH_IDENTITY);
+    } catch (err) {
+      caught = err as Error;
+    }
+
+    expect(caught).not.toBeNull();
+    expect(caught?.message).not.toMatch(/signs only for/);
   });
 });

@@ -30,9 +30,10 @@ function response(status: number, body: string): Response {
 function stubFetch(patch: { status: number; body: string }, challenge = challengeFor(provider.publicKey())): jest.Mock {
   const fetchMock = jest.fn(async (url: unknown, init?: RequestInit) => {
     const target = String(url);
-    if (target === `${API}/auth/challenge`) return response(200, JSON.stringify({ nonce: challenge }));
-    if (target === `${API}/auth/verify`) return response(200, JSON.stringify({ jwt: JWT }));
-    if (target.startsWith(`${API}/lp/payment-methods/`)) return response(patch.status, patch.body);
+    const { pathname } = new URL(target);
+    if (pathname === '/auth/challenge') return response(200, JSON.stringify({ nonce: challenge }));
+    if (pathname === '/auth/verify') return response(200, JSON.stringify({ jwt: JWT }));
+    if (pathname.startsWith('/lp/payment-methods/')) return response(patch.status, patch.body);
     throw new Error(`the script asked for ${init?.method ?? 'GET'} ${target}, which this test does not stand in for`);
   });
   global.fetch = fetchMock as unknown as typeof fetch;
@@ -97,16 +98,17 @@ describe('lp-activate-payment-method asks the coordinator to flip one provider p
     expect(process.exitCode).toBe(0);
   });
 
-  it('talks to the production coordinator even when the environment names another host, so no variable can redirect the key that signs', async () => {
+  it('talks to the production coordinator even when the environment named another host before this module was loaded, so no variable can redirect the key that signs', async () => {
     process.env.SEP24_API = 'http://a-host-the-operator-did-not-choose.test';
     const fetchMock = stubFetch({ status: 200, body: activeRow });
+    let loaded!: typeof import('./lp-activate-payment-method');
+    jest.isolateModules(() => {
+      loaded = require('./lp-activate-payment-method') as typeof import('./lp-activate-payment-method');
+    });
 
-    await main([IDENTITY, METHOD_ID]);
+    await loaded.main([IDENTITY, METHOD_ID]);
 
-    expect(fetchMock.mock.calls.length).toBeGreaterThan(0);
-    for (const [url] of fetchMock.mock.calls) {
-      expect(String(url).startsWith(`${API}/`)).toBe(true);
-    }
+    expect(fetchMock.mock.calls.map(([url]) => new URL(String(url)).origin)).toEqual([API, API, API]);
   });
 
   it('refuses a challenge that is not a lolipay challenge for its own key, and never posts a signature over it', async () => {
