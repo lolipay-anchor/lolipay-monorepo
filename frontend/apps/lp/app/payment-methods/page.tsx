@@ -12,6 +12,7 @@ import type { PaymentMethod, Rail } from '@lolipay/api-client'
 import { Card, Button, Segmented, BottomSheet, StatusPill, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
 import { AppHeader } from '@/components/AppHeader'
 import { client } from '@/lib/client'
+import { paymentDetailsError } from '@/lib/payment-destination'
 
 const RAIL_OPTIONS: Rail[] = ['BANK', 'QRIS', 'EWALLET']
 
@@ -32,6 +33,11 @@ function AddMethodSheet({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    const destinationError = paymentDetailsError(details)
+    if (destinationError) {
+      setError(destinationError)
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -130,6 +136,11 @@ function EditMethodSheet({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!method) return
+    const destinationError = paymentDetailsError(details)
+    if (destinationError) {
+      setError(destinationError)
+      return
+    }
     setBusy(true)
     setError(null)
     try {

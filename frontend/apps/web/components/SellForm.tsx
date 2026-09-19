@@ -14,6 +14,7 @@ import { useUsdcBalance } from '@/hooks/useUsdcBalance'
 import { QuoteBreakdown } from '@/components/QuoteBreakdown'
 import { ReviewSheet } from '@/components/ReviewSheet'
 import { explainOrderRefusal, keepIdentity, QUOTE_FALLBACK } from '@/lib/order-refusal'
+import { orderPaymentDestinationError } from '@/lib/payment-destination'
 import { useToast } from '@/components/Toast'
 import { DailyLimitRow } from '@/components/DailyLimitRow'
 
@@ -146,6 +147,11 @@ export function SellForm() {
     }
     if (!payDetails.trim()) {
       setInputError(cfg.missingPayError)
+      return
+    }
+    const destinationError = orderPaymentDestinationError(payDetails)
+    if (destinationError) {
+      setInputError(destinationError)
       return
     }
     if (!quote || expired) {

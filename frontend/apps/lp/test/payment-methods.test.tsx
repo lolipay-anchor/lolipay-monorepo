@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TestProviders, fakeKit } from './helpers'
 import { queryClient } from '@/app/providers'
+import { PAYMENT_DETAILS_MIN_NON_WS_MESSAGE } from '@/lib/payment-destination'
 
 vi.mock('@/lib/wallet-kit', () => ({ getDefaultKit: vi.fn(() => ({})) }))
 
@@ -158,6 +159,32 @@ describe('PaymentMethodsPage', () => {
     })
   })
 
+  it('does NOT call addPaymentMethod for a three-character destination, and shows the inline message', async () => {
+    render(
+      <TestProviders kit={fakeKit}>
+        <PaymentMethodsPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByText(/\+ Add Payment Method/i))
+    fireEvent.click(screen.getByText(/\+ Add Payment Method/i))
+
+    await waitFor(() => screen.getByTestId('pm-label'))
+
+    fireEvent.change(screen.getByTestId('pm-label'), {
+      target: { value: 'Mandiri' },
+    })
+    fireEvent.change(screen.getByTestId('pm-details'), {
+      target: { value: 'BCA' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Add$/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(PAYMENT_DETAILS_MIN_NON_WS_MESSAGE)).toBeTruthy()
+    })
+    expect(apiClient.addPaymentMethod).not.toHaveBeenCalled()
+  })
+
   it('opens edit sheet and calls updatePaymentMethod on save', async () => {
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe([samplePm]))
     vi.mocked(apiClient.updatePaymentMethod).mockResolvedValue({
@@ -189,6 +216,30 @@ describe('PaymentMethodsPage', () => {
         expect.objectContaining({ label: 'BCA Updated' }),
       )
     })
+  })
+
+  it('does NOT call updatePaymentMethod when the edited details are shortened below the floor', async () => {
+    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe([samplePm]))
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <PaymentMethodsPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByText('My BCA'))
+    fireEvent.click(screen.getByRole('button', { name: /^Edit$/i }))
+
+    await waitFor(() => screen.getByTestId('pm-edit-details'))
+    fireEvent.change(screen.getByTestId('pm-edit-details'), {
+      target: { value: 'BCA' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(PAYMENT_DETAILS_MIN_NON_WS_MESSAGE)).toBeTruthy()
+    })
+    expect(apiClient.updatePaymentMethod).not.toHaveBeenCalled()
   })
 
   it('opens delete confirm sheet and calls deletePaymentMethod on confirm', async () => {

@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { TestProviders } from './helpers'
 import { queryClient } from '@/app/providers'
 import { USDC_ISSUER } from '@/lib/usdcAsset'
+import { PAYMENT_DESTINATION_TOO_SHORT_MESSAGE } from '@/lib/payment-destination'
 
 vi.mock('@/lib/wallet-kit', () => ({ getDefaultKit: vi.fn(() => ({})) }))
 
@@ -153,6 +154,24 @@ describe('SellForm (WITHDRAW)', () => {
     await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
     await clickLockCta()
     await waitFor(() => expect(screen.getByText(/bank account details/i)).toBeTruthy())
+    expect(screen.queryByText('Review order')).toBeNull()
+    expect(mockCreateOrder).not.toHaveBeenCalled()
+  })
+
+  it('rejects continuing with a three-character bank destination, before any request is sent', async () => {
+    render(
+      <TestProviders>
+        <SellForm />
+      </TestProviders>,
+    )
+    fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
+    fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA' } })
+    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    await clickLockCta()
+
+    await waitFor(() => {
+      expect(screen.getByText(PAYMENT_DESTINATION_TOO_SHORT_MESSAGE)).toBeTruthy()
+    })
     expect(screen.queryByText('Review order')).toBeNull()
     expect(mockCreateOrder).not.toHaveBeenCalled()
   })
