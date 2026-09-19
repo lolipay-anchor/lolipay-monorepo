@@ -7,7 +7,7 @@ export const PAYMENT_DESTINATION_TOO_SHORT_MESSAGE =
 export const PAYMENT_DESTINATION_BAD_CHARS_MESSAGE =
   'those bank details contain characters this anchor will not send on'
 
-const BAD_CHARS_RE = /[\p{Cc}\p{Cf}]/u
+const BAD_CHARS_RE = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u
 const WORD_CHAR_RE = /[\p{L}\p{N}]/gu
 
 export function orderPaymentDestinationError(raw: string): string | null {

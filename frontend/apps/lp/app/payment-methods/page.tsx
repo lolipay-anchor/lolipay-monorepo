@@ -41,7 +41,7 @@ function AddMethodSheet({
     setBusy(true)
     setError(null)
     try {
-      await addPaymentMethod(client, { rail, label, details })
+      await addPaymentMethod(client, { rail, label, details: details.trim() })
       setLabel('')
       setDetails('')
       setRail('BANK')
@@ -144,7 +144,7 @@ function EditMethodSheet({
     setBusy(true)
     setError(null)
     try {
-      await updatePaymentMethod(client, method.id, { rail, label, details, active })
+      await updatePaymentMethod(client, method.id, { rail, label, details: details.trim(), active })
       onSuccess()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update payment method')

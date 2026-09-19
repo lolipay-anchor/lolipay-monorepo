@@ -2,7 +2,7 @@ import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 import { AddPaymentMethodDto, RailEnum } from './add-payment-method.dto';
 
-describe('AddPaymentMethodDto refuses a details value too short to be a real destination', () => {
+describe('AddPaymentMethodDto enforces structural validity only — content is validated at the LpService chokepoint', () => {
   const problems = (details: string) =>
     validateSync(
       plainToInstance(AddPaymentMethodDto, { rail: RailEnum.BANK, label: 'BCA', details }),
@@ -12,24 +12,16 @@ describe('AddPaymentMethodDto refuses a details value too short to be a real des
     expect(problems('')).not.toEqual([]);
   });
 
-  it('refuses a string of only whitespace', () => {
-    expect(problems('      ')).not.toEqual([]);
+  it('refuses a destination longer than 500 characters', () => {
+    expect(problems('B'.repeat(501))).not.toEqual([]);
   });
 
-  it('refuses control-whitespace padding with no real content', () => {
-    expect(problems('\t\n')).not.toEqual([]);
+  it('accepts a string of only whitespace at the DTO layer — the service chokepoint refuses it', () => {
+    expect(problems('      ')).toEqual([]);
   });
 
-  it('refuses a bare three-digit placeholder', () => {
-    expect(problems('123')).not.toEqual([]);
-  });
-
-  it('refuses five non-whitespace characters padded with spaces', () => {
-    expect(problems('BCA 1')).not.toEqual([]);
-  });
-
-  it('accepts exactly six non-whitespace characters', () => {
-    expect(problems('BCA 555555')).toEqual([]);
+  it('accepts a bare three-digit placeholder at the DTO layer — the service chokepoint refuses it', () => {
+    expect(problems('123')).toEqual([]);
   });
 
   it('accepts a real-looking bank destination', () => {

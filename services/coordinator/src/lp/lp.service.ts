@@ -4,8 +4,24 @@ import { StellarReadService } from '../stellar/stellar-read.service';
 import { OrderStatus, Prisma, Rail } from '../generated/prisma/client';
 import { applyBps, baseUnitsToUsdc } from '../money/money';
 import { matchableLpWhere } from '../matching/matching.service';
+import { checkPaymentDestination } from '../order/payment-destination';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+export const PAYMENT_METHOD_BAD_CHARS_MESSAGE =
+  'Those payment details contain characters this anchor cannot pass on to a depositor. Type the destination in by hand rather than pasting it.';
+export const PAYMENT_METHOD_TOO_SHORT_MESSAGE =
+  'Those payment details are too short for anyone to pay into. Enter the full destination and the name it belongs to.';
+export const PAYMENT_METHOD_TOO_LONG_MESSAGE =
+  'Those payment details are too long. Keep it to 500 characters or fewer.';
+
+function requirePaymentDestination(raw: unknown): string {
+  const check = checkPaymentDestination(raw);
+  if (check.ok) return check.value;
+  if (check.problem === 'bad_chars') throw new BadRequestException(PAYMENT_METHOD_BAD_CHARS_MESSAGE);
+  if (check.problem === 'too_long') throw new BadRequestException(PAYMENT_METHOD_TOO_LONG_MESSAGE);
+  throw new BadRequestException(PAYMENT_METHOD_TOO_SHORT_MESSAGE);
+}
 
 export async function personIdForWallet(
   prisma: PrismaService,
@@ -119,7 +135,7 @@ export class LpService {
     if (!lp) throw new NotFoundException('LP not found');
 
     return this.prisma.paymentMethod.create({
-      data: { lpId: lp.id, rail, label, details },
+      data: { lpId: lp.id, rail, label, details: requirePaymentDestination(details) },
     });
   }
 
@@ -136,7 +152,7 @@ export class LpService {
     const data: Record<string, unknown> = {};
     if (patch.rail !== undefined) data['rail'] = patch.rail;
     if (patch.label !== undefined) data['label'] = patch.label;
-    if (patch.details !== undefined) data['details'] = patch.details;
+    if (patch.details !== undefined) data['details'] = requirePaymentDestination(patch.details);
     if (patch.active !== undefined) data['active'] = patch.active;
     return this.prisma.paymentMethod.update({ where: { id }, data });
   }

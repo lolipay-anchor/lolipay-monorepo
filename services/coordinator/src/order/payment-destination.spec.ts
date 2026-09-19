@@ -82,4 +82,24 @@ describe('validatePaymentDestination refuses length and format violations', () =
       expect(/^(?:\s*\S){6}/.test(`X${codePoint}XXXXX`)).toBe(true);
     },
   );
+
+  const WIDENED_CODE_POINTS: Array<[string, string]> = [
+    ["U+2028 LINE SEPARATOR", String.fromCodePoint(0x2028)],
+    ["U+2029 PARAGRAPH SEPARATOR", String.fromCodePoint(0x2029)],
+    ["U+D800 LONE SURROGATE", String.fromCharCode(0xd800)],
+  ];
+
+  it.each(WIDENED_CODE_POINTS)(
+    "refuses a destination carrying %s, which /[\\p{Cc}\\p{Cf}]/u alone would have admitted",
+    (_label, codePoint) => {
+      expect(() => validatePaymentDestination(`BCA 123${codePoint}456`)).toThrow(
+        PAYMENT_DESTINATION_BAD_CHARS_SENTENCE,
+      );
+    },
+  );
+
+  it("does not reject a real character outside the BMP, such as an emoji", () => {
+    const withEmoji = `BCA 123${String.fromCodePoint(0x1f600)}456`;
+    expect(validatePaymentDestination(withEmoji)).toBe(withEmoji);
+  });
 });
