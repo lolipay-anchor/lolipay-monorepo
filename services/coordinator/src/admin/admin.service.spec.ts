@@ -504,7 +504,9 @@ describe('AdminService.updateConfigTransactional', () => {
 
     await expect(
       svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, BRONZE: 4 } } as any, 'GADMINTEST'),
-    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 4 USDC is below minOrder \(5\.0000000 USDC\)/);
+    ).rejects.toThrow(
+      /^DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 4 USDC is below minOrder \(5\.0000000 USDC\), so every order that tier could place would be refused as over the daily limit$/,
+    );
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -575,7 +577,7 @@ describe('AdminService.updateConfigTransactional', () => {
   });
 
   it('refuses a minOrder that leaves no room under the code defaults, on a patch that says nothing about tier limits', async () => {
-    const { prisma, configApi } = makeConfigPrisma(CURRENT);
+    const { prisma, configApi } = makeConfigPrisma({ ...CURRENT, dailyLimitByTier: null });
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
     await expect(
