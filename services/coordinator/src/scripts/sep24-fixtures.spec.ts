@@ -1,5 +1,8 @@
 import { Account, Address, Asset, Contract, Keypair, Networks, Operation, Transaction, TransactionBuilder, nativeToScVal } from '@stellar/stellar-sdk';
 import { createHash } from 'crypto';
+import { existsSync, linkSync, mkdtempSync, rmSync, statSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import {
   MAX_DEMO_FEE_STROOPS,
   MAX_DEMO_USDC_STROOPS,
@@ -34,6 +37,7 @@ import {
   partiesOf,
   withAttempts,
   screenFromTitle,
+  writeConfig,
 } from './sep24-fixtures';
 import { FIAT_INPUT_REFUSAL } from '../money/money';
 
@@ -726,7 +730,7 @@ describe('the fixture driver refuses to sign a challenge it did not recognise', 
 describe('the fixture driver will not take a signing key out of the keystore for a coordinator nobody chose', () => {
   const previous = process.env.SEP24_API;
   const NO_SUCH_IDENTITY = 'no-keystore-on-this-machine-holds-this-identity';
-  const REFUSAL = 'SEP24_API names https://evil.test; this driver signs only for production or a loopback coordinator';
+  const REFUSAL = 'SEP24_API names "https://evil.test"; this driver signs only for production or a loopback coordinator';
 
   afterEach(() => {
     if (previous === undefined) delete process.env.SEP24_API;
@@ -789,5 +793,107 @@ describe('the fixture driver will not take a signing key out of the keystore for
 
     expect(caught).not.toBeNull();
     expect(caught?.message).not.toMatch(/signs only for/);
+  });
+});
+
+describe('the fixture driver will not hand an operator a terminal it does not control', () => {
+  const ctrl = (s: string) =>
+    [...s].filter((ch) => {
+      const p = ch.codePointAt(0) as number;
+      return p < 0x20 || (p >= 0x7f && p <= 0x9f) || p === 0x200f || p === 0x202e || p === 0x2028 || p === 0x2029;
+    });
+
+  function refusalFor(api: string): string {
+    let caught: Error | null = null;
+    try {
+      refuseForeignHost(api);
+    } catch (err) {
+      caught = err as Error;
+    }
+    expect(caught).toBeInstanceOf(RefusedToSign);
+    return (caught as Error).message;
+  }
+
+  it.each([
+    ['ESC, the sequence the reviewer demonstrated', 27],
+    ['CR, which returns the cursor to the start of the line', 13],
+    ['the C1 control introducer, which JSON.stringify leaves raw', 0x9b],
+    ['DEL', 0x7f],
+    ['the right-to-left override, which reorders what is already on screen', 0x202e],
+  ])('leaves no %s in the refusal, so the line cannot be erased and rewritten as a success', (_name, code) => {
+    const api = `https://evil.test${String.fromCodePoint(code)}[2K[1GOK: signing for https://api.lolipay.app`;
+
+    expect(ctrl(refusalFor(api))).toEqual([]);
+  });
+
+  it('still names the host it refused, so escaping does not cost the operator the reason', () => {
+    expect(refusalFor(`https://evil.test${String.fromCodePoint(27)}[2K`)).toContain('https://evil.test');
+  });
+
+  it('bounds the host it echoes, so an environment variable cannot flood the terminal', () => {
+    const api = `https://evil.test/${'a'.repeat(4000)}/tail-of-the-host`;
+
+    const message = refusalFor(api);
+
+    expect(message.length).toBeLessThan(600);
+    expect(message).not.toContain('tail-of-the-host');
+    expect(message).toContain('…');
+  });
+});
+
+describe('the fixture driver will not write a signing seed into a file another name shares', () => {
+  const dirs: string[] = [];
+  const CFG = { secret: 'placeholder-not-a-seed', depositPending: { id: 'x' } };
+
+  function scratch(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'sep24-writeconfig-'));
+    dirs.push(dir);
+    return join(dir, 'sep-config.local.json');
+  }
+
+  afterAll(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('refuses a destination that already carries a second hard link, naming the path and the count', () => {
+    const path = scratch();
+    writeConfig(CFG, path);
+    linkSync(path, `${path}.copy`);
+
+    expect(() => writeConfig(CFG, path)).toThrow(new RegExp(`${path}[^]*2 hard links`));
+  });
+
+  it('leaves the shared file untouched when it refuses, so the refusal costs nothing but a rerun', () => {
+    const path = scratch();
+    writeConfig(CFG, path);
+    linkSync(path, `${path}.copy`);
+    const before = statSync(path);
+
+    expect(() => writeConfig({ secret: 'placeholder-second-seed' }, path)).toThrow();
+
+    const after = statSync(path);
+    expect(after.ino).toBe(before.ino);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+    expect(existsSync(`${path}.tmp`)).toBe(false);
+  });
+
+  it('writes a destination nothing else links to, at mode 0600 and one link, because that is the ordinary run', () => {
+    const path = scratch();
+
+    writeConfig(CFG, path);
+
+    const written = statSync(path);
+    expect(written.nlink).toBe(1);
+    expect(written.mode & 0o777).toBe(0o600);
+    expect(written.size).toBeGreaterThan(0);
+  });
+
+  it('writes over its own earlier output, because a second run of the driver is the ordinary case', () => {
+    const path = scratch();
+    writeConfig(CFG, path);
+
+    expect(() => writeConfig({ secret: 'placeholder-second-seed' }, path)).not.toThrow();
+
+    expect(statSync(path).nlink).toBe(1);
   });
 });

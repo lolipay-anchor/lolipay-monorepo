@@ -1,6 +1,6 @@
 import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
-import { chmodSync, existsSync, renameSync, unlinkSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { Address, BASE_FEE, Keypair, Operation, StellarToml, StrKey, Transaction, TransactionBuilder, WebAuth, nativeToScVal, scValToNative } from '@stellar/stellar-sdk';
 import { refundOpensAt } from '../order/dispute.util';
@@ -484,9 +484,17 @@ const POLL_LIMIT_MS = 5 * 60_000;
 const TOKEN_REFRESH_MS = 10 * 60_000;
 const CONFIG_PATH = resolve(__dirname, '../../anchor-tests/sep-config.local.json');
 
+const UNPRINTABLE_RE = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/gu;
+const HOST_ECHO_LIMIT = 200;
+
+function asTerminalText(value: string): string {
+  const escaped = JSON.stringify(value).replace(UNPRINTABLE_RE, (ch) => `\\u${(ch.codePointAt(0) as number).toString(16).padStart(4, '0')}`);
+  return escaped.length > HOST_ECHO_LIMIT ? `${escaped.slice(0, HOST_ECHO_LIMIT)}\u2026` : escaped;
+}
+
 export function refuseForeignHost(api: string): void {
   if (api !== 'https://api.lolipay.app' && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(api)) {
-    throw new RefusedToSign(`SEP24_API names ${api}; this driver signs only for production or a loopback coordinator`);
+    throw new RefusedToSign(`SEP24_API names ${asTerminalText(api)}; this driver signs only for production or a loopback coordinator`);
   }
 }
 
@@ -903,13 +911,19 @@ async function depositToFunded(a: Actors) {
   return { id, orderId: order.id, refundsAt, tradeIdHex: funded.tradeIdHex };
 }
 
-function writeConfig(cfg: unknown): void {
-  const tmp = `${CONFIG_PATH}.tmp`;
+export function writeConfig(cfg: unknown, configPath: string = CONFIG_PATH): void {
+  const existing = statSync(configPath, { throwIfNoEntry: false });
+  if (existing && existing.nlink > 1) {
+    throw new Error(
+      `${configPath} has ${existing.nlink} hard links, so another name shares this file and its permissions are not this driver's to set; remove the other names (find / -xdev -inum ${existing.ino}) before running it again`,
+    );
+  }
+  const tmp = `${configPath}.tmp`;
   if (existsSync(tmp)) unlinkSync(tmp);
   writeFileSync(tmp, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
   chmodSync(tmp, 0o600);
-  if (existsSync(CONFIG_PATH)) unlinkSync(CONFIG_PATH);
-  renameSync(tmp, CONFIG_PATH);
+  if (existsSync(configPath)) unlinkSync(configPath);
+  renameSync(tmp, configPath);
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
