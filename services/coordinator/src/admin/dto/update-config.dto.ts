@@ -16,10 +16,10 @@ import {
   MAX_PAY_WINDOW_SECS,
   MAX_TOTAL_WINDOW_SECS,
 } from '../../config/contract-limits';
+import { TIER_LEVELS } from '../../reputation/user-reputation.service';
 
 const MAX_DISPUTE_WINDOW_SECS = 604800;
 
-const VALID_TIERS = ['BRONZE', 'SILVER', 'TRUSTED', 'GOLD'] as const;
 const MAX_DAILY_LIMIT_USDC = 10_000_000;
 const POSITIVE_INT_STRING = /^[1-9]\d*$/;
 
@@ -34,8 +34,8 @@ function IsDailyLimitByTier(validationOptions?: ValidationOptions) {
         validate(value: unknown) {
           if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
           const limits = value as Record<string, unknown>;
-          if (Object.keys(limits).length !== VALID_TIERS.length) return false;
-          return VALID_TIERS.every((tier) => {
+          if (Object.keys(limits).length !== TIER_LEVELS.length) return false;
+          return TIER_LEVELS.every((tier) => {
             const limit = limits[tier];
             return (
               Number.isInteger(limit) &&
@@ -45,7 +45,7 @@ function IsDailyLimitByTier(validationOptions?: ValidationOptions) {
           });
         },
         defaultMessage() {
-          return `dailyLimitByTier must name every tier (${VALID_TIERS.join('|')}) and nothing else, each an integer from 1 to ${MAX_DAILY_LIMIT_USDC}: send all four values, including the ones you are not changing`;
+          return `dailyLimitByTier must name every tier (${TIER_LEVELS.join('|')}) and nothing else, each an integer from 1 to ${MAX_DAILY_LIMIT_USDC}: send all four values, including the ones you are not changing`;
         },
       },
     });

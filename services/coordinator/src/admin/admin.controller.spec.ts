@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConflictException, INestApplication, ValidationPipe } from '@nestjs/common';
 import { ExecutionContext } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import request from 'supertest';
@@ -586,7 +586,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
   });
 
   it('PATCH /admin/config surfaces AdminService SPREAD_TOO_NARROW as 400 without the error prefix', async () => {
-    mockAdminService.updateConfigTransactional.mockRejectedValue(
+    mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
       new Error('SPREAD_TOO_NARROW: PRICE_DEVIATION_MAX_BPS (100) must stay strictly below Config.spreadBps (100) — INV-30.1'),
     );
 
@@ -597,6 +597,21 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
 
     expect(res.body.message).toMatch(/INV-30\.1/);
     expect(res.body.message).not.toMatch(/SPREAD_TOO_NARROW/);
+  });
+
+  it('PATCH /admin/config answers a lost race with 409 and the sentence the operator needs, never a 500', async () => {
+    mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
+      new ConflictException('the configuration changed while you were editing — reload and try again'),
+    );
+
+    const res = await request(app.getHttpServer())
+      .patch('/admin/config')
+      .send({ paused: true })
+      .expect(409);
+
+    expect(res.body.message).toBe(
+      'the configuration changed while you were editing — reload and try again',
+    );
   });
 
   it('PATCH /admin/config still rejects an unknown field (forbidNonWhitelisted)', async () => {

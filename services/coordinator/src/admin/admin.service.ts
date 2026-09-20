@@ -354,7 +354,16 @@ export class AdminService {
       if (minOrderPatch !== undefined) data.minOrder = nextMinOrder;
       if (maxOrderPatch !== undefined) data.maxOrder = nextMaxOrder;
 
-      const updated = await tx.config.update({ where: { id: 1 }, data });
+      const updated = await tx.config
+        .update({ where: { id: 1, updatedAt: current?.updatedAt }, data })
+        .catch((e: unknown) => {
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+            throw new ConflictException(
+              'the configuration changed while you were editing — reload and try again',
+            );
+          }
+          throw e;
+        });
 
       await recordAudit(tx as any, {
         actorAddress,

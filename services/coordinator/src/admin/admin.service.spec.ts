@@ -1,7 +1,8 @@
 import { BadGatewayException, BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { ConfigCache } from '../config/config-cache';
-import { UserReputationService } from '../reputation/user-reputation.service';
+import { TIER_LEVELS, UserReputationService } from '../reputation/user-reputation.service';
+import { Prisma } from '../generated/prisma/client';
 
 const ADDR = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
 
@@ -251,20 +252,53 @@ describe('AdminService.updateConfigTransactional', () => {
     payWindowSecs: 1800,
     confirmWindowSecs: 1800,
     disputeWindowSecs: 7200,
+    updatedAt: new Date('2026-09-20T06:00:00.000Z'),
   };
 
   function makeConfigPrisma(current: any) {
+    const row: any = { id: 1, ...current };
+    let beforeNextWrite: (() => Promise<unknown>) | null = null;
     const configApi = {
-      findUnique: jest.fn().mockResolvedValue(current),
-      update: jest.fn(async ({ data }: any) => ({ ...current, ...data })),
+      findUnique: jest.fn(async () => ({ ...row })),
+      update: jest.fn(async ({ where, data }: any) => {
+        if (beforeNextWrite) {
+          const hook = beforeNextWrite;
+          beforeNextWrite = null;
+          await hook();
+        }
+        for (const [field, expected] of Object.entries(where)) {
+          const held = row[field];
+          const matches =
+            held instanceof Date && expected instanceof Date
+              ? held.getTime() === expected.getTime()
+              : held === expected;
+          if (!matches) {
+            throw new Prisma.PrismaClientKnownRequestError(
+              'An operation failed because it depends on one or more records that were required but not found.',
+              { code: 'P2025', clientVersion: 'test' },
+            );
+          }
+        }
+        Object.assign(row, data);
+        if (Object.keys(data).length > 0) row.updatedAt = new Date(row.updatedAt.getTime() + 1);
+        return { ...row };
+      }),
     };
-    const auditApi = { create: jest.fn(async () => ({})) };
+    const auditApi = { create: jest.fn(async (_args: any) => ({})) };
     const prisma = {
       config: configApi,
       adminAudit: auditApi,
       $transaction: jest.fn((cb: any) => cb({ config: configApi, adminAudit: auditApi })),
     } as any;
-    return { prisma, configApi, auditApi };
+    return {
+      prisma,
+      configApi,
+      auditApi,
+      row,
+      interleaveBeforeNextWrite(hook: () => Promise<unknown>) {
+        beforeNextWrite = hook;
+      },
+    };
   }
 
   function makeCachePrisma() {
@@ -322,7 +356,7 @@ describe('AdminService.updateConfigTransactional', () => {
     const room = CURRENT.spreadBps - makeCfg().priceDeviationMaxBps - 1;
     const svc = new AdminService(prisma, chainFee(room, makeStellar()), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
     await svc.updateConfigTransactional({ platformFeeBps: room } as any, 'GADMINTEST');
-    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { platformFeeBps: room } });
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1, updatedAt: CURRENT.updatedAt }, data: { platformFeeBps: room } });
     await expect(
       svc.updateConfigTransactional({ platformFeeBps: room + 1 } as any, 'GADMINTEST'),
     ).rejects.toThrow('PLATFORM_FEE_EXCEEDS_SPREAD');
@@ -353,7 +387,7 @@ describe('AdminService.updateConfigTransactional', () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
     await svc.updateConfigTransactional({ platformWallet: ADDR } as any, 'GADMINTEST');
-    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { platformWallet: ADDR } });
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1, updatedAt: CURRENT.updatedAt }, data: { platformWallet: ADDR } });
   });
 
   it('reads the fee default from the escrow contract the coordinator is configured with', async () => {
@@ -381,7 +415,7 @@ describe('AdminService.updateConfigTransactional', () => {
     stellar.readEscrowPlatformDefaults = jest.fn(async () => ({ platformFeeBps: 30, platformWallet: ADDR }));
     const svc = new AdminService(prisma, stellar, makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
     await svc.updateConfigTransactional({ platformFeeBps: 30 } as any, 'GADMINTEST');
-    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { platformFeeBps: 30 } });
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1, updatedAt: CURRENT.updatedAt }, data: { platformFeeBps: 30 } });
   });
 
   it('refuses a platformFeeBps patch when the escrow contract defaults cannot be read, and says the chain was unreadable rather than that the value diverged', async () => {
@@ -401,7 +435,7 @@ describe('AdminService.updateConfigTransactional', () => {
     const svc = new AdminService(prisma, stellar, makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
     await svc.updateConfigTransactional({ platformFeeBps: 30, platformWallet: ADDR } as any, 'GADMINTEST');
     expect(stellar.readEscrowPlatformDefaults).toHaveBeenCalledTimes(1);
-    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { platformFeeBps: 30, platformWallet: ADDR } });
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1, updatedAt: CURRENT.updatedAt }, data: { platformFeeBps: 30, platformWallet: ADDR } });
   });
 
   it('rejects a spreadBps patch that no longer covers the price-deviation allowance', async () => {
@@ -419,7 +453,7 @@ describe('AdminService.updateConfigTransactional', () => {
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
     await svc.updateConfigTransactional({ spreadBps: 131 } as any, 'GADMINTEST');
-    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { spreadBps: 131 } });
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1, updatedAt: CURRENT.updatedAt }, data: { spreadBps: 131 } });
   });
 
   it('does not block an unrelated config change when the stored spread already violates INV-30.1', async () => {
@@ -427,7 +461,7 @@ describe('AdminService.updateConfigTransactional', () => {
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
     await svc.updateConfigTransactional({ paused: true } as any, 'GADMINTEST');
-    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { paused: true } });
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1, updatedAt: CURRENT.updatedAt }, data: { paused: true } });
   });
 
   it('rejects when platformFeeBps + lpFeeBps >= 10000, using the CURRENT row for the omitted side', async () => {
@@ -446,7 +480,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
     await svc.updateConfigTransactional({ platformFeeBps: 40 } as any, 'GADMINTEST');
     expect(configApi.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: { id: 1, updatedAt: CURRENT.updatedAt },
       data: { platformFeeBps: 40 },
     });
   });
@@ -491,7 +525,7 @@ describe('AdminService.updateConfigTransactional', () => {
     } as any, 'GADMINTEST');
 
     expect(configApi.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: { id: 1, updatedAt: CURRENT.updatedAt },
       data: { minOrder: 10_000_000n, maxOrder: 20_000_000_000n },
     });
   });
@@ -533,7 +567,7 @@ describe('AdminService.updateConfigTransactional', () => {
     );
 
     expect(configApi.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: { id: 1, updatedAt: CURRENT.updatedAt },
       data: { dailyLimitByTier: { ...LIMITS, BRONZE: 4 }, minOrder: 30_000_000n },
     });
   });
@@ -545,7 +579,7 @@ describe('AdminService.updateConfigTransactional', () => {
     await svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, BRONZE: 5 } } as any, 'GADMINTEST');
 
     expect(configApi.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: { id: 1, updatedAt: CURRENT.updatedAt },
       data: { dailyLimitByTier: { ...LIMITS, BRONZE: 5 } },
     });
   });
@@ -557,7 +591,7 @@ describe('AdminService.updateConfigTransactional', () => {
     await svc.updateConfigTransactional({ dailyLimitByTier: null } as any, 'GADMINTEST');
 
     expect(configApi.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: { id: 1, updatedAt: CURRENT.updatedAt },
       data: { dailyLimitByTier: null },
     });
   });
@@ -606,7 +640,7 @@ describe('AdminService.updateConfigTransactional', () => {
     await svc.updateConfigTransactional({ minOrder: '1000000000' } as any, 'GADMINTEST');
 
     expect(configApi.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+      where: { id: 1, updatedAt: CURRENT.updatedAt },
       data: { minOrder: 1_000_000_000n },
     });
   });
@@ -620,7 +654,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
     await svc.updateConfigTransactional({ paused: true } as any, 'GADMINTEST');
 
-    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { paused: true } });
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1, updatedAt: CURRENT.updatedAt }, data: { paused: true } });
   });
 
   it('names every tier below the floor, so raising the first one does not earn a second refusal', async () => {
@@ -649,7 +683,68 @@ describe('AdminService.updateConfigTransactional', () => {
 
     await svc.updateConfigTransactional({ paused: true } as any, 'GADMINTEST');
 
-    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { paused: true } });
+    expect(configApi.update).toHaveBeenCalledWith({ where: { id: 1, updatedAt: CURRENT.updatedAt }, data: { paused: true } });
+  });
+
+  it('refuses the patch whose read is older than the row, so two administrators cannot each clear the tier floor against a row the other has already moved', async () => {
+    const store = makeConfigPrisma({ ...CURRENT, dailyLimitByTier: LIMITS });
+    const svc = new AdminService(store.prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    store.interleaveBeforeNextWrite(() =>
+      svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, BRONZE: 50 } } as any, 'GSECOND'),
+    );
+
+    const refusal = await svc
+      .updateConfigTransactional({ minOrder: '1000000000' } as any, 'GFIRST')
+      .catch((e: unknown) => e);
+
+    expect(refusal).toBeInstanceOf(ConflictException);
+    expect((refusal as Error).message).toBe(
+      'the configuration changed while you were editing — reload and try again',
+    );
+    expect(store.row.dailyLimitByTier).toEqual({ ...LIMITS, BRONZE: 50 });
+    expect(store.row.minOrder).toBe(50_000_000n);
+    expect(TIER_LEVELS).toHaveLength(4);
+    for (const tier of TIER_LEVELS) {
+      expect(
+        UserReputationService.prototype.dailyLimitBaseUnits(tier, {
+          dailyLimitByTier: store.row.dailyLimitByTier,
+        }),
+      ).toBeGreaterThanOrEqual(store.row.minOrder);
+    }
+  });
+
+  it('leaves the kill switch reachable after two overlapping bound patches, because the loser never lands and the row is never left with minOrder above maxOrder', async () => {
+    const store = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(store.prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    store.interleaveBeforeNextWrite(() =>
+      svc.updateConfigTransactional({ maxOrder: '800000000' } as any, 'GSECOND'),
+    );
+
+    await expect(
+      svc.updateConfigTransactional({ minOrder: '900000000' } as any, 'GFIRST'),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(store.row.minOrder).toBe(50_000_000n);
+    expect(store.row.maxOrder).toBe(800_000_000n);
+
+    await svc.updateConfigTransactional({ paused: true } as any, 'GADMINTEST');
+
+    expect(store.row.paused).toBe(true);
+  });
+
+  it('writes no audit row for a patch that lost the race, so the trail carries only decisions that landed', async () => {
+    const store = makeConfigPrisma(CURRENT);
+    const svc = new AdminService(store.prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+    store.interleaveBeforeNextWrite(() =>
+      svc.updateConfigTransactional({ spreadBps: 160 } as any, 'GSECOND'),
+    );
+
+    await expect(
+      svc.updateConfigTransactional({ paused: true } as any, 'GFIRST'),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(store.auditApi.create).toHaveBeenCalledTimes(1);
+    expect(store.auditApi.create.mock.calls[0][0].data.actorAddress).toBe('GSECOND');
   });
 });
 
