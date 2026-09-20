@@ -7,3 +7,4 @@ dist
 .git
 test_snapshots
 README.md
+anchor-tests
