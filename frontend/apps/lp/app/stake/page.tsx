@@ -15,6 +15,7 @@ import { AppHeader } from '@/components/AppHeader'
 import { client } from '@/lib/client'
 import { formatUSDC } from '@/lib/money'
 import { usdcToBaseUnits } from '@/lib/usdc'
+import { stakeIsReady } from '@/components/PrereqCard'
 
 export type SubmitFn = (signedXdr: string, networkPassphrase: string) => Promise<unknown>
 
@@ -26,7 +27,18 @@ async function defaultSubmit(signedXdr: string, networkPassphrase: string) {
   const res = await server.sendTransaction(tx)
 
   if (res.status !== 'PENDING') throw new Error(`Submission failed (${res.status})`)
-  return res
+
+  const final = await server.pollTransaction(res.hash)
+  if (final.status !== 'SUCCESS') throw new Error(`Transaction ${final.status}`)
+  return final
+}
+
+function daysUntil(unixSeconds: number): number {
+  return Math.ceil((unixSeconds - Date.now() / 1000) / 86400)
+}
+
+function dayLabel(days: number): string {
+  return `${days} day${days === 1 ? '' : 's'}`
 }
 
 export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn }) {
@@ -35,14 +47,17 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
 
   const [amount, setAmount] = React.useState('')
   const [busy, setBusy] = React.useState(false)
+  const [confirming, setConfirming] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [success, setSuccess] = React.useState(false)
 
   const [unstakeAmount, setUnstakeAmount] = React.useState('')
   const [unstakeBusy, setUnstakeBusy] = React.useState(false)
+  const [unstakeConfirming, setUnstakeConfirming] = React.useState(false)
   const [unstakeError, setUnstakeError] = React.useState<string | null>(null)
   const [unstakeSuccess, setUnstakeSuccess] = React.useState(false)
   const [claimBusy, setClaimBusy] = React.useState(false)
+  const [claimConfirming, setClaimConfirming] = React.useState(false)
   const [claimError, setClaimError] = React.useState<string | null>(null)
 
   const {
@@ -69,6 +84,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
     try {
       const { xdr, networkPassphrase } = await getStakeTx(client, baseUnits)
       const signedXdr = await wallet.signTransaction(xdr, networkPassphrase)
+      setConfirming(true)
       await submitFn(signedXdr, networkPassphrase)
       setSuccess(true)
       setAmount('')
@@ -77,6 +93,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
       setError(err instanceof Error ? err.message : 'Stake failed')
     } finally {
       setBusy(false)
+      setConfirming(false)
     }
   }
 
@@ -95,6 +112,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
     try {
       const { xdr, networkPassphrase } = await getRequestUnstakeTx(client, baseUnits)
       const signedXdr = await wallet.signTransaction(xdr, networkPassphrase)
+      setUnstakeConfirming(true)
       await submitFn(signedXdr, networkPassphrase)
       setUnstakeSuccess(true)
       setUnstakeAmount('')
@@ -103,6 +121,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
       setUnstakeError(err instanceof Error ? err.message : 'Unstake request failed')
     } finally {
       setUnstakeBusy(false)
+      setUnstakeConfirming(false)
     }
   }
 
@@ -112,12 +131,14 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
     try {
       const { xdr, networkPassphrase } = await getClaimUnstakeTx(client)
       const signedXdr = await wallet.signTransaction(xdr, networkPassphrase)
+      setClaimConfirming(true)
       await submitFn(signedXdr, networkPassphrase)
       qc.invalidateQueries({ queryKey: ['lpEligibility'] })
     } catch (err) {
       setClaimError(err instanceof Error ? err.message : 'Claim failed')
     } finally {
       setClaimBusy(false)
+      setClaimConfirming(false)
     }
   }
 
@@ -135,6 +156,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
   const hasUnbonding = BigInt(eligibility.unbonding) > 0n
   const claimable =
     hasUnbonding && Date.now() / 1000 >= eligibility.unbond_available_at
+  const matchable = stakeIsReady(eligibility) === true
 
   const stakedNum = Number(eligibility.staked) / 1e7
   const minStakeNum = Number(eligibility.min_stake) / 1e7
@@ -149,10 +171,12 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
           <span className="font-geist-mono text-[11px] uppercase tracking-[.1em] text-lp-paper/55">
             Your stake
           </span>
-          {eligibility.eligible ? (
+          {matchable ? (
             <StatusPill tone="green">Eligible</StatusPill>
-          ) : (
+          ) : !eligibility.eligible ? (
             <StatusPill tone="amber">Not eligible</StatusPill>
+          ) : (
+            <StatusPill tone="amber">Not matchable</StatusPill>
           )}
         </div>
         <div className="mt-2 font-geist text-[32px] font-bold tracking-[-0.03em]">
@@ -168,10 +192,18 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
           <span>Minimum {minStake} USDC</span>
           <span>{coverage.toFixed(1)}× covered</span>
         </div>
-        {!eligibility.eligible && (
+        {hasUnbonding ? (
           <p className="mt-3 text-xs text-lp-amber-soft">
-            Stake at least {minStake} USDC to go live.
+            {claimable
+              ? 'You are not taking orders until you claim your unbonding USDC. Claim it below and they resume.'
+              : `You are not taking orders while any USDC is unbonding. They resume once you claim it back — ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${dayLabel(daysUntil(eligibility.unbond_available_at))} from now. Staking more does not lift this; only claiming does.`}
           </p>
+        ) : (
+          !eligibility.eligible && (
+            <p className="mt-3 text-xs text-lp-amber-soft">
+              Stake at least {minStake} USDC to go live.
+            </p>
+          )
         )}
       </DarkHeroCard>
 
@@ -179,7 +211,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
       <Card>
         <p className="mb-3 font-geist text-sm font-semibold text-lp-ink">Stake USDC</p>
         <p className="mb-3 text-xs text-lp-muted">
-          Your staked USDC is the bond behind your trades. If a dispute is resolved against you, the amount owed can be taken from it.
+          Your staked USDC is the bond behind your trades. If a dispute raised after a trade has settled is resolved against you, what you owe can be taken from your stake — including USDC that is unbonding but not yet claimed.
         </p>
         <form onSubmit={handleStake} className="flex flex-col gap-3">
           <div>
@@ -202,6 +234,11 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
           {error && (
             <p className="text-xs text-lp-danger" role="alert">
               {error}
+            </p>
+          )}
+          {confirming && (
+            <p className="text-xs text-lp-muted" role="status">
+              Submitted. Your stake updates once the network confirms it — this can take a few seconds.
             </p>
           )}
           {success && (
@@ -245,6 +282,11 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
               {unstakeError}
             </p>
           )}
+          {unstakeConfirming && (
+            <p className="text-xs text-lp-muted" role="status">
+              Submitted. Your stake updates once the network confirms it — this can take a few seconds.
+            </p>
+          )}
           {unstakeSuccess && (
             <p className="text-xs text-lp-green" role="status">
               Unstake requested — cooldown started.
@@ -258,18 +300,18 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
         {hasUnbonding && (
           <div className="mt-4 border-t border-lp-line pt-3">
             <p className="mb-2 text-xs text-lp-muted">
-              Unbonding: {formatUSDC(BigInt(eligibility.unbonding))} USDC
-              {!claimable && eligibility.unbond_available_at > 0 && (
-                <>
-                  {' '}
-                  — claimable at{' '}
-                  {new Date(eligibility.unbond_available_at * 1000).toLocaleString()}
-                </>
-              )}
+              {claimable
+                ? `${formatUSDC(BigInt(eligibility.unbonding))} USDC is ready to claim. Claiming returns it to your wallet and starts your orders again — nothing happens until you sign.`
+                : `${formatUSDC(BigInt(eligibility.unbonding))} USDC unbonding — claimable ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${dayLabel(daysUntil(eligibility.unbond_available_at))} from now. You are not taking orders until you claim it.`}
             </p>
             {claimError && (
               <p className="mb-2 text-xs text-lp-danger" role="alert">
                 {claimError}
+              </p>
+            )}
+            {claimConfirming && (
+              <p className="mb-2 text-xs text-lp-muted" role="status">
+                Submitted. Your stake updates once the network confirms it — this can take a few seconds.
               </p>
             )}
             <Button
@@ -279,7 +321,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
               onClick={handleClaim}
               data-testid="claim-unstake"
             >
-              {claimable ? 'Claim Unstaked USDC' : 'Cooldown active'}
+              Claim Unstaked USDC
             </Button>
           </div>
         )}

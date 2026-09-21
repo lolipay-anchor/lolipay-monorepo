@@ -6,6 +6,15 @@ import { queryClient } from '@/app/providers'
 
 vi.mock('@/lib/wallet-kit', () => ({ getDefaultKit: vi.fn(() => ({})) }))
 
+vi.mock('@stellar/stellar-sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@stellar/stellar-sdk')>()
+  return {
+    ...actual,
+    rpc: { ...actual.rpc, Server: vi.fn() },
+    TransactionBuilder: { ...actual.TransactionBuilder, fromXDR: vi.fn() },
+  }
+})
+
 vi.mock('next/link', () => ({
   default: ({
     href,
@@ -35,6 +44,15 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
 
 const { StakeForm } = await import('@/app/stake/page')
 const apiClient = await import('@lolipay/api-client')
+const sdk = await import('@stellar/stellar-sdk')
+
+function createDeferred<T>() {
+  let resolve!: (v: T) => void
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
 
 const mockEligibility = {
   staked: '1000000000',
@@ -63,7 +81,7 @@ describe('StakePage — StakeForm', () => {
     expect(screen.getByText(/loading eligibility/i)).toBeTruthy()
   })
 
-  it('says what the stake is for, and that a lost dispute can draw on it', async () => {
+  it('says what the stake is for, and that a lost post-settlement dispute can draw on it, unbonding included', async () => {
     render(
       <TestProviders kit={fakeKit}>
         <StakeForm />
@@ -71,7 +89,7 @@ describe('StakePage — StakeForm', () => {
     )
     await waitFor(() => {
       expect(
-        screen.getByText(/Your staked USDC is the bond behind your trades\. If a dispute is resolved against you, the amount owed can be taken from it\./),
+        screen.getByText(/Your staked USDC is the bond behind your trades\. If a dispute raised after a trade has settled is resolved against you, what you owe can be taken from your stake — including USDC that is unbonding but not yet claimed\./),
       ).toBeTruthy()
     })
   })
@@ -120,7 +138,7 @@ describe('StakePage — StakeForm', () => {
     })
   })
 
-  it('shows unbonding details when unbonding > 0', async () => {
+  it('shows unbonding details, the claimable date and a relative day count, while unbonding > 0', async () => {
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
       ...mockEligibility,
       unbonding: '700000000',
@@ -134,9 +152,60 @@ describe('StakePage — StakeForm', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByText(/Unbonding/i)).toBeTruthy()
-      expect(screen.getByText(/claimable at/i)).toBeTruthy()
+      expect(
+        screen.getByText(
+          /70\.00 USDC unbonding — claimable .+, about \d+ days? from now\. You are not taking orders until you claim it\./,
+        ),
+      ).toBeTruthy()
     })
+  })
+
+  it('renders a not-currently-matchable note while unbonding, even when eligible is true', async () => {
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
+      ...mockEligibility,
+      eligible: true,
+      unbonding: '700000000',
+    })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByText(/^Eligible$/)).toBeNull()
+      expect(screen.getByText(/not taking orders/i)).toBeTruthy()
+    })
+  })
+
+  it('does not refresh eligibility until the transaction reaches finality on the ledger, not just broadcast', async () => {
+    const sendTransactionMock = vi.fn().mockResolvedValue({ status: 'PENDING', hash: 'deadbeef' })
+    const deferred = createDeferred<{ status: string }>()
+    const pollTransactionMock = vi.fn(() => deferred.promise)
+
+    vi.mocked(sdk.rpc.Server).mockImplementation(function () {
+      return { sendTransaction: sendTransactionMock, pollTransaction: pollTransactionMock } as never
+    } as unknown as typeof sdk.rpc.Server)
+    vi.mocked(sdk.TransactionBuilder.fromXDR).mockReturnValue({} as never)
+    vi.mocked(apiClient.getStakeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('stake-amount'))
+    fireEvent.change(screen.getByTestId('stake-amount'), { target: { value: '50' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Stake$/i }))
+
+    await waitFor(() => expect(pollTransactionMock).toHaveBeenCalledWith('deadbeef'))
+    expect(apiClient.getLpEligibility).toHaveBeenCalledTimes(1)
+
+    deferred.resolve({ status: 'SUCCESS' })
+
+    await waitFor(() => expect(apiClient.getLpEligibility).toHaveBeenCalledTimes(2))
   })
 
   it('renders the Unstake form', async () => {
