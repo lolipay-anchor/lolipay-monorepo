@@ -179,6 +179,26 @@ describe('StakePage — StakeForm', () => {
     })
   })
 
+  it('still tells a provider to stake more even while a separate unbonding refusal also applies', async () => {
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
+      ...mockEligibility,
+      eligible: false,
+      unbonding: '700000000',
+      unbond_available_at: Math.floor(Date.now() / 1000) + 3600,
+    })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/Stake at least/i)).toBeTruthy()
+      expect(screen.getAllByText(/not taking orders/i).length).toBeGreaterThan(0)
+    })
+  })
+
   it('does not refresh eligibility until the transaction reaches finality on the ledger, not just broadcast', async () => {
     const sendTransactionMock = vi.fn().mockResolvedValue({ status: 'PENDING', hash: 'deadbeef' })
     const deferred = createDeferred<{ status: string }>()

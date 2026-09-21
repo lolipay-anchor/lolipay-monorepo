@@ -192,18 +192,17 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
           <span>Minimum {minStake} USDC</span>
           <span>{coverage.toFixed(1)}× covered</span>
         </div>
-        {hasUnbonding ? (
+        {hasUnbonding && (
           <p className="mt-3 text-xs text-lp-amber-soft">
             {claimable
               ? 'You are not taking orders until you claim your unbonding USDC. Claim it below and they resume.'
               : `You are not taking orders while any USDC is unbonding. They resume once you claim it back — ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${dayLabel(daysUntil(eligibility.unbond_available_at))} from now. Staking more does not lift this; only claiming does.`}
           </p>
-        ) : (
-          !eligibility.eligible && (
-            <p className="mt-3 text-xs text-lp-amber-soft">
-              Stake at least {minStake} USDC to go live.
-            </p>
-          )
+        )}
+        {!eligibility.eligible && (
+          <p className="mt-3 text-xs text-lp-amber-soft">
+            Stake at least {minStake} USDC to go live.
+          </p>
         )}
       </DarkHeroCard>
 
