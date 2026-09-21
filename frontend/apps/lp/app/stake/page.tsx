@@ -9,7 +9,7 @@ import {
   getRequestUnstakeTx,
   getClaimUnstakeTx,
 } from '@lolipay/api-client'
-import { useWallet } from '@lolipay/wallet'
+import { submissionFailure, useWallet } from '@lolipay/wallet'
 import { Card, Button, StatusPill, DarkHeroCard, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
 import { AppHeader } from '@/components/AppHeader'
 import { client } from '@/lib/client'
@@ -19,6 +19,9 @@ import { stakeIsReady } from '@/components/PrereqCard'
 
 export type SubmitFn = (signedXdr: string, networkPassphrase: string) => Promise<unknown>
 
+export const CONFIRMING_MESSAGE =
+  'Submitted. Your stake updates once the network confirms it — this can take a few seconds.'
+
 async function defaultSubmit(signedXdr: string, networkPassphrase: string) {
   const server = new rpc.Server(
     process.env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org',
@@ -26,18 +29,27 @@ async function defaultSubmit(signedXdr: string, networkPassphrase: string) {
   const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase)
   const res = await server.sendTransaction(tx)
 
-  if (res.status !== 'PENDING') throw new Error(`Submission failed (${res.status})`)
+  if (res.status !== 'PENDING') throw new Error(submissionFailure(res))
 
   const final = await server.pollTransaction(res.hash)
-  if (final.status !== 'SUCCESS') throw new Error(`Transaction ${final.status}`)
+  if (final.status === 'NOT_FOUND') {
+    throw new Error(
+      'Still confirming on the network. Your stake may already have gone through — refresh before trying again.',
+    )
+  }
+  if (final.status !== 'SUCCESS') {
+    throw new Error(submissionFailure({ status: final.status, errorResult: final.resultXdr }))
+  }
   return final
 }
 
-function daysUntil(unixSeconds: number): number {
-  return Math.ceil((unixSeconds - Date.now() / 1000) / 86400)
-}
-
-function dayLabel(days: number): string {
+function timeUntilLabel(unixSeconds: number): string {
+  const hoursRemaining = (unixSeconds - Date.now() / 1000) / 3600
+  if (hoursRemaining < 24) {
+    const hours = Math.max(1, Math.round(hoursRemaining))
+    return `${hours} hour${hours === 1 ? '' : 's'}`
+  }
+  const days = Math.round(hoursRemaining / 24)
   return `${days} day${days === 1 ? '' : 's'}`
 }
 
@@ -195,8 +207,10 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
         {hasUnbonding && (
           <p className="mt-3 text-xs text-lp-amber-soft">
             {claimable
-              ? 'You are not taking orders until you claim your unbonding USDC. Claim it below and they resume.'
-              : `You are not taking orders while any USDC is unbonding. They resume once you claim it back — ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${dayLabel(daysUntil(eligibility.unbond_available_at))} from now. Staking more does not lift this; only claiming does.`}
+              ? eligibility.eligible
+                ? 'You are not taking orders until you claim your unbonding USDC. Claim it below and they resume.'
+                : `You are not taking orders. Claiming returns your unbonding USDC to your wallet — it does not go back into your stake, so you will still need at least ${minStake} USDC staked before orders resume.`
+              : `You are not taking orders while any USDC is unbonding. They resume once you claim it back — ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${timeUntilLabel(eligibility.unbond_available_at)} from now. Staking more does not lift this; only claiming does.`}
           </p>
         )}
         {!eligibility.eligible && (
@@ -237,7 +251,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
           )}
           {confirming && (
             <p className="text-xs text-lp-muted" role="status">
-              Submitted. Your stake updates once the network confirms it — this can take a few seconds.
+              {CONFIRMING_MESSAGE}
             </p>
           )}
           {success && (
@@ -283,7 +297,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
           )}
           {unstakeConfirming && (
             <p className="text-xs text-lp-muted" role="status">
-              Submitted. Your stake updates once the network confirms it — this can take a few seconds.
+              {CONFIRMING_MESSAGE}
             </p>
           )}
           {unstakeSuccess && (
@@ -300,8 +314,10 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
           <div className="mt-4 border-t border-lp-line pt-3">
             <p className="mb-2 text-xs text-lp-muted">
               {claimable
-                ? `${formatUSDC(BigInt(eligibility.unbonding))} USDC is ready to claim. Claiming returns it to your wallet and starts your orders again — nothing happens until you sign.`
-                : `${formatUSDC(BigInt(eligibility.unbonding))} USDC unbonding — claimable ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${dayLabel(daysUntil(eligibility.unbond_available_at))} from now. You are not taking orders until you claim it.`}
+                ? eligibility.eligible
+                  ? `${formatUSDC(BigInt(eligibility.unbonding))} USDC is ready to claim. Claiming returns it to your wallet and starts your orders again — nothing happens until you sign.`
+                  : `${formatUSDC(BigInt(eligibility.unbonding))} USDC is ready to claim. Claiming returns it to your wallet — it does not go back into your stake, and nothing happens until you sign.`
+                : `${formatUSDC(BigInt(eligibility.unbonding))} USDC unbonding — claimable ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${timeUntilLabel(eligibility.unbond_available_at)} from now. You are not taking orders until you claim it.`}
             </p>
             {claimError && (
               <p className="mb-2 text-xs text-lp-danger" role="alert">
@@ -310,7 +326,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
             )}
             {claimConfirming && (
               <p className="mb-2 text-xs text-lp-muted" role="status">
-                Submitted. Your stake updates once the network confirms it — this can take a few seconds.
+                {CONFIRMING_MESSAGE}
               </p>
             )}
             <Button

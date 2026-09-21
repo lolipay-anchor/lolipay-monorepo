@@ -268,9 +268,13 @@ export default function DashboardPage() {
                 </div>
               </div>
               {eligibility && (
-                <StatusPill tone={eligibility.eligible ? 'green' : 'amber'}>
-                  {eligibility.eligible ? 'Eligible' : 'Not eligible'}
-                </StatusPill>
+                stakeIsReady(eligibility) ? (
+                  <StatusPill tone="green">Eligible</StatusPill>
+                ) : !eligibility.eligible ? (
+                  <StatusPill tone="amber">Not eligible</StatusPill>
+                ) : (
+                  <StatusPill tone="amber">Not matchable</StatusPill>
+                )
               )}
             </Link>
 

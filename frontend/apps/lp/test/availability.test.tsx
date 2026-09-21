@@ -342,7 +342,7 @@ describe('DashboardPage — Availability', () => {
     expect(screen.queryByTestId('online-ring')).toBeNull()
   })
 
-  it('does not claim orders are being accepted while the stake is unbonding, which is the refusal the matcher makes beside eligibility', async () => {
+  it('shows Not matchable, not Eligible, on the stake pill while the stake is unbonding, which is the refusal the matcher makes beside eligibility', async () => {
     vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true))
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue({ ...eligibleStake, unbonding: '1' })
     render(
@@ -351,7 +351,8 @@ describe('DashboardPage — Availability', () => {
       </TestProviders>,
     )
 
-    await screen.findByText('Eligible')
+    await screen.findByText('Not matchable')
+    expect(screen.queryByText('Eligible')).toBeNull()
     expect(screen.getByTestId('availability-state').textContent).toBe('Online — not receiving orders')
   })
 

@@ -1,6 +1,6 @@
 import * as React from 'react'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { TestProviders, fakeKit } from './helpers'
 import { queryClient } from '@/app/providers'
 
@@ -67,6 +67,10 @@ describe('StakePage — StakeForm', () => {
     queryClient.clear()
     vi.clearAllMocks()
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue(mockEligibility)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('shows a loading state before eligibility resolves', () => {
@@ -175,7 +179,130 @@ describe('StakePage — StakeForm', () => {
 
     await waitFor(() => {
       expect(screen.queryByText(/^Eligible$/)).toBeNull()
-      expect(screen.getByText(/not taking orders/i)).toBeTruthy()
+      expect(screen.getByText('Not matchable')).toBeTruthy()
+      expect(
+        screen.getByText(
+          'You are not taking orders until you claim your unbonding USDC. Claim it below and they resume.',
+        ),
+      ).toBeTruthy()
+      expect(
+        screen.getByText(
+          '70.00 USDC is ready to claim. Claiming returns it to your wallet and starts your orders again — nothing happens until you sign.',
+        ),
+      ).toBeTruthy()
+    })
+  })
+
+  it('tells a provider claiming will not restore matchability while they are still below the minimum stake', async () => {
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
+      ...mockEligibility,
+      eligible: false,
+      unbonding: '700000000',
+      unbond_available_at: Math.floor(Date.now() / 1000) - 10,
+    })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          /You are not taking orders\. Claiming returns your unbonding USDC to your wallet — it does not go back into your stake, so you will still need at least 500\.00 USDC staked before orders resume\./,
+        ),
+      ).toBeTruthy()
+      expect(
+        screen.getByText(
+          /70\.00 USDC is ready to claim\. Claiming returns it to your wallet — it does not go back into your stake, and nothing happens until you sign\./,
+        ),
+      ).toBeTruthy()
+    })
+  })
+
+  it('renders the unbonding countdown in hours, exactly, when under a day remains', async () => {
+    const fixedNowMs = Date.parse('2030-01-01T00:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(fixedNowMs)
+
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
+      ...mockEligibility,
+      unbonding: '700000000',
+      unbond_available_at: Math.floor(fixedNowMs / 1000) + 7200,
+    })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm />
+      </TestProviders>,
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+
+    expect(
+      screen.getByText(
+        /70\.00 USDC unbonding — claimable .+, about 2 hours from now\. You are not taking orders until you claim it\./,
+      ),
+    ).toBeTruthy()
+  })
+
+  it('tells a provider their stake may already be in when the network has not indexed the transaction yet', async () => {
+    const sendTransactionMock = vi.fn().mockResolvedValue({ status: 'PENDING', hash: 'deadbeef' })
+    const pollTransactionMock = vi.fn().mockResolvedValue({ status: 'NOT_FOUND' })
+
+    vi.mocked(sdk.rpc.Server).mockImplementation(function () {
+      return { sendTransaction: sendTransactionMock, pollTransaction: pollTransactionMock } as never
+    } as unknown as typeof sdk.rpc.Server)
+    vi.mocked(sdk.TransactionBuilder.fromXDR).mockReturnValue({} as never)
+    vi.mocked(apiClient.getStakeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('stake-amount'))
+    fireEvent.change(screen.getByTestId('stake-amount'), { target: { value: '50' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Stake$/i }))
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          /Still confirming on the network\. Your stake may already have gone through — refresh before trying again\./,
+        ),
+      ).toBeTruthy()
+    })
+  })
+
+  it('shows a real refusal sentence, naming the network code, when the network reports the transaction failed', async () => {
+    const sendTransactionMock = vi.fn().mockResolvedValue({ status: 'PENDING', hash: 'deadbeef' })
+    const pollTransactionMock = vi.fn().mockResolvedValue({
+      status: 'FAILED',
+      resultXdr: { result: () => ({ switch: () => ({ name: 'txFailed' }) }) },
+    })
+
+    vi.mocked(sdk.rpc.Server).mockImplementation(function () {
+      return { sendTransaction: sendTransactionMock, pollTransaction: pollTransactionMock } as never
+    } as unknown as typeof sdk.rpc.Server)
+    vi.mocked(sdk.TransactionBuilder.fromXDR).mockReturnValue({} as never)
+    vi.mocked(apiClient.getStakeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('stake-amount'))
+    fireEvent.change(screen.getByTestId('stake-amount'), { target: { value: '50' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Stake$/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Submission failed (FAILED, txFailed)')).toBeTruthy()
     })
   })
 
