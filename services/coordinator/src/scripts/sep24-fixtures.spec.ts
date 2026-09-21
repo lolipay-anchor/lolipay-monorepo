@@ -1,6 +1,6 @@
 import { Account, Address, Asset, Contract, Keypair, Networks, Operation, Transaction, TransactionBuilder, nativeToScVal } from '@stellar/stellar-sdk';
 import { createHash } from 'crypto';
-import { existsSync, linkSync, mkdtempSync, rmSync, statSync } from 'fs';
+import { existsSync, linkSync, mkdtempSync, readFileSync, rmSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -30,6 +30,7 @@ import {
   resumeNeedsFunding,
   RefusedToSign,
   refuseForeignHost,
+  escapeUnprintable,
   sessionJwt,
   assertTradeParties,
   staleMatchedFor,
@@ -838,6 +839,48 @@ describe('the fixture driver will not hand an operator a terminal it does not co
     expect(message.length).toBeLessThan(600);
     expect(message).not.toContain('tail-of-the-host');
     expect(message).toContain('…');
+  });
+
+  const literalUnicodeEscape = (hex: string) => String.fromCharCode(92, 117) + hex;
+
+  it('escapes a real OSC 52 clipboard write and a C1 control byte in a raw error message, carrying the literal escape text rather than the raw bytes', () => {
+    const osc52 = `${String.fromCodePoint(0x1b)}]52;c;${Buffer.from('pwned').toString('base64')}${String.fromCodePoint(0x07)}`;
+    const message = `order abc is FUNDED${osc52} and then\x9b more`;
+
+    const out = escapeUnprintable(message);
+
+    expect(out).toContain(literalUnicodeEscape('001b'));
+    expect(out).toContain(literalUnicodeEscape('009b'));
+    expect(out).not.toContain(String.fromCodePoint(0x1b));
+    expect(out).not.toContain('\x9b');
+    expect(ctrl(out)).toEqual([]);
+  });
+
+  it('leaves a real newline alone, so a multi-line refusal stays legible instead of collapsing onto one line', () => {
+    expect(escapeUnprintable('line one\nline two')).toBe('line one\nline two');
+  });
+
+  it('still escapes control characters either side of a real newline', () => {
+    const out = escapeUnprintable(`before${String.fromCodePoint(0x1b)}\nafter`);
+
+    expect(out).toBe(`before${literalUnicodeEscape('001b')}\nafter`);
+  });
+});
+
+describe('every console.error sink in the driver escapes what it echoes, except the one that cannot carry a byte', () => {
+  const source = readFileSync(join(__dirname, 'sep24-fixtures.ts'), 'utf8');
+  const errorLines = source
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.includes('console.error('));
+  const unescaped = errorLines.filter((line) => !line.includes('console.error(escapeUnprintable('));
+
+  it('finds the driver has exactly four console.error sinks today', () => {
+    expect(errorLines.length).toBe(4);
+  });
+
+  it('escapes every console.error sink except the heartbeat status line, which interpolates only res.status, a number that cannot carry a control byte', () => {
+    expect(unescaped).toEqual(['if (!res.ok) console.error(`heartbeat: HTTP ${res.status}`);']);
   });
 });
 

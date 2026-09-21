@@ -487,8 +487,14 @@ const CONFIG_PATH = resolve(__dirname, '../../anchor-tests/sep-config.local.json
 const UNPRINTABLE_RE = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/gu;
 const HOST_ECHO_LIMIT = 200;
 
+export function escapeUnprintable(value: string): string {
+  return value.replace(UNPRINTABLE_RE, (ch) =>
+    ch === '\n' ? ch : `\\u${(ch.codePointAt(0) as number).toString(16).padStart(4, '0')}`,
+  );
+}
+
 function asTerminalText(value: string): string {
-  const escaped = JSON.stringify(value).replace(UNPRINTABLE_RE, (ch) => `\\u${(ch.codePointAt(0) as number).toString(16).padStart(4, '0')}`);
+  const escaped = escapeUnprintable(JSON.stringify(value));
   return escaped.length > HOST_ECHO_LIMIT ? `${escaped.slice(0, HOST_ECHO_LIMIT)}\u2026` : escaped;
 }
 
@@ -619,7 +625,7 @@ async function readyLp(lpJwt: () => Promise<string>, lpPub: string): Promise<() 
       const res = await fetch(`${API}/lp/heartbeat`, { method: 'POST', headers: bearer(await lpJwt()) });
       if (!res.ok) console.error(`heartbeat: HTTP ${res.status}`);
     } catch (err) {
-      console.error(`heartbeat: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(escapeUnprintable(`heartbeat: ${err instanceof Error ? err.message : String(err)}`));
     }
   };
   await beat();
@@ -1160,7 +1166,7 @@ async function main(): Promise<void> {
     try {
       withdrawal = await withdrawToCompleted(a);
     } catch (err) {
-      console.error(`withdrawal leg failed; the deposits still run and the config carries no withdrawal fixture. If the log above shows the escrow was funded, that withdrawal order is FUNDED on chain and holds provider capacity until its deadlines pass or a human settles it: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(escapeUnprintable(`withdrawal leg failed; the deposits still run and the config carries no withdrawal fixture. If the log above shows the escrow was funded, that withdrawal order is FUNDED on chain and holds provider capacity until its deadlines pass or a human settles it: ${err instanceof Error ? err.message : String(err)}`));
     }
     const first = await depositToFunded(a);
     const paid = await signAndSubmit(demo, await xdrFor(a.demoJwt, first.orderId, 'mark-paid'), escrow, 'mark_fiat_paid', {
@@ -1202,7 +1208,7 @@ async function main(): Promise<void> {
 
 if (require.main === module) {
   main().catch((err) => {
-    console.error(err instanceof Error ? err.message : String(err));
+    console.error(escapeUnprintable(err instanceof Error ? err.message : String(err)));
     process.exitCode = 1;
   });
 }
