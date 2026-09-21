@@ -207,7 +207,7 @@ describe('one provider bond cannot back two trades at once', () => {
     expect(exposure).toBeLessThanOrEqual(BigInt(STAKED_BASE_UNITS));
   }, 90_000);
 
-  it('will not match a provider that has an unstake in flight', async () => {
+  it('matches a provider that has an unstake in flight, once the reduced stake still covers the order', async () => {
     await seedProviders(1);
     const stellar = app.get(StellarReadService) as any;
     stellar.getStakeInfo.mockResolvedValueOnce({
@@ -222,7 +222,7 @@ describe('one provider bond cannot back two trades at once', () => {
     const jwt = await verifiedJwt(app, kp);
     const quoteId = await quoteFor(jwt);
 
-    await placeOrder(jwt, quoteId).expect(503);
+    await placeOrder(jwt, quoteId).expect(201);
   }, 30_000);
 
   it('a provider with no room left does not block the ones that still have room', async () => {

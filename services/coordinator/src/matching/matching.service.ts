@@ -75,7 +75,7 @@ export class MatchingService {
     const nowSec = Math.floor(Date.now() / 1000);
 
     let stakeUnreadable = 0;
-    let ineligibleOrUnbonding = 0;
+    let ineligible = 0;
     let overCapacity = 0;
 
     for (const lp of others) {
@@ -86,8 +86,8 @@ export class MatchingService {
         stakeUnreadable++;
         continue;
       }
-      if (!stake.eligible || BigInt(stake.unbonding) > 0n) {
-        ineligibleOrUnbonding++;
+      if (!stake.eligible) {
+        ineligible++;
         continue;
       }
 
@@ -118,7 +118,7 @@ export class MatchingService {
     this.log.warn(
       `no provider took ${rail}/${fiat} for ${amount} base units — ${candidates.length} matchable, ` +
         `${candidates.length - others.length} excluded as the requester's own, ${stakeUnreadable} stake unreadable, ` +
-        `${ineligibleOrUnbonding} ineligible or unbonding, ${overCapacity} over capacity`,
+        `${ineligible} under the minimum stake, ${overCapacity} over capacity`,
     );
     throw withInteractiveSentence(
       new ServiceUnavailableException('no eligible LP available'),

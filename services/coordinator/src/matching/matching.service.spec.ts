@@ -257,13 +257,29 @@ describe('MatchingService.pickLp', () => {
 
     expect(warnSpy).toHaveBeenCalledWith(
       "no provider took BANK/IDR for 100 base units — 4 matchable, 1 excluded as the requester's own, " +
-        '1 stake unreadable, 1 ineligible or unbonding, 1 over capacity',
+        '1 stake unreadable, 1 under the minimum stake, 1 over capacity',
     );
 
     warnSpy.mockRestore();
   });
 
-  it('counts an eligible-but-unbonding LP under "ineligible or unbonding" too, so the disjunction is not proven by only one of its halves', async () => {
+  it('matches an eligible LP with an unstake in flight, once the reduced stake still covers the exposure', async () => {
+    const unbonding = makeCandidate('lp-unbonding', 'GUNBOND', 0, PM);
+    const prisma = makePrisma([unbonding]);
+    const stellar = {
+      getStakeInfo: jest.fn(() =>
+        Promise.resolve({ staked: '1000000000000', unbonding: '1', eligible: true }),
+      ),
+    } as any;
+
+    const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
+    const result = await svc.pickLp('BANK', 'IDR', 1n);
+
+    expect(result.id).toBe('lp-unbonding');
+    expect(result.stellarAddress).toBe('GUNBOND');
+  });
+
+  it('still refuses an unbonding LP whose already-reduced stake cannot cover the exposure, as an over-capacity refusal', async () => {
     const unbonding = makeCandidate('lp-unbonding', 'GUNBOND', 0, PM);
     const prisma = makePrisma([unbonding]);
     const stellar = {
@@ -275,11 +291,11 @@ describe('MatchingService.pickLp', () => {
 
     const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
 
-    await expect(svc.pickLp('BANK', 'IDR', 1n)).rejects.toThrow(ServiceUnavailableException);
+    await expect(svc.pickLp('BANK', 'IDR', 1000000000001n)).rejects.toThrow(ServiceUnavailableException);
 
     expect(warnSpy).toHaveBeenCalledWith(
-      "no provider took BANK/IDR for 1 base units — 1 matchable, 0 excluded as the requester's own, " +
-        '0 stake unreadable, 1 ineligible or unbonding, 0 over capacity',
+      'no provider took BANK/IDR for 1000000000001 base units — 1 matchable, ' +
+        "0 excluded as the requester's own, 0 stake unreadable, 0 under the minimum stake, 1 over capacity",
     );
 
     warnSpy.mockRestore();
