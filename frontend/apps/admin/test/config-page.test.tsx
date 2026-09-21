@@ -983,7 +983,7 @@ describe('Config page', () => {
     await waitFor(() => screen.getByTestId('daily-limit-BRONZE'))
     expect(document.body.textContent).not.toMatch(/silently go back to its built-in default/)
     expect(screen.getByTestId('daily-limit-all-four')).toHaveTextContent(
-      'All four are saved together. Changing one and saving sends all four, because the server replaces the whole set rather than merging into it — and it refuses a patch that leaves a tier out.',
+      'Changing one tier saves all four — the confirmation lists every value you are about to store.',
     )
   })
 
@@ -1151,5 +1151,85 @@ describe('Config page', () => {
     expect(screen.getByTestId('daily-limit-intro')).toHaveTextContent(
       'room comes back as each order passes its 24th hour — and at once if an order expires, is cancelled or is refunded.',
     )
+  })
+
+  it('on a 409, keeps every typed edit, never refetches, shows the server sentence exactly, and offers the next step', async () => {
+    const { ApiError } = await import('@lolipay/api-client')
+    const CONFLICT_SENTENCE =
+      'the configuration was written by something else while this save was being applied, so nothing was changed'
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValue(MOCK_CONFIG)
+    vi.mocked(apiClient.patchAdminConfig).mockRejectedValueOnce(new ApiError(409, CONFLICT_SENTENCE))
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('50')).toBeTruthy()
+    })
+    const readsBefore = vi.mocked(apiClient.getAdminConfig).mock.calls.length
+
+    fireEvent.change(screen.getByDisplayValue('50'), { target: { value: '75' } })
+    fireEvent.click(screen.getByTestId('save-config'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('server-error')).toBeTruthy()
+    })
+
+    expect(screen.getByTestId('server-error').textContent).toBe(CONFLICT_SENTENCE)
+    expect(screen.getByTestId('server-error').textContent).not.toMatch(/Error 409/)
+    expect(screen.getByTestId('server-error').textContent).not.toMatch(/409/)
+
+    expect(screen.getByTestId('server-error-next-step').textContent).toBe(
+      'Your entries are still here — press Save changes again.',
+    )
+
+    expect((screen.getByDisplayValue('75') as HTMLInputElement).value).toBe('75')
+    expect(vi.mocked(apiClient.getAdminConfig).mock.calls.length).toBe(readsBefore)
+    expect(queryClient.getQueryData(['adminConfig'])).toEqual(MOCK_CONFIG)
+
+    const saveButton = screen.getByTestId('save-config') as HTMLButtonElement
+    expect(saveButton.disabled).toBe(false)
+    expect(screen.queryByTestId('daily-limit-confirm')).toBeNull()
+
+    fireEvent.click(saveButton)
+    await waitFor(() => {
+      expect(vi.mocked(apiClient.patchAdminConfig)).toHaveBeenCalledTimes(2)
+    })
+    const firstBody = vi.mocked(apiClient.patchAdminConfig).mock.calls[0][1]
+    const secondBody = vi.mocked(apiClient.patchAdminConfig).mock.calls[1][1]
+    expect(secondBody).toEqual(firstBody)
+  })
+
+  it('on a 400, shows the exact refusal, offers no next-step sentence, and still keeps the typed edit', async () => {
+    const { ApiError } = await import('@lolipay/api-client')
+    const VALIDATION_SENTENCE = 'platformWallet must be a valid Stellar public key (G...)'
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValue(MOCK_CONFIG)
+    vi.mocked(apiClient.patchAdminConfig).mockRejectedValueOnce(new ApiError(400, VALIDATION_SENTENCE))
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('50')).toBeTruthy()
+    })
+    const readsBefore = vi.mocked(apiClient.getAdminConfig).mock.calls.length
+
+    fireEvent.change(screen.getByDisplayValue('50'), { target: { value: '75' } })
+    fireEvent.click(screen.getByTestId('save-config'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('server-error')).toBeTruthy()
+    })
+
+    expect(screen.getByTestId('server-error').textContent).toBe(VALIDATION_SENTENCE)
+    expect(screen.queryByTestId('server-error-next-step')).toBeNull()
+    expect((screen.getByDisplayValue('75') as HTMLInputElement).value).toBe('75')
+    expect(vi.mocked(apiClient.getAdminConfig).mock.calls.length).toBe(readsBefore)
   })
 })

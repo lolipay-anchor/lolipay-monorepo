@@ -539,7 +539,7 @@ describe('AdminService.updateConfigTransactional', () => {
     await expect(
       svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, BRONZE: 4 } } as any, 'GADMINTEST'),
     ).rejects.toThrow(
-      /^DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 4 USDC is below minOrder \(5\.0000000 USDC\), so every order that tier could place would be refused as over the daily limit$/,
+      /^DAILY_LIMIT_BELOW_MIN_ORDER: the Bronze daily limit of 4 USDC is below the Min order of 5 USDC, so nobody on that tier could ever place an order — every amount is either below Min order or over the daily limit\. Raise that limit, or lower Min order\.$/,
     );
     expect(configApi.update).not.toHaveBeenCalled();
   });
@@ -553,7 +553,7 @@ describe('AdminService.updateConfigTransactional', () => {
         { minOrder: '60000000', dailyLimitByTier: { ...LIMITS, BRONZE: 5 } } as any,
         'GADMINTEST',
       ),
-    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 5 USDC is below minOrder \(6\.0000000 USDC\)/);
+    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the Bronze daily limit of 5 USDC is below the Min order of 6 USDC/);
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -606,7 +606,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
     await expect(
       svc.updateConfigTransactional({ dailyLimitByTier: null } as any, 'GADMINTEST'),
-    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 100 USDC is below minOrder \(200\.0000000 USDC\)/);
+    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the Bronze daily limit of 100 USDC is below the Min order of 200 USDC/);
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -616,7 +616,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
     await expect(
       svc.updateConfigTransactional({ minOrder: '1000000001' } as any, 'GADMINTEST'),
-    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 100 USDC is below minOrder \(100\.0000001 USDC\)/);
+    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the Bronze daily limit of 100 USDC is below the Min order of 100\.0000001 USDC/);
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -629,7 +629,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
     await expect(
       svc.updateConfigTransactional({ minOrder: '600000000' } as any, 'GADMINTEST'),
-    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 50 USDC is below minOrder \(60\.0000000 USDC\)/);
+    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the Bronze daily limit of 50 USDC is below the Min order of 60 USDC/);
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -664,7 +664,7 @@ describe('AdminService.updateConfigTransactional', () => {
     await expect(
       svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, BRONZE: 4, SILVER: 3 } } as any, 'GADMINTEST'),
     ).rejects.toThrow(
-      /^DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 4 USDC, the SILVER daily limit of 3 USDC are below minOrder \(5\.0000000 USDC\), so every order those tiers could place would be refused as over the daily limit$/,
+      /^DAILY_LIMIT_BELOW_MIN_ORDER: the Bronze daily limit of 4 USDC and the Silver daily limit of 3 USDC are below the Min order of 5 USDC, so nobody on those tiers could ever place an order — every amount is either below Min order or over the daily limit\. Raise those limits, or lower Min order\.$/,
     );
   });
 
@@ -674,7 +674,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
     await expect(
       svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, GOLD: 1 } } as any, 'GADMINTEST'),
-    ).rejects.toThrow(/the GOLD daily limit of 1 USDC/);
+    ).rejects.toThrow(/the Gold daily limit of 1 USDC/);
   });
 
   it('leaves non-order fields untouched in the write payload (no stray minOrder/maxOrder when unpatched)', async () => {
@@ -699,7 +699,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
     expect(refusal).toBeInstanceOf(ConflictException);
     expect((refusal as Error).message).toBe(
-      'the configuration changed while you were editing — reload and try again',
+      'the configuration was written by something else while this save was being applied, so nothing was changed',
     );
     expect(store.row.dailyLimitByTier).toEqual({ ...LIMITS, BRONZE: 50 });
     expect(store.row.minOrder).toBe(50_000_000n);

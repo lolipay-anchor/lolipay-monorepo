@@ -147,9 +147,8 @@ export function DailyLimitSection({
       )}
 
       <p className="text-[11.5px] text-lp-muted" data-testid="daily-limit-all-four">
-        All four are saved together. Changing one and saving sends all four, because the server
-        replaces the whole set rather than merging into it — and it refuses a patch that leaves a
-        tier out.
+        Changing one tier saves all four — the confirmation lists every value you are about to
+        store.
       </p>
 
       <p className="text-[11.5px] text-lp-muted" data-testid="daily-limit-other-ceilings">

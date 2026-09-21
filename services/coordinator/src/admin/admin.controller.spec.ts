@@ -528,7 +528,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
   it('PATCH /admin/config surfaces AdminService DAILY_LIMIT_BELOW_MIN_ORDER as 400 with the reason, never as a 500', async () => {
     mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
       new Error(
-        'DAILY_LIMIT_BELOW_MIN_ORDER: the BRONZE daily limit of 4 USDC is below minOrder (5.0000000 USDC), so every order that tier could place would be refused as over the daily limit',
+        'DAILY_LIMIT_BELOW_MIN_ORDER: the Bronze daily limit of 4 USDC is below the Min order of 5 USDC, so nobody on that tier could ever place an order — every amount is either below Min order or over the daily limit. Raise that limit, or lower Min order.',
       ),
     );
 
@@ -538,7 +538,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
       .expect(400);
 
     expect(res.body.message).toBe(
-      'the BRONZE daily limit of 4 USDC is below minOrder (5.0000000 USDC), so every order that tier could place would be refused as over the daily limit',
+      'the Bronze daily limit of 4 USDC is below the Min order of 5 USDC, so nobody on that tier could ever place an order — every amount is either below Min order or over the daily limit. Raise that limit, or lower Min order.',
     );
   });
 
@@ -601,7 +601,9 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
 
   it('PATCH /admin/config answers a lost race with 409 and the sentence the operator needs, never a 500', async () => {
     mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
-      new ConflictException('the configuration changed while you were editing — reload and try again'),
+      new ConflictException(
+        'the configuration was written by something else while this save was being applied, so nothing was changed',
+      ),
     );
 
     const res = await request(app.getHttpServer())
@@ -610,7 +612,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
       .expect(409);
 
     expect(res.body.message).toBe(
-      'the configuration changed while you were editing — reload and try again',
+      'the configuration was written by something else while this save was being applied, so nothing was changed',
     );
   });
 

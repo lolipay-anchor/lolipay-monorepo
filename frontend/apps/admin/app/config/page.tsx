@@ -197,6 +197,7 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
   const queryClient = useQueryClient()
   const [form, setForm] = React.useState<EditableFields>(() => configToForm(initial))
   const [serverError, setServerError] = React.useState<string | null>(null)
+  const [serverErrorStatus, setServerErrorStatus] = React.useState<number | null>(null)
   const [savedAt, setSavedAt] = React.useState<string | null>(null)
   const [confirmingLimits, setConfirmingLimits] = React.useState(false)
 
@@ -209,6 +210,7 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
     setForm((prev) => ({ ...prev, [key]: val }))
     setSavedAt(null)
     setServerError(null)
+    setServerErrorStatus(null)
   }
 
   const feeSum = form.platformFeeBps + form.lpFeeBps
@@ -253,14 +255,17 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
     mutationFn: () => patchAdminConfig(client, patch),
     onSuccess: (updated) => {
       setServerError(null)
+      setServerErrorStatus(null)
       setSavedAt(new Date().toISOString())
       queryClient.setQueryData(['adminConfig'], updated)
     },
     onError: (e) => {
       if (e instanceof ApiError) {
-        setServerError(`Error ${e.status}: ${e.message}`)
+        setServerError(e.message)
+        setServerErrorStatus(e.status)
       } else {
         setServerError(e instanceof Error ? e.message : 'Save failed')
+        setServerErrorStatus(null)
       }
     },
   })
@@ -468,6 +473,11 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
       {serverError && (
         <p className="text-xs text-lp-danger" role="alert" data-testid="server-error">
           {serverError}
+        </p>
+      )}
+      {serverError && serverErrorStatus === 409 && (
+        <p className="text-xs text-lp-muted" data-testid="server-error-next-step">
+          Your entries are still here — press Save changes again.
         </p>
       )}
 
