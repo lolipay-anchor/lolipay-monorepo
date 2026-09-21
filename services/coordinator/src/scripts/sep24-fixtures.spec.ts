@@ -39,6 +39,9 @@ import {
   withAttempts,
   screenFromTitle,
   writeConfig,
+  say,
+  plain,
+  boundedSimError,
 } from './sep24-fixtures';
 import { FIAT_INPUT_REFUSAL } from '../money/money';
 
@@ -865,22 +868,84 @@ describe('the fixture driver will not hand an operator a terminal it does not co
 
     expect(out).toBe(`before${literalUnicodeEscape('001b')}\nafter`);
   });
+
+  it('escapes a hostile order id before it reaches a console.log sink, in exactly the shape pickFreshOrder accepts unchecked', () => {
+    const pub = Keypair.random().publicKey();
+    const t0 = Date.parse('2026-09-03T05:00:00Z');
+    const hostileId = `018f4e6b-aaaa-4aaa-8aaa-aaaaaaaaaaaa${String.fromCodePoint(0x1b)}]52;c;${Buffer.from('pwned').toString('base64')}${String.fromCodePoint(0x07)}`;
+    const order = {
+      id: hostileId, flow: 'TOP_UP', status: 'MATCHED', user_address: pub, created_at: '2026-09-03T05:00:10Z',
+      trade_id: TRADE, usdc_amount: '125000000', fiat_amount: '200000', fiat_currency: 'IDR', lp_fee_bps: 20,
+      pay_deadline: 1_700_000_600, confirm_deadline: 1_700_003_600, dispute_deadline: 1_700_090_000,
+    };
+    expect(pickFreshOrder([order], pub, t0).id).toBe(hostileId);
+
+    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      say(hostileId);
+      expect(spy).toHaveBeenCalledTimes(1);
+      const printed = spy.mock.calls[0][0] as string;
+      expect(printed).not.toContain(String.fromCodePoint(0x1b));
+      expect(printed).toContain(literalUnicodeEscape('001b'));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("does not let a hostile body newline survive plain(), while the driver's own multi-line message still renders on separate lines", () => {
+    const hostileHtml = `<p>order abc${String.fromCodePoint(0x0a)}[2K[1GOK: fake success line</p>`;
+
+    const out = plain(hostileHtml);
+
+    expect(out).not.toContain('\n');
+    expect(out).toContain('\\u000a');
+
+    const ownMultiLineMessage = 'The demo account has no screened identity yet.\nOpen this link to finish it.';
+    expect(escapeUnprintable(ownMultiLineMessage)).toBe(ownMultiLineMessage);
+  });
 });
 
-describe('every console.error sink in the driver escapes what it echoes, except the one that cannot carry a byte', () => {
+describe('a hostile STELLAR_RPC_URL cannot force unbounded allocation through a simulation error', () => {
+  it('bounds an oversized get_trade simulation error before it ever reaches escapeUnprintable', () => {
+    const huge = 'x'.repeat(50_000);
+
+    const out = boundedSimError(huge);
+
+    expect(out.length).toBeLessThan(2_100);
+    expect(out.endsWith('…')).toBe(true);
+  });
+
+  it('leaves a short simulation error alone', () => {
+    expect(boundedSimError('short and legible')).toBe('short and legible');
+  });
+});
+
+describe('every console sink in the driver escapes what it echoes, except the one that cannot carry a byte', () => {
   const source = readFileSync(join(__dirname, 'sep24-fixtures.ts'), 'utf8');
-  const errorLines = source
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.includes('console.error('));
-  const unescaped = errorLines.filter((line) => !line.includes('console.error(escapeUnprintable('));
+  const lines = source.split('\n').map((line) => line.trim());
+  const SAY_DEFINITION = 'console.log(escapeUnprintable(value));';
+  const HEARTBEAT_EXCEPTION = 'if (!res.ok) console.error(`heartbeat: HTTP ${res.status}`);';
+  const logLines = lines.filter((line) => line.includes('console.log('));
+  const errorLines = lines.filter((line) => line.includes('console.error('));
+  const sayCalls = lines.filter(
+    (line) => line.includes('say(') && line !== SAY_DEFINITION && !line.startsWith('function say(') && !line.startsWith('export function say('),
+  );
+
+  it('finds console.log used exactly once in the whole driver, inside say() itself', () => {
+    expect(logLines).toEqual([SAY_DEFINITION]);
+  });
+
+  it('routes exactly 35 sites through say(), the same 35 that used to call console.log directly', () => {
+    expect(sayCalls.length).toBe(35);
+  });
 
   it('finds the driver has exactly four console.error sinks today', () => {
     expect(errorLines.length).toBe(4);
   });
 
   it('escapes every console.error sink except the heartbeat status line, which interpolates only res.status, a number that cannot carry a control byte', () => {
-    expect(unescaped).toEqual(['if (!res.ok) console.error(`heartbeat: HTTP ${res.status}`);']);
+    const unescaped = errorLines.filter((line) => !line.includes('console.error(escapeUnprintable('));
+    expect(unescaped).toEqual([HEARTBEAT_EXCEPTION]);
   });
 });
 

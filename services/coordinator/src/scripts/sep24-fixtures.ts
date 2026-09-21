@@ -493,6 +493,10 @@ export function escapeUnprintable(value: string): string {
   );
 }
 
+export function say(value: string): void {
+  console.log(escapeUnprintable(value));
+}
+
 function asTerminalText(value: string): string {
   const escaped = escapeUnprintable(JSON.stringify(value));
   return escaped.length > HOST_ECHO_LIMIT ? `${escaped.slice(0, HOST_ECHO_LIMIT)}\u2026` : escaped;
@@ -510,9 +514,10 @@ export function identity(name: string): Keypair {
   return Keypair.fromSecret(secret);
 }
 
-function plain(html: string): string {
+export function plain(html: string): string {
   const p = html.match(/<p>([^<]*)<\/p>/);
-  return (p ? p[1] : html).slice(0, 300);
+  const raw = (p ? p[1] : html).slice(0, 300);
+  return escapeUnprintable(raw).replace(/\n/g, '\\u000a');
 }
 
 async function json<T>(res: Response, what: string): Promise<T> {
@@ -807,7 +812,7 @@ export async function waitForSep24(
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
       if (m !== lastRead) {
-        console.log(`menunggu: ${m}`);
+        say(`menunggu: ${m}`);
         lastRead = m;
       }
       await new Promise((r) => setTimeout(r, POLL_MS));
@@ -865,7 +870,7 @@ async function withdrawToCompleted(a: Actors): Promise<{ id: string; hash: strin
   );
   const order = pickFreshOrder(rows.map((r) => r.order), a.demo.publicKey(), t0);
   const requireProof = rows.some((r) => r.order.id === order.id && r.require_proof);
-  console.log(`withdrawal ${session.id}: order ${order.id} ${order.status}, created ${order.created_at}`);
+  say(`withdrawal ${session.id}: order ${order.id} ${order.status}, created ${order.created_at}`);
   if (held < BigInt(order.usdc_amount)) {
     throw new Error(`the demo account holds ${baseUnitsToUsdcString(held)} USDC but order ${order.id} escrows ${baseUnitsToUsdcString(BigInt(order.usdc_amount))}; the order expires on its own, send the demo account USDC and re-run`);
   }
@@ -877,18 +882,18 @@ async function withdrawToCompleted(a: Actors): Promise<{ id: string; hash: strin
     'create_trade',
     createWithdrawExpectation(order, a.lp.publicKey(), a.demo.publicKey(), DEMO_WITHDRAW_IDR),
   );
-  console.log(`  escrow funded by the demo account: ${funded.hash} (trade ${funded.tradeIdHex})`);
+  say(`  escrow funded by the demo account: ${funded.hash} (trade ${funded.tradeIdHex})`);
   await waitForSep24(a.demoSep10, session.id, 'pending_anchor', record);
   if (requireProof) {
     await uploadProof(a.lpJwt, order.id);
-    console.log('  proof of the rupiah transfer uploaded by the provider');
+    say('  proof of the rupiah transfer uploaded by the provider');
   }
   const paid = await signAndSubmit(a.lp, await xdrFor(a.lpJwt, order.id, 'mark-paid'), a.escrow, 'mark_fiat_paid', { tradeIdHex: funded.tradeIdHex });
-  console.log(`  rupiah marked paid by the provider: ${paid.hash}`);
+  say(`  rupiah marked paid by the provider: ${paid.hash}`);
   await waitForSep24(a.demoSep10, session.id, 'pending_user', record);
   await screenOf(session);
   const released = (await signAndSubmit(a.demo, await popupXdrFor(session, 'release-tx'), a.escrow, 'confirm_and_release', { tradeIdHex: funded.tradeIdHex })).hash;
-  console.log(`  escrow released by the demo account: ${released}`);
+  say(`  escrow released by the demo account: ${released}`);
   const hash = await settledHash(a, session.id, record);
   if (hash !== released) throw new Error(`recorded hash ${hash} is not the release transaction ${released}`);
   return { id: session.id, hash };
@@ -901,7 +906,7 @@ async function depositToFunded(a: Actors) {
   const t0 = Date.now() - 5_000;
   await postForm(session, 'amount', { fiat_amount: DEMO_IDR });
   const order = await freshOrderFor(a.lpJwt, a.demo.publicKey(), t0);
-  console.log(`deposit ${id}: order ${order.id} ${order.status}, created ${order.created_at}`);
+  say(`deposit ${id}: order ${order.id} ${order.status}, created ${order.created_at}`);
   const funded = await signAndSubmit(
     a.lp,
     await xdrFor(a.lpJwt, order.id, 'create-trade'),
@@ -909,7 +914,7 @@ async function depositToFunded(a: Actors) {
     'create_trade',
     createTradeExpectation(order, a.lp.publicKey(), a.demo.publicKey(), DEMO_IDR),
   );
-  console.log(`  escrow funded by the provider: ${funded.hash} (trade ${funded.tradeIdHex})`);
+  say(`  escrow funded by the provider: ${funded.hash} (trade ${funded.tradeIdHex})`);
   await waitForSep24(a.demoSep10, id, 'pending_user_transfer_start', DEPOSIT_RECORD);
   const refundsAt = new Date(
     Number(refundOpensAt({ flow: 'TOP_UP', payDeadline: BigInt(order.pay_deadline), confirmDeadline: BigInt(order.confirm_deadline) })) * 1000,
@@ -935,6 +940,12 @@ export function writeConfig(cfg: unknown, configPath: string = CONFIG_PATH): voi
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const explorer = (hash: string) => explorerTxUrl(TESTNET_PASSPHRASE, hash) ?? hash;
 
+const SIM_ERROR_LIMIT = 2_000;
+
+export function boundedSimError(raw: string): string {
+  return raw.length > SIM_ERROR_LIMIT ? `${raw.slice(0, SIM_ERROR_LIMIT)}…` : raw;
+}
+
 async function tradeOnChain(escrow: string, tradeIdHex: string, sourcePub: string): Promise<{ usdcProvider: string; usdcRecipient: string }> {
   return withAttempts(
     async () => {
@@ -945,7 +956,7 @@ async function tradeOnChain(escrow: string, tradeIdHex: string, sourcePub: strin
         .setTimeout(30)
         .build();
       const sim = await server.simulateTransaction(tx);
-      if (Api.isSimulationError(sim)) throw new Error(`get_trade: ${sim.error}`);
+      if (Api.isSimulationError(sim)) throw new Error(`get_trade: ${boundedSimError(sim.error)}`);
       if (!sim.result) throw new Error('get_trade returned nothing');
       return partiesOf(scValToNative(sim.result.retval));
     },
@@ -962,7 +973,7 @@ async function fundOrder(lp: Keypair, lpJwt: () => Promise<string>, escrow: stri
     'create_trade',
     createTradeExpectation(order, lp.publicKey(), userPub, DEMO_IDR),
   );
-  console.log(`escrow terdanai: ${funded.hash}\n  ${explorer(funded.hash)}\n  order ${order.id}, trade ${funded.tradeIdHex}`);
+  say(`escrow terdanai: ${funded.hash}\n  ${explorer(funded.hash)}\n  order ${order.id}, trade ${funded.tradeIdHex}`);
   return funded.tradeIdHex;
 }
 
@@ -983,7 +994,7 @@ async function runAsProvider(
       if (!resumed?.trade_id) throw new Error(`order ${orderId} is not among this provider's assignments with a trade id; nothing to resume`);
       if (resumed.user_address !== target.userPub) throw new Error(`order ${orderId} belongs to ${resumed.user_address}, not the wallet this run was told to serve`);
       if (resumeNeedsFunding(resumed.status)) {
-        console.log(`melanjutkan order ${orderId} (${resumed.status}): escrow belum terdanai, mendanai sekarang`);
+        say(`melanjutkan order ${orderId} (${resumed.status}): escrow belum terdanai, mendanai sekarang`);
         try {
           tradeIdHex = await fundOrder(lp, lpJwt, escrow, pickFreshOrder([resumed], target.userPub, 0), target.userPub);
         } catch (err) {
@@ -992,19 +1003,19 @@ async function runAsProvider(
           try {
             again = (await assignmentsOf(lpJwt)).find((o) => o.id === orderId);
           } catch (probe) {
-            console.log(`gagal membaca ulang assignments: ${probe instanceof Error ? probe.message : String(probe)}`);
+            say(`gagal membaca ulang assignments: ${probe instanceof Error ? probe.message : String(probe)}`);
             again = undefined;
           }
           tradeIdHex = resumeAfterFailedFunding(err, again);
-          console.log(`order ${orderId} ternyata sudah ${again?.status}; melanjutkan dengan trade ${tradeIdHex}`);
+          say(`order ${orderId} ternyata sudah ${again?.status}; melanjutkan dengan trade ${tradeIdHex}`);
         }
       } else {
         tradeIdHex = resumed.trade_id;
-        console.log(`melanjutkan order ${orderId} (${resumed.status}), trade ${tradeIdHex}`);
+        say(`melanjutkan order ${orderId} (${resumed.status}), trade ${tradeIdHex}`);
       }
     } else {
       const held = await usdcHeldBy(lp.publicKey(), usdcIssuer).catch(() => null);
-      console.log(`LP siap: provider ${lp.publicKey()} memegang ${held === null ? 'USDC yang tidak terbaca' : `${baseUnitsToUsdcString(held)} USDC`}, menunggu order dari ${target.userPub} sebesar ${DEMO_IDR} IDR (maks ${target.waitMs / 60_000} menit)`);
+      say(`LP siap: provider ${lp.publicKey()} memegang ${held === null ? 'USDC yang tidak terbaca' : `${baseUnitsToUsdcString(held)} USDC`}, menunggu order dari ${target.userPub} sebesar ${DEMO_IDR} IDR (maks ${target.waitMs / 60_000} menit)`);
       const untilMatched = Date.now() + target.waitMs;
       let last = '';
       while (!tradeIdHex && Date.now() < untilMatched) {
@@ -1015,7 +1026,7 @@ async function runAsProvider(
             const stale = staleMatchedFor(rows, target.userPub, t0);
             const note = stale ? `order ${stale.id} (MATCHED, dibuat ${stale.createdAt}) lebih tua dari proses ini; jalankan ulang dengan SEP24_ORDER_ID=${stale.id} untuk mengambilnya` : '';
             if (note && note !== last) {
-              console.log(note);
+              say(note);
               last = note;
             }
             await sleep(POLL_MS);
@@ -1027,7 +1038,7 @@ async function runAsProvider(
           if (err instanceof RefusedToSign) throw err;
           const m = err instanceof Error ? err.message : String(err);
           if (m !== last) {
-            console.log(`menunggu: ${m}`);
+            say(`menunggu: ${m}`);
             last = m;
           }
           let adopted: { id: string; tradeIdHex: string } | null = null;
@@ -1036,7 +1047,7 @@ async function runAsProvider(
           } catch (probe) {
             const pm = probe instanceof Error ? probe.message : String(probe);
             if (pm !== last) {
-              console.log(`menunggu: ${pm}`);
+              say(`menunggu: ${pm}`);
               last = pm;
             }
             adopted = null;
@@ -1044,7 +1055,7 @@ async function runAsProvider(
           if (adopted) {
             orderId = adopted.id;
             tradeIdHex = adopted.tradeIdHex;
-            console.log(`escrow sudah terdanai untuk order ${orderId} (konfirmasi sebelumnya terlewat); melanjutkan, trade ${tradeIdHex}`);
+            say(`escrow sudah terdanai untuk order ${orderId} (konfirmasi sebelumnya terlewat); melanjutkan, trade ${tradeIdHex}`);
             break;
           }
           await sleep(POLL_MS);
@@ -1064,7 +1075,7 @@ async function runAsProvider(
       } catch (err) {
         const m = err instanceof Error ? err.message : String(err);
         if (m !== lastWait) {
-          console.log(`menunggu: ${m}`);
+          say(`menunggu: ${m}`);
           lastWait = m;
         }
         await sleep(POLL_MS);
@@ -1085,7 +1096,7 @@ async function runAsProvider(
     }
     assertTradeParties(onChain, lp.publicKey(), target.userPub);
     const released = await signAndSubmit(lp, await xdrFor(lpJwt, orderId, 'confirm-release'), escrow, 'confirm_and_release', { tradeIdHex });
-    console.log(`rilis: ${released.hash}\n  ${explorer(released.hash)}`);
+    say(`rilis: ${released.hash}\n  ${explorer(released.hash)}`);
   } finally {
     stop();
   }
@@ -1095,7 +1106,7 @@ async function runAsUser(a: Actors, target: { waitMs: number; waitsForAttest: bo
   const session = await openInteractive('deposit', a.demoSep10);
   await assertScreened(session);
   await postForm(session, 'amount', { fiat_amount: DEMO_IDR });
-  console.log(`deposit ${session.id} dibuka oleh ${a.demo.publicKey()} sebesar ${DEMO_IDR} IDR; menunggu provider mendanai`);
+  say(`deposit ${session.id} dibuka oleh ${a.demo.publicKey()} sebesar ${DEMO_IDR} IDR; menunggu provider mendanai`);
   await waitForSep24(a.demoSep10, session.id, 'pending_user_transfer_start', DEPOSIT_RECORD, target.waitMs);
   const mine = await json<Array<{ id: string; status: string; flow?: string | null; trade_id?: string | null; user_address?: string | null; created_at: string }>>(
     await fetch(`${API}/orders?limit=20`, { headers: bearer(await a.demoJwt()) }),
@@ -1104,14 +1115,14 @@ async function runAsUser(a: Actors, target: { waitMs: number; waitsForAttest: bo
   const order = fundedOrderOf(mine, a.demo.publicKey());
   if (!order) throw new Error('the deposit is funded but no FUNDED TOP_UP order of mine is listed');
   if (target.waitsForAttest) {
-    console.log(`escrow terdanai untuk order ${order.id}; menunggu admin menekan Attest (maks ${target.waitMs / 60_000} menit)`);
+    say(`escrow terdanai untuk order ${order.id}; menunggu admin menekan Attest (maks ${target.waitMs / 60_000} menit)`);
   } else {
     const paid = await signAndSubmit(a.demo, await xdrFor(a.demoJwt, order.id, 'mark-paid'), a.escrow, 'mark_fiat_paid', { tradeIdHex: order.tradeIdHex });
-    console.log(`rupiah ditandai terbayar oleh pengguna: ${paid.hash}`);
+    say(`rupiah ditandai terbayar oleh pengguna: ${paid.hash}`);
   }
   await waitForSep24(a.demoSep10, session.id, 'completed', DEPOSIT_RECORD, target.waitMs);
   const hash = await settledHash(a, session.id, DEPOSIT_RECORD);
-  console.log(`selesai: ${hash}\n  ${explorer(hash)}`);
+  say(`selesai: ${hash}\n  ${explorer(hash)}`);
 }
 
 async function main(): Promise<void> {
@@ -1136,14 +1147,14 @@ async function main(): Promise<void> {
   const target = roleTarget(process.env);
   const lp = identity(process.env.SEP24_LP_IDENTITY ?? 'e2e-provider');
   const lpJwt = tokenSource(() => sessionJwt(lp));
-  console.log(`provider     ${lp.publicKey()}`);
-  console.log(`escrow       ${escrow}`);
+  say(`provider     ${lp.publicKey()}`);
+  say(`escrow       ${escrow}`);
   if (target?.role === 'lp') {
     await runAsProvider(lp, lpJwt, escrow, usdcIssuer, { userPub: target.userPub as string, orderId: target.orderId, waitMs: target.waitMs });
     return;
   }
   const demo = identity(process.env.SEP24_DEMO_IDENTITY ?? 'sep24-demo');
-  console.log(`demo account ${demo.publicKey()}`);
+  say(`demo account ${demo.publicKey()}`);
 
   const anchor = await anchorIdentity();
   const a: Actors = {
@@ -1172,24 +1183,24 @@ async function main(): Promise<void> {
     const paid = await signAndSubmit(demo, await xdrFor(a.demoJwt, first.orderId, 'mark-paid'), escrow, 'mark_fiat_paid', {
       tradeIdHex: first.tradeIdHex,
     });
-    console.log(`  rupiah marked paid by the depositor: ${paid.hash}`);
+    say(`  rupiah marked paid by the depositor: ${paid.hash}`);
     const released = (
       await signAndSubmit(lp, await xdrFor(a.lpJwt, first.orderId, 'confirm-release'), escrow, 'confirm_and_release', {
         tradeIdHex: first.tradeIdHex,
       })
     ).hash;
-    console.log(`  escrow released by the provider: ${released}`);
+    say(`  escrow released by the provider: ${released}`);
     const hash = await settledHash(a, first.id, DEPOSIT_RECORD);
     if (hash !== released) throw new Error(`recorded hash ${hash} is not the release transaction ${released}`);
 
     const second = await depositToFunded(a);
     const rotsAt = second.refundsAt;
 
-    console.log('');
-    if (withdrawal) console.log(`completed withdrawal ${withdrawal.id}  hash ${withdrawal.hash}`);
-    else console.log('completed withdrawal —  (leg failed, see above; the suite will skip its two tests)');
-    console.log(`completed deposit    ${first.id}  hash ${hash}`);
-    console.log(`pending deposit      ${second.id}  refund window opens ${rotsAt} if it is still funded by then`);
+    say('');
+    if (withdrawal) say(`completed withdrawal ${withdrawal.id}  hash ${withdrawal.hash}`);
+    else say('completed withdrawal —  (leg failed, see above; the suite will skip its two tests)');
+    say(`completed deposit    ${first.id}  hash ${hash}`);
+    say(`pending deposit      ${second.id}  refund window opens ${rotsAt} if it is still funded by then`);
 
     if (!first.id || !second.id || (withdrawal && !withdrawal.id)) throw new Error('a fixture id is empty; refusing to write the config');
     writeConfig(
@@ -1200,7 +1211,7 @@ async function main(): Promise<void> {
         withdrawCompleted: withdrawal ? { id: withdrawal.id, stellar_transaction_id: withdrawal.hash } : undefined,
       }),
     );
-    console.log(`wrote ${CONFIG_PATH} (mode 0600); run npm run anchor:test:sep24 before ${rotsAt}, while the pending deposit is still funded`);
+    say(`wrote ${CONFIG_PATH} (mode 0600); run npm run anchor:test:sep24 before ${rotsAt}, while the pending deposit is still funded`);
   } finally {
     stop();
   }
