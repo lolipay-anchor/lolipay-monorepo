@@ -210,6 +210,7 @@ describe('one provider bond cannot back two trades at once', () => {
   it('matches a provider that has an unstake in flight, once the reduced stake still covers the order', async () => {
     await seedProviders(1);
     const stellar = app.get(StellarReadService) as any;
+    const callsBefore = stellar.getStakeInfo.mock.calls.length;
     stellar.getStakeInfo.mockResolvedValueOnce({
       staked: STAKED_BASE_UNITS,
       unbonding: '1',
@@ -223,7 +224,7 @@ describe('one provider bond cannot back two trades at once', () => {
     const quoteId = await quoteFor(jwt);
 
     await placeOrder(jwt, quoteId).expect(201);
-    expect(stellar.getStakeInfo).toHaveBeenCalledTimes(1);
+    expect(stellar.getStakeInfo.mock.calls.length - callsBefore).toBe(1);
   }, 30_000);
 
   it('a provider with no room left does not block the ones that still have room', async () => {
