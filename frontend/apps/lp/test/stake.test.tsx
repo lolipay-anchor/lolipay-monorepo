@@ -158,10 +158,44 @@ describe('StakePage — StakeForm', () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          /70\.00 USDC unbonding — claimable .+, about \d+ days? from now\. You are not taking orders until you claim it\./,
+          /70\.00 USDC unbonding — claimable .+, about \d+ days? from now\. Claiming returns it to your wallet, not to your stake\./,
         ),
       ).toBeTruthy()
     })
+  })
+
+  it('keeps the original cooldown copy, unchanged, when eligible is already true — the sibling of the case below', async () => {
+    const fixedNowMs = Date.parse('2030-01-01T00:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(fixedNowMs)
+
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
+      ...mockEligibility,
+      eligible: true,
+      unbonding: '700000000',
+      unbond_available_at: Math.floor(fixedNowMs / 1000) + 7200,
+    })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm />
+      </TestProviders>,
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+
+    expect(
+      screen.getByText(
+        /You are not taking orders while any USDC is unbonding\. They resume once you claim it back — .+, about 2 hours from now\. Staking more does not lift this; only claiming does\./,
+      ),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(
+        /70\.00 USDC unbonding — claimable .+, about 2 hours from now\. You are not taking orders until you claim it\./,
+      ),
+    ).toBeTruthy()
   })
 
   it('renders a not-currently-matchable note while unbonding, even when eligible is true', async () => {
@@ -244,12 +278,17 @@ describe('StakePage — StakeForm', () => {
 
     expect(
       screen.getByText(
-        /70\.00 USDC unbonding — claimable .+, about 2 hours from now\. You are not taking orders until you claim it\./,
+        /70\.00 USDC unbonding — claimable .+, about 2 hours from now\. Claiming returns it to your wallet, not to your stake\./,
+      ),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(
+        /You are not taking orders\. 70\.00 USDC is unbonding until .+, about 2 hours from now — and claiming it then returns it to your wallet, not to your stake\. To take orders again you need at least 500\.00 USDC staked\./,
       ),
     ).toBeTruthy()
   })
 
-  it('tells a provider their stake may already be in when the network has not indexed the transaction yet', async () => {
+  it('tells a provider their action may already have gone through when the network has not indexed the transaction yet', async () => {
     const sendTransactionMock = vi.fn().mockResolvedValue({ status: 'PENDING', hash: 'deadbeef' })
     const pollTransactionMock = vi.fn().mockResolvedValue({ status: 'NOT_FOUND' })
 
@@ -272,7 +311,40 @@ describe('StakePage — StakeForm', () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          /Still confirming on the network\. Your stake may already have gone through — refresh before trying again\./,
+          /Still confirming on the network\. This may already have gone through — refresh before trying again\./,
+        ),
+      ).toBeTruthy()
+    })
+  })
+
+  it('shows the same still-confirming sentence for a claim as for a stake, because defaultSubmit serves every action', async () => {
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
+      ...mockEligibility,
+      unbonding: '700000000',
+      unbond_available_at: Math.floor(Date.now() / 1000) - 10,
+    })
+    const sendTransactionMock = vi.fn().mockResolvedValue({ status: 'PENDING', hash: 'deadbeef' })
+    const pollTransactionMock = vi.fn().mockResolvedValue({ status: 'NOT_FOUND' })
+
+    vi.mocked(sdk.rpc.Server).mockImplementation(function () {
+      return { sendTransaction: sendTransactionMock, pollTransaction: pollTransactionMock } as never
+    } as unknown as typeof sdk.rpc.Server)
+    vi.mocked(sdk.TransactionBuilder.fromXDR).mockReturnValue({} as never)
+    vi.mocked(apiClient.getClaimUnstakeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('claim-unstake'))
+    fireEvent.click(screen.getByTestId('claim-unstake'))
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          /Still confirming on the network\. This may already have gone through — refresh before trying again\./,
         ),
       ).toBeTruthy()
     })

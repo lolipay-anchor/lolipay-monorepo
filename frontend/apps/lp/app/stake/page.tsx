@@ -34,7 +34,7 @@ async function defaultSubmit(signedXdr: string, networkPassphrase: string) {
   const final = await server.pollTransaction(res.hash)
   if (final.status === 'NOT_FOUND') {
     throw new Error(
-      'Still confirming on the network. Your stake may already have gone through — refresh before trying again.',
+      'Still confirming on the network. This may already have gone through — refresh before trying again.',
     )
   }
   if (final.status !== 'SUCCESS') {
@@ -210,7 +210,9 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
               ? eligibility.eligible
                 ? 'You are not taking orders until you claim your unbonding USDC. Claim it below and they resume.'
                 : `You are not taking orders. Claiming returns your unbonding USDC to your wallet — it does not go back into your stake, so you will still need at least ${minStake} USDC staked before orders resume.`
-              : `You are not taking orders while any USDC is unbonding. They resume once you claim it back — ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${timeUntilLabel(eligibility.unbond_available_at)} from now. Staking more does not lift this; only claiming does.`}
+              : eligibility.eligible
+                ? `You are not taking orders while any USDC is unbonding. They resume once you claim it back — ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${timeUntilLabel(eligibility.unbond_available_at)} from now. Staking more does not lift this; only claiming does.`
+                : `You are not taking orders. ${formatUSDC(BigInt(eligibility.unbonding))} USDC is unbonding until ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${timeUntilLabel(eligibility.unbond_available_at)} from now — and claiming it then returns it to your wallet, not to your stake. To take orders again you need at least ${minStake} USDC staked.`}
           </p>
         )}
         {!eligibility.eligible && (
@@ -317,7 +319,9 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
                 ? eligibility.eligible
                   ? `${formatUSDC(BigInt(eligibility.unbonding))} USDC is ready to claim. Claiming returns it to your wallet and starts your orders again — nothing happens until you sign.`
                   : `${formatUSDC(BigInt(eligibility.unbonding))} USDC is ready to claim. Claiming returns it to your wallet — it does not go back into your stake, and nothing happens until you sign.`
-                : `${formatUSDC(BigInt(eligibility.unbonding))} USDC unbonding — claimable ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${timeUntilLabel(eligibility.unbond_available_at)} from now. You are not taking orders until you claim it.`}
+                : eligibility.eligible
+                  ? `${formatUSDC(BigInt(eligibility.unbonding))} USDC unbonding — claimable ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${timeUntilLabel(eligibility.unbond_available_at)} from now. You are not taking orders until you claim it.`
+                  : `${formatUSDC(BigInt(eligibility.unbonding))} USDC unbonding — claimable ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${timeUntilLabel(eligibility.unbond_available_at)} from now. Claiming returns it to your wallet, not to your stake.`}
             </p>
             {claimError && (
               <p className="mb-2 text-xs text-lp-danger" role="alert">
