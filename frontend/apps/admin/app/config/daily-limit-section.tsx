@@ -20,6 +20,9 @@ const POSITIVE_INT_STRING = /^[1-9]\d*$/
 const TIER_RULE =
   'Tier comes from completed trades — 5 for Silver, 20 for Trusted, 50 for Gold — and each lost dispute drops a person one tier.'
 
+export const DAILY_LIMIT_ALL_FOUR_SENTENCE =
+  'Changing one tier saves all four — the confirmation lists every value you are about to store.'
+
 export function dailyLimitFloor(minOrderBaseUnits: string): number {
   if (!POSITIVE_INT_STRING.test(minOrderBaseUnits)) return 1
   return Number((BigInt(minOrderBaseUnits) + USDC_BASE_UNITS - 1n) / USDC_BASE_UNITS)
@@ -147,8 +150,7 @@ export function DailyLimitSection({
       )}
 
       <p className="text-[11.5px] text-lp-muted" data-testid="daily-limit-all-four">
-        Changing one tier saves all four — the confirmation lists every value you are about to
-        store.
+        {DAILY_LIMIT_ALL_FOUR_SENTENCE}
       </p>
 
       <p className="text-[11.5px] text-lp-muted" data-testid="daily-limit-other-ceilings">

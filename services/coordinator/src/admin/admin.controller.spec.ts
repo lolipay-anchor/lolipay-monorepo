@@ -6,6 +6,7 @@ import request from 'supertest';
 
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { dailyLimitBelowMinOrderMessage, CONFIG_WRITE_CONFLICT_SENTENCE } from './config-sentence';
 
 const VALID_UUID_V4 = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
 const BAD_ID = 'not-a-uuid';
@@ -526,20 +527,15 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
   });
 
   it('PATCH /admin/config surfaces AdminService DAILY_LIMIT_BELOW_MIN_ORDER as 400 with the reason, never as a 500', async () => {
-    mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
-      new Error(
-        'DAILY_LIMIT_BELOW_MIN_ORDER: the Bronze daily limit of 4 USDC is below the Min order of 5 USDC, so nobody on that tier could ever place an order — every amount is either below Min order or over the daily limit. Raise that limit, or lower Min order.',
-      ),
-    );
+    const sentence = dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 40_000_000n }], 50_000_000n);
+    mockAdminService.updateConfigTransactional.mockRejectedValueOnce(new Error(sentence));
 
     const res = await request(app.getHttpServer())
       .patch('/admin/config')
       .send({ dailyLimitByTier: { BRONZE: 4, SILVER: 333, TRUSTED: 666, GOLD: 2222 } })
       .expect(400);
 
-    expect(res.body.message).toBe(
-      'the Bronze daily limit of 4 USDC is below the Min order of 5 USDC, so nobody on that tier could ever place an order — every amount is either below Min order or over the daily limit. Raise that limit, or lower Min order.',
-    );
+    expect(res.body.message).toBe(sentence.slice('DAILY_LIMIT_BELOW_MIN_ORDER: '.length));
   });
 
   it('PATCH /admin/config refuses an explicit null dailyLimitByTier, which would return all four tiers to the code defaults in one request', async () => {
@@ -601,9 +597,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
 
   it('PATCH /admin/config answers a lost race with 409 and the sentence the operator needs, never a 500', async () => {
     mockAdminService.updateConfigTransactional.mockRejectedValueOnce(
-      new ConflictException(
-        'the configuration was written by something else while this save was being applied, so nothing was changed',
-      ),
+      new ConflictException(CONFIG_WRITE_CONFLICT_SENTENCE),
     );
 
     const res = await request(app.getHttpServer())
@@ -611,9 +605,7 @@ describe('AdminController LP status routes — UUID validation (L1)', () => {
       .send({ paused: true })
       .expect(409);
 
-    expect(res.body.message).toBe(
-      'the configuration was written by something else while this save was being applied, so nothing was changed',
-    );
+    expect(res.body.message).toBe(CONFIG_WRITE_CONFLICT_SENTENCE);
   });
 
   it('PATCH /admin/config still rejects an unknown field (forbidNonWhitelisted)', async () => {

@@ -3,6 +3,7 @@ import { AdminService } from './admin.service';
 import { ConfigCache } from '../config/config-cache';
 import { TIER_LEVELS, UserReputationService } from '../reputation/user-reputation.service';
 import { Prisma } from '../generated/prisma/client';
+import { dailyLimitBelowMinOrderMessage, CONFIG_WRITE_CONFLICT_SENTENCE } from './config-sentence';
 
 const ADDR = 'GBSYTTNQVWKH2DOIWXSE6UVJXRCUIXKSC5TBPYWNLCXLS35FKH7DNOHT';
 
@@ -532,14 +533,14 @@ describe('AdminService.updateConfigTransactional', () => {
 
   const LIMITS = { BRONZE: 111, SILVER: 333, TRUSTED: 666, GOLD: 2222 };
 
-  it('refuses a tier limit below the stored minOrder, because every quote in that tier would be refused as over the daily limit', async () => {
+  it('refuses a tier limit below the stored minOrder, because nobody on that tier could ever clear both floors', async () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
     await expect(
       svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, BRONZE: 4 } } as any, 'GADMINTEST'),
     ).rejects.toThrow(
-      /^DAILY_LIMIT_BELOW_MIN_ORDER: the Bronze daily limit of 4 USDC is below the Min order of 5 USDC, so nobody on that tier could ever place an order — every amount is either below Min order or over the daily limit\. Raise that limit, or lower Min order\.$/,
+      dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 40_000_000n }], 50_000_000n),
     );
     expect(configApi.update).not.toHaveBeenCalled();
   });
@@ -553,7 +554,7 @@ describe('AdminService.updateConfigTransactional', () => {
         { minOrder: '60000000', dailyLimitByTier: { ...LIMITS, BRONZE: 5 } } as any,
         'GADMINTEST',
       ),
-    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the Bronze daily limit of 5 USDC is below the Min order of 6 USDC/);
+    ).rejects.toThrow(dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 50_000_000n }], 60_000_000n));
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -606,7 +607,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
     await expect(
       svc.updateConfigTransactional({ dailyLimitByTier: null } as any, 'GADMINTEST'),
-    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the Bronze daily limit of 100 USDC is below the Min order of 200 USDC/);
+    ).rejects.toThrow(dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 1_000_000_000n }], 2_000_000_000n));
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -616,7 +617,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
     await expect(
       svc.updateConfigTransactional({ minOrder: '1000000001' } as any, 'GADMINTEST'),
-    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the Bronze daily limit of 100 USDC is below the Min order of 100\.0000001 USDC/);
+    ).rejects.toThrow(dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 1_000_000_000n }], 1_000_000_001n));
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -629,7 +630,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
     await expect(
       svc.updateConfigTransactional({ minOrder: '600000000' } as any, 'GADMINTEST'),
-    ).rejects.toThrow(/^DAILY_LIMIT_BELOW_MIN_ORDER: the Bronze daily limit of 50 USDC is below the Min order of 60 USDC/);
+    ).rejects.toThrow(dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 500_000_000n }], 600_000_000n));
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -664,7 +665,13 @@ describe('AdminService.updateConfigTransactional', () => {
     await expect(
       svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, BRONZE: 4, SILVER: 3 } } as any, 'GADMINTEST'),
     ).rejects.toThrow(
-      /^DAILY_LIMIT_BELOW_MIN_ORDER: the Bronze daily limit of 4 USDC and the Silver daily limit of 3 USDC are below the Min order of 5 USDC, so nobody on those tiers could ever place an order — every amount is either below Min order or over the daily limit\. Raise those limits, or lower Min order\.$/,
+      dailyLimitBelowMinOrderMessage(
+        [
+          { tier: 'BRONZE', base: 40_000_000n },
+          { tier: 'SILVER', base: 30_000_000n },
+        ],
+        50_000_000n,
+      ),
     );
   });
 
@@ -674,7 +681,7 @@ describe('AdminService.updateConfigTransactional', () => {
 
     await expect(
       svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, GOLD: 1 } } as any, 'GADMINTEST'),
-    ).rejects.toThrow(/the Gold daily limit of 1 USDC/);
+    ).rejects.toThrow(dailyLimitBelowMinOrderMessage([{ tier: 'GOLD', base: 10_000_000n }], 50_000_000n));
   });
 
   it('leaves non-order fields untouched in the write payload (no stray minOrder/maxOrder when unpatched)', async () => {
@@ -698,9 +705,7 @@ describe('AdminService.updateConfigTransactional', () => {
       .catch((e: unknown) => e);
 
     expect(refusal).toBeInstanceOf(ConflictException);
-    expect((refusal as Error).message).toBe(
-      'the configuration was written by something else while this save was being applied, so nothing was changed',
-    );
+    expect((refusal as Error).message).toBe(CONFIG_WRITE_CONFLICT_SENTENCE);
     expect(store.row.dailyLimitByTier).toEqual({ ...LIMITS, BRONZE: 50 });
     expect(store.row.minOrder).toBe(50_000_000n);
     expect(TIER_LEVELS).toHaveLength(4);

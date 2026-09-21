@@ -41,7 +41,12 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
   }
 })
 
-const ConfigPage = (await import('@/app/config/page')).default
+const {
+  default: ConfigPage,
+  SERVER_ERROR_NEXT_STEP_CONFLICT_SENTENCE,
+  SERVER_ERROR_NEXT_STEP_SERVER_SENTENCE,
+} = await import('@/app/config/page')
+const { DAILY_LIMIT_ALL_FOUR_SENTENCE } = await import('@/app/config/daily-limit-section')
 const apiClient = await import('@lolipay/api-client')
 const { queryClient } = await import('@/app/providers')
 
@@ -983,7 +988,7 @@ describe('Config page', () => {
     await waitFor(() => screen.getByTestId('daily-limit-BRONZE'))
     expect(document.body.textContent).not.toMatch(/silently go back to its built-in default/)
     expect(screen.getByTestId('daily-limit-all-four')).toHaveTextContent(
-      'Changing one tier saves all four — the confirmation lists every value you are about to store.',
+      DAILY_LIMIT_ALL_FOUR_SENTENCE,
     )
   })
 
@@ -1156,7 +1161,7 @@ describe('Config page', () => {
   it('on a 409, keeps every typed edit, never refetches, shows the server sentence exactly, and offers the next step', async () => {
     const { ApiError } = await import('@lolipay/api-client')
     const CONFLICT_SENTENCE =
-      'the configuration was written by something else while this save was being applied, so nothing was changed'
+      "the configuration moved between this save's read and its write, so nothing was changed"
     vi.mocked(apiClient.getAdminConfig).mockResolvedValue(MOCK_CONFIG)
     vi.mocked(apiClient.patchAdminConfig).mockRejectedValueOnce(new ApiError(409, CONFLICT_SENTENCE))
 
@@ -1183,7 +1188,7 @@ describe('Config page', () => {
     expect(screen.getByTestId('server-error').textContent).not.toMatch(/409/)
 
     expect(screen.getByTestId('server-error-next-step').textContent).toBe(
-      'Your entries are still here — press Save changes again.',
+      SERVER_ERROR_NEXT_STEP_CONFLICT_SENTENCE,
     )
 
     expect((screen.getByDisplayValue('75') as HTMLInputElement).value).toBe('75')
@@ -1229,6 +1234,39 @@ describe('Config page', () => {
 
     expect(screen.getByTestId('server-error').textContent).toBe(VALIDATION_SENTENCE)
     expect(screen.queryByTestId('server-error-next-step')).toBeNull()
+    expect((screen.getByDisplayValue('75') as HTMLInputElement).value).toBe('75')
+    expect(vi.mocked(apiClient.getAdminConfig).mock.calls.length).toBe(readsBefore)
+  })
+
+  it('on a 500, keeps the typed edit and tells the operator nothing was saved, without inventing a reason', async () => {
+    const { ApiError } = await import('@lolipay/api-client')
+    vi.mocked(apiClient.getAdminConfig).mockResolvedValue(MOCK_CONFIG)
+    vi.mocked(apiClient.patchAdminConfig).mockRejectedValueOnce(
+      new ApiError(500, 'Internal server error'),
+    )
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <ConfigPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('50')).toBeTruthy()
+    })
+    const readsBefore = vi.mocked(apiClient.getAdminConfig).mock.calls.length
+
+    fireEvent.change(screen.getByDisplayValue('50'), { target: { value: '75' } })
+    fireEvent.click(screen.getByTestId('save-config'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('server-error')).toBeTruthy()
+    })
+
+    expect(screen.getByTestId('server-error').textContent).toBe('Internal server error')
+    expect(screen.getByTestId('server-error-next-step').textContent).toBe(
+      SERVER_ERROR_NEXT_STEP_SERVER_SENTENCE,
+    )
     expect((screen.getByDisplayValue('75') as HTMLInputElement).value).toBe('75')
     expect(vi.mocked(apiClient.getAdminConfig).mock.calls.length).toBe(readsBefore)
   })

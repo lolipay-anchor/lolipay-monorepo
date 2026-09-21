@@ -28,6 +28,7 @@ import { RegisterLpDto } from './dto/register-lp.dto';
 import { TIER_LEVELS, UserReputationService, UserTierName } from '../reputation/user-reputation.service';
 import { applyBps, baseUnitsToUsdc } from '../money/money';
 import { MetricsRange } from './dto/metrics-overview-query.dto';
+import { dailyLimitBelowMinOrderMessage, CONFIG_WRITE_CONFLICT_SENTENCE } from './config-sentence';
 import { NotificationService } from '../notification/notification.service';
 import { AttestorService } from '../stellar/attestor.service';
 import { contractIdFor } from '../order/order.params';
@@ -338,22 +339,10 @@ export class AdminService {
         const belowFloor = TIER_LEVELS.map((tier) => ({
           tier,
           base: this.userReputation.dailyLimitBaseUnits(tier, { dailyLimitByTier: nextLimits }),
-        }))
-          .filter(({ base }) => base < nextMinOrder)
-          .map(({ tier, base }) => {
-            const label = tier.charAt(0) + tier.slice(1).toLowerCase();
-            return `the ${label} daily limit of ${baseUnitsToUsdc(base)} USDC`;
-          });
+        })).filter(({ base }) => base < nextMinOrder);
 
         if (belowFloor.length > 0) {
-          const many = belowFloor.length > 1;
-          const list =
-            belowFloor.length === 1
-              ? belowFloor[0]
-              : `${belowFloor.slice(0, -1).join(', ')} and ${belowFloor[belowFloor.length - 1]}`;
-          throw new Error(
-            `DAILY_LIMIT_BELOW_MIN_ORDER: ${list} ${many ? 'are' : 'is'} below the Min order of ${baseUnitsToUsdc(nextMinOrder)} USDC, so nobody on ${many ? 'those tiers' : 'that tier'} could ever place an order — every amount is either below Min order or over the daily limit. Raise ${many ? 'those limits' : 'that limit'}, or lower Min order.`,
-          );
+          throw new Error(dailyLimitBelowMinOrderMessage(belowFloor, nextMinOrder));
         }
       }
 
@@ -365,9 +354,7 @@ export class AdminService {
         .update({ where: { id: 1, updatedAt: current?.updatedAt }, data })
         .catch((e: unknown) => {
           if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
-            throw new ConflictException(
-              'the configuration was written by something else while this save was being applied, so nothing was changed',
-            );
+            throw new ConflictException(CONFIG_WRITE_CONFLICT_SENTENCE);
           }
           throw e;
         });

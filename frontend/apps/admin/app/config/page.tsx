@@ -22,6 +22,16 @@ const POSITIVE_INT_STRING_RE = /^[1-9]\d*$/
 const CONTRACT_MIN_PAY_WINDOW_SECS = 600
 const MIN_USABLE_PAY_WINDOW_SECS = CONTRACT_MIN_PAY_WINDOW_SECS * 2
 
+export const SERVER_ERROR_NEXT_STEP_CONFLICT_SENTENCE =
+  'Your entries are still here — press Save changes again.'
+export const SERVER_ERROR_NEXT_STEP_SERVER_SENTENCE = 'Nothing was saved — try again.'
+
+function serverErrorNextStep(status: number | null): string | null {
+  if (status === 409) return SERVER_ERROR_NEXT_STEP_CONFLICT_SENTENCE
+  if (status !== null && status >= 500) return SERVER_ERROR_NEXT_STEP_SERVER_SENTENCE
+  return null
+}
+
 function validatePlatformWallet(v: string): string | null {
   if (!STELLAR_ADDR_RE.test(v)) return 'Must be a valid Stellar address (G…, 56 chars)'
   return null
@@ -196,8 +206,9 @@ function ToggleField({ label, checked, onChange, disabled, hint, testId }: Toggl
 function ConfigForm({ initial }: { initial: AdminConfig }) {
   const queryClient = useQueryClient()
   const [form, setForm] = React.useState<EditableFields>(() => configToForm(initial))
-  const [serverError, setServerError] = React.useState<string | null>(null)
-  const [serverErrorStatus, setServerErrorStatus] = React.useState<number | null>(null)
+  const [serverError, setServerError] = React.useState<{ message: string; status: number | null } | null>(
+    null,
+  )
   const [savedAt, setSavedAt] = React.useState<string | null>(null)
   const [confirmingLimits, setConfirmingLimits] = React.useState(false)
 
@@ -210,7 +221,6 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
     setForm((prev) => ({ ...prev, [key]: val }))
     setSavedAt(null)
     setServerError(null)
-    setServerErrorStatus(null)
   }
 
   const feeSum = form.platformFeeBps + form.lpFeeBps
@@ -255,17 +265,14 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
     mutationFn: () => patchAdminConfig(client, patch),
     onSuccess: (updated) => {
       setServerError(null)
-      setServerErrorStatus(null)
       setSavedAt(new Date().toISOString())
       queryClient.setQueryData(['adminConfig'], updated)
     },
     onError: (e) => {
       if (e instanceof ApiError) {
-        setServerError(e.message)
-        setServerErrorStatus(e.status)
+        setServerError({ message: e.message, status: e.status })
       } else {
-        setServerError(e instanceof Error ? e.message : 'Save failed')
-        setServerErrorStatus(null)
+        setServerError({ message: e instanceof Error ? e.message : 'Save failed', status: null })
       }
     },
   })
@@ -472,12 +479,12 @@ function ConfigForm({ initial }: { initial: AdminConfig }) {
       {}
       {serverError && (
         <p className="text-xs text-lp-danger" role="alert" data-testid="server-error">
-          {serverError}
+          {serverError.message}
         </p>
       )}
-      {serverError && serverErrorStatus === 409 && (
+      {serverError && serverErrorNextStep(serverError.status) && (
         <p className="text-xs text-lp-muted" data-testid="server-error-next-step">
-          Your entries are still here — press Save changes again.
+          {serverErrorNextStep(serverError.status)}
         </p>
       )}
 
