@@ -168,7 +168,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
   const hasUnbonding = BigInt(eligibility.unbonding) > 0n
   const claimable =
     hasUnbonding && Date.now() / 1000 >= eligibility.unbond_available_at
-  const matchable = stakeIsReady(eligibility) === true
+  const eligible = stakeIsReady(eligibility) === true
 
   const stakedNum = Number(eligibility.staked) / 1e7
   const minStakeNum = Number(eligibility.min_stake) / 1e7
@@ -183,7 +183,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
           <span className="font-geist-mono text-[11px] uppercase tracking-[.1em] text-lp-paper/55">
             Your stake
           </span>
-          {matchable ? (
+          {eligible ? (
             <StatusPill tone="green">Eligible</StatusPill>
           ) : (
             <StatusPill tone="amber">Not eligible</StatusPill>
@@ -258,7 +258,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
       <Card>
         <p className="mb-1 font-geist text-sm font-semibold text-lp-ink">Unstake USDC</p>
         <p className="mb-3 text-xs text-lp-muted">
-          The amount leaves your stake the moment you sign — you can claim it to your wallet once the cooldown ends. If what is left is under the {minStake} USDC minimum, you stop taking orders.
+          The amount leaves your stake the moment you sign — you can claim it to your wallet once the cooldown ends. Unstaking again while an amount is already unbonding resets the wait for all of it.
         </p>
         <form onSubmit={handleRequestUnstake} className="flex flex-col gap-3">
           <div>

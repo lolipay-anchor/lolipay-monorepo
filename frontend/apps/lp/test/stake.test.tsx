@@ -128,7 +128,7 @@ describe('StakePage — StakeForm', () => {
     })
   })
 
-  it('tells a provider what happens to a partial unstake before they sign', async () => {
+  it('tells a provider what happens to a partial unstake before they sign, and warns that unstaking again resets the wait', async () => {
     render(
       <TestProviders kit={fakeKit}>
         <StakeForm />
@@ -138,7 +138,7 @@ describe('StakePage — StakeForm', () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          'The amount leaves your stake the moment you sign — you can claim it to your wallet once the cooldown ends. If what is left is under the 500.00 USDC minimum, you stop taking orders.',
+          'The amount leaves your stake the moment you sign — you can claim it to your wallet once the cooldown ends. Unstaking again while an amount is already unbonding resets the wait for all of it.',
         ),
       ).toBeTruthy()
     })

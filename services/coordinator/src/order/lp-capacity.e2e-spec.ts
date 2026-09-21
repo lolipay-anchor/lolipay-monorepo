@@ -223,6 +223,7 @@ describe('one provider bond cannot back two trades at once', () => {
     const quoteId = await quoteFor(jwt);
 
     await placeOrder(jwt, quoteId).expect(201);
+    expect(stellar.getStakeInfo).toHaveBeenCalledTimes(1);
   }, 30_000);
 
   it('a provider with no room left does not block the ones that still have room', async () => {
