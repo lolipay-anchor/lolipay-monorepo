@@ -1178,8 +1178,7 @@ describe('Config page', () => {
 
   it('on a 409, keeps every typed edit, never refetches, shows the server sentence exactly, and offers the next step', async () => {
     const { ApiError } = await import('@lolipay/api-client')
-    const CONFLICT_SENTENCE =
-      "the configuration moved between this save's read and its write, so nothing was changed"
+    const CONFLICT_SENTENCE = 'SERVER SAID THIS'
     vi.mocked(apiClient.getAdminConfig).mockResolvedValue(MOCK_CONFIG)
     vi.mocked(apiClient.patchAdminConfig).mockRejectedValueOnce(new ApiError(409, CONFLICT_SENTENCE))
 
