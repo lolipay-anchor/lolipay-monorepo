@@ -12,16 +12,8 @@ function duration(ms: number): string {
   return hours < 24 ? `${hours} h` : `${Math.floor(hours / 24)} d`
 }
 
-function unbondingIsZero(value: string): boolean {
-  try {
-    return BigInt(value) === 0n
-  } catch {
-    return false
-  }
-}
-
 export function stakeIsReady(eligibility: Eligibility | undefined): boolean | null {
-  return eligibility ? eligibility.eligible && unbondingIsZero(eligibility.unbonding) : null
+  return eligibility ? eligibility.eligible : null
 }
 
 export function hasBankPaymentMethod(me: LpMe): boolean {
@@ -77,7 +69,7 @@ export function PrereqCard({ me, eligibility }: { me: LpMe; eligibility: Eligibi
         Ready to receive orders
       </h2>
       <ul className="mt-2 space-y-2">
-        <Row id="stake" ok={staked} label="Staked at least the minimum, nothing unbonding">
+        <Row id="stake" ok={staked} label="Staked at least the minimum">
           {staked === null ? '—' : staked ? 'Done' : 'To do'}
         </Row>
         <Row id="payment-method" ok={paymentMethod} label="A bank payment method, active">

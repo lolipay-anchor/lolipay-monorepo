@@ -65,9 +65,9 @@ describe('the dashboard shows the three prerequisites with honest ticks', () => 
     expect(screen.getByTestId('prereq-card')).toBeTruthy()
   })
 
-  it('refuses the stake row while anything is unbonding, even when the contract calls the provider eligible', () => {
+  it('keeps the stake row ticked while USDC is unbonding, as long as the contract still calls the provider eligible', () => {
     mount(provider(), { ...ready, unbonding: '1' })
-    expect(tick('stake')).toBe('false')
+    expect(tick('stake')).toBe('true')
   })
 
   it('shows a dash for the stake row while eligibility is unknown, and still renders the other two rows', () => {
@@ -76,11 +76,6 @@ describe('the dashboard shows the three prerequisites with honest ticks', () => 
     expect(screen.getByText('—')).toBeTruthy()
     expect(tick('payment-method')).toBe('true')
     expect(tick('heartbeat')).toBe('true')
-  })
-
-  it('treats an unbonding value it cannot read as not ready rather than crashing the dashboard', () => {
-    mount(provider(), { ...ready, unbonding: 'n/a' })
-    expect(tick('stake')).toBe('false')
   })
 
   it('wants an active payment method, not merely a stored one', () => {

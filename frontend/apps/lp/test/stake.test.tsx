@@ -113,7 +113,7 @@ describe('StakePage — StakeForm', () => {
     })
   })
 
-  it('shows Not eligible badge when eligible=false, and tells them to stake more since nothing is unbonding', async () => {
+  it('shows Not eligible badge when eligible=false, and tells them how much they need staked', async () => {
     render(
       <TestProviders kit={fakeKit}>
         <StakeForm />
@@ -122,11 +122,29 @@ describe('StakePage — StakeForm', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Not eligible/i)).toBeTruthy()
-      expect(screen.getByText(/Stake at least/i)).toBeTruthy()
+      expect(
+        screen.getByText('You need at least 500.00 USDC staked to take orders.'),
+      ).toBeTruthy()
     })
   })
 
-  it('shows Eligible badge when eligible=true, and never tells an eligible provider to stake more', async () => {
+  it('tells a provider what happens to a partial unstake before they sign', async () => {
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          'The amount leaves your stake the moment you sign — you can claim it to your wallet once the cooldown ends. If what is left is under the 500.00 USDC minimum, you stop taking orders.',
+        ),
+      ).toBeTruthy()
+    })
+  })
+
+  it('shows Eligible badge when eligible=true, and never tells an eligible provider they need to stake', async () => {
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
       ...mockEligibility,
       staked: '5000000000',
@@ -141,7 +159,7 @@ describe('StakePage — StakeForm', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/^Eligible$/)).toBeTruthy()
-      expect(screen.queryByText(/Stake at least/i)).toBeNull()
+      expect(screen.queryByText(/You need at least/i)).toBeNull()
     })
   })
 
@@ -174,7 +192,7 @@ describe('StakePage — StakeForm', () => {
     ).toBeTruthy()
   })
 
-  it('keeps the original cooldown copy, unchanged, when eligible is already true — the sibling of the case below', async () => {
+  it('shows the same unbonding-not-yet-claimable copy when eligible is already true, since only the amount and the clock still gate it', async () => {
     const fixedNowMs = Date.parse('2030-01-01T00:00:00.000Z')
     vi.useFakeTimers()
     vi.setSystemTime(fixedNowMs)
@@ -196,19 +214,15 @@ describe('StakePage — StakeForm', () => {
       await vi.advanceTimersByTimeAsync(100)
     })
 
+    expect(screen.getByText(/^Eligible$/)).toBeTruthy()
     expect(
       screen.getByText(
-        /You are not taking orders while any USDC is unbonding\. They resume once you claim it back — .+, about 2 hours from now\. Staking more does not lift this; only claiming does\./,
-      ),
-    ).toBeTruthy()
-    expect(
-      screen.getByText(
-        /70\.00 USDC unbonding — claimable .+, about 2 hours from now\. You are not taking orders until you claim it\./,
+        /70\.00 USDC unbonding — claimable .+, about 2 hours from now\. Claiming returns it to your wallet, not to your stake\./,
       ),
     ).toBeTruthy()
   })
 
-  it('renders a not-currently-matchable note while unbonding, even when eligible is true', async () => {
+  it('shows Eligible and the ready-to-claim card together, now that unbonding alone no longer costs a match', async () => {
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
       ...mockEligibility,
       eligible: true,
@@ -222,22 +236,17 @@ describe('StakePage — StakeForm', () => {
     )
 
     await waitFor(() => {
-      expect(screen.queryByText(/^Eligible$/)).toBeNull()
-      expect(screen.getByText('Not matchable')).toBeTruthy()
+      expect(screen.getByText(/^Eligible$/)).toBeTruthy()
+      expect(screen.queryByText('Not matchable')).toBeNull()
       expect(
         screen.getByText(
-          'You are not taking orders until you claim your unbonding USDC. Claim it below and they resume.',
-        ),
-      ).toBeTruthy()
-      expect(
-        screen.getByText(
-          '70.00 USDC is ready to claim. Claiming returns it to your wallet and starts your orders again — nothing happens until you sign.',
+          '70.00 USDC is ready to claim. Claiming returns it to your wallet — it does not go back into your stake, and nothing happens until you sign.',
         ),
       ).toBeTruthy()
     })
   })
 
-  it('tells a provider claiming will not restore matchability while they are still below the minimum stake', async () => {
+  it('tells a provider they need to stake, unaffected by an unbonding balance that is already ready to claim', async () => {
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
       ...mockEligibility,
       eligible: false,
@@ -253,9 +262,7 @@ describe('StakePage — StakeForm', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(
-          /You are not taking orders\. Claiming returns your unbonding USDC to your wallet, not to your stake — orders resume only once you have claimed it and have at least 500\.00 USDC staked\./,
-        ),
+        screen.getByText(/You need at least 500\.00 USDC staked to take orders\./),
       ).toBeTruthy()
       expect(
         screen.getByText(
@@ -265,7 +272,7 @@ describe('StakePage — StakeForm', () => {
     })
   })
 
-  it('renders the unbonding countdown in hours, exactly, when under a day remains and below the minimum stake', async () => {
+  it('renders the unbonding countdown in hours, exactly, when under a day remains, and tells them what to stake regardless', async () => {
     const fixedNowMs = Date.parse('2030-01-01T00:00:00.000Z')
     vi.useFakeTimers()
     vi.setSystemTime(fixedNowMs)
@@ -293,9 +300,7 @@ describe('StakePage — StakeForm', () => {
       ),
     ).toBeTruthy()
     expect(
-      screen.getByText(
-        /You are not taking orders\. 70\.00 USDC is unbonding until .+, about 2 hours from now — and claiming it then returns it to your wallet, not to your stake\. To take orders again you need at least 500\.00 USDC staked and nothing unbonding\./,
-      ),
+      screen.getByText(/You need at least 500\.00 USDC staked to take orders\./),
     ).toBeTruthy()
   })
 
@@ -418,7 +423,7 @@ describe('StakePage — StakeForm', () => {
     })
   })
 
-  it('hides the plain stake-more line while a separate unbonding refusal also applies, since staking alone would not fix it', async () => {
+  it('shows the plain stake-more line alongside an unrelated unbonding balance, since the two refusals no longer share one sentence', async () => {
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
       ...mockEligibility,
       eligible: false,
@@ -433,8 +438,8 @@ describe('StakePage — StakeForm', () => {
     )
 
     await waitFor(() => {
-      expect(screen.queryByText(/Stake at least/i)).toBeNull()
-      expect(screen.getAllByText(/not taking orders/i).length).toBeGreaterThan(0)
+      expect(screen.getByText(/You need at least 500\.00 USDC staked to take orders\./)).toBeTruthy()
+      expect(screen.queryByText(/not taking orders/i)).toBeNull()
     })
   })
 

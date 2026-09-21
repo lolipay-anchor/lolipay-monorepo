@@ -270,10 +270,8 @@ export default function DashboardPage() {
               {eligibility && (
                 stakeIsReady(eligibility) ? (
                   <StatusPill tone="green">Eligible</StatusPill>
-                ) : !eligibility.eligible ? (
-                  <StatusPill tone="amber">Not eligible</StatusPill>
                 ) : (
-                  <StatusPill tone="amber">Not matchable</StatusPill>
+                  <StatusPill tone="amber">Not eligible</StatusPill>
                 )
               )}
             </Link>
