@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { TestProviders, fakeKit } from './helpers'
 import { queryClient } from '@/app/providers'
+import { SUBMISSION_WINDOW_CLOSED } from '@lolipay/wallet'
 
 vi.mock('@/lib/wallet-kit', () => ({ getDefaultKit: vi.fn(() => ({})) }))
 
@@ -112,7 +113,7 @@ describe('StakePage — StakeForm', () => {
     })
   })
 
-  it('shows Not eligible badge when eligible=false', async () => {
+  it('shows Not eligible badge when eligible=false, and tells them to stake more since nothing is unbonding', async () => {
     render(
       <TestProviders kit={fakeKit}>
         <StakeForm />
@@ -121,10 +122,11 @@ describe('StakePage — StakeForm', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Not eligible/i)).toBeTruthy()
+      expect(screen.getByText(/Stake at least/i)).toBeTruthy()
     })
   })
 
-  it('shows Eligible badge when eligible=true', async () => {
+  it('shows Eligible badge when eligible=true, and never tells an eligible provider to stake more', async () => {
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
       ...mockEligibility,
       staked: '5000000000',
@@ -139,14 +141,20 @@ describe('StakePage — StakeForm', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/^Eligible$/)).toBeTruthy()
+      expect(screen.queryByText(/Stake at least/i)).toBeNull()
     })
   })
 
-  it('shows unbonding details, the claimable date and a relative day count, while unbonding > 0', async () => {
+  it('shows unbonding details, the claimable date and an exact relative day count, while below the minimum stake', async () => {
+    const fixedNowMs = Date.parse('2030-01-01T00:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(fixedNowMs)
+
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
       ...mockEligibility,
+      eligible: false,
       unbonding: '700000000',
-      unbond_available_at: 1893456000,
+      unbond_available_at: Math.floor(fixedNowMs / 1000) + 190080,
     })
 
     render(
@@ -155,13 +163,15 @@ describe('StakePage — StakeForm', () => {
       </TestProviders>,
     )
 
-    await waitFor(() => {
-      expect(
-        screen.getByText(
-          /70\.00 USDC unbonding — claimable .+, about \d+ days? from now\. Claiming returns it to your wallet, not to your stake\./,
-        ),
-      ).toBeTruthy()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
     })
+
+    expect(
+      screen.getByText(
+        /70\.00 USDC unbonding — claimable .+, about 2 days from now\. Claiming returns it to your wallet, not to your stake\./,
+      ),
+    ).toBeTruthy()
   })
 
   it('keeps the original cooldown copy, unchanged, when eligible is already true — the sibling of the case below', async () => {
@@ -244,7 +254,7 @@ describe('StakePage — StakeForm', () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          /You are not taking orders\. Claiming returns your unbonding USDC to your wallet — it does not go back into your stake, so you will still need at least 500\.00 USDC staked before orders resume\./,
+          /You are not taking orders\. Claiming returns your unbonding USDC to your wallet, not to your stake — orders resume only once you have claimed it and have at least 500\.00 USDC staked\./,
         ),
       ).toBeTruthy()
       expect(
@@ -255,15 +265,16 @@ describe('StakePage — StakeForm', () => {
     })
   })
 
-  it('renders the unbonding countdown in hours, exactly, when under a day remains', async () => {
+  it('renders the unbonding countdown in hours, exactly, when under a day remains and below the minimum stake', async () => {
     const fixedNowMs = Date.parse('2030-01-01T00:00:00.000Z')
     vi.useFakeTimers()
     vi.setSystemTime(fixedNowMs)
 
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
       ...mockEligibility,
+      eligible: false,
       unbonding: '700000000',
-      unbond_available_at: Math.floor(fixedNowMs / 1000) + 7200,
+      unbond_available_at: Math.floor(fixedNowMs / 1000) + 7920,
     })
 
     render(
@@ -283,7 +294,7 @@ describe('StakePage — StakeForm', () => {
     ).toBeTruthy()
     expect(
       screen.getByText(
-        /You are not taking orders\. 70\.00 USDC is unbonding until .+, about 2 hours from now — and claiming it then returns it to your wallet, not to your stake\. To take orders again you need at least 500\.00 USDC staked\./,
+        /You are not taking orders\. 70\.00 USDC is unbonding until .+, about 2 hours from now — and claiming it then returns it to your wallet, not to your stake\. To take orders again you need at least 500\.00 USDC staked and nothing unbonding\./,
       ),
     ).toBeTruthy()
   })
@@ -350,6 +361,35 @@ describe('StakePage — StakeForm', () => {
     })
   })
 
+  it('shows the real refusal sentence for a code the network reports on the FIRST submit response, before any poll', async () => {
+    const sendTransactionMock = vi.fn().mockResolvedValue({
+      status: 'ERROR',
+      errorResult: { result: () => ({ switch: () => ({ name: 'txTooLate' }) }) },
+    })
+    const pollTransactionMock = vi.fn()
+
+    vi.mocked(sdk.rpc.Server).mockImplementation(function () {
+      return { sendTransaction: sendTransactionMock, pollTransaction: pollTransactionMock } as never
+    } as unknown as typeof sdk.rpc.Server)
+    vi.mocked(sdk.TransactionBuilder.fromXDR).mockReturnValue({} as never)
+    vi.mocked(apiClient.getStakeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('stake-amount'))
+    fireEvent.change(screen.getByTestId('stake-amount'), { target: { value: '50' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Stake$/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(SUBMISSION_WINDOW_CLOSED)).toBeTruthy()
+    })
+    expect(pollTransactionMock).not.toHaveBeenCalled()
+  })
+
   it('shows a real refusal sentence, naming the network code, when the network reports the transaction failed', async () => {
     const sendTransactionMock = vi.fn().mockResolvedValue({ status: 'PENDING', hash: 'deadbeef' })
     const pollTransactionMock = vi.fn().mockResolvedValue({
@@ -378,7 +418,7 @@ describe('StakePage — StakeForm', () => {
     })
   })
 
-  it('still tells a provider to stake more even while a separate unbonding refusal also applies', async () => {
+  it('hides the plain stake-more line while a separate unbonding refusal also applies, since staking alone would not fix it', async () => {
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
       ...mockEligibility,
       eligible: false,
@@ -393,7 +433,7 @@ describe('StakePage — StakeForm', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByText(/Stake at least/i)).toBeTruthy()
+      expect(screen.queryByText(/Stake at least/i)).toBeNull()
       expect(screen.getAllByText(/not taking orders/i).length).toBeGreaterThan(0)
     })
   })
@@ -423,6 +463,61 @@ describe('StakePage — StakeForm', () => {
     expect(apiClient.getLpEligibility).toHaveBeenCalledTimes(1)
 
     deferred.resolve({ status: 'SUCCESS' })
+
+    await waitFor(() => expect(apiClient.getLpEligibility).toHaveBeenCalledTimes(2))
+  })
+
+  it('refreshes eligibility even when a stake submission errors', async () => {
+    vi.mocked(apiClient.getStakeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+    const mockSubmit = vi.fn().mockRejectedValue(new Error('boom'))
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm submitFn={mockSubmit} />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('stake-amount'))
+    fireEvent.change(screen.getByTestId('stake-amount'), { target: { value: '50' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Stake$/i }))
+
+    await waitFor(() => expect(apiClient.getLpEligibility).toHaveBeenCalledTimes(2))
+  })
+
+  it('refreshes eligibility even when a request-unstake submission errors', async () => {
+    vi.mocked(apiClient.getRequestUnstakeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+    const mockSubmit = vi.fn().mockRejectedValue(new Error('boom'))
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm submitFn={mockSubmit} />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('unstake-amount'))
+    fireEvent.change(screen.getByTestId('unstake-amount'), { target: { value: '30' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Request Unstake' }))
+
+    await waitFor(() => expect(apiClient.getLpEligibility).toHaveBeenCalledTimes(2))
+  })
+
+  it('refreshes eligibility even when a claim submission errors', async () => {
+    vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
+      ...mockEligibility,
+      unbonding: '700000000',
+      unbond_available_at: Math.floor(Date.now() / 1000) - 10,
+    })
+    vi.mocked(apiClient.getClaimUnstakeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+    const mockSubmit = vi.fn().mockRejectedValue(new Error('boom'))
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm submitFn={mockSubmit} />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('claim-unstake'))
+    fireEvent.click(screen.getByTestId('claim-unstake'))
 
     await waitFor(() => expect(apiClient.getLpEligibility).toHaveBeenCalledTimes(2))
   })

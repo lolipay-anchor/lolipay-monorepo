@@ -100,12 +100,12 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
       await submitFn(signedXdr, networkPassphrase)
       setSuccess(true)
       setAmount('')
-      qc.invalidateQueries({ queryKey: ['lpEligibility'] })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Stake failed')
     } finally {
       setBusy(false)
       setConfirming(false)
+      qc.invalidateQueries({ queryKey: ['lpEligibility'] })
     }
   }
 
@@ -128,12 +128,12 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
       await submitFn(signedXdr, networkPassphrase)
       setUnstakeSuccess(true)
       setUnstakeAmount('')
-      qc.invalidateQueries({ queryKey: ['lpEligibility'] })
     } catch (err) {
       setUnstakeError(err instanceof Error ? err.message : 'Unstake request failed')
     } finally {
       setUnstakeBusy(false)
       setUnstakeConfirming(false)
+      qc.invalidateQueries({ queryKey: ['lpEligibility'] })
     }
   }
 
@@ -145,12 +145,12 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
       const signedXdr = await wallet.signTransaction(xdr, networkPassphrase)
       setClaimConfirming(true)
       await submitFn(signedXdr, networkPassphrase)
-      qc.invalidateQueries({ queryKey: ['lpEligibility'] })
     } catch (err) {
       setClaimError(err instanceof Error ? err.message : 'Claim failed')
     } finally {
       setClaimBusy(false)
       setClaimConfirming(false)
+      qc.invalidateQueries({ queryKey: ['lpEligibility'] })
     }
   }
 
@@ -209,13 +209,13 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
             {claimable
               ? eligibility.eligible
                 ? 'You are not taking orders until you claim your unbonding USDC. Claim it below and they resume.'
-                : `You are not taking orders. Claiming returns your unbonding USDC to your wallet — it does not go back into your stake, so you will still need at least ${minStake} USDC staked before orders resume.`
+                : `You are not taking orders. Claiming returns your unbonding USDC to your wallet, not to your stake — orders resume only once you have claimed it and have at least ${minStake} USDC staked.`
               : eligibility.eligible
                 ? `You are not taking orders while any USDC is unbonding. They resume once you claim it back — ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${timeUntilLabel(eligibility.unbond_available_at)} from now. Staking more does not lift this; only claiming does.`
-                : `You are not taking orders. ${formatUSDC(BigInt(eligibility.unbonding))} USDC is unbonding until ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${timeUntilLabel(eligibility.unbond_available_at)} from now — and claiming it then returns it to your wallet, not to your stake. To take orders again you need at least ${minStake} USDC staked.`}
+                : `You are not taking orders. ${formatUSDC(BigInt(eligibility.unbonding))} USDC is unbonding until ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${timeUntilLabel(eligibility.unbond_available_at)} from now — and claiming it then returns it to your wallet, not to your stake. To take orders again you need at least ${minStake} USDC staked and nothing unbonding.`}
           </p>
         )}
-        {!eligibility.eligible && (
+        {!eligibility.eligible && !hasUnbonding && (
           <p className="mt-3 text-xs text-lp-amber-soft">
             Stake at least {minStake} USDC to go live.
           </p>
