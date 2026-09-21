@@ -24,7 +24,7 @@ const MIN_USABLE_PAY_WINDOW_SECS = CONTRACT_MIN_PAY_WINDOW_SECS * 2
 
 export const SERVER_ERROR_NEXT_STEP_CONFLICT_SENTENCE =
   'Your entries are still here — press Save changes again.'
-export const SERVER_ERROR_NEXT_STEP_SERVER_SENTENCE = 'Nothing was saved — try again.'
+export const SERVER_ERROR_NEXT_STEP_SERVER_SENTENCE = 'Try again.'
 
 function serverErrorNextStep(status: number | null): string | null {
   if (status === 409) return SERVER_ERROR_NEXT_STEP_CONFLICT_SENTENCE

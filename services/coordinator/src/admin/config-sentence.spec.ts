@@ -45,7 +45,7 @@ describe('the config-write sentences are pinned byte-for-byte, so a reword is de
     );
   });
 
-  it('CONFIG_WRITE_CONFLICT_SENTENCE names no writer, since an empty upsert from config-boot or the config cache can lose the same race', () => {
+  it('CONFIG_WRITE_CONFLICT_SENTENCE names no writer, since a missing Config row throws the same P2025 with nobody having written anything at all', () => {
     expect(CONFIG_WRITE_CONFLICT_SENTENCE).toBe(
       "the configuration moved between this save's read and its write, so nothing was changed",
     );

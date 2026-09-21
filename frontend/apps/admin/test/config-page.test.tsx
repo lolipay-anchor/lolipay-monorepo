@@ -1238,7 +1238,7 @@ describe('Config page', () => {
     expect(vi.mocked(apiClient.getAdminConfig).mock.calls.length).toBe(readsBefore)
   })
 
-  it('on a 500, keeps the typed edit and tells the operator nothing was saved, without inventing a reason', async () => {
+  it('on a 500, keeps the typed edit and tells the operator to try again, without claiming whether the write landed', async () => {
     const { ApiError } = await import('@lolipay/api-client')
     vi.mocked(apiClient.getAdminConfig).mockResolvedValue(MOCK_CONFIG)
     vi.mocked(apiClient.patchAdminConfig).mockRejectedValueOnce(
