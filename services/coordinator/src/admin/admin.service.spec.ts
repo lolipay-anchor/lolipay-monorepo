@@ -537,9 +537,10 @@ describe('AdminService.updateConfigTransactional', () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
-    await expect(
-      svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, BRONZE: 4 } } as any, 'GADMINTEST'),
-    ).rejects.toThrow(
+    const refusal = await svc
+      .updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, BRONZE: 4 } } as any, 'GADMINTEST')
+      .catch((e: unknown) => e);
+    expect((refusal as Error).message).toBe(
       dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 40_000_000n }], 50_000_000n),
     );
     expect(configApi.update).not.toHaveBeenCalled();
@@ -549,12 +550,15 @@ describe('AdminService.updateConfigTransactional', () => {
     const { prisma, configApi } = makeConfigPrisma(CURRENT);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
-    await expect(
-      svc.updateConfigTransactional(
+    const refusal = await svc
+      .updateConfigTransactional(
         { minOrder: '60000000', dailyLimitByTier: { ...LIMITS, BRONZE: 5 } } as any,
         'GADMINTEST',
-      ),
-    ).rejects.toThrow(dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 50_000_000n }], 60_000_000n));
+      )
+      .catch((e: unknown) => e);
+    expect((refusal as Error).message).toBe(
+      dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 50_000_000n }], 60_000_000n),
+    );
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -605,9 +609,12 @@ describe('AdminService.updateConfigTransactional', () => {
     });
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
-    await expect(
-      svc.updateConfigTransactional({ dailyLimitByTier: null } as any, 'GADMINTEST'),
-    ).rejects.toThrow(dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 1_000_000_000n }], 2_000_000_000n));
+    const refusal = await svc
+      .updateConfigTransactional({ dailyLimitByTier: null } as any, 'GADMINTEST')
+      .catch((e: unknown) => e);
+    expect((refusal as Error).message).toBe(
+      dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 1_000_000_000n }], 2_000_000_000n),
+    );
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -615,9 +622,12 @@ describe('AdminService.updateConfigTransactional', () => {
     const { prisma, configApi } = makeConfigPrisma({ ...CURRENT, dailyLimitByTier: null });
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
-    await expect(
-      svc.updateConfigTransactional({ minOrder: '1000000001' } as any, 'GADMINTEST'),
-    ).rejects.toThrow(dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 1_000_000_000n }], 1_000_000_001n));
+    const refusal = await svc
+      .updateConfigTransactional({ minOrder: '1000000001' } as any, 'GADMINTEST')
+      .catch((e: unknown) => e);
+    expect((refusal as Error).message).toBe(
+      dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 1_000_000_000n }], 1_000_000_001n),
+    );
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -628,9 +638,12 @@ describe('AdminService.updateConfigTransactional', () => {
     });
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
-    await expect(
-      svc.updateConfigTransactional({ minOrder: '600000000' } as any, 'GADMINTEST'),
-    ).rejects.toThrow(dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 500_000_000n }], 600_000_000n));
+    const refusal = await svc
+      .updateConfigTransactional({ minOrder: '600000000' } as any, 'GADMINTEST')
+      .catch((e: unknown) => e);
+    expect((refusal as Error).message).toBe(
+      dailyLimitBelowMinOrderMessage([{ tier: 'BRONZE', base: 500_000_000n }], 600_000_000n),
+    );
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
@@ -662,9 +675,10 @@ describe('AdminService.updateConfigTransactional', () => {
     const { prisma } = makeConfigPrisma(CURRENT);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
-    await expect(
-      svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, BRONZE: 4, SILVER: 3 } } as any, 'GADMINTEST'),
-    ).rejects.toThrow(
+    const refusal = await svc
+      .updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, BRONZE: 4, SILVER: 3 } } as any, 'GADMINTEST')
+      .catch((e: unknown) => e);
+    expect((refusal as Error).message).toBe(
       dailyLimitBelowMinOrderMessage(
         [
           { tier: 'BRONZE', base: 40_000_000n },
@@ -679,9 +693,12 @@ describe('AdminService.updateConfigTransactional', () => {
     const { prisma } = makeConfigPrisma(CURRENT);
     const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
 
-    await expect(
-      svc.updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, GOLD: 1 } } as any, 'GADMINTEST'),
-    ).rejects.toThrow(dailyLimitBelowMinOrderMessage([{ tier: 'GOLD', base: 10_000_000n }], 50_000_000n));
+    const refusal = await svc
+      .updateConfigTransactional({ dailyLimitByTier: { ...LIMITS, GOLD: 1 } } as any, 'GADMINTEST')
+      .catch((e: unknown) => e);
+    expect((refusal as Error).message).toBe(
+      dailyLimitBelowMinOrderMessage([{ tier: 'GOLD', base: 10_000_000n }], 50_000_000n),
+    );
   });
 
   it('leaves non-order fields untouched in the write payload (no stray minOrder/maxOrder when unpatched)', async () => {

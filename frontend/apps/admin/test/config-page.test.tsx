@@ -68,6 +68,24 @@ const MOCK_CONFIG = {
   postSettleDisputeWindowSecs: 3600,
 }
 
+describe('the config-write sentences are pinned byte-for-byte, so a reword is deliberate and reviewed', () => {
+  it('SERVER_ERROR_NEXT_STEP_SERVER_SENTENCE', () => {
+    expect(SERVER_ERROR_NEXT_STEP_SERVER_SENTENCE).toBe('Try again.')
+  })
+
+  it('SERVER_ERROR_NEXT_STEP_CONFLICT_SENTENCE', () => {
+    expect(SERVER_ERROR_NEXT_STEP_CONFLICT_SENTENCE).toBe(
+      'Your entries are still here — press Save changes again.',
+    )
+  })
+
+  it('DAILY_LIMIT_ALL_FOUR_SENTENCE', () => {
+    expect(DAILY_LIMIT_ALL_FOUR_SENTENCE).toBe(
+      'Changing one tier saves all four — the confirmation lists every value you are about to store.',
+    )
+  })
+})
+
 describe('Config page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
