@@ -406,13 +406,14 @@ describe('MaintenanceService', () => {
     });
 
     it('N5 — a provider already offline is not re-flipped, and the notification carries the non-penalty flag', async () => {
-      const { svc, prisma, notifications } = make(null, false, [TOP_UP_ORDER], { lp1: false });
+      const { svc, prisma, notifications, online } = make(null, false, [TOP_UP_ORDER], { lp1: false });
       await svc.expireStaleOrders();
 
       expect(prisma.lp.updateMany).toHaveBeenCalledWith({
         where: { id: 'lp1', online: true },
         data: { online: false },
       });
+      expect(online.get('lp1')).toBe(false);
       expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'o1' }),
         'MATCHED_EXPIRED',
