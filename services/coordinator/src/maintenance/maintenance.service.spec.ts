@@ -3,7 +3,8 @@ import { LOOKBACK_LEDGERS, LEDGER_SECONDS } from '../indexer/indexer.service';
 import { MaintenanceService, INDEXED_EVENT_RETENTION_MS } from './maintenance.service';
 
 describe('MaintenanceService', () => {
-  function make(onChain: any = null, throwOnStrict = false, orders?: any[]) {
+  function make(onChain: any = null, throwOnStrict = false, orders?: any[], lpSeed: Record<string, boolean> = {}) {
+    const online = new Map<string, boolean>(Object.entries(lpSeed));
     const prisma = {
       order: {
         findMany: jest.fn().mockResolvedValue(orders ?? [{ id: 'o1', tradeId: 'abc' }]),
@@ -14,6 +15,14 @@ describe('MaintenanceService', () => {
       consumedChallenge: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
       indexedEvent: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
+      lp: {
+        updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
+          const cur = online.get(where.id);
+          if (where.online !== undefined && cur !== where.online) return { count: 0 };
+          online.set(where.id, data.online);
+          return { count: 1 };
+        }),
+      },
     } as any;
     const stellar = {
       getTradeStatusStrict: jest.fn(
@@ -38,6 +47,7 @@ describe('MaintenanceService', () => {
       refundSigner,
       cfg,
       notifications,
+      online,
     };
   }
 
@@ -48,6 +58,7 @@ describe('MaintenanceService', () => {
     status: 'MATCHED',
     userAddress: 'GUSER',
     lpWallet: 'GLP',
+    lpId: 'lp1',
     flow: 'TOP_UP',
     usdcAmount: 1_000_000_000n,
     fiatAmount: 16_000_000n,
@@ -220,6 +231,7 @@ describe('MaintenanceService', () => {
     expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'o1' }),
       'MATCHED_EXPIRED',
+      false,
     );
   });
 
@@ -263,6 +275,7 @@ describe('MaintenanceService', () => {
     expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'o1' }),
       'MATCHED_EXPIRED',
+      false,
     );
   });
 
@@ -302,6 +315,110 @@ describe('MaintenanceService', () => {
     const arg = prisma.quote.deleteMany.mock.calls[0][0];
     expect(arg.where.expiresAt.lt).toBeInstanceOf(Date);
     expect(Date.now() - arg.where.expiresAt.lt.getTime()).toBeGreaterThanOrEqual(3_600_000 - 5000);
+  });
+
+  describe('the presence penalty — ADR 0053: an unanswered TOP_UP takes its provider offline', () => {
+    const TOP_UP_ORDER = {
+      id: 'o1',
+      tradeId: 'abc',
+      status: 'MATCHED',
+      userAddress: 'GUSER',
+      lpWallet: 'GLP',
+      flow: 'TOP_UP',
+      lpId: 'lp1',
+    };
+    const WITHDRAW_ORDER = { ...TOP_UP_ORDER, flow: 'WITHDRAW' };
+    const NO_LP_ORDER = { ...TOP_UP_ORDER, lpId: null };
+
+    it('selects lpId on the expiry scan, so the presence penalty has something to flip', async () => {
+      const { svc, prisma } = make(null, false, [TOP_UP_ORDER], { lp1: true });
+      await svc.expireStaleOrders();
+      expect(prisma.order.findMany.mock.calls[0][0].select.lpId).toBe(true);
+    });
+
+    it('P1 — a TOP_UP expired pre-chain sets its ONLINE provider offline, and notifies WITH the penalty flag', async () => {
+      const { svc, prisma, notifications, online } = make(null, false, [TOP_UP_ORDER], { lp1: true });
+      await svc.expireStaleOrders();
+
+      expect(prisma.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: 'EXPIRED' } }),
+      );
+      expect(prisma.lp.updateMany).toHaveBeenCalledWith({
+        where: { id: 'lp1', online: true },
+        data: { online: false },
+      });
+      expect(online.get('lp1')).toBe(false);
+      expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'o1' }),
+        'MATCHED_EXPIRED',
+        true,
+      );
+    });
+
+    it('N1 — WITHDRAW is never penalised: the depositor, not the provider, is the one who failed to fund, so the ONLINE provider stays online', async () => {
+      const { svc, prisma, notifications, online } = make(null, false, [WITHDRAW_ORDER], { lp1: true });
+      await svc.expireStaleOrders();
+
+      expect(prisma.lp.updateMany).not.toHaveBeenCalled();
+      expect(online.get('lp1')).toBe(true);
+      expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'o1' }),
+        'MATCHED_EXPIRED',
+        false,
+      );
+    });
+
+    it('N2 — a mismatched on-chain trade still expires the order, but the provider DID act on chain, so it is never penalised', async () => {
+      const mismatched = tradeFor(BINDABLE_ORDER, { usdcAmount: 1n });
+      const { svc, prisma, notifications } = make(mismatched, false, [BINDABLE_ORDER], { lp1: true });
+      await svc.expireStaleOrders();
+
+      expect(prisma.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: 'EXPIRED' } }),
+      );
+      expect(prisma.lp.updateMany).not.toHaveBeenCalled();
+      expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'o1' }),
+        'MATCHED_EXPIRED',
+        false,
+      );
+    });
+
+    it('N3 — an order with no matched provider writes no Lp row at all', async () => {
+      const { svc, prisma, notifications } = make(null, false, [NO_LP_ORDER], {});
+      await svc.expireStaleOrders();
+
+      expect(prisma.lp.updateMany).not.toHaveBeenCalled();
+      expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'o1' }),
+        'MATCHED_EXPIRED',
+        false,
+      );
+    });
+
+    it('N4 — a chain read that throws leaves both the order AND its provider untouched (fail-closed)', async () => {
+      const { svc, prisma, online } = make(null, true, [TOP_UP_ORDER], { lp1: true });
+      await svc.expireStaleOrders();
+
+      expect(prisma.order.updateMany).not.toHaveBeenCalled();
+      expect(prisma.lp.updateMany).not.toHaveBeenCalled();
+      expect(online.get('lp1')).toBe(true);
+    });
+
+    it('N5 — a provider already offline is not re-flipped, and the notification carries the non-penalty flag', async () => {
+      const { svc, prisma, notifications } = make(null, false, [TOP_UP_ORDER], { lp1: false });
+      await svc.expireStaleOrders();
+
+      expect(prisma.lp.updateMany).toHaveBeenCalledWith({
+        where: { id: 'lp1', online: true },
+        data: { online: false },
+      });
+      expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'o1' }),
+        'MATCHED_EXPIRED',
+        false,
+      );
+    });
   });
 });
 

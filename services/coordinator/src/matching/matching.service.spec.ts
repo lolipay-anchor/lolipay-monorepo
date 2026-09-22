@@ -149,7 +149,7 @@ describe('MatchingService.pickLp', () => {
     await expect(svc.pickLp('BANK', 'IDR', 1n)).rejects.toThrow(ServiceUnavailableException);
   });
 
-  it('queries only LPs with online:true (persistent intent) AND a fresh lastHeartbeatAt (liveness) — never one alone', async () => {
+  it('queries LPs with online:true (persistent intent) and NO lastHeartbeatAt clause at all — the heartbeat is an observation, not a gate (ADR 0053)', async () => {
     const idrLp = makeCandidate('lp-idr', 'GIDR', 0, PM);
     const prisma = makePrisma([idrLp]);
     const stellar = makeStellar({ GIDR: true });
@@ -157,14 +157,10 @@ describe('MatchingService.pickLp', () => {
     const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
     await svc.pickLp('BANK', 'IDR', 1n);
 
-    expect(prisma.lp.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          online: true,
-          lastHeartbeatAt: { gt: expect.any(Date) },
-        }),
-      }),
-    );
+    const where = (prisma.lp.findMany as jest.Mock).mock.calls[0][0].where;
+    expect(where.status).toBe('APPROVED');
+    expect(where.online).toBe(true);
+    expect(where).not.toHaveProperty('lastHeartbeatAt');
   });
 
   it('asks for every provider the shared matchability rule names, so the monitor that counts them cannot drift from the matcher that picks them', async () => {
@@ -176,12 +172,74 @@ describe('MatchingService.pickLp', () => {
 
     const where = prisma.lp.findMany.mock.calls[0][0].where;
     const shared = matchableLpWhere();
+    expect(Object.keys(shared)).toHaveLength(3);
     for (const key of Object.keys(shared)) {
       expect(Object.keys(where)).toContain(key);
     }
     expect(where.status).toBe(shared.status);
     expect(where.online).toBe(shared.online);
-    expect(where.lastHeartbeatAt.gt).toBeInstanceOf(Date);
+    expect(where).not.toHaveProperty('lastHeartbeatAt');
+  });
+
+  describe('Join-A: presence, not liveness, is what pickLp requires (ADR 0053)', () => {
+    function evalWhere(row: any, where: Record<string, any>): boolean {
+      return Object.entries(where).every(([key, cond]) => {
+        if (key === 'paymentMethods') {
+          const some = (cond as any).some;
+          return row.paymentMethods.some((pm: any) =>
+            Object.entries(some).every(([k, v]) => pm[k] === v),
+          );
+        }
+        if (cond && typeof cond === 'object' && 'gt' in cond) {
+          return row[key] instanceof Date && row[key].getTime() > (cond as any).gt.getTime();
+        }
+        return row[key] === cond;
+      });
+    }
+
+    function makeRealisticPrisma(candidates: any[]) {
+      return {
+        lp: {
+          findMany: jest.fn().mockImplementation(async ({ where, include }: any) => {
+            const includeWhere = include.paymentMethods.where;
+            const matchesField = (pm: any, key: string) =>
+              !(key in includeWhere) || pm[key] === includeWhere[key];
+            return candidates
+              .filter((c) => evalWhere(c, where))
+              .map((c) => ({
+                ...c,
+                paymentMethods: c.paymentMethods.filter((pm: any) =>
+                  ['rail', 'active', 'currency'].every((key) => matchesField(pm, key)),
+                ),
+              }));
+          }),
+        },
+        $queryRaw: jest.fn().mockResolvedValue([{ total: '0' }]),
+      } as any;
+    }
+
+    it('picks a provider whose browser tab has been closed for a week, because the heartbeat only runs while it is open and no longer gates a match', async () => {
+      const staleHeartbeat = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const candidate = {
+        id: 'lp-stale',
+        stellarAddress: 'GSTALE',
+        status: 'APPROVED',
+        online: true,
+        lastHeartbeatAt: staleHeartbeat,
+        paymentMethods: [PM],
+        _count: { orders: 0 },
+      };
+      const prisma = makeRealisticPrisma([candidate]);
+      const stellar = makeStellar({ GSTALE: true });
+
+      const svc = new MatchingService(prisma, stellar, {
+        walletsOf: jest.fn(),
+        lookupPerson: jest.fn(async () => null),
+      } as any);
+      const result = await svc.pickLp('BANK', 'IDR', 1n);
+
+      expect(result.stellarAddress).toBe('GSTALE');
+    });
   });
 
   it('queries LPs filtered by rail, active, AND fiat currency', async () => {

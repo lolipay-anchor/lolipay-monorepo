@@ -165,6 +165,36 @@ describe('NotificationService', () => {
     expect(lpRow.body.toLowerCase()).toContain('assigned');
   });
 
+  describe('MATCHED_EXPIRED: the LP branch depends on whether ADR 0053\'s presence penalty just fired', () => {
+    it('no penalty attached: the assignment is simply closed, and nothing is promised about future orders', async () => {
+      const { svc, prisma } = make();
+      await svc.notifyOrderStatus(
+        { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' },
+        'MATCHED_EXPIRED',
+      );
+      const rows = prisma.notification.createMany.mock.calls[0][0].data;
+      const lp = rows.find((r: any) => r.address === 'GL');
+      expect(lp.body).toBe(
+        'The order assigned to you was not completed on-chain in time. It is closed and will not come back to you.',
+      );
+    });
+
+    it('penalty attached: the provider is told the assignment expiring just set them unavailable', async () => {
+      const { svc, prisma } = make();
+      await (svc as any).notifyOrderStatus(
+        { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' },
+        'MATCHED_EXPIRED',
+        true,
+      );
+      const rows = prisma.notification.createMany.mock.calls[0][0].data;
+      const lp = rows.find((r: any) => r.address === 'GL');
+      expect(lp.title).toBe('Assignment expired — you have been set unavailable');
+      expect(lp.body).toBe(
+        'The order assigned to you was not completed on-chain in time, so this anchor has set you unavailable. It is closed and will not come back to you. You will not be assigned new orders until you set yourself available again on your dashboard.',
+      );
+    });
+  });
+
   describe('MATCHED — the provider is told an order was assigned, instead of being expected to watch a screen', () => {
     const PAY_DEADLINE = 1_800_000_000n;
 
@@ -270,7 +300,7 @@ describe('NotificationService', () => {
     );
   });
 
-  it('CANCELLED: the provider is told, because the MATCHED message told them to lock USDC and funding a cancelled order revives it', async () => {
+  it('CANCELLED: the provider is told, because the MATCHED message told them to lock USDC and funding a cancelled order revives it — and, since ADR 0053\'s presence penalty can take a provider offline on a DIFFERENT order, no longer promises they are free to accept other orders', async () => {
     const { svc, prisma } = make();
     await svc.notifyOrderStatus(
       { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' },
@@ -280,7 +310,21 @@ describe('NotificationService', () => {
     const user = rows.find((r: any) => r.address === 'GU');
     const lp = rows.find((r: any) => r.address === 'GL');
     expect(user.body).not.toEqual(lp.body);
-    expect(lp.body).toMatch(/free to accept other orders/);
+    expect(lp.body).not.toMatch(/free to accept other orders/);
+  });
+
+  it('CANCELLED: the provider is told the pinned sentence verbatim, for BOTH flows — no flow branch (product-strategist, 2026-09-22)', async () => {
+    const bodies = new Set<string>();
+    for (const flow of ['TOP_UP', 'WITHDRAW']) {
+      const { svc, prisma } = make();
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow }, 'CANCELLED');
+      const rows = prisma.notification.createMany.mock.calls[0][0].data;
+      bodies.add(rows.find((r: any) => r.address === 'GL').body);
+    }
+    expect(bodies.size).toBe(1);
+    expect([...bodies][0]).toBe(
+      'The order assigned to you was cancelled before anything was locked on chain. Nothing is needed from you.',
+    );
   });
 
   it('CANCELLED: neither message names who cancelled — either party may cancel and messageFor is never told which', async () => {
@@ -356,6 +400,44 @@ describe('NotificationService', () => {
     await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'DISPUTED');
     const arg = prisma.notification.createMany.mock.calls[0][0];
     expect(arg.data.every((r: any) => r.title === 'Dispute opened')).toBe(true);
+  });
+
+  describe('REFUNDED: the sentence names who the escrow actually paid, per order.params.ts mapRoles', () => {
+    it('TOP_UP/user: the depositor is told the USDC went back to the merchant', async () => {
+      const { svc, prisma } = make();
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'REFUNDED');
+      const rows = prisma.notification.createMany.mock.calls[0][0].data;
+      expect(rows.find((r: any) => r.address === 'GU').body).toBe(
+        'The USDC was returned to the merchant and this order is closed.',
+      );
+    });
+
+    it('TOP_UP/lp: the provider who locked the USDC is told it came back to their own wallet', async () => {
+      const { svc, prisma } = make();
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'REFUNDED');
+      const rows = prisma.notification.createMany.mock.calls[0][0].data;
+      expect(rows.find((r: any) => r.address === 'GL').body).toBe(
+        'The USDC you locked was returned to your wallet and this order is closed.',
+      );
+    });
+
+    it('WITHDRAW/user: the depositor who locked the USDC to sell it is told it came back to their own wallet', async () => {
+      const { svc, prisma } = make();
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'WITHDRAW' }, 'REFUNDED');
+      const rows = prisma.notification.createMany.mock.calls[0][0].data;
+      expect(rows.find((r: any) => r.address === 'GU').body).toBe(
+        'Your USDC was returned to your wallet and this order is closed.',
+      );
+    });
+
+    it('WITHDRAW/lp: the provider who never locked anything is told it went to the seller, not to them', async () => {
+      const { svc, prisma } = make();
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'WITHDRAW' }, 'REFUNDED');
+      const rows = prisma.notification.createMany.mock.calls[0][0].data;
+      expect(rows.find((r: any) => r.address === 'GL').body).toBe(
+        'The USDC was returned to the seller and this order is closed. It did not come to you.',
+      );
+    });
   });
 
   describe('realtime emit', () => {

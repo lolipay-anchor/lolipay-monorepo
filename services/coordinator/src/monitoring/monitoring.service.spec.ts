@@ -437,8 +437,18 @@ describe('the platform going dark is an alert, because nothing else notices', ()
     const where = prisma.lp.count.mock.calls[0][0].where;
     expect(where.status).toBe('APPROVED');
     expect(where.online).toBe(true);
-    expect(where.lastHeartbeatAt.gt).toBeInstanceOf(Date);
+    expect(where).not.toHaveProperty('lastHeartbeatAt');
     expect(where.paymentMethods.some.active).toBe(true);
+  });
+
+  it('the operator sentence no longer promises a heartbeat window that no longer gates a match (ADR 0053)', async () => {
+    const { svc } = make({ disputes: 0, releaseOverdue: 0, fiatOverdue: 0, indexerAgeMs: 1000, matchableLps: 0 });
+    const alerts = await svc.buildAlerts(await svc.metrics(), new Set());
+    const dark = alerts.find((a) => a.key === 'no_lp_matchable');
+    expect(dark!.text).toContain(
+      'A provider counts only while it is APPROVED, online, and has an active payment method.',
+    );
+    expect(dark!.text).not.toContain('heartbeat within');
   });
 
   it('pages when it cannot tell, rather than reporting the platform healthy', async () => {

@@ -68,4 +68,31 @@ describe('LpService.me — the provider is told whether orders can reach them', 
     expect(me).toBeNull();
     expect(prisma.lp.count).not.toHaveBeenCalled();
   });
+
+  it('Join-A: reports matchable true for a provider whose browser tab has been closed for a week, because the heartbeat is an observation, not a gate (ADR 0053)', async () => {
+    const stale = { ...ROW, lastHeartbeatAt: new Date(NOW.getTime() - 7 * 24 * 60 * 60 * 1000) };
+    const prisma = {
+      lp: {
+        findUnique: jest.fn().mockResolvedValue(stale),
+        count: jest.fn().mockImplementation(async ({ where }: any) => {
+          if (where.id !== stale.id) return 0;
+          if (where.status !== stale.status) return 0;
+          if (where.online !== stale.online) return 0;
+          if (
+            'lastHeartbeatAt' in where &&
+            !(stale.lastHeartbeatAt.getTime() > where.lastHeartbeatAt.gt.getTime())
+          ) {
+            return 0;
+          }
+          const activeRequired = where.paymentMethods.some.active;
+          if (!stale.paymentMethods.some((pm: any) => pm.active === activeRequired)) return 0;
+          return 1;
+        }),
+      },
+    } as any;
+
+    const me = await new LpService(prisma, {} as any).me(LP_ADDR);
+
+    expect(me!.matchable).toBe(true);
+  });
 });

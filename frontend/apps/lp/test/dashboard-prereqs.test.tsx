@@ -110,11 +110,11 @@ describe('the dashboard shows the three prerequisites with honest ticks', () => 
     expect(tick('heartbeat')).toBe('true')
   })
 
-  it('drops the tick while the check-in is failing, however matchable the cached row still claims the provider is', () => {
+  it('keeps the tick while the check-in is failing, as long as the platform still counts this provider matchable — the heartbeat is an observation, not a gate (ADR 0053)', () => {
     queryClient.setQueryData(['lpBeatFailingSince'], T0 - 2_700_000)
     mount(provider({ matchable: true }), ready)
     expect(screen.getByText('check-in failing for 45 min')).toBeTruthy()
-    expect(tick('heartbeat')).toBe('false')
+    expect(tick('heartbeat')).toBe('true')
   })
 
   it('still counts the keeper\'s own beat one and a half intervals after it landed', async () => {

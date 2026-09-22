@@ -313,8 +313,11 @@ describe('DashboardPage — Availability', () => {
     expect(screen.getByTestId('online-ring')).toBeTruthy()
   })
 
-  it('stops claiming orders are being accepted once the check-in has been failing longer than the grace, whatever the cached row still says', async () => {
-    vi.mocked(apiClient.getLpMe).mockResolvedValue(makeLpMe(true, true))
+  it('Join-A/B (ADR 0053): keeps claiming orders are being accepted even once the check-in has been failing longer than the grace, and the check-in prerequisite row is no longer a blocker — the platform, not the browser tab, decides matchability', async () => {
+    vi.mocked(apiClient.getLpMe).mockResolvedValue({
+      ...makeLpMe(true, true),
+      lastHeartbeatAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    })
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue(eligibleStake)
     queryClient.setQueryData(['lpBeatFailingSince'], Date.now() - 2_700_000)
     render(
@@ -324,8 +327,9 @@ describe('DashboardPage — Availability', () => {
     )
 
     await screen.findByText('Eligible')
-    expect(screen.getByTestId('availability-state').textContent).toBe('Online — not receiving orders')
-    expect(screen.queryByTestId('online-ring')).toBeNull()
+    expect(screen.getByTestId('availability-state').textContent).toBe('Online — accepting orders')
+    expect(screen.getByTestId('online-ring')).toBeTruthy()
+    expect(screen.getByTestId('prereq-heartbeat').getAttribute('data-ok')).toBe('true')
   })
 
   it('does not tell a provider with no eligible stake that orders are being accepted, because the matcher will pass them over', async () => {
