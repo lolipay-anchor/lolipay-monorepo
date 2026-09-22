@@ -17,11 +17,10 @@ export function heartbeatStaleMs() {
   return Number(process.env.HEARTBEAT_STALE_SECONDS ?? 120) * 1000;
 }
 
-export function matchableLpWhere(now: Date = new Date()) {
+export function matchableLpWhere() {
   return {
     status: 'APPROVED' as const,
     online: true,
-    lastHeartbeatAt: { gt: new Date(now.getTime() - heartbeatStaleMs()) },
     paymentMethods: { some: { active: true } },
   };
 }

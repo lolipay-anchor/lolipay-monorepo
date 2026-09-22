@@ -25,6 +25,7 @@ function messageFor(
   role: Role,
   settledAt?: Date | null,
   payDeadline?: bigint | number | null,
+  lpPenalized = false,
 ): Msg | null {
   const isBuy = flow === 'TOP_UP';
   switch (status) {
@@ -46,13 +47,21 @@ function messageFor(
       };
     }
     case 'MATCHED_EXPIRED':
-      return role === 'user'
-        ? { title: 'Order expired', body: 'Your order was not completed on-chain in time and was cancelled.' }
-        : { title: 'Assignment expired', body: 'The order assigned to you was not completed on-chain in time — you are free to accept other orders.' };
+      if (role === 'user')
+        return { title: 'Order expired', body: 'Your order was not completed on-chain in time and was cancelled.' };
+      return lpPenalized
+        ? {
+            title: 'Assignment expired — you have been set unavailable',
+            body: 'The order assigned to you was not completed on-chain in time, so this anchor has set you unavailable. It is closed and will not come back to you. You will not be assigned new orders until you set yourself available again on your dashboard.',
+          }
+        : {
+            title: 'Assignment expired',
+            body: 'The order assigned to you was not completed on-chain in time. It is closed and will not come back to you.',
+          };
     case 'CANCELLED':
       return role === 'user'
         ? { title: 'Order cancelled', body: 'Your order was cancelled before it was funded on-chain.' }
-        : { title: 'Assignment cancelled', body: 'The order assigned to you was cancelled — nothing is needed from you, and you are free to accept other orders.' };
+        : { title: 'Assignment cancelled', body: 'The order assigned to you was cancelled before anything was locked on chain. Nothing is needed from you.' };
     case 'FUNDED':
       if (isBuy)
         return role === 'user'
@@ -78,7 +87,13 @@ function messageFor(
         ? { title: 'Trade complete', body: 'Your USDC was released to the merchant.' }
         : { title: 'USDC released 🎉', body: 'The USDC was released to you. Trade complete.' };
     case 'REFUNDED':
-      return { title: 'Order refunded', body: 'The locked USDC was refunded to the provider.' };
+      if (isBuy)
+        return role === 'user'
+          ? { title: 'Order refunded', body: 'The USDC was returned to the merchant and this order is closed.' }
+          : { title: 'Order refunded', body: 'The USDC you locked was returned to your wallet and this order is closed.' };
+      return role === 'user'
+        ? { title: 'Order refunded', body: 'Your USDC was returned to your wallet and this order is closed.' }
+        : { title: 'Order refunded', body: 'The USDC was returned to the seller and this order is closed. It did not come to you.' };
     case 'DISPUTED':
       if (settledAt) {
         return {
@@ -112,11 +127,12 @@ export class NotificationService {
       payDeadline?: bigint | number | null;
     },
     status: string,
+    lpPenalized = false,
   ): Promise<void> {
     const rows: any[] = [];
-    const u = messageFor(order.flow, status, 'user', order.settledAt, order.payDeadline);
+    const u = messageFor(order.flow, status, 'user', order.settledAt, order.payDeadline, lpPenalized);
     if (u) rows.push({ address: order.userAddress, orderId: order.id, event: status, ...u });
-    const l = messageFor(order.flow, status, 'lp', order.settledAt, order.payDeadline);
+    const l = messageFor(order.flow, status, 'lp', order.settledAt, order.payDeadline, lpPenalized);
     if (l && order.lpWallet && order.lpWallet !== order.userAddress) {
       rows.push({ address: order.lpWallet, orderId: order.id, event: status, ...l });
     }

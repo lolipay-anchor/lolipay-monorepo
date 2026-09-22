@@ -256,6 +256,7 @@ export class MaintenanceService {
         status: true,
         userAddress: true,
         lpWallet: true,
+        lpId: true,
         flow: true,
         usdcAmount: true,
         fiatAmount: true,
@@ -272,8 +273,9 @@ export class MaintenanceService {
 
     let expired = 0;
     for (const o of candidates) {
+      let onChain: Awaited<ReturnType<StellarReadService['getTradeStatusStrict']>> = null;
       try {
-        const onChain = await this.stellar.getTradeStatusStrict(contractIdFor(o, this.cfg), o.tradeId);
+        onChain = await this.stellar.getTradeStatusStrict(contractIdFor(o, this.cfg), o.tradeId);
         if (onChain) {
           const mismatches = verifyTradeMatchesOrder(onChain, o as any);
           if (mismatches.length === 0) continue;
@@ -296,7 +298,20 @@ export class MaintenanceService {
         if (res.count > 0) {
           expired += res.count;
 
-          await this.notifications.notifyOrderStatus(o as any, 'MATCHED_EXPIRED');
+          let lpPenalized = false;
+          if (onChain === null && o.flow === 'TOP_UP' && o.lpId != null) {
+            try {
+              const { count } = await this.prisma.lp.updateMany({
+                where: { id: o.lpId, online: true },
+                data: { online: false },
+              });
+              lpPenalized = count > 0;
+            } catch (err) {
+              this.log.warn(`expireStaleOrders: order ${o.id} presence penalty failed: ${errMsg(err)}`);
+            }
+          }
+
+          await this.notifications.notifyOrderStatus(o as any, 'MATCHED_EXPIRED', lpPenalized);
         }
       } catch (err) {
         this.log.warn(`expireStaleOrders: order ${o.id} failed: ${errMsg(err)}`);

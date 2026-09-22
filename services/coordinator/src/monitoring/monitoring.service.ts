@@ -10,7 +10,7 @@ import { StellarReadService } from '../stellar/stellar-read.service';
 import { AppConfigService } from '../config/app-config.service';
 import { cooldownFloorSecs } from '../config/contract-limits';
 import { checkAnchorIdentity } from '../anchor/consistency';
-import { heartbeatStaleMs, matchableLpWhere } from '../matching/matching.service';
+import { matchableLpWhere } from '../matching/matching.service';
 import {
   ALERT_SAMPLE_LIMIT,
   AlertHistory,
@@ -273,8 +273,11 @@ export class MonitoringService {
           urgency: 'urgent',
           text:
             'no liquidity provider is matchable — every attempt to open an order is refused with "no eligible LP available". ' +
-            `A provider counts only while it is APPROVED, online, has an active payment method, and has sent a heartbeat within ${heartbeatStaleMs() / 1000}s. ` +
-            'Silence here does not prove orders succeed: this check ignores the rail and currency of a particular order, on-chain stake eligibility, and remaining capacity. ' +
+            'A provider counts only while it is APPROVED, online, and has an active payment method. ' +
+            'Nothing an operator can do sets a provider online — there is no admin route for it; only the provider can, from their own dashboard. ' +
+            'The one operator lever is approving a suspended provider who is already online. ' +
+            'A provider is also set offline automatically when a TOP_UP assigned to them expires with no trade on chain. ' +
+            'Silence here does not prove orders succeed: this check ignores the rail and currency of a particular order, on-chain stake eligibility, and remaining capacity, and it does not catch the case where the only provider left is the requester themself. ' +
             `${alertAgeSentence(history)}.`,
         });
       }
