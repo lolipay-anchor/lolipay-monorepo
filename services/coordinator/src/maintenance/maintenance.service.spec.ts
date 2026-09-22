@@ -3,8 +3,39 @@ import { LOOKBACK_LEDGERS, LEDGER_SECONDS } from '../indexer/indexer.service';
 import { MaintenanceService, INDEXED_EVENT_RETENTION_MS } from './maintenance.service';
 
 describe('MaintenanceService', () => {
-  function make(onChain: any = null, throwOnStrict = false, orders?: any[], lpSeed: Record<string, boolean> = {}) {
-    const online = new Map<string, boolean>(Object.entries(lpSeed));
+  type LpFixture = { online: boolean; lastHeartbeatAt: Date | null; email: string | null };
+
+  function orMatches(or: any[], cur: LpFixture): boolean {
+    return or.some((clause: any) => {
+      const keys = Object.keys(clause);
+      if (keys.length !== 1 || keys[0] !== 'lastHeartbeatAt') {
+        throw new Error(`fake lp.updateMany cannot evaluate OR clause ${JSON.stringify(clause)}`);
+      }
+      const val = clause.lastHeartbeatAt;
+      if (val === null) return cur.lastHeartbeatAt === null;
+      if (val && typeof val === 'object' && 'lt' in val) {
+        return cur.lastHeartbeatAt !== null && cur.lastHeartbeatAt.getTime() < val.lt.getTime();
+      }
+      throw new Error(`fake lp.updateMany cannot evaluate OR clause shape ${JSON.stringify(clause)}`);
+    });
+  }
+
+  function personMatches(person: any, cur: LpFixture): boolean {
+    const keys = Object.keys(person ?? {});
+    if (keys.length !== 1 || keys[0] !== 'email') {
+      throw new Error(`fake lp.updateMany cannot evaluate person clause ${JSON.stringify(person)}`);
+    }
+    const emailKeys = Object.keys(person.email ?? {});
+    if (emailKeys.length !== 1 || emailKeys[0] !== 'not' || person.email.not !== null) {
+      throw new Error(`fake lp.updateMany cannot evaluate person.email clause ${JSON.stringify(person.email)}`);
+    }
+    return cur.email != null;
+  }
+
+  function make(onChain: any = null, throwOnStrict = false, orders?: any[], lpSeed: Record<string, LpFixture> = {}) {
+    const lps = new Map<string, LpFixture>();
+    for (const [id, seed] of Object.entries(lpSeed)) lps.set(id, { ...seed });
+    const lpWrites: { id: string; data: any }[] = [];
     const prisma = {
       order: {
         findMany: jest.fn().mockResolvedValue(orders ?? [{ id: 'o1', tradeId: 'abc' }]),
@@ -17,9 +48,17 @@ describe('MaintenanceService', () => {
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
       lp: {
         updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
-          const cur = online.get(where.id);
-          if (where.online !== undefined && cur !== where.online) return { count: 0 };
-          online.set(where.id, data.online);
+          const knownKeys = new Set(['id', 'online', 'OR', 'person']);
+          for (const key of Object.keys(where)) {
+            if (!knownKeys.has(key)) throw new Error(`fake lp.updateMany does not model where.${key}`);
+          }
+          const cur = lps.get(where.id);
+          if (!cur) return { count: 0 };
+          if (where.online !== undefined && cur.online !== where.online) return { count: 0 };
+          if (where.OR !== undefined && !orMatches(where.OR, cur)) return { count: 0 };
+          if (where.person !== undefined && !personMatches(where.person, cur)) return { count: 0 };
+          lpWrites.push({ id: where.id, data });
+          cur.online = data.online;
           return { count: 1 };
         }),
       },
@@ -47,7 +86,8 @@ describe('MaintenanceService', () => {
       refundSigner,
       cfg,
       notifications,
-      online,
+      online: { get: (id: string) => lps.get(id)?.online },
+      lpWrites,
     };
   }
 
@@ -326,25 +366,41 @@ describe('MaintenanceService', () => {
       lpWallet: 'GLP',
       flow: 'TOP_UP',
       lpId: 'lp1',
+      createdAt: new Date('2024-01-01T00:00:00.000Z'),
     };
     const WITHDRAW_ORDER = { ...TOP_UP_ORDER, flow: 'WITHDRAW' };
     const NO_LP_ORDER = { ...TOP_UP_ORDER, lpId: null };
 
+    const REACHABLE_ABSENT_LP = { online: true, lastHeartbeatAt: null, email: 'lp1@example.com' };
+
+    const presenceWhere = (overrides: { online?: boolean } = {}) => ({
+      id: 'lp1',
+      online: overrides.online ?? true,
+      OR: [{ lastHeartbeatAt: null }, { lastHeartbeatAt: { lt: TOP_UP_ORDER.createdAt } }],
+      person: { email: { not: null } },
+    });
+
     it('selects lpId on the expiry scan, so the presence penalty has something to flip', async () => {
-      const { svc, prisma } = make(null, false, [TOP_UP_ORDER], { lp1: true });
+      const { svc, prisma } = make(null, false, [TOP_UP_ORDER], { lp1: REACHABLE_ABSENT_LP });
       await svc.expireStaleOrders();
       expect(prisma.order.findMany.mock.calls[0][0].select.lpId).toBe(true);
     });
 
-    it('P1 — a TOP_UP expired pre-chain sets its ONLINE provider offline, and notifies WITH the penalty flag', async () => {
-      const { svc, prisma, notifications, online } = make(null, false, [TOP_UP_ORDER], { lp1: true });
+    it('selects createdAt on the expiry scan, so the presence penalty has a window to measure absence against', async () => {
+      const { svc, prisma } = make(null, false, [TOP_UP_ORDER], { lp1: REACHABLE_ABSENT_LP });
+      await svc.expireStaleOrders();
+      expect(prisma.order.findMany.mock.calls[0][0].select.createdAt).toBe(true);
+    });
+
+    it('P1 — a TOP_UP expired pre-chain sets its ONLINE, unreached provider offline, and notifies WITH the penalty flag', async () => {
+      const { svc, prisma, notifications, online } = make(null, false, [TOP_UP_ORDER], { lp1: REACHABLE_ABSENT_LP });
       await svc.expireStaleOrders();
 
       expect(prisma.order.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({ data: { status: 'EXPIRED' } }),
       );
       expect(prisma.lp.updateMany).toHaveBeenCalledWith({
-        where: { id: 'lp1', online: true },
+        where: presenceWhere(),
         data: { online: false },
       });
       expect(online.get('lp1')).toBe(false);
@@ -356,7 +412,7 @@ describe('MaintenanceService', () => {
     });
 
     it('N1 — WITHDRAW is never penalised: the depositor, not the provider, is the one who failed to fund, so the ONLINE provider stays online', async () => {
-      const { svc, prisma, notifications, online } = make(null, false, [WITHDRAW_ORDER], { lp1: true });
+      const { svc, prisma, notifications, online } = make(null, false, [WITHDRAW_ORDER], { lp1: REACHABLE_ABSENT_LP });
       await svc.expireStaleOrders();
 
       expect(prisma.lp.updateMany).not.toHaveBeenCalled();
@@ -370,7 +426,7 @@ describe('MaintenanceService', () => {
 
     it('N2 — a mismatched on-chain trade still expires the order, but the provider DID act on chain, so it is never penalised', async () => {
       const mismatched = tradeFor(BINDABLE_ORDER, { usdcAmount: 1n });
-      const { svc, prisma, notifications } = make(mismatched, false, [BINDABLE_ORDER], { lp1: true });
+      const { svc, prisma, notifications } = make(mismatched, false, [BINDABLE_ORDER], { lp1: REACHABLE_ABSENT_LP });
       await svc.expireStaleOrders();
 
       expect(prisma.order.updateMany).toHaveBeenCalledWith(
@@ -397,7 +453,7 @@ describe('MaintenanceService', () => {
     });
 
     it('N4 — a chain read that throws leaves both the order AND its provider untouched (fail-closed)', async () => {
-      const { svc, prisma, online } = make(null, true, [TOP_UP_ORDER], { lp1: true });
+      const { svc, prisma, online } = make(null, true, [TOP_UP_ORDER], { lp1: REACHABLE_ABSENT_LP });
       await svc.expireStaleOrders();
 
       expect(prisma.order.updateMany).not.toHaveBeenCalled();
@@ -406,19 +462,96 @@ describe('MaintenanceService', () => {
     });
 
     it('N5 — a provider already offline is not re-flipped, and the notification carries the non-penalty flag', async () => {
-      const { svc, prisma, notifications, online } = make(null, false, [TOP_UP_ORDER], { lp1: false });
+      const { svc, prisma, notifications, online, lpWrites } = make(null, false, [TOP_UP_ORDER], {
+        lp1: { ...REACHABLE_ABSENT_LP, online: false },
+      });
       await svc.expireStaleOrders();
 
       expect(prisma.lp.updateMany).toHaveBeenCalledWith({
-        where: { id: 'lp1', online: true },
+        where: presenceWhere(),
         data: { online: false },
       });
+      expect(lpWrites).toHaveLength(0);
       expect(online.get('lp1')).toBe(false);
       expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'o1' }),
         'MATCHED_EXPIRED',
         false,
       );
+    });
+
+    it('A-spared — a provider whose newest heartbeat is later than the order it missed was present sometime in the window, and stays online', async () => {
+      const heartbeatDuringWindow = new Date(TOP_UP_ORDER.createdAt.getTime() + 60_000);
+      const { svc, notifications, online, lpWrites } = make(null, false, [TOP_UP_ORDER], {
+        lp1: { online: true, lastHeartbeatAt: heartbeatDuringWindow, email: 'lp1@example.com' },
+      });
+      await svc.expireStaleOrders();
+
+      expect(lpWrites).toHaveLength(0);
+      expect(online.get('lp1')).toBe(true);
+      expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'o1' }),
+        'MATCHED_EXPIRED',
+        false,
+      );
+    });
+
+    it('A-fires — a provider whose newest heartbeat predates the order it missed showed no presence throughout the window, and is penalised', async () => {
+      const heartbeatBeforeWindow = new Date(TOP_UP_ORDER.createdAt.getTime() - 60_000);
+      const { svc, notifications, online, lpWrites } = make(null, false, [TOP_UP_ORDER], {
+        lp1: { online: true, lastHeartbeatAt: heartbeatBeforeWindow, email: 'lp1@example.com' },
+      });
+      await svc.expireStaleOrders();
+
+      expect(online.get('lp1')).toBe(false);
+      expect(lpWrites).toEqual([{ id: 'lp1', data: { online: false } }]);
+      expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'o1' }),
+        'MATCHED_EXPIRED',
+        true,
+      );
+    });
+
+    it('A-null — a provider with no heartbeat ever recorded has shown no presence at all, and is penalised', async () => {
+      const { svc, notifications, online, lpWrites } = make(null, false, [TOP_UP_ORDER], {
+        lp1: { online: true, lastHeartbeatAt: null, email: 'lp1@example.com' },
+      });
+      await svc.expireStaleOrders();
+
+      expect(online.get('lp1')).toBe(false);
+      expect(lpWrites).toEqual([{ id: 'lp1', data: { online: false } }]);
+      expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'o1' }),
+        'MATCHED_EXPIRED',
+        true,
+      );
+    });
+
+    it('B-spared — a provider with no channel on file is never silenced, even though its heartbeat is stale', async () => {
+      const heartbeatBeforeWindow = new Date(TOP_UP_ORDER.createdAt.getTime() - 60_000);
+      const { svc, notifications, online, lpWrites } = make(null, false, [TOP_UP_ORDER], {
+        lp1: { online: true, lastHeartbeatAt: heartbeatBeforeWindow, email: null },
+      });
+      await svc.expireStaleOrders();
+
+      expect(lpWrites).toHaveLength(0);
+      expect(online.get('lp1')).toBe(true);
+      expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'o1' }),
+        'MATCHED_EXPIRED',
+        false,
+      );
+    });
+
+    it('a raced-away TOP_UP order (order.updateMany count 0) never reaches the presence penalty, because this pass did not expire it', async () => {
+      const { svc, prisma, notifications, lpWrites } = make(null, false, [TOP_UP_ORDER], { lp1: REACHABLE_ABSENT_LP });
+      prisma.order.updateMany.mockResolvedValue({ count: 0 });
+
+      await svc.expireStaleOrders();
+
+      expect(prisma.lp.updateMany).not.toHaveBeenCalled();
+      expect(lpWrites).toHaveLength(0);
+      expect(notifications.notifyOrderStatus).not.toHaveBeenCalled();
     });
   });
 });
