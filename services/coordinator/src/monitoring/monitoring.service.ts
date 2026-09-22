@@ -276,8 +276,7 @@ export class MonitoringService {
             'A provider counts only while it is APPROVED, online, and has an active payment method. ' +
             'Nothing an operator can do sets a provider online — there is no admin route for it; only the provider can, from their own dashboard. ' +
             'The one operator lever is approving a suspended provider who is already online. ' +
-            'A provider is also set offline automatically when a TOP_UP assigned to them expires with no trade on chain. ' +
-            'Silence here does not prove orders succeed: this check ignores the rail and currency of a particular order, on-chain stake eligibility, and remaining capacity, and it does not catch the case where the only provider left is the requester themself. ' +
+            'Silence here does not prove orders succeed: this check ignores the rail and currency of a particular order, on-chain stake eligibility, and remaining capacity, and it does not catch the case where the only provider left is the requester themself, or where the stake could not be read at all. ' +
             `${alertAgeSentence(history)}.`,
         });
       }

@@ -257,6 +257,7 @@ export class MaintenanceService {
         userAddress: true,
         lpWallet: true,
         lpId: true,
+        createdAt: true,
         flow: true,
         usdcAmount: true,
         fiatAmount: true,
@@ -302,7 +303,12 @@ export class MaintenanceService {
           if (onChain === null && o.flow === 'TOP_UP' && o.lpId != null) {
             try {
               const { count } = await this.prisma.lp.updateMany({
-                where: { id: o.lpId, online: true },
+                where: {
+                  id: o.lpId,
+                  online: true,
+                  OR: [{ lastHeartbeatAt: null }, { lastHeartbeatAt: { lt: o.createdAt } }],
+                  person: { email: { not: null } },
+                },
                 data: { online: false },
               });
               lpPenalized = count > 0;
