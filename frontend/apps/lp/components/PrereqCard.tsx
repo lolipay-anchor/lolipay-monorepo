@@ -56,7 +56,6 @@ export function PrereqCard({ me, eligibility }: { me: LpMe; eligibility: Eligibi
   const age = lastBeat > 0 ? Math.max(0, Math.floor((now - lastBeat) / 1000)) : null
   const heartbeat =
     me.online &&
-    failingFor === null &&
     (me.matchable || (lastBeat > 0 && now - lastBeat < OWN_BEAT_GRACE_MS))
 
   return (
