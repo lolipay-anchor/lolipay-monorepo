@@ -32,12 +32,14 @@ class HealthController {
   @Get() ok() { return { status: 'ok' }; }
 }
 
+export const RATE_LIMIT_POLICY = [{ ttl: 60000, limit: 60, blockDuration: 60_000 }];
+
 @Module({
-  imports: [EmailModule, 
+  imports: [EmailModule,
     Sep10Module,
     OutboxModule,
 
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
+    ThrottlerModule.forRoot(RATE_LIMIT_POLICY),
     ScheduleModule.forRoot(),
     MaintenanceModule,
     RealtimeModule,
