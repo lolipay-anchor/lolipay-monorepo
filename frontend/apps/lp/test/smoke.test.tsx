@@ -60,6 +60,7 @@ function makeLpMe(status: 'PENDING' | 'APPROVED' | 'SUSPENDED' | 'REVOKED', extr
     createdAt: new Date().toISOString(),
     approvedAt: null,
     paymentMethods: [],
+    reachable: true,
     ...extra,
   }
 }

@@ -28,6 +28,7 @@ function provider(extra: Partial<LpMe> = {}): LpMe {
     createdAt: new Date(T0 - 86_400_000).toISOString(),
     approvedAt: null,
     paymentMethods: [method(true)],
+    reachable: true,
     ...extra,
   }
 }

@@ -84,6 +84,7 @@ function LpCard({ lp, pendingAction, onActionClick, onCancel, onConfirm, isPendi
             />
           )}
           <StatusPill tone={lpStatusTone(lp.status)}>{lp.status}</StatusPill>
+          {!lp.reachable && <StatusPill tone="amber">Cannot be told</StatusPill>}
         </div>
       </div>
 
@@ -272,12 +273,14 @@ function LpSummaryStrip({ lps }: { lps: Lp[] }) {
   const approved = lps.filter((l) => l.status === 'APPROVED').length
   const pending = lps.filter((l) => l.status === 'PENDING').length
   const online = lps.filter((l) => l.online).length
+  const cannotBeTold = lps.filter((l) => !l.reachable).length
 
   return (
-    <div className="grid grid-cols-3 gap-2 mb-4">
+    <div className="grid grid-cols-4 gap-2 mb-4">
       <StatCard label="Approved" value={approved} />
       <StatCard label="Pending" value={<span className="text-lp-amber">{pending}</span>} />
       <StatCard label="Online now" value={<span className="text-lp-green">{online}</span>} />
+      <StatCard label="Cannot be told" value={<span className="text-lp-amber">{cannotBeTold}</span>} />
     </div>
   )
 }

@@ -79,6 +79,7 @@ function makeLpMe(online = false, matchable = online, paymentMethods: PaymentMet
     createdAt: new Date().toISOString(),
     approvedAt: null,
     paymentMethods,
+    reachable: true,
   }
 }
 

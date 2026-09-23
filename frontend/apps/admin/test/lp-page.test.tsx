@@ -57,6 +57,7 @@ const MOCK_LP = {
   lastHeartbeatAt: null,
   createdAt: '2024-01-15T10:00:00.000Z',
   approvedAt: null,
+  reachable: true,
 }
 
 describe('LPs page', () => {
@@ -384,6 +385,63 @@ describe('LPs page', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Loading…')).toBeTruthy()
+    })
+  })
+
+  it('flags a provider\'s card when it cannot be told an order arrived', async () => {
+    vi.mocked(apiClient.getLps).mockResolvedValue([{ ...MOCK_LP, reachable: false }])
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <LPsPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      const matches = screen.getAllByText('Cannot be told')
+      const badge = matches.find((el) => el.className.includes('rounded-lp-pill'))
+      expect(badge).toBeTruthy()
+    })
+  })
+
+  it('says nothing extra on a provider\'s card that can be reached', async () => {
+    vi.mocked(apiClient.getLps).mockResolvedValue([{ ...MOCK_LP, reachable: true }])
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <LPsPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/GDCPLK/)).toBeTruthy()
+    })
+    const matches = screen.queryAllByText('Cannot be told')
+    const badge = matches.find((el) => el.className.includes('rounded-lp-pill'))
+    expect(badge).toBeUndefined()
+  })
+
+  it('counts every unreachable provider in the stat row, from the unfiltered list', async () => {
+    const ALL_LPS = [
+      { ...MOCK_LP, id: 'lp-1', reachable: true },
+      { ...MOCK_LP, id: 'lp-2', reachable: false },
+      { ...MOCK_LP, id: 'lp-3', reachable: false },
+    ]
+    vi.mocked(apiClient.getLps).mockImplementation((_client, status) =>
+      Promise.resolve(status === undefined ? ALL_LPS : []),
+    )
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <LPsPage />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      const matches = screen.getAllByText('Cannot be told')
+      const statLabel = matches.find((el) => !el.className.includes('rounded-lp-pill'))
+      expect(statLabel).toBeTruthy()
+      expect(statLabel!.parentElement).toHaveTextContent('2')
     })
   })
 })

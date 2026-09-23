@@ -59,6 +59,7 @@ function makeLpMe() {
     createdAt: new Date().toISOString(),
     approvedAt: null,
     paymentMethods: [],
+    reachable: true,
   }
 }
 

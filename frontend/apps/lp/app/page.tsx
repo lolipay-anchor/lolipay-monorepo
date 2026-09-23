@@ -14,6 +14,7 @@ import type { LpEarningsDayBar, LpMe } from '@lolipay/api-client'
 import { DarkHeroCard, StatCard, StatusPill, Skeleton, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
 import { AppHeader } from '@/components/AppHeader'
 import { PrereqCard, stakeIsReady, hasBankPaymentMethod } from '@/components/PrereqCard'
+import { AlertEmailCard } from '@/components/AlertEmailCard'
 import { client } from '@/lib/client'
 import { formatUSDC, formatUsdcNumber } from '@/lib/money'
 
@@ -183,6 +184,8 @@ export default function DashboardPage() {
             </DarkHeroCard>
 
             <PrereqCard me={me} eligibility={eligibility} />
+
+            <AlertEmailCard me={me} />
 
             {}
             {earningsLoading && (

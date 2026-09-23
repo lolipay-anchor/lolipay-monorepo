@@ -336,6 +336,49 @@ describe('AssignmentCard — Confirm receipt & release (FIAT_PAID)', () => {
     expect(screen.getByText(/Completed/i)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Lock USDC/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /Confirm receipt & release/i })).toBeNull()
+    expect(screen.queryByTestId('lp-open-dispute')).toBeNull()
+  })
+
+  it('offers a post-settlement dispute link on RELEASED while the window is still open', () => {
+    const stillOpen = new Date(Date.now() + 3600_000).toISOString()
+    render(
+      <TestProviders kit={fakeKit}>
+        <AssignmentCard
+          assignment={{ order: makeOrder({ status: 'RELEASED', post_settle_dispute_until: stillOpen }) }}
+          onRefetch={vi.fn()}
+        />
+      </TestProviders>,
+    )
+
+    expect(screen.getByTestId('lp-open-dispute')).toBeTruthy()
+  })
+
+  it('offers a post-settlement dispute link on REFUNDED while the window is still open', () => {
+    const stillOpen = new Date(Date.now() + 3600_000).toISOString()
+    render(
+      <TestProviders kit={fakeKit}>
+        <AssignmentCard
+          assignment={{ order: makeOrder({ status: 'REFUNDED', post_settle_dispute_until: stillOpen }) }}
+          onRefetch={vi.fn()}
+        />
+      </TestProviders>,
+    )
+
+    expect(screen.getByTestId('lp-open-dispute')).toBeTruthy()
+  })
+
+  it('hides the post-settlement dispute link once the window has closed', () => {
+    const closed = new Date(Date.now() - 1_000).toISOString()
+    render(
+      <TestProviders kit={fakeKit}>
+        <AssignmentCard
+          assignment={{ order: makeOrder({ status: 'RELEASED', post_settle_dispute_until: closed }) }}
+          onRefetch={vi.fn()}
+        />
+      </TestProviders>,
+    )
+
+    expect(screen.queryByTestId('lp-open-dispute')).toBeNull()
   })
 })
 
@@ -402,6 +445,22 @@ describe('AssignmentCard — WITHDRAW (LP pays fiat)', () => {
     )
 
     expect(screen.getByText(/Provide 10\.00 USDC/)).toBeTruthy()
+  })
+
+  it('also offers the post-settlement dispute link on a withdrawal RELEASED to the provider, while the window is open', () => {
+    const stillOpen = new Date(Date.now() + 3600_000).toISOString()
+    render(
+      <TestProviders kit={fakeKit}>
+        <AssignmentCard
+          assignment={{
+            order: makeOrder({ status: 'RELEASED', flow: 'WITHDRAW', post_settle_dispute_until: stillOpen }),
+          }}
+          onRefetch={vi.fn()}
+        />
+      </TestProviders>,
+    )
+
+    expect(screen.getByTestId('lp-open-dispute')).toBeTruthy()
   })
 
   it('MATCHED: LP waits for the seller to lock USDC (no Lock button)', () => {

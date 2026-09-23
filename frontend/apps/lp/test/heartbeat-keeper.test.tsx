@@ -31,6 +31,7 @@ function makeLpMe(online = false, matchable = online) {
     createdAt: new Date().toISOString(),
     approvedAt: null,
     paymentMethods: [],
+    reachable: true,
   }
 }
 

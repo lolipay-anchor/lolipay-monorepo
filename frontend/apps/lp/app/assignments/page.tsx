@@ -279,6 +279,14 @@ export function AssignmentCard({
       setDisputeBusy(false)
     }
   }
+  const postSettleDeadlineMs = order.post_settle_dispute_until
+    ? Date.parse(order.post_settle_dispute_until)
+    : null
+  const canPostSettleDispute =
+    (order.status === 'RELEASED' || order.status === 'REFUNDED') &&
+    postSettleDeadlineMs != null &&
+    postSettleDeadlineMs > Date.now()
+
   const DisputeLink = (
     <div>
       <button
@@ -539,6 +547,7 @@ export function AssignmentCard({
       {TERMINAL_STATUSES.includes(order.status) && (
         <p className="text-xs text-lp-muted">Completed</p>
       )}
+      {canPostSettleDispute && DisputeLink}
     </Card>
   )
 }
