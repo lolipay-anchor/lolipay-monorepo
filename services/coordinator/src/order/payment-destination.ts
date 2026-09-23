@@ -2,6 +2,7 @@ export const PAYMENT_DESTINATION_MAX_LEN = 500;
 export const PAYMENT_DESTINATION_MIN_WORD_CHARS = 6;
 
 const PAYMENT_DESTINATION_BAD_CHARS_RE = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u;
+export const NO_CONTROL_OR_FORMAT_CHARS_RE = /^[^\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]*$/u;
 
 export type PaymentDestinationProblem = 'missing' | 'too_long' | 'bad_chars' | 'too_short';
 

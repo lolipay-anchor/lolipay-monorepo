@@ -263,6 +263,7 @@ export class OrderService {
       lpWallet: lp.stellarAddress,
       paymentMethodId: lp.paymentMethodId,
       lpPaymentDetails: lp.details,
+      lpPaymentLabel: lp.label,
       userPaymentDetails: userPaymentDetails ?? null,
       status: 'MATCHED' as const,
       payDeadline: BigInt(payDeadline),

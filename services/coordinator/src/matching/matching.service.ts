@@ -10,6 +10,7 @@ export interface LpMatch {
   stellarAddress: string;
   paymentMethodId: string;
   details: string;
+  label: string;
   staked: bigint;
 }
 
@@ -107,6 +108,7 @@ export class MatchingService {
         stellarAddress: lp.stellarAddress,
         paymentMethodId: pm.id,
         details: pm.details,
+        label: pm.label,
         staked,
       };
     }

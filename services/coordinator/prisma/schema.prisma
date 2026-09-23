@@ -70,7 +70,7 @@ model PaymentMethod {
   lp        Lp      @relation(fields: [lpId], references: [id])
   lpId      String
   rail      Rail
-  label     String
+  label     String  @db.VarChar(64)
   details   String
   currency  String  @default("IDR")
   active    Boolean @default(true)
@@ -100,6 +100,7 @@ model Order {
   lpWallet            String?
   paymentMethodId     String?
   lpPaymentDetails    String?
+  lpPaymentLabel      String?     @db.VarChar(64)
   userPaymentDetails  String?
   status              OrderStatus @default(CREATED)
   payDeadline         BigInt
@@ -113,6 +114,7 @@ model Order {
   proofRrn            String?
   proofAmount         BigInt?
   proofPaidAt         DateTime?
+  userClaimedPaidAt   DateTime?
   settledAt           DateTime?
   settledStatus       OrderStatus?
   eventPos            BigInt      @default(0)

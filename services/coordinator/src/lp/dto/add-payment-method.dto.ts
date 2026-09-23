@@ -1,4 +1,5 @@
-import { IsEnum, IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsString, Matches, MaxLength } from 'class-validator';
+import { NO_CONTROL_OR_FORMAT_CHARS_RE } from '../../order/payment-destination';
 
 export enum RailEnum {
   BANK = 'BANK',
@@ -12,7 +13,8 @@ export class AddPaymentMethodDto {
 
   @IsString()
   @IsNotEmpty()
-  @MaxLength(500)
+  @MaxLength(64)
+  @Matches(NO_CONTROL_OR_FORMAT_CHARS_RE)
   label!: string;
 
   @IsString()

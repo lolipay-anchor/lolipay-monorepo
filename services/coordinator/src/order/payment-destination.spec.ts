@@ -5,6 +5,23 @@ import {
   PAYMENT_DESTINATION_TOO_SHORT_SENTENCE,
 } from '../sep24/interactive-sentence';
 import { validatePaymentDestination } from './order.service';
+import { checkPaymentDestination, NO_CONTROL_OR_FORMAT_CHARS_RE } from './payment-destination';
+
+export const DANGEROUS_CONTROL_OR_FORMAT_CODE_POINTS: Array<[string, string]> = [
+  ['U+200B ZERO WIDTH SPACE', '\u200B'],
+  ['U+200E LEFT-TO-RIGHT MARK', '\u200E'],
+  ['U+202E RIGHT-TO-LEFT OVERRIDE', '\u202E'],
+  ['U+00AD SOFT HYPHEN', '\u00AD'],
+  ['U+0000 NULL', '\u0000'],
+  ['U+0007 BELL', '\u0007'],
+  ['U+001B ESCAPE', '\u001B'],
+];
+
+export const WIDENED_BAD_CODE_POINTS: Array<[string, string]> = [
+  ['U+2028 LINE SEPARATOR', String.fromCodePoint(0x2028)],
+  ['U+2029 PARAGRAPH SEPARATOR', String.fromCodePoint(0x2029)],
+  ['U+D800 LONE SURROGATE', String.fromCharCode(0xd800)],
+];
 
 describe('validatePaymentDestination trims and returns a well-formed destination', () => {
   it('trims surrounding whitespace and returns the trimmed value', () => {
@@ -63,17 +80,7 @@ describe('validatePaymentDestination refuses length and format violations', () =
     );
   });
 
-  const DANGEROUS_CODE_POINTS: Array<[string, string]> = [
-    ['U+200B ZERO WIDTH SPACE', '\u200B'],
-    ['U+200E LEFT-TO-RIGHT MARK', '\u200E'],
-    ['U+202E RIGHT-TO-LEFT OVERRIDE', '\u202E'],
-    ['U+00AD SOFT HYPHEN', '\u00AD'],
-    ['U+0000 NULL', '\u0000'],
-    ['U+0007 BELL', '\u0007'],
-    ['U+001B ESCAPE', '\u001B'],
-  ];
-
-  it.each(DANGEROUS_CODE_POINTS)(
+  it.each(DANGEROUS_CONTROL_OR_FORMAT_CODE_POINTS)(
     'refuses a destination carrying %s, which the old LP regex /^(?:\\s*\\S){6}/ would have admitted',
     (_label, codePoint) => {
       expect(() => validatePaymentDestination(`BCA 123${codePoint}456`)).toThrow(
@@ -83,13 +90,7 @@ describe('validatePaymentDestination refuses length and format violations', () =
     },
   );
 
-  const WIDENED_CODE_POINTS: Array<[string, string]> = [
-    ["U+2028 LINE SEPARATOR", String.fromCodePoint(0x2028)],
-    ["U+2029 PARAGRAPH SEPARATOR", String.fromCodePoint(0x2029)],
-    ["U+D800 LONE SURROGATE", String.fromCharCode(0xd800)],
-  ];
-
-  it.each(WIDENED_CODE_POINTS)(
+  it.each(WIDENED_BAD_CODE_POINTS)(
     "refuses a destination carrying %s, which /[\\p{Cc}\\p{Cf}]/u alone would have admitted",
     (_label, codePoint) => {
       expect(() => validatePaymentDestination(`BCA 123${codePoint}456`)).toThrow(
@@ -101,5 +102,26 @@ describe('validatePaymentDestination refuses length and format violations', () =
   it("does not reject a real character outside the BMP, such as an emoji", () => {
     const withEmoji = `BCA 123${String.fromCodePoint(0x1f600)}456`;
     expect(validatePaymentDestination(withEmoji)).toBe(withEmoji);
+  });
+});
+
+describe('NO_CONTROL_OR_FORMAT_CHARS_RE agrees with checkPaymentDestination on every bad_chars corpus code point', () => {
+  const badCodePoints = [...DANGEROUS_CONTROL_OR_FORMAT_CODE_POINTS, ...WIDENED_BAD_CODE_POINTS];
+
+  it.each(badCodePoints)('rejects %s exactly where checkPaymentDestination classifies it bad_chars', (_label, codePoint) => {
+    const destination = `BCA 123${codePoint}456`;
+    expect(checkPaymentDestination(destination)).toEqual({ ok: false, problem: 'bad_chars' });
+    expect(NO_CONTROL_OR_FORMAT_CHARS_RE.test(codePoint)).toBe(false);
+  });
+
+  it('accepts a plain ASCII letter on both sides', () => {
+    expect(checkPaymentDestination('BCA 123B456').ok).toBe(true);
+    expect(NO_CONTROL_OR_FORMAT_CHARS_RE.test('B')).toBe(true);
+  });
+
+  it('accepts an emoji on both sides, since it is neither a control nor a format character', () => {
+    const emoji = String.fromCodePoint(0x1f600);
+    expect(checkPaymentDestination(`BCA 123${emoji}456`).ok).toBe(true);
+    expect(NO_CONTROL_OR_FORMAT_CHARS_RE.test(emoji)).toBe(true);
   });
 });
