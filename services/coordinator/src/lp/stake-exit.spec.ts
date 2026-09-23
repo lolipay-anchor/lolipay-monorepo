@@ -18,6 +18,7 @@ const NON_APPROVED = EVERY_STATUS.filter((s) => s !== 'APPROVED');
 const EXPECTED_ROLES: Record<string, string[]> = {
   apply: ['user', 'lp', 'admin'],
   me: ['user', 'lp', 'admin'],
+  updateMe: ['lp'],
   earnings: ['lp'],
   heartbeat: ['lp'],
   setAvailability: ['lp'],
