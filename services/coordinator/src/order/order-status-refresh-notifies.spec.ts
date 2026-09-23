@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { OrderStatusService } from './order-status.service';
 import { NotificationService } from '../notification/notification.service';
 import { onChainTradeFor } from './test-helpers';
@@ -73,9 +74,44 @@ describe('refreshOrderStatus notifies the parties it advances, not only the inde
     const updated = await svc.refreshOrderStatus('order-1', order);
 
     expect(notifications.notifyOrderStatus).toHaveBeenCalledTimes(1);
-    expect(notifications.notifyOrderStatus.mock.calls[0][0]).toBe(row());
+    expect(notifications.notifyOrderStatus.mock.calls[0][0]).toBe(order);
     expect(notifications.notifyOrderStatus.mock.calls[0][1]).toBe(to);
     expect(updated.status).toBe(to);
+  });
+
+  it('notifies with the status THIS call wrote and the pre-update snapshot, when a concurrent settlement verdict lands between the write and the reread', async () => {
+    const notifications = { notifyOrderStatus: jest.fn().mockResolvedValue(undefined) };
+    const order = makeOrder({ status: 'FIAT_PAID', settledAt: null });
+    const onChain = onChainTradeFor(order, 'DISPUTED');
+    let current: any = { ...order };
+    const prisma: any = {
+      order: {
+        updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
+          if (where.status !== undefined && where.status !== current.status) return { count: 0 };
+          current = { ...current, ...data };
+          return { count: 1 };
+        }),
+        findUnique: jest.fn().mockImplementation(async () => ({
+          ...current,
+          status: 'RELEASED',
+          settledAt: new Date(),
+        })),
+      },
+    };
+    const stellar: any = { getTradeStatus: jest.fn().mockResolvedValue(onChain) };
+    const svc = new OrderStatusService(
+      prisma,
+      stellar,
+      { escrowContractId: CONTRACT } as any,
+      undefined,
+      notifications as any,
+    );
+
+    await svc.refreshOrderStatus('order-1', order);
+
+    expect(notifications.notifyOrderStatus).toHaveBeenCalledTimes(1);
+    expect(notifications.notifyOrderStatus.mock.calls[0][0]).toBe(order);
+    expect(notifications.notifyOrderStatus.mock.calls[0][1]).toBe('DISPUTED');
   });
 
   it('does not notify when another writer already applied the transition first', async () => {
@@ -109,9 +145,13 @@ describe('refreshOrderStatus notifies the parties it advances, not only the inde
   });
 
   it('never throws when notifications is not wired, since it is an optional dependency', async () => {
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     const { svc, order } = makeSvc('MATCHED', 'FUNDED', undefined);
 
     await expect(svc.refreshOrderStatus('order-1', order)).resolves.toMatchObject({ status: 'FUNDED' });
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
   });
 
   it('writes an actual Notification row for the depositor through the real NotificationService, not just a stub call', async () => {

@@ -116,7 +116,7 @@ export class OrderStatusService {
       if (!updated) return order;
       if (written.count === 0) return updated;
 
-      await this.notifySafely(updated, onChain.status);
+      await this.notifySafely(order, onChain.status);
 
       this.realtime?.emitOrderUpdate({
         id: updated.id,
