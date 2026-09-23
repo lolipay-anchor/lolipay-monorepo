@@ -36,6 +36,13 @@ import { contractIdFor } from '../order/order.params';
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+function withReachable<T extends { alertEmail: string | null }>(
+  lp: T,
+): Omit<T, 'alertEmail'> & { reachable: boolean } {
+  const { alertEmail, ...rest } = lp;
+  return { ...rest, reachable: alertEmail != null };
+}
+
 const METRICS_RANGE_MS: Record<MetricsRange, number> = {
   '24h': DAY_MS,
   '7d': 7 * DAY_MS,
@@ -89,8 +96,9 @@ export class AdminService {
   async list(status?: LpStatus) {
     const rows = await this.prisma.lp.findMany({
       where: status ? { status } : {},
+      omit: { alertEmail: false },
     });
-    return rows.map(({ alertEmail, ...rest }: any) => rest);
+    return rows.map(withReachable);
   }
 
   async register(dto: RegisterLpDto, actorAddress: string) {
@@ -130,6 +138,7 @@ export class AdminService {
             approvedAt: approve ? new Date() : null,
             personId,
           },
+          omit: { alertEmail: false },
         });
         await recordAudit(tx as any, {
           actorAddress,
@@ -138,7 +147,7 @@ export class AdminService {
           targetId: created.id,
           after: { status: created.status, stellarAddress: created.stellarAddress },
         });
-        return created;
+        return withReachable(created);
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -158,7 +167,7 @@ export class AdminService {
   ) {
     const standingDown = status === 'SUSPENDED' || status === 'REVOKED';
     const { updated, cancelled } = await this.prisma.$transaction(async (tx) => {
-      const lp = await tx.lp.findUnique({ where: { id } });
+      const lp = await tx.lp.findUnique({ where: { id }, omit: { alertEmail: false } });
       if (!lp) throw new NotFoundException();
       if (lp.status === status && (note == null || note === lp.approvalNote)) {
         return { updated: lp, cancelled: [] as { id: string }[] };
@@ -172,6 +181,7 @@ export class AdminService {
             approvalNote: note ?? lp.approvalNote,
             approvedAt: status === 'APPROVED' && lp.status !== 'APPROVED' ? new Date() : lp.approvedAt,
           },
+          omit: { alertEmail: false },
         })
         .catch((e: unknown) => {
           if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
@@ -224,7 +234,7 @@ export class AdminService {
       }
     }
 
-    return updated;
+    return withReachable(updated);
   }
 
   listOrders(

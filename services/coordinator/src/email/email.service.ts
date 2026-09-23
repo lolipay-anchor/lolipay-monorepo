@@ -32,7 +32,7 @@ export class EmailService implements OnModuleInit {
     const personId = typeof payload.personId === 'string' ? payload.personId.trim() : '';
     const lpId = typeof payload.lpId === 'string' ? payload.lpId.trim() : '';
     if (!personId && !lpId) {
-      throw new Error('email job carries no personId, refusing to send');
+      throw new Error('email job carries neither a personId nor an lpId, refusing to send');
     }
 
     let to = '';
@@ -43,7 +43,7 @@ export class EmailService implements OnModuleInit {
       });
       to = lp?.alertEmail?.trim() ?? '';
     }
-    if (!to && personId) {
+    if (!to && personId && !lpId) {
       const person = await this.prisma.person.findUnique({
         where: { id: personId },
         select: { email: true },

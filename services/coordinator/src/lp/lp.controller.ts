@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -43,7 +44,10 @@ export class LpController {
   @HttpCode(200)
   @Roles('lp')
   async updateMe(@Req() req: any, @Body() dto: UpdateLpMeDto) {
-    await this.lp.setAlertEmail(req.user.address, dto.alertEmail ?? null);
+    if (dto.alertEmail === undefined) {
+      throw new BadRequestException('No email address was sent.');
+    }
+    await this.lp.setAlertEmail(req.user.address, dto.alertEmail);
     return { ok: true };
   }
 

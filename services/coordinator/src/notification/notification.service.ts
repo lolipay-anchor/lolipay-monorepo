@@ -93,13 +93,19 @@ function messageFor(
               title: 'Order refunded',
               body: 'The USDC was returned to the merchant. You were not charged, and you can still open a dispute on this order for a short time.',
             }
-          : { title: 'Order refunded', body: 'The USDC you locked was returned to your wallet in full.' };
+          : {
+              title: 'Order refunded',
+              body: 'The USDC you locked was returned to your wallet in full. You can still open a dispute on this order for a short time.',
+            };
       return role === 'user'
         ? {
             title: 'Order refunded',
             body: 'Your USDC was returned to your wallet in full. You can still open a dispute on this order for a short time.',
           }
-        : { title: 'Order refunded', body: 'The USDC was returned to the seller and it did not come to you.' };
+        : {
+            title: 'Order refunded',
+            body: 'The USDC was returned to the seller and it did not come to you. If you already sent the rupiah for this order, open a dispute from your assignments now — the window to do it is short.',
+          };
     case 'DISPUTED':
       if (settledAt) {
         return {
@@ -144,25 +150,34 @@ export class NotificationService {
       rows.push({ address: order.lpWallet, orderId: order.id, event: status, ...l });
     }
     if (rows.length > 0) {
+      const lpId = order.lpId ?? null;
       const recipients = await Promise.all(
         rows.map(async (r) => {
-          const person = await this.people.lookupPerson(r.address);
-          const lp =
-            order.lpId && r.address === order.lpWallet
-              ? await this.prisma.lp.findUnique({ where: { id: order.lpId }, select: { id: true, alertEmail: true } })
-              : null;
-          return { row: r, person, lp };
+          const isLpRow = r.address === order.lpWallet;
+          const person = isLpRow ? null : await this.people.lookupPerson(r.address);
+          const lp = isLpRow && lpId
+            ? await this.prisma.lp.findUnique({ where: { id: lpId }, select: { id: true, alertEmail: true } })
+            : null;
+          return { row: r, isLpRow, person, lp };
         }),
       );
       await this.prisma.$transaction(async (tx) => {
         await tx.notification.createMany({ data: rows, skipDuplicates: true });
-        for (const { row, person, lp } of recipients) {
-          const alertEmail = lp?.alertEmail ?? null;
-          if (!person?.email && !alertEmail) continue;
+        for (const { row, isLpRow, person, lp } of recipients) {
+          if (isLpRow) {
+            if (!lp?.alertEmail) continue;
+            await this.outbox.enqueue(tx, {
+              kind: EMAIL_OUTBOX_KIND,
+              dedupeKey: `${EMAIL_OUTBOX_KIND}:${order.id}:${status}:${lp.id}`,
+              payload: { personId: null, lpId: lp.id, subject: row.title, text: row.body },
+            });
+            continue;
+          }
+          if (!person?.email) continue;
           await this.outbox.enqueue(tx, {
             kind: EMAIL_OUTBOX_KIND,
-            dedupeKey: `${EMAIL_OUTBOX_KIND}:${order.id}:${status}:${person?.id ?? lp?.id ?? row.address}`,
-            payload: { personId: person?.id ?? null, lpId: lp?.id ?? null, subject: row.title, text: row.body },
+            dedupeKey: `${EMAIL_OUTBOX_KIND}:${order.id}:${status}:${person.id}`,
+            payload: { personId: person.id, lpId: null, subject: row.title, text: row.body },
           });
         }
       });

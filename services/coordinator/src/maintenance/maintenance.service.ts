@@ -308,7 +308,7 @@ export class MaintenanceService {
                   online: true,
                   AND: [
                     { OR: [{ lastHeartbeatAt: null }, { lastHeartbeatAt: { lt: o.createdAt } }] },
-                    { OR: [{ alertEmail: { not: null } }, { person: { email: { not: null } } }] },
+                    { alertEmail: { not: null } },
                   ],
                 },
                 data: { online: false },

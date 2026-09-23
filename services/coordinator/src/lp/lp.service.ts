@@ -107,7 +107,6 @@ export class LpService {
         approvedAt: true,
         paymentMethods: true,
         alertEmail: true,
-        person: { select: { email: true } },
       },
     });
     if (!lp) return null;
@@ -115,8 +114,8 @@ export class LpService {
     const counted = await this.prisma.lp.count({
       where: { ...matchableLpWhere(), id: lp.id },
     });
-    const { alertEmail, person, ...rest } = lp;
-    return { ...rest, matchable: counted > 0, reachable: alertEmail != null || person?.email != null };
+    const { alertEmail, ...rest } = lp;
+    return { ...rest, matchable: counted > 0, reachable: alertEmail != null };
   }
 
   async heartbeat(address: string) {
