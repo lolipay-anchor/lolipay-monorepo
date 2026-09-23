@@ -39,3 +39,19 @@ describe('the sep24 controller declares no probe-shaped route, and no new top-le
     ]);
   });
 });
+
+describe('every route in the sep24 controller carries its own throttle, never the global default', () => {
+  it('names every route missing THROTTLER:TTLdefault or THROTTLER:LIMITdefault, so a silent fall-through cannot hide', () => {
+    const unthrottled = routeMethods().filter(
+      (name) =>
+        !Reflect.hasMetadata('THROTTLER:TTLdefault', proto[name]) ||
+        !Reflect.hasMetadata('THROTTLER:LIMITdefault', proto[name]),
+    );
+    expect(unthrottled).toEqual([]);
+  });
+
+  it('exempts no route from throttling with THROTTLER:SKIPdefault, which the rejected workaround would need', () => {
+    const skipped = routeMethods().filter((name) => Reflect.hasMetadata('THROTTLER:SKIPdefault', proto[name]));
+    expect(skipped).toEqual([]);
+  });
+});

@@ -124,6 +124,7 @@ export class Sep24Controller {
   }
 
   @Get('transactions')
+  @Throttle({ default: { ttl: 60_000, limit: 90 } })
   @UseGuards(Sep24AuthGuard)
   @AllowTokenClasses('sep10')
   async list(@Req() req: any, @Query() query: TransactionsQueryDto) {
@@ -131,6 +132,7 @@ export class Sep24Controller {
   }
 
   @Get('transaction')
+  @Throttle({ default: { ttl: 60_000, limit: 720 } })
   @UseGuards(Sep24AuthGuard)
   @AllowTokenClasses('sep10')
   async one(@Req() req: any, @Query() query: TransactionQueryDto) {
