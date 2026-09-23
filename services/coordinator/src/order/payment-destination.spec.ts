@@ -5,7 +5,11 @@ import {
   PAYMENT_DESTINATION_TOO_SHORT_SENTENCE,
 } from '../sep24/interactive-sentence';
 import { validatePaymentDestination } from './order.service';
-import { checkPaymentDestination, NO_CONTROL_OR_FORMAT_CHARS_RE } from './payment-destination';
+import {
+  checkPaymentDestination,
+  NO_CONTROL_OR_FORMAT_CHARS_RE,
+  PAYMENT_METHOD_LABEL_HAS_LETTERS_RE,
+} from './payment-destination';
 import { DANGEROUS_CONTROL_OR_FORMAT_CODE_POINTS, WIDENED_BAD_CODE_POINTS } from './test-helpers';
 
 describe('validatePaymentDestination trims and returns a well-formed destination', () => {
@@ -88,6 +92,35 @@ describe('validatePaymentDestination refuses length and format violations', () =
     const withEmoji = `BCA 123${String.fromCodePoint(0x1f600)}456`;
     expect(validatePaymentDestination(withEmoji)).toBe(withEmoji);
   });
+});
+
+describe('PAYMENT_METHOD_LABEL_HAS_LETTERS_RE requires at least two letters and stays linear-time', () => {
+  it('refuses zero or one letter', () => {
+    expect(PAYMENT_METHOD_LABEL_HAS_LETTERS_RE.test('')).toBe(false);
+    expect(PAYMENT_METHOD_LABEL_HAS_LETTERS_RE.test('1')).toBe(false);
+    expect(PAYMENT_METHOD_LABEL_HAS_LETTERS_RE.test('B')).toBe(false);
+    expect(PAYMENT_METHOD_LABEL_HAS_LETTERS_RE.test('1' + 'B')).toBe(false);
+  });
+
+  it.each([2, 4, 8, 16])('accepts a run of exactly %i letters', (n) => {
+    expect(PAYMENT_METHOD_LABEL_HAS_LETTERS_RE.test('B'.repeat(n))).toBe(true);
+  });
+
+  it('accepts two letters separated by any run of non-letters', () => {
+    expect(PAYMENT_METHOD_LABEL_HAS_LETTERS_RE.test('B' + '1'.repeat(500) + 'I')).toBe(true);
+  });
+
+  it.each([4_000, 16_000, 50_000, 99_000])(
+    'classifies a %i-character adversarial string (no letters at all) in well under 50ms, never the quadratic blowup of the anchor-free nested-quantifier regex it replaced',
+    (n) => {
+      const adversarial = '1'.repeat(n);
+      const start = performance.now();
+      const result = PAYMENT_METHOD_LABEL_HAS_LETTERS_RE.test(adversarial);
+      const elapsedMs = performance.now() - start;
+      expect(result).toBe(false);
+      expect(elapsedMs).toBeLessThan(50);
+    },
+  );
 });
 
 describe('NO_CONTROL_OR_FORMAT_CHARS_RE agrees with checkPaymentDestination on every bad_chars corpus code point', () => {

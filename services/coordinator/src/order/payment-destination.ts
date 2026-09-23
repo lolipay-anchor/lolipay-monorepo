@@ -9,7 +9,7 @@ export const PAYMENT_METHOD_LABEL_LENGTH_RE = new RegExp(
   `^[\\s\\S]{0,${PAYMENT_METHOD_LABEL_MAX_LEN}}$`,
   'u',
 );
-export const PAYMENT_METHOD_LABEL_HAS_LETTERS_RE = /(?:[^\p{L}]*\p{L}){2,}/u;
+export const PAYMENT_METHOD_LABEL_HAS_LETTERS_RE = /\p{L}[^\p{L}]*\p{L}/u;
 
 const LABEL_EDGE_WHITESPACE_RE = /^\p{Zs}+|\p{Zs}+$/gu;
 

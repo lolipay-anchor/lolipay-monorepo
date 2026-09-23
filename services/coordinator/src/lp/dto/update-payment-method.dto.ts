@@ -1,13 +1,12 @@
-import { IsBoolean, IsEnum, IsOptional, IsString, IsNotEmpty, Matches, MaxLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString, IsNotEmpty, MaxLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { RailEnum } from './add-payment-method.dto';
+import { normalizePaymentMethodLabel } from '../../order/payment-destination';
 import {
-  NO_CONTROL_OR_FORMAT_CHARS_RE,
-  normalizePaymentMethodLabel,
-  PAYMENT_METHOD_LABEL_HAS_LETTERS_RE,
-  PAYMENT_METHOD_LABEL_LENGTH_RE,
-  PAYMENT_METHOD_LABEL_MAX_LEN,
-} from '../../order/payment-destination';
+  HasNoDisallowedPaymentMethodChars,
+  HasReadablePaymentMethodName,
+  IsPaymentMethodLabelLength,
+} from './payment-method-label.validators';
 
 export class UpdatePaymentMethodDto {
   @IsEnum(RailEnum)
@@ -16,11 +15,9 @@ export class UpdatePaymentMethodDto {
 
   @Transform(({ value }) => normalizePaymentMethodLabel(value))
   @IsString()
-  @IsNotEmpty()
-  @MaxLength(PAYMENT_METHOD_LABEL_MAX_LEN)
-  @Matches(PAYMENT_METHOD_LABEL_LENGTH_RE)
-  @Matches(NO_CONTROL_OR_FORMAT_CHARS_RE)
-  @Matches(PAYMENT_METHOD_LABEL_HAS_LETTERS_RE)
+  @IsPaymentMethodLabelLength()
+  @HasNoDisallowedPaymentMethodChars()
+  @HasReadablePaymentMethodName()
   @IsOptional()
   label?: string;
 
