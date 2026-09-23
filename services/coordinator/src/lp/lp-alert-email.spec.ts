@@ -28,7 +28,7 @@ function makePrisma(alertEmail: string | null, personEmail: string | null = null
   } as any;
 }
 
-describe('LpService.me — ADR 0054: the wire field is reachable, and it means the same disjunction as conjunct B and the enqueue gate', () => {
+describe('LpService.me — ADR 0054, narrowed: the wire field is reachable, and it is a null check on alertEmail alone, not a disjunction with Person.email', () => {
   it('11a — reports reachable: true for a provider with alertEmail on file and no linked Person.email, and never the address itself', async () => {
     const prisma = makePrisma('ops@example.com');
 
@@ -49,13 +49,13 @@ describe('LpService.me — ADR 0054: the wire field is reachable, and it means t
     expect(me).not.toHaveProperty('alertEmail');
   });
 
-  it("11c — reports reachable: true for a provider with alertEmail NULL and a linked Person.email SET, the disjunction's third case, and still never exposes alertEmail", async () => {
+  it('11c — reports reachable: false for a provider with alertEmail NULL even though a linked Person.email is SET: a provider is reachable by alertEmail alone, never by their identity email', async () => {
     const prisma = makePrisma(null, 'linked-person@example.test');
 
     const me = await new LpService(prisma, {} as any).me(LP_ADDR);
 
     expect(me).not.toBeNull();
-    expect((me as any).reachable).toBe(true);
+    expect((me as any).reachable).toBe(false);
     expect(me).not.toHaveProperty('alertEmail');
   });
 });

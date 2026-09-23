@@ -1,6 +1,11 @@
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
-import { UpdateLpMeDto } from './update-lp-me.dto';
+import {
+  ALERT_EMAIL_FORMAT_MESSAGE,
+  ALERT_EMAIL_TOO_LONG_MESSAGE,
+  ALERT_EMAIL_UNPRINTABLE_MESSAGE,
+  UpdateLpMeDto,
+} from './update-lp-me.dto';
 
 describe('UpdateLpMeDto — the provider\'s own alert address, PATCH /lp/me (ADR 0054)', () => {
   const problems = (alertEmail: unknown) =>
@@ -22,5 +27,15 @@ describe('UpdateLpMeDto — the provider\'s own alert address, PATCH /lp/me (ADR
     const tooLong = `${'a'.repeat(250)}@a.co`;
     expect(tooLong).toHaveLength(255);
     expect(problems(tooLong)).not.toEqual([]);
+  });
+
+  it('accepts null, so the provider can clear a previously-set address', () => {
+    expect(problems(null)).toEqual([]);
+  });
+
+  it('does not tell a provider who sent the field ABSENT that an address they never sent is too long, badly-shaped or unprintable', () => {
+    const wrongForAbsence = [ALERT_EMAIL_FORMAT_MESSAGE, ALERT_EMAIL_UNPRINTABLE_MESSAGE, ALERT_EMAIL_TOO_LONG_MESSAGE];
+    const got = problems(undefined);
+    for (const msg of wrongForAbsence) expect(got).not.toContain(msg);
   });
 });

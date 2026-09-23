@@ -423,12 +423,12 @@ describe('NotificationService', () => {
       );
     });
 
-    it('TOP_UP/lp: the provider who locked the USDC is told it came back to their own wallet (interim form)', async () => {
+    it('TOP_UP/lp: the provider who locked the USDC is told it came back to their own wallet, and that a dispute is still open', async () => {
       const { svc, prisma } = make();
       await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'REFUNDED');
       const rows = prisma.notification.createMany.mock.calls[0][0].data;
       expect(rows.find((r: any) => r.address === 'GL').body).toBe(
-        'The USDC you locked was returned to your wallet in full.',
+        'The USDC you locked was returned to your wallet in full. You can still open a dispute on this order for a short time.',
       );
     });
 
@@ -441,12 +441,12 @@ describe('NotificationService', () => {
       );
     });
 
-    it('WITHDRAW/lp: the provider who never locked anything is told it went to the seller, not to them (interim form)', async () => {
+    it('WITHDRAW/lp: the provider who never locked anything is told it went to the seller, not to them, and that a dispute is still open if the rupiah was already sent', async () => {
       const { svc, prisma } = make();
       await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'WITHDRAW' }, 'REFUNDED');
       const rows = prisma.notification.createMany.mock.calls[0][0].data;
       expect(rows.find((r: any) => r.address === 'GL').body).toBe(
-        'The USDC was returned to the seller and it did not come to you.',
+        'The USDC was returned to the seller and it did not come to you. If you already sent the rupiah for this order, open a dispute from your assignments now — the window to do it is short.',
       );
     });
   });
@@ -578,14 +578,24 @@ describe('NotificationService', () => {
       expect(job!.dedupeKey).not.toMatch(/undefined|null/);
     });
 
-    it('8 — the lp job payload carries lpId (edit 3), even when the provider is reachable the old way (Person.email)', async () => {
+    it("8 — the lp job payload carries lpId (edit 3) and personId: null, reachable ONLY by alertEmail now that Person.email is not a provider reachability path", async () => {
+      const order = { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP', lpId: 'lp1' };
+      const { svc, enqueued } = make(false, { lp1: { stellarAddress: 'GL', alertEmail: 'ops@example.com' } });
+      await svc.notifyOrderStatus(order, 'FUNDED');
+
+      const job = enqueued.find((j) => j.payload.lpId === 'lp1');
+      expect(job).toBeDefined();
+      expect(job!.payload.lpId).toBe('lp1');
+      expect(job!.payload.personId).toBeNull();
+    });
+
+    it("9 — the enqueue gate is narrowed for the lp row only: no job for a provider unreachable by alertEmail, even though a Person.email is linked, while the depositor's own job on the SAME shared gate still enqueues via Person.email", async () => {
       const order = { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP', lpId: 'lp1' };
       const { svc, enqueued } = make(false, { lp1: { stellarAddress: 'GL', alertEmail: null } });
       await svc.notifyOrderStatus(order, 'FUNDED');
 
-      const job = enqueued.find((j) => j.payload.personId === 'person-of-GL');
-      expect(job).toBeDefined();
-      expect(job!.payload.lpId).toBe('lp1');
+      expect(enqueued.some((j) => j.payload.lpId === 'lp1')).toBe(false);
+      expect(enqueued.some((j) => j.payload.personId === 'person-of-GU')).toBe(true);
     });
   });
 });

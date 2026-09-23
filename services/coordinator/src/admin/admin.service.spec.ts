@@ -1369,4 +1369,40 @@ describe('AdminService.list — ADR 0054: the alert address is never served back
     expect(rows).toHaveLength(1);
     expect(rows[0]).not.toHaveProperty('alertEmail');
   });
+
+  it('13 — serves reachable: true, computed from alertEmail alone, so the dashboard can tell providers apart instead of marking every one "Cannot be told"', async () => {
+    const prisma = {
+      lp: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'lp1', stellarAddress: 'G1', status: 'APPROVED', alertEmail: 'ops@example.com' },
+        ]),
+      },
+    } as any;
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    const rows = await svc.list();
+
+    expect(rows[0].reachable).toBe(true);
+  });
+
+  it('14 — serves reachable: false when alertEmail is NULL, even though the fixture carries a linked Person.email — the narrowed ADR 0054 rule, not the disjunction it replaced', async () => {
+    const prisma = {
+      lp: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'lp1',
+            stellarAddress: 'G1',
+            status: 'APPROVED',
+            alertEmail: null,
+            person: { email: 'linked-person@example.test' },
+          },
+        ]),
+      },
+    } as any;
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    const rows = await svc.list();
+
+    expect(rows[0].reachable).toBe(false);
+  });
 });

@@ -21,17 +21,6 @@ describe('MaintenanceService', () => {
       }
       return (cur.alertEmail ?? null) != null;
     }
-    if (key === 'person') {
-      const keys = Object.keys(val ?? {});
-      if (keys.length !== 1 || keys[0] !== 'email') {
-        throw new Error(`fake lp.updateMany cannot evaluate person clause ${JSON.stringify(val)}`);
-      }
-      const emailKeys = Object.keys(val.email ?? {});
-      if (emailKeys.length !== 1 || emailKeys[0] !== 'not' || val.email.not !== null) {
-        throw new Error(`fake lp.updateMany cannot evaluate person.email clause ${JSON.stringify(val.email)}`);
-      }
-      return cur.email != null;
-    }
     throw new Error(`fake lp.updateMany cannot evaluate where.${key}`);
   }
 
@@ -383,7 +372,7 @@ describe('MaintenanceService', () => {
     const WITHDRAW_ORDER = { ...TOP_UP_ORDER, flow: 'WITHDRAW' };
     const NO_LP_ORDER = { ...TOP_UP_ORDER, lpId: null };
 
-    const REACHABLE_ABSENT_LP = { online: true, lastHeartbeatAt: null, email: 'lp1@example.com' };
+    const REACHABLE_ABSENT_LP = { online: true, lastHeartbeatAt: null, email: null, alertEmail: 'lp1@example.com' };
 
     it('selects lpId on the expiry scan, so the presence penalty has something to flip', async () => {
       const { svc, prisma } = make(null, false, [TOP_UP_ORDER], { lp1: REACHABLE_ABSENT_LP });
@@ -508,7 +497,7 @@ describe('MaintenanceService', () => {
     it('A-fires — a provider whose newest heartbeat predates the order it missed showed no presence throughout the window, and is penalised', async () => {
       const heartbeatBeforeWindow = new Date(TOP_UP_ORDER.createdAt.getTime() - 60_000);
       const { svc, notifications, online, lpWrites } = make(null, false, [TOP_UP_ORDER], {
-        lp1: { online: true, lastHeartbeatAt: heartbeatBeforeWindow, email: 'lp1@example.com' },
+        lp1: { online: true, lastHeartbeatAt: heartbeatBeforeWindow, email: null, alertEmail: 'lp1@example.com' },
       });
       await svc.expireStaleOrders();
 
@@ -523,7 +512,7 @@ describe('MaintenanceService', () => {
 
     it('A-null — a provider with no heartbeat ever recorded has shown no presence at all, and is penalised', async () => {
       const { svc, notifications, online, lpWrites } = make(null, false, [TOP_UP_ORDER], {
-        lp1: { online: true, lastHeartbeatAt: null, email: 'lp1@example.com' },
+        lp1: { online: true, lastHeartbeatAt: null, email: null, alertEmail: 'lp1@example.com' },
       });
       await svc.expireStaleOrders();
 
@@ -563,7 +552,7 @@ describe('MaintenanceService', () => {
       expect(notifications.notifyOrderStatus).not.toHaveBeenCalled();
     });
 
-    describe('ADR 0054 — conjunct B widens with the delivery, so "reachable" means the same thing in the sanction as in the notification', () => {
+    describe('ADR 0054, narrowed — conjunct B is Lp.alertEmail alone; a provider\'s Person.email cannot spare them the sanction', () => {
       async function expectNoSilentFailure(run: () => Promise<void>) {
         const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
         try {
@@ -591,19 +580,19 @@ describe('MaintenanceService', () => {
         });
       });
 
-      it('2 — still fires for a provider reachable only by Person.email, alertEmail NULL (no regression)', async () => {
+      it('2 — does NOT fire for a provider reachable only by Person.email, alertEmail NULL: a person\'s identity email is not the provider\'s operational address, and it can be erased by a right the anchor must honour', async () => {
         await expectNoSilentFailure(async () => {
           const { svc, notifications, online, lpWrites } = make(null, false, [TOP_UP_ORDER], {
             lp1: { online: true, lastHeartbeatAt: null, email: 'lp1@example.com', alertEmail: null },
           });
           await svc.expireStaleOrders();
 
-          expect(online.get('lp1')).toBe(false);
-          expect(lpWrites).toEqual([{ id: 'lp1', data: { online: false } }]);
+          expect(lpWrites).toHaveLength(0);
+          expect(online.get('lp1')).toBe(true);
           expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
             expect.objectContaining({ id: 'o1' }),
             'MATCHED_EXPIRED',
-            true,
+            false,
           );
         });
       });
