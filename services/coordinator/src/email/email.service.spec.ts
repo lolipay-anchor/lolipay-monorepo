@@ -93,12 +93,20 @@ describe('the email channel', () => {
   describe('ADR 0054 — the provider alert address', () => {
     it('9 — a job whose lpId resolves to an Lp row with alertEmail sends there, preferred over the person\'s', async () => {
       const send = jest.fn(async () => ({ ok: true, status: 200, body: '{}' }));
-      const { handler } = make({ send, lp: { alertEmail: 'ops@example.com' } });
+      const { handler, prisma } = make({ send, lp: { alertEmail: 'ops@example.com' } });
 
       await handler()({ lpId: 'lp1', personId: 'p1', subject: 'S', text: 'T' });
 
       const sent = (send.mock.calls as any[])[0][0];
       expect(sent.to).toEqual(['ops@example.com']);
+
+      const lpCalls = [
+        ...(prisma.lp.findUnique as jest.Mock).mock.calls,
+        ...(prisma.lp.findFirst as jest.Mock).mock.calls,
+      ];
+      expect(lpCalls.length).toBeGreaterThan(0);
+      const args = lpCalls[0][0] as any;
+      expect(args?.select?.alertEmail === true || args?.omit?.alertEmail === false).toBe(true);
     });
 
     it('9b — a job whose lpId resolves to an Lp row with NO alertEmail falls back to Person.email', async () => {
