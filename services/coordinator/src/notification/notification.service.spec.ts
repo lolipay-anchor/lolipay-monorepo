@@ -177,7 +177,7 @@ describe('NotificationService', () => {
   });
 
   describe('MATCHED_EXPIRED: the LP branch depends on whether ADR 0053\'s presence penalty just fired', () => {
-    it('no penalty attached: the assignment is simply closed, and nothing is promised about future orders', async () => {
+    it('no penalty attached: the assignment is closed, and a late transaction still reopens it (ADR: the indexer can revive EXPIRED to FUNDED)', async () => {
       const { svc, prisma } = make();
       await svc.notifyOrderStatus(
         { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' },
@@ -186,11 +186,11 @@ describe('NotificationService', () => {
       const rows = prisma.notification.createMany.mock.calls[0][0].data;
       const lp = rows.find((r: any) => r.address === 'GL');
       expect(lp.body).toBe(
-        'The order assigned to you was not completed on-chain in time. It is closed and will not come back to you.',
+        'The order assigned to you was not completed on-chain in time and the assignment has been closed. If your transaction reaches the network after this, the order will reopen and you will be told.',
       );
     });
 
-    it('penalty attached: the provider is told the assignment expiring just set them unavailable', async () => {
+    it('penalty attached: the provider is told the assignment expiring just set them unavailable, and that a late transaction still reopens the order', async () => {
       const { svc, prisma } = make();
       await (svc as any).notifyOrderStatus(
         { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' },
@@ -201,7 +201,7 @@ describe('NotificationService', () => {
       const lp = rows.find((r: any) => r.address === 'GL');
       expect(lp.title).toBe('Assignment expired — you have been set unavailable');
       expect(lp.body).toBe(
-        'The order assigned to you was not completed on-chain in time, so this anchor has set you unavailable. It is closed and will not come back to you. You will not be assigned new orders until you set yourself available again on your dashboard.',
+        'The order assigned to you was not completed on-chain in time, so this anchor has set you unavailable and you will not be assigned new orders. Set yourself available again on your dashboard, where the readiness list shows your stake and payment method. If your transaction reaches the network after this, the order will reopen and you will be told.',
       );
     });
   });
@@ -334,7 +334,7 @@ describe('NotificationService', () => {
     }
     expect(bodies.size).toBe(1);
     expect([...bodies][0]).toBe(
-      'The order assigned to you was cancelled before anything was locked on chain. Nothing is needed from you.',
+      'The order assigned to you was cancelled before anything was locked on chain, so nothing is needed from you. If your transaction reaches the network after this, the order will reopen and you will be told.',
     );
   });
 
@@ -419,16 +419,16 @@ describe('NotificationService', () => {
       await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'REFUNDED');
       const rows = prisma.notification.createMany.mock.calls[0][0].data;
       expect(rows.find((r: any) => r.address === 'GU').body).toBe(
-        'The USDC was returned to the merchant and this order is closed.',
+        'The USDC was returned to the merchant. You were not charged, and you can still open a dispute on this order for a short time.',
       );
     });
 
-    it('TOP_UP/lp: the provider who locked the USDC is told it came back to their own wallet', async () => {
+    it('TOP_UP/lp: the provider who locked the USDC is told it came back to their own wallet (interim form)', async () => {
       const { svc, prisma } = make();
       await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'REFUNDED');
       const rows = prisma.notification.createMany.mock.calls[0][0].data;
       expect(rows.find((r: any) => r.address === 'GL').body).toBe(
-        'The USDC you locked was returned to your wallet and this order is closed.',
+        'The USDC you locked was returned to your wallet in full.',
       );
     });
 
@@ -437,16 +437,16 @@ describe('NotificationService', () => {
       await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'WITHDRAW' }, 'REFUNDED');
       const rows = prisma.notification.createMany.mock.calls[0][0].data;
       expect(rows.find((r: any) => r.address === 'GU').body).toBe(
-        'Your USDC was returned to your wallet and this order is closed.',
+        'Your USDC was returned to your wallet in full. You can still open a dispute on this order for a short time.',
       );
     });
 
-    it('WITHDRAW/lp: the provider who never locked anything is told it went to the seller, not to them', async () => {
+    it('WITHDRAW/lp: the provider who never locked anything is told it went to the seller, not to them (interim form)', async () => {
       const { svc, prisma } = make();
       await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'WITHDRAW' }, 'REFUNDED');
       const rows = prisma.notification.createMany.mock.calls[0][0].data;
       expect(rows.find((r: any) => r.address === 'GL').body).toBe(
-        'The USDC was returned to the seller and this order is closed. It did not come to you.',
+        'The USDC was returned to the seller and it did not come to you.',
       );
     });
   });
