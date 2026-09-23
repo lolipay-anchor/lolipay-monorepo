@@ -76,8 +76,8 @@ export function onChainTradeFor(order: any, status: string, overrides: Record<st
   };
 }
 
-export function orderStatusFor(prisma: any, stellar: any, cfg: any, realtime?: any) {
-  return new OrderStatusService(prisma, stellar, cfg, realtime);
+export function orderStatusFor(prisma: any, stellar: any, cfg: any, realtime?: any, notifications?: any) {
+  return new OrderStatusService(prisma, stellar, cfg, realtime, notifications);
 }
 
 export function orderTxFor(prisma: any, stellar: any, cfg: any, realtime?: any) {

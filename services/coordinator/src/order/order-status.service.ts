@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
 import { AppConfigService } from '../config/app-config.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { NotificationService } from '../notification/notification.service';
 import { TradeOnChain } from '../stellar/stellar-read.types';
 import { verifyTradeMatchesOrder } from './trade-binding';
 import { contractIdFor } from './order.params';
@@ -60,7 +61,18 @@ export class OrderStatusService {
     private stellar: StellarReadService,
     private cfg: AppConfigService,
     private realtime?: RealtimeGateway,
+    private notifications?: NotificationService,
   ) {}
+
+  private async notifySafely(order: any, status: string): Promise<void> {
+    try {
+      await this.notifications?.notifyOrderStatus(order, status);
+    } catch (err) {
+      this.log.warn(
+        `notification for order ${order.id} at ${status} failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
   contractIdFor(order: { contractId?: string | null }): string {
     return contractIdFor(order, this.cfg);
@@ -103,6 +115,8 @@ export class OrderStatusService {
       });
       if (!updated) return order;
       if (written.count === 0) return updated;
+
+      await this.notifySafely(updated, onChain.status);
 
       this.realtime?.emitOrderUpdate({
         id: updated.id,
