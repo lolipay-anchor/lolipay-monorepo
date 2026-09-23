@@ -13,7 +13,7 @@ function matchingLines(relPath: string): string[] {
 }
 
 describe('ADR 0054, narrowed — Person.email is not read on the provider-only reachability path (lp.service.ts, maintenance.service.ts)', () => {
-  it('reads zero lines matching person…email on the provider-only path — a sixth occurrence fails this test until it is consciously reviewed', () => {
+  it('reads zero lines matching person…email on the provider-only path — any occurrence at all fails this test until it is consciously reviewed', () => {
     const hits = PROVIDER_PATH_FILES.flatMap(matchingLines);
     expect(hits).toEqual([]);
   });

@@ -255,27 +255,27 @@ describe('NotificationService', () => {
 
     it('the user who just placed the order is not emailed on either flow — only the provider is', async () => {
       for (const flow of ['TOP_UP', 'WITHDRAW']) {
-        const { svc, prisma, enqueued } = make();
+        const { svc, prisma, enqueued } = make(false, { lp1: { stellarAddress: 'GL', alertEmail: 'ops@example.com' } });
         await svc.notifyOrderStatus(
-          { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow, payDeadline: PAY_DEADLINE },
+          { id: 'o1', userAddress: 'GU', lpWallet: 'GL', lpId: 'lp1', flow, payDeadline: PAY_DEADLINE },
           'MATCHED',
         );
 
         const arg = prisma.notification.createMany.mock.calls[0][0];
         expect(arg.data.map((r: any) => r.address)).toEqual(['GL']);
-        expect(enqueued.map((j) => j.payload.personId)).toEqual(['person-of-GL']);
+        expect(enqueued.map((j) => j.payload.lpId)).toEqual(['lp1']);
       }
     });
 
     it('queues exactly one email, keyed so a replayed MATCHED cannot send twice', async () => {
-      const { svc, enqueued } = make();
+      const { svc, enqueued } = make(false, { lp1: { stellarAddress: 'GL', alertEmail: 'ops@example.com' } });
       await svc.notifyOrderStatus(
-        { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP', payDeadline: PAY_DEADLINE },
+        { id: 'o1', userAddress: 'GU', lpWallet: 'GL', lpId: 'lp1', flow: 'TOP_UP', payDeadline: PAY_DEADLINE },
         'MATCHED',
       );
 
       expect(enqueued).toHaveLength(1);
-      expect(enqueued[0].dedupeKey).toBe('email:o1:MATCHED:person-of-GL');
+      expect(enqueued[0].dedupeKey).toMatch(/^email:o1:MATCHED:(?!person-of-).+$/);
     });
 
     it('emits the realtime update too, so an open LP tab moves without waiting for a poll', async () => {
@@ -494,20 +494,25 @@ describe('NotificationService', () => {
     });
   });
   describe('the email side of a notification', () => {
-    it('queues one email per notification row, carrying a personId and never an address', async () => {
-      const { svc, enqueued } = make();
-      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'FUNDED');
+    it('queues one email per notification row, carrying a personId (the depositor) or an lpId (the provider) and never an address', async () => {
+      const { svc, enqueued } = make(false, { lp1: { stellarAddress: 'GL', alertEmail: 'ops@example.com' } });
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', lpId: 'lp1', flow: 'TOP_UP' }, 'FUNDED');
 
       expect(enqueued).toHaveLength(2);
       for (const job of enqueued) {
         expect(job.kind).toBe('email');
-        expect(job.payload.personId).toMatch(/^person-of-/);
+        expect(job.payload.personId ?? job.payload.lpId).toBeTruthy();
         const keys = Object.keys(job.payload).sort();
-        expect(keys).toEqual(expect.arrayContaining(['personId', 'subject', 'text']));
+        expect(keys).toEqual(expect.arrayContaining(['subject', 'text']));
         expect(keys.every((k) => ['lpId', 'personId', 'subject', 'text'].includes(k))).toBe(true);
         expect(job.payload.subject).toBeTruthy();
         expect(job.payload.text).toBeTruthy();
       }
+      const userJob = enqueued.find((j) => j.payload.personId === 'person-of-GU');
+      const lpJob = enqueued.find((j) => j.payload.lpId === 'lp1');
+      expect(userJob).toBeDefined();
+      expect(lpJob).toBeDefined();
+      expect(lpJob!.payload.personId).toBeNull();
     });
 
     it('queues the email in the same transaction as the notification row, so a crash cannot write one without the other', async () => {
@@ -520,20 +525,22 @@ describe('NotificationService', () => {
     });
 
     it('gives every email a dedupe key of order, status and recipient, so a replayed status cannot send twice', async () => {
-      const { svc, enqueued } = make();
-      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' }, 'FUNDED');
+      const { svc, enqueued } = make(false, { lp1: { stellarAddress: 'GL', alertEmail: 'ops@example.com' } });
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GU', lpWallet: 'GL', lpId: 'lp1', flow: 'TOP_UP' }, 'FUNDED');
 
       const keys = enqueued.map((j) => j.dedupeKey);
       expect(new Set(keys).size).toBe(2);
-      for (const k of keys) expect(k).toMatch(/^email:o1:FUNDED:person-of-G[UL]$/);
+      for (const k of keys) expect(k).toMatch(/^email:o1:FUNDED:.+$/);
+      expect(keys.some((k) => k === 'email:o1:FUNDED:person-of-GU')).toBe(true);
+      expect(keys.some((k) => k.includes('person-of-GL'))).toBe(false);
     });
 
-    it('queues nothing for a recipient with no person, rather than an undeliverable row', async () => {
-      const { svc, enqueued } = make();
-      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GNOBODY', lpWallet: 'GL', flow: 'TOP_UP' }, 'FUNDED');
+    it('queues nothing for a recipient reachable by neither channel, rather than an undeliverable row', async () => {
+      const { svc, enqueued } = make(false, { lp1: { stellarAddress: 'GL', alertEmail: 'ops@example.com' } });
+      await svc.notifyOrderStatus({ id: 'o1', userAddress: 'GNOBODY', lpWallet: 'GL', lpId: 'lp1', flow: 'TOP_UP' }, 'FUNDED');
 
       expect(enqueued).toHaveLength(1);
-      expect(enqueued[0].payload.personId).toBe('person-of-GL');
+      expect(enqueued[0].payload.lpId).toBe('lp1');
     });
 
     it('queues nothing for a recipient whose person has no address, while still writing them the in-app row', async () => {

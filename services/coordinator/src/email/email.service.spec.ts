@@ -109,14 +109,14 @@ describe('the email channel', () => {
       expect(args?.select?.alertEmail === true || args?.omit?.alertEmail === false).toBe(true);
     });
 
-    it('9b — a job whose lpId resolves to an Lp row with NO alertEmail falls back to Person.email', async () => {
-      const send = jest.fn(async () => ({ ok: true, status: 200, body: '{}' }));
+    it("9b — a job whose lpId resolves to an Lp row with NO alertEmail is refused, and never falls back to Person.email even when a personId is also present: lpId alone marks this as a provider job, narrowed ADR 0054", async () => {
+      const send = jest.fn();
       const { handler } = make({ send, lp: { alertEmail: null } });
 
-      await handler()({ lpId: 'lp1', personId: 'p1', subject: 'S', text: 'T' });
-
-      const sent = (send.mock.calls as any[])[0][0];
-      expect(sent.to).toEqual(['a@b.test']);
+      await expect(handler()({ lpId: 'lp1', personId: 'p1', subject: 'S', text: 'T' })).rejects.toThrow(
+        'no address on file for this person, so nothing was delivered',
+      );
+      expect(send).not.toHaveBeenCalled();
     });
 
     it('9d — a job with lpId and no personId at all does not throw "carries no personId", and delivers via Lp.alertEmail', async () => {
