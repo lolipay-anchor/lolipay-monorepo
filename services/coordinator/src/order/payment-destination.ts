@@ -4,6 +4,20 @@ export const PAYMENT_DESTINATION_MIN_WORD_CHARS = 6;
 const PAYMENT_DESTINATION_BAD_CHARS_RE = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u;
 export const NO_CONTROL_OR_FORMAT_CHARS_RE = /^[^\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]*$/u;
 
+export const PAYMENT_METHOD_LABEL_MAX_LEN = 64;
+export const PAYMENT_METHOD_LABEL_LENGTH_RE = new RegExp(
+  `^[\\s\\S]{0,${PAYMENT_METHOD_LABEL_MAX_LEN}}$`,
+  'u',
+);
+export const PAYMENT_METHOD_LABEL_HAS_LETTERS_RE = /(?:[^\p{L}]*\p{L}){2,}/u;
+
+const LABEL_EDGE_WHITESPACE_RE = /^\p{Zs}+|\p{Zs}+$/gu;
+
+export function normalizePaymentMethodLabel(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  return value.replace(LABEL_EDGE_WHITESPACE_RE, '').normalize('NFC');
+}
+
 export type PaymentDestinationProblem = 'missing' | 'too_long' | 'bad_chars' | 'too_short';
 
 export type PaymentDestinationCheck =

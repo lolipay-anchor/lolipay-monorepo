@@ -2,6 +2,23 @@ import { OrderProofService } from './order-proof.service';
 import { OrderStatusService } from './order-status.service';
 import { OrderTxService } from './order-tx.service';
 import { UserReputationService } from '../reputation/user-reputation.service';
+
+export const DANGEROUS_CONTROL_OR_FORMAT_CODE_POINTS: Array<[string, string]> = [
+  ['U+200B ZERO WIDTH SPACE', '\u200B'],
+  ['U+200E LEFT-TO-RIGHT MARK', '\u200E'],
+  ['U+202E RIGHT-TO-LEFT OVERRIDE', '\u202E'],
+  ['U+00AD SOFT HYPHEN', '\u00AD'],
+  ['U+0000 NULL', '\u0000'],
+  ['U+0007 BELL', '\u0007'],
+  ['U+001B ESCAPE', '\u001B'],
+];
+
+export const WIDENED_BAD_CODE_POINTS: Array<[string, string]> = [
+  ['U+2028 LINE SEPARATOR', String.fromCodePoint(0x2028)],
+  ['U+2029 PARAGRAPH SEPARATOR', String.fromCodePoint(0x2029)],
+  ['U+D800 LONE SURROGATE', String.fromCharCode(0xd800)],
+];
+
 export function makeUserReputationStub(
   overrides: Partial<{
     getReputation: jest.Mock;

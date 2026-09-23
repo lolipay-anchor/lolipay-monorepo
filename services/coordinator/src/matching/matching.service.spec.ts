@@ -243,7 +243,7 @@ describe('MatchingService.pickLp', () => {
   });
 
   it('returns the label of the payment method it picked, so the order can snapshot who the depositor is paying', async () => {
-    const labeled = { ...PM, label: 'BCA' };
+    const labeled = { ...PM, label: 'Provider Label Under Test 4f2' };
     const idrLp = makeCandidate('lp-idr', 'GIDR', 0, labeled);
     const prisma = makePrisma([idrLp]);
     const stellar = makeStellar({ GIDR: true });
@@ -251,7 +251,7 @@ describe('MatchingService.pickLp', () => {
     const svc = new MatchingService(prisma, stellar, { walletsOf: jest.fn(), lookupPerson: jest.fn(async () => null) } as any);
     const result = await svc.pickLp('BANK', 'IDR', 1n);
 
-    expect(result.label).toBe('BCA');
+    expect(result.label).toBe('Provider Label Under Test 4f2');
   });
 
   it('queries LPs filtered by rail, active, AND fiat currency', async () => {
