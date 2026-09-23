@@ -520,10 +520,16 @@ export class OrderService {
     const lp = await this.prisma.lp.findUnique({ where: { stellarAddress: lpAddress } });
     if (!lp) throw new NotFoundException('LP not found');
 
+    const config = await this.getConfig();
+    const settledSince = new Date(Date.now() - (config?.postSettleDisputeWindowSecs ?? 0) * 1000);
+
     const orders = await this.prisma.order.findMany({
       where: {
         lpId: lp.id,
-        status: { in: ['MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID'] },
+        OR: [
+          { status: { in: ['MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID'] } },
+          { status: { in: ['RELEASED', 'REFUNDED'] }, settledAt: { gt: settledSince } },
+        ],
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -536,7 +542,7 @@ export class OrderService {
       const createTradeParams = buildCreateTradeParams(currentOrder, roles);
       const lpIsSigner = flow === 'TOP_UP';
 
-      const serialized = serializeOrderBase(currentOrder);
+      const serialized = serializeOrderBase(currentOrder, config);
       const fiatPayer = getFiatPayer(flow, currentOrder.userAddress, lpAddress);
       const lpMayReveal =
         fiatPayer === lpAddress &&
@@ -560,7 +566,6 @@ export class OrderService {
       results.push(...(await Promise.all(orders.slice(i, i + CONCURRENCY).map(mapOne))));
     }
 
-    const config = await this.getConfig();
     return results.map((r) => ({ ...r, require_proof: config?.requireProof ?? false }));
   }
 

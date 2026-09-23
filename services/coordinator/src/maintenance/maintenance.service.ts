@@ -306,8 +306,10 @@ export class MaintenanceService {
                 where: {
                   id: o.lpId,
                   online: true,
-                  OR: [{ lastHeartbeatAt: null }, { lastHeartbeatAt: { lt: o.createdAt } }],
-                  person: { email: { not: null } },
+                  AND: [
+                    { OR: [{ lastHeartbeatAt: null }, { lastHeartbeatAt: { lt: o.createdAt } }] },
+                    { OR: [{ alertEmail: { not: null } }, { person: { email: { not: null } } }] },
+                  ],
                 },
                 data: { online: false },
               });

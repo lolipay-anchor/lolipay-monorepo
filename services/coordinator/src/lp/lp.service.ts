@@ -106,6 +106,8 @@ export class LpService {
         createdAt: true,
         approvedAt: true,
         paymentMethods: true,
+        alertEmail: true,
+        person: { select: { email: true } },
       },
     });
     if (!lp) return null;
@@ -113,7 +115,8 @@ export class LpService {
     const counted = await this.prisma.lp.count({
       where: { ...matchableLpWhere(), id: lp.id },
     });
-    return { ...lp, matchable: counted > 0 };
+    const { alertEmail, person, ...rest } = lp;
+    return { ...rest, matchable: counted > 0, reachable: alertEmail != null || person?.email != null };
   }
 
   async heartbeat(address: string) {
@@ -127,6 +130,13 @@ export class LpService {
     await this.prisma.lp.update({
       where: { stellarAddress: address },
       data: { online: available },
+    });
+  }
+
+  async setAlertEmail(address: string, alertEmail: string | null) {
+    await this.prisma.lp.update({
+      where: { stellarAddress: address },
+      data: { alertEmail },
     });
   }
 

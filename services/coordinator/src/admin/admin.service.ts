@@ -86,10 +86,11 @@ export class AdminService {
     private notifications: NotificationService,
   ) {}
 
-  list(status?: LpStatus) {
-    return this.prisma.lp.findMany({
+  async list(status?: LpStatus) {
+    const rows = await this.prisma.lp.findMany({
       where: status ? { status } : {},
     });
+    return rows.map(({ alertEmail, ...rest }: any) => rest);
   }
 
   async register(dto: RegisterLpDto, actorAddress: string) {
@@ -565,7 +566,7 @@ export class AdminService {
   private async attestFiatPaidOnce(orderId: string, actorAddress: string, evidence: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      select: { id: true, flow: true, status: true, tradeId: true, contractId: true, userAddress: true, lpWallet: true, settledAt: true, payDeadline: true, confirmDeadline: true },
+      select: { id: true, flow: true, status: true, tradeId: true, contractId: true, userAddress: true, lpWallet: true, lpId: true, settledAt: true, payDeadline: true, confirmDeadline: true },
     });
     if (!order) {
       throw new NotFoundException('no such order');

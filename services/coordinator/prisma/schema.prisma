@@ -62,6 +62,7 @@ model Lp {
   approvedAt      DateTime?
   person          Person?  @relation(fields: [personId], references: [id], onDelete: Restrict)
   personId        String?
+  alertEmail      String?  @db.VarChar(254)
 }
 
 model PaymentMethod {

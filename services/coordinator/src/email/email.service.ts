@@ -30,15 +30,26 @@ export class EmailService implements OnModuleInit {
 
   async deliver(payload: Record<string, unknown>): Promise<void> {
     const personId = typeof payload.personId === 'string' ? payload.personId.trim() : '';
-    if (!personId) {
+    const lpId = typeof payload.lpId === 'string' ? payload.lpId.trim() : '';
+    if (!personId && !lpId) {
       throw new Error('email job carries no personId, refusing to send');
     }
 
-    const person = await this.prisma.person.findUnique({
-      where: { id: personId },
-      select: { email: true },
-    });
-    const to = person?.email?.trim() ?? '';
+    let to = '';
+    if (lpId) {
+      const lp = await this.prisma.lp.findUnique({
+        where: { id: lpId },
+        select: { alertEmail: true },
+      });
+      to = lp?.alertEmail?.trim() ?? '';
+    }
+    if (!to && personId) {
+      const person = await this.prisma.person.findUnique({
+        where: { id: personId },
+        select: { email: true },
+      });
+      to = person?.email?.trim() ?? '';
+    }
     if (!to) throw new Error('no address on file for this person, so nothing was delivered');
 
     if (!this.cfg.resendApiKey) {

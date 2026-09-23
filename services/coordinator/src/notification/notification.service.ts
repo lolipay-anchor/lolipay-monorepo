@@ -52,16 +52,16 @@ function messageFor(
       return lpPenalized
         ? {
             title: 'Assignment expired — you have been set unavailable',
-            body: 'The order assigned to you was not completed on-chain in time, so this anchor has set you unavailable. It is closed and will not come back to you. You will not be assigned new orders until you set yourself available again on your dashboard.',
+            body: 'The order assigned to you was not completed on-chain in time, so this anchor has set you unavailable and you will not be assigned new orders. Set yourself available again on your dashboard, where the readiness list shows your stake and payment method. If your transaction reaches the network after this, the order will reopen and you will be told.',
           }
         : {
             title: 'Assignment expired',
-            body: 'The order assigned to you was not completed on-chain in time. It is closed and will not come back to you.',
+            body: 'The order assigned to you was not completed on-chain in time and the assignment has been closed. If your transaction reaches the network after this, the order will reopen and you will be told.',
           };
     case 'CANCELLED':
       return role === 'user'
         ? { title: 'Order cancelled', body: 'Your order was cancelled before it was funded on-chain.' }
-        : { title: 'Assignment cancelled', body: 'The order assigned to you was cancelled before anything was locked on chain. Nothing is needed from you.' };
+        : { title: 'Assignment cancelled', body: 'The order assigned to you was cancelled before anything was locked on chain, so nothing is needed from you. If your transaction reaches the network after this, the order will reopen and you will be told.' };
     case 'FUNDED':
       if (isBuy)
         return role === 'user'
@@ -89,11 +89,17 @@ function messageFor(
     case 'REFUNDED':
       if (isBuy)
         return role === 'user'
-          ? { title: 'Order refunded', body: 'The USDC was returned to the merchant and this order is closed.' }
-          : { title: 'Order refunded', body: 'The USDC you locked was returned to your wallet and this order is closed.' };
+          ? {
+              title: 'Order refunded',
+              body: 'The USDC was returned to the merchant. You were not charged, and you can still open a dispute on this order for a short time.',
+            }
+          : { title: 'Order refunded', body: 'The USDC you locked was returned to your wallet in full.' };
       return role === 'user'
-        ? { title: 'Order refunded', body: 'Your USDC was returned to your wallet and this order is closed.' }
-        : { title: 'Order refunded', body: 'The USDC was returned to the seller and this order is closed. It did not come to you.' };
+        ? {
+            title: 'Order refunded',
+            body: 'Your USDC was returned to your wallet in full. You can still open a dispute on this order for a short time.',
+          }
+        : { title: 'Order refunded', body: 'The USDC was returned to the seller and it did not come to you.' };
     case 'DISPUTED':
       if (settledAt) {
         return {
@@ -122,6 +128,7 @@ export class NotificationService {
       id: string;
       userAddress: string;
       lpWallet: string | null;
+      lpId?: string | null;
       flow: string;
       settledAt?: Date | null;
       payDeadline?: bigint | number | null;
@@ -138,16 +145,24 @@ export class NotificationService {
     }
     if (rows.length > 0) {
       const recipients = await Promise.all(
-        rows.map(async (r) => ({ row: r, person: await this.people.lookupPerson(r.address) })),
+        rows.map(async (r) => {
+          const person = await this.people.lookupPerson(r.address);
+          const lp =
+            order.lpId && r.address === order.lpWallet
+              ? await this.prisma.lp.findUnique({ where: { id: order.lpId }, select: { id: true, alertEmail: true } })
+              : null;
+          return { row: r, person, lp };
+        }),
       );
       await this.prisma.$transaction(async (tx) => {
         await tx.notification.createMany({ data: rows, skipDuplicates: true });
-        for (const { row, person } of recipients) {
-          if (!person?.email) continue;
+        for (const { row, person, lp } of recipients) {
+          const alertEmail = lp?.alertEmail ?? null;
+          if (!person?.email && !alertEmail) continue;
           await this.outbox.enqueue(tx, {
             kind: EMAIL_OUTBOX_KIND,
-            dedupeKey: `${EMAIL_OUTBOX_KIND}:${order.id}:${status}:${person.id}`,
-            payload: { personId: person.id, subject: row.title, text: row.body },
+            dedupeKey: `${EMAIL_OUTBOX_KIND}:${order.id}:${status}:${person?.id ?? lp?.id ?? row.address}`,
+            payload: { personId: person?.id ?? null, lpId: lp?.id ?? null, subject: row.title, text: row.body },
           });
         }
       });

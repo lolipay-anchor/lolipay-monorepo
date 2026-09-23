@@ -17,7 +17,10 @@ function connectionString(): string {
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   constructor() {
     const url = connectionString();
-    super({ adapter: new PrismaPg({ connectionString: url }, { schema: schemaFromUrl(url) }) });
+    super({
+      adapter: new PrismaPg({ connectionString: url }, { schema: schemaFromUrl(url) }),
+      omit: { lp: { alertEmail: true } },
+    });
   }
 
   async onModuleInit() {

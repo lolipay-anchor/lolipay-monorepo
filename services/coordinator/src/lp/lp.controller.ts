@@ -20,6 +20,7 @@ import { AddPaymentMethodDto } from './dto/add-payment-method.dto';
 import { UpdatePaymentMethodDto } from './dto/update-payment-method.dto';
 import { SetAvailabilityDto } from './dto/set-availability.dto';
 import { StakeTxQueryDto } from './dto/stake-query.dto';
+import { UpdateLpMeDto } from './dto/update-lp-me.dto';
 
 @Controller('lp')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -36,6 +37,14 @@ export class LpController {
   @Roles('user', 'lp', 'admin')
   async me(@Req() req: any) {
     return this.lp.me(req.user.address);
+  }
+
+  @Patch('me')
+  @HttpCode(200)
+  @Roles('lp')
+  async updateMe(@Req() req: any, @Body() dto: UpdateLpMeDto) {
+    await this.lp.setAlertEmail(req.user.address, dto.alertEmail ?? null);
+    return { ok: true };
   }
 
   @Get('earnings')
