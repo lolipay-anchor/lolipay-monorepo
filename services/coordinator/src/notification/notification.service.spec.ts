@@ -177,7 +177,7 @@ describe('NotificationService', () => {
   });
 
   describe('MATCHED_EXPIRED: the LP branch depends on whether ADR 0053\'s presence penalty just fired', () => {
-    it('no penalty attached: the assignment is closed, and a late transaction still reopens it (ADR: the indexer can revive EXPIRED to FUNDED)', async () => {
+    it('no penalty attached: the assignment is closed, and a late transaction still reopens it', async () => {
       const { svc, prisma } = make();
       await svc.notifyOrderStatus(
         { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP' },
