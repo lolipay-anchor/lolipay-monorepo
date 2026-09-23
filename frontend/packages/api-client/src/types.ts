@@ -138,6 +138,7 @@ export interface Lp {
   lastHeartbeatAt: string | null
   createdAt: string
   approvedAt: string | null
+  reachable: boolean
 }
 
 export interface PaymentMethod {
