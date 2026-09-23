@@ -41,17 +41,25 @@ describe('the sep24 controller declares no probe-shaped route, and no new top-le
 });
 
 describe('every route in the sep24 controller carries its own throttle, never the global default', () => {
-  it('names every route missing THROTTLER:TTLdefault or THROTTLER:LIMITdefault, so a silent fall-through cannot hide', () => {
+  it('has at least one route method to check, so an empty list cannot pass this block by vacuity', () => {
+    expect(routeMethods().length).toBeGreaterThan(5);
+  });
+
+  it('names every route whose TTL or LIMIT is not an actual number, so a silent fall-through or an undefined value cannot hide', () => {
     const unthrottled = routeMethods().filter(
       (name) =>
-        !Reflect.hasMetadata('THROTTLER:TTLdefault', proto[name]) ||
-        !Reflect.hasMetadata('THROTTLER:LIMITdefault', proto[name]),
+        typeof Reflect.getMetadata('THROTTLER:TTLdefault', proto[name]) !== 'number' ||
+        typeof Reflect.getMetadata('THROTTLER:LIMITdefault', proto[name]) !== 'number',
     );
     expect(unthrottled).toEqual([]);
   });
 
-  it('exempts no route from throttling with THROTTLER:SKIPdefault, which the rejected workaround would need', () => {
+  it('exempts no individual route from throttling with a handler-level THROTTLER:SKIPdefault, which the rejected per-route workaround would need', () => {
     const skipped = routeMethods().filter((name) => Reflect.hasMetadata('THROTTLER:SKIPdefault', proto[name]));
     expect(skipped).toEqual([]);
+  });
+
+  it('exempts no route by way of a CLASS-LEVEL THROTTLER:SKIPdefault, which a handler-scoped check cannot see', () => {
+    expect(Reflect.hasMetadata('THROTTLER:SKIPdefault', Sep24Controller)).toBe(false);
   });
 });
