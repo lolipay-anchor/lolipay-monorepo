@@ -1352,3 +1352,21 @@ describe('AdminService.attestFiatPaid — the row follows the chain, and one att
     expect(attest).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('AdminService.list — ADR 0054: the alert address is never served back to any role', () => {
+  it('12 — never includes alertEmail in a returned Lp row, even when the database carries one', async () => {
+    const prisma = {
+      lp: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'lp1', stellarAddress: 'G1', status: 'APPROVED', alertEmail: 'ops@example.com' },
+        ]),
+      },
+    } as any;
+    const svc = new AdminService(prisma, makeStellar(), makeCfg(), makeMarkets(), makeUserReputation(), {} as any, { notifyOrderStatus: jest.fn() } as any);
+
+    const rows = await svc.list();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).not.toHaveProperty('alertEmail');
+  });
+});

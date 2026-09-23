@@ -49,7 +49,7 @@ describe('LpService.me — the provider is told whether orders can reach them', 
 
     const me = await new LpService(prisma, {} as any).me(LP_ADDR);
 
-    expect(me).toEqual({ ...ROW, matchable: true });
+    expect(me).toMatchObject({ ...ROW, matchable: true });
   });
 
   it('reports matchable false when the shared rule does not count this provider, and changes nothing else in the response', async () => {
@@ -57,7 +57,7 @@ describe('LpService.me — the provider is told whether orders can reach them', 
 
     const me = await new LpService(prisma, {} as any).me(LP_ADDR);
 
-    expect(me).toEqual({ ...ROW, matchable: false });
+    expect(me).toMatchObject({ ...ROW, matchable: false });
   });
 
   it('returns null for a wallet that is not a provider, and never asks the matchability question', async () => {

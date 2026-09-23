@@ -1,11 +1,20 @@
 import { EmailService, EMAIL_OUTBOX_KIND } from './email.service';
 
-function make(opts: { apiKey?: string; email?: string | null; send?: jest.Mock<any, any> }) {
+function make(opts: {
+  apiKey?: string;
+  email?: string | null;
+  lp?: { alertEmail: string | null } | null;
+  send?: jest.Mock<any, any>;
+}) {
   const registered = new Map<string, (p: any) => Promise<void>>();
   const outbox = { register: jest.fn((k: string, h: any) => registered.set(k, h)) } as any;
   const prisma = {
     person: {
       findUnique: jest.fn(async () => (opts.email === undefined ? { email: 'a@b.test' } : opts.email === null ? null : { email: opts.email })),
+    },
+    lp: {
+      findUnique: jest.fn(async () => (opts.lp === undefined ? null : opts.lp)),
+      findFirst: jest.fn(async () => (opts.lp === undefined ? null : opts.lp)),
     },
   } as any;
   const cfg = { resendApiKey: opts.apiKey ?? 'key', resendFrom: 'lolipay <support@lolipay.app>' } as any;
@@ -79,5 +88,37 @@ describe('the email channel', () => {
     const { handler } = make({ send });
     await expect(handler()({ subject: 'S', text: 'T' })).rejects.toThrow(/personId/i);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  describe('ADR 0054 — the provider alert address', () => {
+    it('9 — a job whose lpId resolves to an Lp row with alertEmail sends there, preferred over the person\'s', async () => {
+      const send = jest.fn(async () => ({ ok: true, status: 200, body: '{}' }));
+      const { handler } = make({ send, lp: { alertEmail: 'ops@example.com' } });
+
+      await handler()({ lpId: 'lp1', personId: 'p1', subject: 'S', text: 'T' });
+
+      const sent = (send.mock.calls as any[])[0][0];
+      expect(sent.to).toEqual(['ops@example.com']);
+    });
+
+    it('9b — a job whose lpId resolves to an Lp row with NO alertEmail falls back to Person.email', async () => {
+      const send = jest.fn(async () => ({ ok: true, status: 200, body: '{}' }));
+      const { handler } = make({ send, lp: { alertEmail: null } });
+
+      await handler()({ lpId: 'lp1', personId: 'p1', subject: 'S', text: 'T' });
+
+      const sent = (send.mock.calls as any[])[0][0];
+      expect(sent.to).toEqual(['a@b.test']);
+    });
+
+    it('9d — a job with lpId and no personId at all does not throw "carries no personId", and delivers via Lp.alertEmail', async () => {
+      const send = jest.fn(async () => ({ ok: true, status: 200, body: '{}' }));
+      const { handler } = make({ send, lp: { alertEmail: 'ops@example.com' } });
+
+      await expect(handler()({ lpId: 'lp1', subject: 'S', text: 'T' })).resolves.toBeUndefined();
+
+      const sent = (send.mock.calls as any[])[0][0];
+      expect(sent.to).toEqual(['ops@example.com']);
+    });
   });
 });

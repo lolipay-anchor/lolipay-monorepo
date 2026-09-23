@@ -17,6 +17,11 @@ function make(opts: { refused?: boolean; personEmail?: string | null } = {}) {
       upsert: jest.fn(async () => ({})),
       create: jest.fn(async () => ({})),
     },
+    lp: {
+      updateMany: jest.fn(async () => {
+        throw new Error('forget() touched the Lp table; Lp.alertEmail is the provider\'s own channel and a SEP-12 erasure must never reach it');
+      }),
+    },
     $executeRaw: jest.fn(async () => 0),
     $transaction: jest.fn(async (cb: any) => cb(prisma)),
   };
@@ -62,6 +67,11 @@ describe('the address the anchor keeps for mail', () => {
   });
 
   it('erasure that only cleared an address still reports having held something, so a second DELETE does not 404 while the row is already empty', async () => {
+    const { svc } = make({ personEmail: 'budi@example.com' });
+    await expect(svc.forget('GABC')).resolves.toBe(1);
+  });
+
+  it('13 (ADR 0054) — erasure never touches the Lp table, so Lp.alertEmail, the provider\'s own channel, survives a depositor\'s SEP-12 DELETE', async () => {
     const { svc } = make({ personEmail: 'budi@example.com' });
     await expect(svc.forget('GABC')).resolves.toBe(1);
   });

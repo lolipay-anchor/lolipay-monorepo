@@ -1,13 +1,24 @@
 import { NotificationService } from './notification.service';
 
 describe('NotificationService', () => {
-  function make(withRealtime = false) {
+  function make(
+    withRealtime = false,
+    lpRows: Record<string, { stellarAddress: string; alertEmail: string | null }> = {},
+  ) {
+    const byId = new Map(Object.entries(lpRows).map(([id, r]) => [id, { id, ...r }]));
+    const byAddress = new Map([...byId.values()].map((r) => [r.stellarAddress, r]));
     const prisma = {
       notification: {
         createMany: jest.fn().mockResolvedValue({ count: 2 }),
         findMany: jest.fn().mockResolvedValue([]),
         count: jest.fn().mockResolvedValue(0),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      lp: {
+        findUnique: jest.fn(async ({ where }: any) => (where?.id ? byId.get(where.id) ?? null : null)),
+        findFirst: jest.fn(async ({ where }: any) =>
+          where?.id ? byId.get(where.id) ?? null : where?.stellarAddress ? byAddress.get(where.stellarAddress) ?? null : null,
+        ),
       },
     } as any;
     const enqueued: any[] = [];
@@ -491,7 +502,9 @@ describe('NotificationService', () => {
       for (const job of enqueued) {
         expect(job.kind).toBe('email');
         expect(job.payload.personId).toMatch(/^person-of-/);
-        expect(Object.keys(job.payload).sort()).toEqual(['personId', 'subject', 'text']);
+        const keys = Object.keys(job.payload).sort();
+        expect(keys).toEqual(expect.arrayContaining(['personId', 'subject', 'text']));
+        expect(keys.every((k) => ['lpId', 'personId', 'subject', 'text'].includes(k))).toBe(true);
         expect(job.payload.subject).toBeTruthy();
         expect(job.payload.text).toBeTruthy();
       }
@@ -541,6 +554,38 @@ describe('NotificationService', () => {
 
       expect(prisma.notification.createMany).not.toHaveBeenCalled();
       expect(enqueued).toHaveLength(0);
+    });
+  });
+
+  describe('ADR 0054 — a provider reachable by Lp.alertEmail alone still gets an OutboxMessage', () => {
+    it('6 — a provider reachable only by alertEmail (its Person.email NULL) produces an OutboxMessage', async () => {
+      const order = { id: 'o1', userAddress: 'GU', lpWallet: 'GNOMAIL', flow: 'TOP_UP', lpId: 'lp1' };
+      const { svc, enqueued } = make(false, { lp1: { stellarAddress: 'GNOMAIL', alertEmail: 'ops@example.com' } });
+      await svc.notifyOrderStatus(order, 'FUNDED');
+
+      expect(enqueued.some((j) => j.payload.lpId === 'lp1')).toBe(true);
+    });
+
+    it('7 — a provider with no Person at all (personId null) but alertEmail on file still enqueues, and the dedupeKey is well-formed', async () => {
+      const order = { id: 'o1', userAddress: 'GU', lpWallet: 'GNOBODY', flow: 'TOP_UP', lpId: 'lp1' };
+      const { svc, enqueued } = make(false, { lp1: { stellarAddress: 'GNOBODY', alertEmail: 'ops@example.com' } });
+
+      await expect(svc.notifyOrderStatus(order, 'FUNDED')).resolves.toBeUndefined();
+
+      const job = enqueued.find((j) => j.payload.lpId === 'lp1');
+      expect(job).toBeDefined();
+      expect(job!.dedupeKey).toMatch(/^email:o1:FUNDED:.+$/);
+      expect(job!.dedupeKey).not.toMatch(/undefined|null/);
+    });
+
+    it('8 — the lp job payload carries lpId (edit 3), even when the provider is reachable the old way (Person.email)', async () => {
+      const order = { id: 'o1', userAddress: 'GU', lpWallet: 'GL', flow: 'TOP_UP', lpId: 'lp1' };
+      const { svc, enqueued } = make(false, { lp1: { stellarAddress: 'GL', alertEmail: null } });
+      await svc.notifyOrderStatus(order, 'FUNDED');
+
+      const job = enqueued.find((j) => j.payload.personId === 'person-of-GL');
+      expect(job).toBeDefined();
+      expect(job!.payload.lpId).toBe('lp1');
     });
   });
 });

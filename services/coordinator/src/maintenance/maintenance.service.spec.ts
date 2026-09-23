@@ -3,38 +3,55 @@ import { LOOKBACK_LEDGERS, LEDGER_SECONDS } from '../indexer/indexer.service';
 import { MaintenanceService, INDEXED_EVENT_RETENTION_MS } from './maintenance.service';
 
 describe('MaintenanceService', () => {
-  type LpFixture = { online: boolean; lastHeartbeatAt: Date | null; email: string | null };
+  type LpFixture = { online: boolean; lastHeartbeatAt: Date | null; email: string | null; alertEmail?: string | null };
 
-  function orMatches(or: any[], cur: LpFixture): boolean {
-    return or.some((clause: any) => {
-      const keys = Object.keys(clause);
-      if (keys.length !== 1 || keys[0] !== 'lastHeartbeatAt') {
-        throw new Error(`fake lp.updateMany cannot evaluate OR clause ${JSON.stringify(clause)}`);
-      }
-      const val = clause.lastHeartbeatAt;
+  function matchesLeaf(key: string, val: any, cur: LpFixture): boolean {
+    if (key === 'online') return cur.online === val;
+    if (key === 'lastHeartbeatAt') {
       if (val === null) return cur.lastHeartbeatAt === null;
       if (val && typeof val === 'object' && 'lt' in val) {
         return cur.lastHeartbeatAt !== null && cur.lastHeartbeatAt.getTime() < val.lt.getTime();
       }
-      throw new Error(`fake lp.updateMany cannot evaluate OR clause shape ${JSON.stringify(clause)}`);
-    });
+      throw new Error(`fake lp.updateMany cannot evaluate lastHeartbeatAt clause ${JSON.stringify(val)}`);
+    }
+    if (key === 'alertEmail') {
+      const keys = Object.keys(val ?? {});
+      if (keys.length !== 1 || keys[0] !== 'not' || val.not !== null) {
+        throw new Error(`fake lp.updateMany cannot evaluate alertEmail clause ${JSON.stringify(val)}`);
+      }
+      return (cur.alertEmail ?? null) != null;
+    }
+    if (key === 'person') {
+      const keys = Object.keys(val ?? {});
+      if (keys.length !== 1 || keys[0] !== 'email') {
+        throw new Error(`fake lp.updateMany cannot evaluate person clause ${JSON.stringify(val)}`);
+      }
+      const emailKeys = Object.keys(val.email ?? {});
+      if (emailKeys.length !== 1 || emailKeys[0] !== 'not' || val.email.not !== null) {
+        throw new Error(`fake lp.updateMany cannot evaluate person.email clause ${JSON.stringify(val.email)}`);
+      }
+      return cur.email != null;
+    }
+    throw new Error(`fake lp.updateMany cannot evaluate where.${key}`);
   }
 
-  function personMatches(person: any, cur: LpFixture): boolean {
-    const keys = Object.keys(person ?? {});
-    if (keys.length !== 1 || keys[0] !== 'email') {
-      throw new Error(`fake lp.updateMany cannot evaluate person clause ${JSON.stringify(person)}`);
-    }
-    const emailKeys = Object.keys(person.email ?? {});
-    if (emailKeys.length !== 1 || emailKeys[0] !== 'not' || person.email.not !== null) {
-      throw new Error(`fake lp.updateMany cannot evaluate person.email clause ${JSON.stringify(person.email)}`);
-    }
-    return cur.email != null;
+  function matchesClause(clause: Record<string, any>, cur: LpFixture): boolean {
+    return Object.entries(clause).every(([key, val]) => {
+      if (key === 'OR') {
+        if (!Array.isArray(val)) throw new Error('fake lp.updateMany OR must be an array');
+        return val.some((c: any) => matchesClause(c, cur));
+      }
+      if (key === 'AND') {
+        if (!Array.isArray(val)) throw new Error('fake lp.updateMany AND must be an array');
+        return val.every((c: any) => matchesClause(c, cur));
+      }
+      return matchesLeaf(key, val, cur);
+    });
   }
 
   function make(onChain: any = null, throwOnStrict = false, orders?: any[], lpSeed: Record<string, LpFixture> = {}) {
     const lps = new Map<string, LpFixture>();
-    for (const [id, seed] of Object.entries(lpSeed)) lps.set(id, { ...seed });
+    for (const [id, seed] of Object.entries(lpSeed)) lps.set(id, { alertEmail: null, ...seed });
     const lpWrites: { id: string; data: any }[] = [];
     const prisma = {
       order: {
@@ -48,16 +65,11 @@ describe('MaintenanceService', () => {
       config: { findUnique: jest.fn().mockResolvedValue({ autoRefund: false }) },
       lp: {
         updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
-          const knownKeys = new Set(['id', 'online', 'OR', 'person']);
-          for (const key of Object.keys(where)) {
-            if (!knownKeys.has(key)) throw new Error(`fake lp.updateMany does not model where.${key}`);
-          }
-          const cur = lps.get(where.id);
+          const { id, ...rest } = where;
+          const cur = lps.get(id);
           if (!cur) return { count: 0 };
-          if (where.online !== undefined && cur.online !== where.online) return { count: 0 };
-          if (where.OR !== undefined && !orMatches(where.OR, cur)) return { count: 0 };
-          if (where.person !== undefined && !personMatches(where.person, cur)) return { count: 0 };
-          lpWrites.push({ id: where.id, data });
+          if (!matchesClause(rest, cur)) return { count: 0 };
+          lpWrites.push({ id, data });
           cur.online = data.online;
           return { count: 1 };
         }),
@@ -373,13 +385,6 @@ describe('MaintenanceService', () => {
 
     const REACHABLE_ABSENT_LP = { online: true, lastHeartbeatAt: null, email: 'lp1@example.com' };
 
-    const presenceWhere = (overrides: { online?: boolean } = {}) => ({
-      id: 'lp1',
-      online: overrides.online ?? true,
-      OR: [{ lastHeartbeatAt: null }, { lastHeartbeatAt: { lt: TOP_UP_ORDER.createdAt } }],
-      person: { email: { not: null } },
-    });
-
     it('selects lpId on the expiry scan, so the presence penalty has something to flip', async () => {
       const { svc, prisma } = make(null, false, [TOP_UP_ORDER], { lp1: REACHABLE_ABSENT_LP });
       await svc.expireStaleOrders();
@@ -399,10 +404,12 @@ describe('MaintenanceService', () => {
       expect(prisma.order.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({ data: { status: 'EXPIRED' } }),
       );
-      expect(prisma.lp.updateMany).toHaveBeenCalledWith({
-        where: presenceWhere(),
-        data: { online: false },
-      });
+      expect(prisma.lp.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: 'lp1', online: true }),
+          data: { online: false },
+        }),
+      );
       expect(online.get('lp1')).toBe(false);
       expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'o1' }),
@@ -467,10 +474,12 @@ describe('MaintenanceService', () => {
       });
       await svc.expireStaleOrders();
 
-      expect(prisma.lp.updateMany).toHaveBeenCalledWith({
-        where: presenceWhere(),
-        data: { online: false },
-      });
+      expect(prisma.lp.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: 'lp1', online: true }),
+          data: { online: false },
+        }),
+      );
       expect(lpWrites).toHaveLength(0);
       expect(online.get('lp1')).toBe(false);
       expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
@@ -552,6 +561,104 @@ describe('MaintenanceService', () => {
       expect(prisma.lp.updateMany).not.toHaveBeenCalled();
       expect(lpWrites).toHaveLength(0);
       expect(notifications.notifyOrderStatus).not.toHaveBeenCalled();
+    });
+
+    describe('ADR 0054 — conjunct B widens with the delivery, so "reachable" means the same thing in the sanction as in the notification', () => {
+      async function expectNoSilentFailure(run: () => Promise<void>) {
+        const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+        try {
+          await run();
+          expect(warn).not.toHaveBeenCalledWith(expect.stringMatching(/presence penalty failed/));
+        } finally {
+          warn.mockRestore();
+        }
+      }
+
+      it('1 — fires for a provider reachable only by alertEmail, Person.email NULL', async () => {
+        await expectNoSilentFailure(async () => {
+          const { svc, notifications, online, lpWrites } = make(null, false, [TOP_UP_ORDER], {
+            lp1: { online: true, lastHeartbeatAt: null, email: null, alertEmail: 'ops@example.com' },
+          });
+          await svc.expireStaleOrders();
+
+          expect(online.get('lp1')).toBe(false);
+          expect(lpWrites).toEqual([{ id: 'lp1', data: { online: false } }]);
+          expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'o1' }),
+            'MATCHED_EXPIRED',
+            true,
+          );
+        });
+      });
+
+      it('2 — still fires for a provider reachable only by Person.email, alertEmail NULL (no regression)', async () => {
+        await expectNoSilentFailure(async () => {
+          const { svc, notifications, online, lpWrites } = make(null, false, [TOP_UP_ORDER], {
+            lp1: { online: true, lastHeartbeatAt: null, email: 'lp1@example.com', alertEmail: null },
+          });
+          await svc.expireStaleOrders();
+
+          expect(online.get('lp1')).toBe(false);
+          expect(lpWrites).toEqual([{ id: 'lp1', data: { online: false } }]);
+          expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'o1' }),
+            'MATCHED_EXPIRED',
+            true,
+          );
+        });
+      });
+
+      it('3 — does not fire for a provider with neither alertEmail nor Person.email on file', async () => {
+        await expectNoSilentFailure(async () => {
+          const { svc, notifications, online, lpWrites } = make(null, false, [TOP_UP_ORDER], {
+            lp1: { online: true, lastHeartbeatAt: null, email: null, alertEmail: null },
+          });
+          await svc.expireStaleOrders();
+
+          expect(lpWrites).toHaveLength(0);
+          expect(online.get('lp1')).toBe(true);
+          expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'o1' }),
+            'MATCHED_EXPIRED',
+            false,
+          );
+        });
+      });
+
+      it('4 THE TRAP — a fresh heartbeat spares a provider reachable only via alertEmail; a second OR silently replacing the heartbeat OR would fire here', async () => {
+        await expectNoSilentFailure(async () => {
+          const heartbeatDuringWindow = new Date(TOP_UP_ORDER.createdAt.getTime() + 60_000);
+          const { svc, notifications, online, lpWrites } = make(null, false, [TOP_UP_ORDER], {
+            lp1: { online: true, lastHeartbeatAt: heartbeatDuringWindow, email: null, alertEmail: 'ops@example.com' },
+          });
+          await svc.expireStaleOrders();
+
+          expect(lpWrites).toHaveLength(0);
+          expect(online.get('lp1')).toBe(true);
+          expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'o1' }),
+            'MATCHED_EXPIRED',
+            false,
+          );
+        });
+      });
+
+      it('5 — a provider already offline stays offline and unre-notified even when reachable only via alertEmail', async () => {
+        await expectNoSilentFailure(async () => {
+          const { svc, notifications, online, lpWrites } = make(null, false, [TOP_UP_ORDER], {
+            lp1: { online: false, lastHeartbeatAt: null, email: null, alertEmail: 'ops@example.com' },
+          });
+          await svc.expireStaleOrders();
+
+          expect(lpWrites).toHaveLength(0);
+          expect(online.get('lp1')).toBe(false);
+          expect(notifications.notifyOrderStatus).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'o1' }),
+            'MATCHED_EXPIRED',
+            false,
+          );
+        });
+      });
     });
   });
 });
