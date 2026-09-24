@@ -133,4 +133,11 @@ describe('UpdatePaymentMethodDto.label is trimmed, NFC-normalized, and must cont
     expect(problems).toContain(PAYMENT_METHOD_LABEL_TOO_LONG_MESSAGE);
     expect(problems).toContain(PAYMENT_METHOD_LABEL_NO_NAME_MESSAGE);
   });
+
+  it('99,000 leading spaces then a real institution name is truncated before it is trimmed, so it reads as a missing name rather than a too-long label — a documented pathological edge, not a defect', () => {
+    const pathological = `${' '.repeat(99_000)}BCA`;
+    const problems = labelProblems(pathological);
+    expect(problems).toContain(PAYMENT_METHOD_LABEL_NO_NAME_MESSAGE);
+    expect(problems).not.toContain(PAYMENT_METHOD_LABEL_TOO_LONG_MESSAGE);
+  });
 });

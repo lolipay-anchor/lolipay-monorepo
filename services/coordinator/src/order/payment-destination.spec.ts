@@ -8,6 +8,8 @@ import { validatePaymentDestination } from './order.service';
 import {
   checkPaymentDestination,
   NO_CONTROL_OR_FORMAT_CHARS_RE,
+  normalizePaymentMethodLabel,
+  PAYMENT_METHOD_LABEL_COST_CEILING,
   PAYMENT_METHOD_LABEL_HAS_LETTERS_RE,
 } from './payment-destination';
 import { DANGEROUS_CONTROL_OR_FORMAT_CODE_POINTS, WIDENED_BAD_CODE_POINTS } from './test-helpers';
@@ -121,6 +123,21 @@ describe('PAYMENT_METHOD_LABEL_HAS_LETTERS_RE requires at least two letters and 
       expect(elapsedMs).toBeLessThan(50);
     },
   );
+});
+
+describe('normalizePaymentMethodLabel bounds its OUTPUT at PAYMENT_METHOD_LABEL_COST_CEILING before any regex runs, regardless of shape', () => {
+  it.each<[string, string]>([
+    ['99,000 digits, no whitespace at all', '1'.repeat(99_000)],
+    ['a non-space character, 99,000 spaces, then a non-space character', `x${' '.repeat(99_000)}x`],
+    ['99,000 decomposed characters that DOUBLE in length under NFC', 'क़'.repeat(99_000)],
+  ])('never returns more than PAYMENT_METHOD_LABEL_COST_CEILING characters for %s', (_label, raw) => {
+    const result = normalizePaymentMethodLabel(raw) as string;
+    expect(result.length).toBeLessThanOrEqual(PAYMENT_METHOD_LABEL_COST_CEILING);
+  });
+
+  it('passes a short, well-formed label through unchanged', () => {
+    expect(normalizePaymentMethodLabel('BCA')).toBe('BCA');
+  });
 });
 
 describe('NO_CONTROL_OR_FORMAT_CHARS_RE agrees with checkPaymentDestination on every bad_chars corpus code point', () => {

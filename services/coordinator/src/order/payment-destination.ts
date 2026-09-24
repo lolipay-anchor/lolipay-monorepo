@@ -13,9 +13,18 @@ export const PAYMENT_METHOD_LABEL_HAS_LETTERS_RE = /\p{L}[^\p{L}]*\p{L}/u;
 
 const LABEL_EDGE_WHITESPACE_RE = /^\p{Zs}+|\p{Zs}+$/gu;
 
+export const PAYMENT_METHOD_LABEL_COST_CEILING = 1024;
+
+function boundToCostCeiling(value: string): string {
+  return value.length > PAYMENT_METHOD_LABEL_COST_CEILING
+    ? value.slice(0, PAYMENT_METHOD_LABEL_COST_CEILING)
+    : value;
+}
+
 export function normalizePaymentMethodLabel(value: unknown): unknown {
   if (typeof value !== 'string') return value;
-  return value.replace(LABEL_EDGE_WHITESPACE_RE, '').normalize('NFC');
+  const trimmed = boundToCostCeiling(value).replace(LABEL_EDGE_WHITESPACE_RE, '').normalize('NFC');
+  return boundToCostCeiling(trimmed);
 }
 
 export type PaymentDestinationProblem = 'missing' | 'too_long' | 'bad_chars' | 'too_short';
