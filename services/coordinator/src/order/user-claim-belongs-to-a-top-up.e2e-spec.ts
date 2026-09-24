@@ -4,7 +4,7 @@ import { bootAuthApp } from '../auth/auth-test-helpers';
 import { PrismaService } from '../prisma/prisma.service';
 import { Flow } from './order.params';
 
-describe('a WITHDRAW row cannot carry a depositor payment claim, because on a WITHDRAW the depositor does not pay (ADR TBD, e2e)', () => {
+describe('a WITHDRAW row cannot carry a depositor payment claim, because on a WITHDRAW the depositor does not pay (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
 
@@ -42,7 +42,7 @@ describe('a WITHDRAW row cannot carry a depositor payment claim, because on a WI
     });
   }
 
-  it('refuses a WITHDRAW order a userClaimedPaidAt, and leaves the column null', async () => {
+  it('refuses to give a WITHDRAW order a userClaimedPaidAt, and leaves the column null', async () => {
     const order = await seedOrder('WITHDRAW');
 
     await expect(
@@ -53,7 +53,7 @@ describe('a WITHDRAW row cannot carry a depositor payment claim, because on a WI
     expect(after.userClaimedPaidAt).toBeNull();
   });
 
-  it('admits a TOP_UP order a userClaimedPaidAt, so the gate is not simply refusing everything', async () => {
+  it('gives a TOP_UP order a userClaimedPaidAt, so the gate is not simply refusing everything', async () => {
     const order = await seedOrder('TOP_UP');
 
     await prisma.order.update({ where: { id: order.id }, data: { userClaimedPaidAt: new Date() } });
