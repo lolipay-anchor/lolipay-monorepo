@@ -770,6 +770,47 @@ describe('OrderStatus component', () => {
     expect(screen.getByText(/already transferred/i)).toBeTruthy()
   })
 
+  it('State A (open): the account number renders at bold weight before the deadline', async () => {
+    const order: Order = {
+      ...BASE_ORDER,
+      id: 'ord-weight-open',
+      payment_instructions: 'BCA 1234567890',
+    }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-weight-open" />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('BCA 1234567890')).toBeTruthy()
+    })
+    expect(screen.getByText('BCA 1234567890').className).toContain('font-bold')
+  })
+
+  it('State B (closed): the account number is demoted to body weight, no longer the boldest thing on a "do not transfer" panel', async () => {
+    const order: Order = {
+      ...BASE_ORDER,
+      id: 'ord-weight-closed',
+      payment_instructions: 'BCA 1234567890',
+      pay_deadline: Math.floor(Date.now() / 1000) - 60,
+    }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-weight-closed" />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/Payment window closed/i)).toBeTruthy()
+    })
+    expect(screen.getByText('BCA 1234567890').className).not.toContain('font-bold')
+  })
+
   it('State B, still inside the confirmation window: names the control, never the outcome, and shows a countdown to when the refund opens instead of "Pay within"', async () => {
     const now = Math.floor(Date.now() / 1000)
     const order: Order = {

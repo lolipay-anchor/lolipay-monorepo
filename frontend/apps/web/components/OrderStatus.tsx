@@ -72,6 +72,17 @@ interface Props {
   submitFn?: SubmitFn
 }
 
+function DestinationNumber({ value, bold }: { value: string; bold: boolean }) {
+  return (
+    <p
+      className={`font-geist-mono text-[15px] text-lp-accent-ink ${bold ? 'font-bold' : 'font-normal'}`}
+      dir="ltr"
+    >
+      {value}
+    </p>
+  )
+}
+
 function SettlementLink({ hash, className }: { hash: string | null | undefined; className: string }) {
   const url = hash ? txUrl(hash) : null
   if (!url) return null
@@ -159,12 +170,6 @@ export function OrderStatus({ id, submitFn }: Props) {
 
   const paymentWindowClosed = pastDeadline || (payDeadlineMs !== null && payDeadlineMs <= Date.now())
   const refundWindowOpen = refundElapsed || (refundOpensAtMs !== null && refundOpensAtMs <= Date.now())
-
-  const destinationNumber = order.payment_instructions ? (
-    <p className="font-geist-mono text-[15px] font-bold text-lp-accent-ink" dir="ltr">
-      {order.payment_instructions}
-    </p>
-  ) : null
 
   return (
     <div className="flex min-h-screen flex-col bg-lp-paper pb-28">
@@ -257,7 +262,9 @@ export function OrderStatus({ id, submitFn }: Props) {
                         {` ${RAIL_WORDS[order.rail]} below.`}
                       </p>
                     )}
-                    {destinationNumber}
+                    {order.payment_instructions && (
+                      <DestinationNumber value={order.payment_instructions} bold={false} />
+                    )}
                   </>
                 )}
                 <p className="mt-3 text-[13px] text-lp-ink-soft">
@@ -285,7 +292,9 @@ export function OrderStatus({ id, submitFn }: Props) {
                     `Send exactly ${formatIDR(fiatAmount)} to:`
                   )}
                 </p>
-                {destinationNumber}
+                {order.payment_instructions && (
+                  <DestinationNumber value={order.payment_instructions} bold={true} />
+                )}
                 {order.ref && (
                   <>
                     <p className="mb-1 mt-3 text-[13.5px] font-semibold text-lp-ink">
