@@ -33,6 +33,10 @@ describe('UpdatePaymentMethodDto.details enforces structural validity only — c
       ),
     ).toEqual([]);
   });
+
+  it('a patched details of null is refused at the DTO layer, not silently dropped', () => {
+    expect(problems(null as unknown as string)).not.toEqual([]);
+  });
 });
 
 describe('UpdatePaymentMethodDto.label is trimmed, NFC-normalized, and must contain a readable institution name, and only when label is patched', () => {
@@ -141,7 +145,44 @@ describe('UpdatePaymentMethodDto.label is trimmed, NFC-normalized, and must cont
     expect(problems).not.toContain(PAYMENT_METHOD_LABEL_TOO_LONG_MESSAGE);
   });
 
-  it('a patched label that is a number fires only the type refusal, never a sentence about a label that does not exist', () => {
-    expect(labelProblems(123)).toEqual(['label must be a string']);
+  it.each<[string, unknown]>([
+    ['a number', 123],
+    ['null', null],
+  ])('a patched label that is %s fires only the type refusal, never a sentence about a label that does not exist', (_case, label) => {
+    expect(labelProblems(label)).toEqual(['label must be a string']);
+  });
+});
+
+describe('UpdatePaymentMethodDto refuses an explicit null on a field the schema does not allow to be null, rather than silently dropping the patch', () => {
+  it('omitting rail entirely stays valid', () => {
+    expect(
+      validateSync(plainToInstance(UpdatePaymentMethodDto, { active: true })).flatMap((e) =>
+        Object.values(e.constraints ?? {}),
+      ),
+    ).toEqual([]);
+  });
+
+  it('a patched rail of null is refused, not silently ignored', () => {
+    expect(
+      validateSync(plainToInstance(UpdatePaymentMethodDto, { rail: null })).flatMap((e) =>
+        Object.values(e.constraints ?? {}),
+      ),
+    ).not.toEqual([]);
+  });
+
+  it('omitting active entirely stays valid', () => {
+    expect(
+      validateSync(plainToInstance(UpdatePaymentMethodDto, { label: 'BCA' })).flatMap((e) =>
+        Object.values(e.constraints ?? {}),
+      ),
+    ).toEqual([]);
+  });
+
+  it('a patched active of null is refused, not silently ignored', () => {
+    expect(
+      validateSync(plainToInstance(UpdatePaymentMethodDto, { active: null })).flatMap((e) =>
+        Object.values(e.constraints ?? {}),
+      ),
+    ).not.toEqual([]);
   });
 });

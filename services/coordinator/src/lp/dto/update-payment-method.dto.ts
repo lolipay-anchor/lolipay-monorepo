@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsOptional, IsString, IsNotEmpty, MaxLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsString, IsNotEmpty, MaxLength, ValidateIf } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { RailEnum } from './add-payment-method.dto';
 import { normalizePaymentMethodLabel } from '../../order/payment-destination';
@@ -10,7 +10,7 @@ import {
 
 export class UpdatePaymentMethodDto {
   @IsEnum(RailEnum)
-  @IsOptional()
+  @ValidateIf((o: UpdatePaymentMethodDto) => o.rail !== undefined)
   rail?: RailEnum;
 
   @Transform(({ value }) => normalizePaymentMethodLabel(value))
@@ -18,16 +18,16 @@ export class UpdatePaymentMethodDto {
   @IsPaymentMethodLabelLength()
   @HasNoDisallowedPaymentMethodChars()
   @HasReadablePaymentMethodName()
-  @IsOptional()
+  @ValidateIf((o: UpdatePaymentMethodDto) => o.label !== undefined)
   label?: string;
 
   @IsString()
   @IsNotEmpty()
   @MaxLength(500)
-  @IsOptional()
+  @ValidateIf((o: UpdatePaymentMethodDto) => o.details !== undefined)
   details?: string;
 
   @IsBoolean()
-  @IsOptional()
+  @ValidateIf((o: UpdatePaymentMethodDto) => o.active !== undefined)
   active?: boolean;
 }
