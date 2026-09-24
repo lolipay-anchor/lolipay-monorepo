@@ -27,6 +27,14 @@ describe('the countdown a user sees never counts to an instant nothing enforces 
     })
   })
 
+  it('removes the lock row on a MATCHED order once sign_by has passed, because a frozen 0:00 cannot be told from a stalled one', () => {
+    expect(activeCountdown({ ...base, status: 'MATCHED', sign_by: 1_000 })).toBeNull()
+  })
+
+  it('removes the lock row on an AWAITING_ONCHAIN order once sign_by has passed, the same as MATCHED', () => {
+    expect(activeCountdown({ ...base, status: 'AWAITING_ONCHAIN', sign_by: 1_000 })).toBeNull()
+  })
+
   it('shows no countdown at FIAT_PAID on a deposit either, because confirm_and_release has no deadline on that flow any more than the withdrawal side does', () => {
     expect(activeCountdown({ ...base, flow: 'TOP_UP', status: 'FIAT_PAID' })).toBeNull()
   })
