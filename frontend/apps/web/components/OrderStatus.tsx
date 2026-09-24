@@ -124,7 +124,7 @@ export function OrderStatus({ id, submitFn }: Props) {
   const payDeadlineMs = order ? order.pay_deadline * 1000 : null
   const refundOpensAtMs = order ? order.refund_opens_at * 1000 : null
   const pastDeadline = useElapsed(payDeadlineMs)
-  useElapsed(refundOpensAtMs)
+  const refundElapsed = useElapsed(refundOpensAtMs)
 
   if (isLoading) {
     return (
@@ -158,6 +158,7 @@ export function OrderStatus({ id, submitFn }: Props) {
   const canPostSettleDispute = postSettleDeadlineMs != null && postSettleDeadlineMs > Date.now()
 
   const paymentWindowClosed = pastDeadline || (payDeadlineMs !== null && payDeadlineMs <= Date.now())
+  const refundWindowOpen = refundElapsed || (refundOpensAtMs !== null && refundOpensAtMs <= Date.now())
 
   const destinationNumber = order.payment_instructions ? (
     <p className="font-geist-mono text-[15px] font-bold text-lp-accent-ink" dir="ltr">
@@ -231,8 +232,18 @@ export function OrderStatus({ id, submitFn }: Props) {
                   Do not start a transfer now.
                 </p>
                 <p className="text-[13px] text-lp-ink-soft">
-                  Your USDC has not moved. A transfer that has already arrived can still be
-                  confirmed by lolipay; after that, the escrow can be returned to the provider.
+                  {refundWindowOpen ? (
+                    <>
+                      Your USDC has not moved, but lolipay can no longer confirm a transfer for
+                      you. The escrow can now be returned to the provider.
+                    </>
+                  ) : (
+                    <>
+                      Your USDC has not moved. A transfer that has already arrived can still be
+                      confirmed by lolipay; after that, the escrow can be returned to the
+                      provider.
+                    </>
+                  )}
                 </p>
                 {order.payment_instructions && (
                   <>

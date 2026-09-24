@@ -715,7 +715,8 @@ describe('OrderStatus component', () => {
       expect(screen.getByText('BCA 1234567890')).toBeTruthy()
     })
     expect(screen.queryByText(/unknown bank/i)).toBeNull()
-    expect(screen.queryByText('bank account')).toBeNull()
+    const transferPanel = screen.getByText('Transfer to').closest('div')!
+    expect(within(transferPanel).queryByText(/bank account|e-wallet|QRIS code/i)).toBeNull()
   })
 
   it('State C: payment_instructions_withheld=kyc_required shows guidance instead of a blank card', async () => {
@@ -792,6 +793,8 @@ describe('OrderStatus component', () => {
 
     expect(screen.getByText('Do not start a transfer now.')).toBeTruthy()
     expect(screen.getByText(/Your USDC has not moved/)).toBeTruthy()
+    expect(screen.getByText(/can still be confirmed by lolipay/i)).toBeTruthy()
+    expect(screen.queryByText(/lolipay can no longer confirm/i)).toBeNull()
     expect(screen.queryByText(/is on its way back/i)).toBeNull()
     expect(screen.queryByText(/will be returned/i)).toBeNull()
     expect(screen.queryByText(/no funds were lost/i)).toBeNull()
@@ -827,6 +830,12 @@ describe('OrderStatus component', () => {
     expect(screen.getByText('Do not start a transfer now.')).toBeTruthy()
     expect(screen.queryByText('Pay within')).toBeNull()
     expect(screen.queryByText('Can still be confirmed for')).toBeNull()
+
+    expect(screen.queryByText(/can still be confirmed by lolipay/i)).toBeNull()
+    expect(screen.getByText(/lolipay can no longer confirm/i)).toBeTruthy()
+    expect(screen.queryByText(/is on its way back/i)).toBeNull()
+    expect(screen.queryByText(/will be returned/i)).toBeNull()
+    expect(screen.queryByText(/no funds were lost/i)).toBeNull()
   })
 
   it(

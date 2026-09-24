@@ -133,6 +133,7 @@ describe('endpoints', () => {
       status: 'CREATED',
       pay_deadline: 1751000000,
       confirm_deadline: 1751003600,
+      refund_opens_at: 1751003600,
       dispute_deadline: 1751007200,
       expires_at: '2026-06-28T01:00:00Z',
       created_at: '2026-06-28T00:00:00Z',
@@ -171,6 +172,7 @@ describe('endpoints', () => {
         status: 'CREATED',
         pay_deadline: 1751000000,
         confirm_deadline: 1751003600,
+        refund_opens_at: 1751003600,
         dispute_deadline: 1751007200,
         expires_at: '2026-06-28T01:00:00Z',
         created_at: '2026-06-28T00:00:00Z',
@@ -721,7 +723,7 @@ describe('endpoints', () => {
       usdc_amount: '1000000000', fiat_amount: '1624000', fiat_currency: 'IDR',
       rate_snapshot: '16240', platform_fee_bps: 30, lp_fee_bps: 120,
       status: 'MATCHED',
-      pay_deadline: 1751000000, confirm_deadline: 1751003600, dispute_deadline: 1751007200,
+      pay_deadline: 1751000000, confirm_deadline: 1751003600, refund_opens_at: 1751003600, dispute_deadline: 1751007200,
       expires_at: '2026-07-01T01:00:00Z', created_at: '2026-07-01T00:00:00Z',
     }
     const mockAssignments: Assignment[] = [{
