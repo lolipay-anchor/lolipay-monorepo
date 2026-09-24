@@ -8,7 +8,7 @@ import {
 } from './payment-method-label.validators';
 import { DANGEROUS_CONTROL_OR_FORMAT_CODE_POINTS, WIDENED_BAD_CODE_POINTS } from '../../order/test-helpers';
 
-describe('AddPaymentMethodDto enforces structural validity only — content is validated at the LpService chokepoint', () => {
+describe('AddPaymentMethodDto.details enforces structural validity only — content is validated at the LpService chokepoint; label has no such chokepoint and is validated below', () => {
   const problems = (details: string) =>
     validateSync(
       plainToInstance(AddPaymentMethodDto, { rail: RailEnum.BANK, label: 'BCA', details }),
@@ -151,5 +151,13 @@ describe('AddPaymentMethodDto.label is trimmed, NFC-normalized, and must contain
     const problems = labelProblems(pathological);
     expect(problems).toContain(PAYMENT_METHOD_LABEL_NO_NAME_MESSAGE);
     expect(problems).not.toContain(PAYMENT_METHOD_LABEL_TOO_LONG_MESSAGE);
+  });
+
+  it.each<[string, unknown]>([
+    ['omitted entirely', undefined],
+    ['null', null],
+    ['a number', 123],
+  ])('a label that is %s fires only the type refusal, never a sentence about a label that does not exist', (_case, label) => {
+    expect(labelProblems(label)).toEqual(['label must be a string']);
   });
 });

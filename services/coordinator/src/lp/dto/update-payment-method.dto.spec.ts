@@ -8,7 +8,7 @@ import {
 } from './payment-method-label.validators';
 import { DANGEROUS_CONTROL_OR_FORMAT_CODE_POINTS, WIDENED_BAD_CODE_POINTS } from '../../order/test-helpers';
 
-describe('UpdatePaymentMethodDto enforces structural validity only — content is validated at the LpService chokepoint, and only when details is patched', () => {
+describe('UpdatePaymentMethodDto.details enforces structural validity only — content is validated at the LpService chokepoint, and only when details is patched; label has no such chokepoint and is validated below', () => {
   const problems = (details: string) =>
     validateSync(plainToInstance(UpdatePaymentMethodDto, { details })).flatMap((e) =>
       Object.values(e.constraints ?? {}),
@@ -139,5 +139,9 @@ describe('UpdatePaymentMethodDto.label is trimmed, NFC-normalized, and must cont
     const problems = labelProblems(pathological);
     expect(problems).toContain(PAYMENT_METHOD_LABEL_NO_NAME_MESSAGE);
     expect(problems).not.toContain(PAYMENT_METHOD_LABEL_TOO_LONG_MESSAGE);
+  });
+
+  it('a patched label that is a number fires only the type refusal, never a sentence about a label that does not exist', () => {
+    expect(labelProblems(123)).toEqual(['label must be a string']);
   });
 });

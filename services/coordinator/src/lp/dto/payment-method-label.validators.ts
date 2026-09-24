@@ -18,7 +18,7 @@ export function IsPaymentMethodLabelLength(validationOptions?: ValidationOptions
       name: 'isPaymentMethodLabelLength',
       validator: {
         validate: (value: unknown): boolean =>
-          typeof value === 'string' && PAYMENT_METHOD_LABEL_LENGTH_RE.test(value),
+          typeof value !== 'string' || PAYMENT_METHOD_LABEL_LENGTH_RE.test(value),
         defaultMessage: buildMessage(() => PAYMENT_METHOD_LABEL_TOO_LONG_MESSAGE, validationOptions),
       },
     },
@@ -32,7 +32,7 @@ export function HasNoDisallowedPaymentMethodChars(validationOptions?: Validation
       name: 'hasNoDisallowedPaymentMethodChars',
       validator: {
         validate: (value: unknown): boolean =>
-          typeof value === 'string' && NO_CONTROL_OR_FORMAT_CHARS_RE.test(value),
+          typeof value !== 'string' || NO_CONTROL_OR_FORMAT_CHARS_RE.test(value),
         defaultMessage: buildMessage(() => PAYMENT_METHOD_LABEL_BAD_CHARS_MESSAGE, validationOptions),
       },
     },
@@ -46,7 +46,7 @@ export function HasReadablePaymentMethodName(validationOptions?: ValidationOptio
       name: 'hasReadablePaymentMethodName',
       validator: {
         validate: (value: unknown): boolean =>
-          typeof value === 'string' && PAYMENT_METHOD_LABEL_HAS_LETTERS_RE.test(value),
+          typeof value !== 'string' || PAYMENT_METHOD_LABEL_HAS_LETTERS_RE.test(value),
         defaultMessage: buildMessage(() => PAYMENT_METHOD_LABEL_NO_NAME_MESSAGE, validationOptions),
       },
     },
