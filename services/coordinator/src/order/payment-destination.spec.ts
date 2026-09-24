@@ -11,6 +11,7 @@ import {
   normalizePaymentMethodLabel,
   PAYMENT_METHOD_LABEL_COST_CEILING,
   PAYMENT_METHOD_LABEL_HAS_LETTERS_RE,
+  PAYMENT_METHOD_LABEL_MAX_LEN,
 } from './payment-destination';
 import { DANGEROUS_CONTROL_OR_FORMAT_CODE_POINTS, WIDENED_BAD_CODE_POINTS } from './test-helpers';
 
@@ -129,7 +130,8 @@ describe('normalizePaymentMethodLabel bounds its OUTPUT at PAYMENT_METHOD_LABEL_
   it.each<[string, string]>([
     ['99,000 digits, no whitespace at all', '1'.repeat(99_000)],
     ['a non-space character, 99,000 spaces, then a non-space character', `x${' '.repeat(99_000)}x`],
-    ['99,000 decomposed characters that DOUBLE in length under NFC', 'क़'.repeat(99_000)],
+    ['99,000 characters of a code point that would DOUBLE under NFC — over the raw ceiling, so NFC never runs on it', 'क़'.repeat(99_000)],
+    ['1,024 characters of a code point that EXPANDS UP TO 3× under NFC — at the raw ceiling, so NFC does run', '\uFB2C'.repeat(1024)],
   ])('never returns more than PAYMENT_METHOD_LABEL_COST_CEILING characters for %s', (_label, raw) => {
     const result = normalizePaymentMethodLabel(raw) as string;
     expect(result.length).toBeLessThanOrEqual(PAYMENT_METHOD_LABEL_COST_CEILING);
@@ -137,6 +139,53 @@ describe('normalizePaymentMethodLabel bounds its OUTPUT at PAYMENT_METHOD_LABEL_
 
   it('passes a short, well-formed label through unchanged', () => {
     expect(normalizePaymentMethodLabel('BCA')).toBe('BCA');
+  });
+
+  it('the 3× fixture above really does expand past the ceiling under NFC before the second bound clips it back', () => {
+    expect('\uFB2C'.repeat(1024).normalize('NFC').length).toBe(3072);
+  });
+});
+
+describe('normalizePaymentMethodLabel does not silently trade one real institution name for another when leading whitespace pushes the raw input over the cost ceiling', () => {
+  it.each<[string, string, string]>([
+    ['BCA Digital', ' '.repeat(1014) + 'BCA Digital', 'BCA Digita'],
+    ['BCA Digital', ' '.repeat(1020) + 'BCA Digital', 'BCA'],
+    ['Bank Mandiri Syariah', ' '.repeat(1005) + 'Bank Mandiri Syariah', 'Bank Mandiri Syaria'],
+  ])('never turns %s into another real institution name such as %j merely because it was pushed over the ceiling', (_label, raw, previouslyProducedWrongBank) => {
+    const result = normalizePaymentMethodLabel(raw) as string;
+    expect(result).not.toBe(previouslyProducedWrongBank);
+    expect(result.length).toBe(PAYMENT_METHOD_LABEL_COST_CEILING);
+  });
+
+  it('trimming still runs at exactly the ceiling — the raw ceiling is not over it', () => {
+    expect(normalizePaymentMethodLabel(`${' '.repeat(PAYMENT_METHOD_LABEL_COST_CEILING - 3)}BCA`)).toBe('BCA');
+  });
+
+  it('one character over the ceiling stops trimming entirely, rather than trimming the truncated tail', () => {
+    expect(normalizePaymentMethodLabel(`${' '.repeat(PAYMENT_METHOD_LABEL_COST_CEILING - 2)}BCA`)).not.toBe('BCA');
+  });
+});
+
+describe('the cost ceiling must sit strictly above the label length limit, or an over-ceiling input can be truncated straight into an ACCEPTED label', () => {
+  it('PAYMENT_METHOD_LABEL_COST_CEILING is greater than PAYMENT_METHOD_LABEL_MAX_LEN', () => {
+    expect(PAYMENT_METHOD_LABEL_COST_CEILING).toBeGreaterThan(PAYMENT_METHOD_LABEL_MAX_LEN);
+  });
+});
+
+describe('normalizePaymentMethodLabel stays fast on pathological input, because the raw ceiling is checked BEFORE the edge-whitespace regex ever runs', () => {
+  it.each<[string, string]>([
+    [
+      'a non-space character, 99,000 interior spaces, then a non-space character — well over the ceiling, so the trim never runs at all',
+      `x${' '.repeat(99_000)}x`,
+    ],
+    [
+      'a non-space character, (ceiling - 2) interior spaces, then a non-space character — AT the ceiling, so the trim runs for real',
+      `x${' '.repeat(PAYMENT_METHOD_LABEL_COST_CEILING - 2)}x`,
+    ],
+  ])('normalizes %s in well under 50ms', (_label, raw) => {
+    const start = performance.now();
+    normalizePaymentMethodLabel(raw);
+    expect(performance.now() - start).toBeLessThan(50);
   });
 });
 

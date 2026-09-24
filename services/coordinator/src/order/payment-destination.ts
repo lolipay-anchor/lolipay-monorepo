@@ -23,8 +23,8 @@ function boundToCostCeiling(value: string): string {
 
 export function normalizePaymentMethodLabel(value: unknown): unknown {
   if (typeof value !== 'string') return value;
-  const trimmed = boundToCostCeiling(value).replace(LABEL_EDGE_WHITESPACE_RE, '').normalize('NFC');
-  return boundToCostCeiling(trimmed);
+  if (value.length > PAYMENT_METHOD_LABEL_COST_CEILING) return boundToCostCeiling(value);
+  return boundToCostCeiling(value.replace(LABEL_EDGE_WHITESPACE_RE, '').normalize('NFC'));
 }
 
 export type PaymentDestinationProblem = 'missing' | 'too_long' | 'bad_chars' | 'too_short';

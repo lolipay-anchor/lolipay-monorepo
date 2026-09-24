@@ -146,11 +146,29 @@ describe('AddPaymentMethodDto.label is trimmed, NFC-normalized, and must contain
     expect(problems).toContain(PAYMENT_METHOD_LABEL_NO_NAME_MESSAGE);
   });
 
-  it('99,000 leading spaces then a real institution name is truncated before it is trimmed, so it reads as a missing name rather than a too-long label — a documented pathological edge, not a defect', () => {
+  it('1,020 leading spaces then a real bank name is refused as too long, never silently accepted as a shorter real bank name', () => {
+    const pathological = `${' '.repeat(1020)}BCA Digital`;
+    const problems = labelProblems(pathological);
+    expect(problems).toContain(PAYMENT_METHOD_LABEL_TOO_LONG_MESSAGE);
+  });
+
+  it('a real bank name sitting near the start of a 100,000-character label, followed by a wall of non-space garbage, is refused as too long — never truncated into an accepted "BCA" plus digits', () => {
+    const pathological = `${' '.repeat(1000)}BCA${'1'.repeat(99_000)}`;
+    const problems = labelProblems(pathological);
+    expect(problems).toContain(PAYMENT_METHOD_LABEL_TOO_LONG_MESSAGE);
+  });
+
+  it('a two-letter name sitting near the start of a hostile label is refused as too long — never truncated into an accepted two-letter label', () => {
+    const pathological = `${' '.repeat(1021)}ab${'1'.repeat(5000)}`;
+    const problems = labelProblems(pathological);
+    expect(problems).toContain(PAYMENT_METHOD_LABEL_TOO_LONG_MESSAGE);
+  });
+
+  it('99,000 leading spaces then a real institution name is truncated INSTEAD OF trimmed, so it reads as BOTH too long and missing a name, never as a silently-accepted different institution', () => {
     const pathological = `${' '.repeat(99_000)}BCA`;
     const problems = labelProblems(pathological);
     expect(problems).toContain(PAYMENT_METHOD_LABEL_NO_NAME_MESSAGE);
-    expect(problems).not.toContain(PAYMENT_METHOD_LABEL_TOO_LONG_MESSAGE);
+    expect(problems).toContain(PAYMENT_METHOD_LABEL_TOO_LONG_MESSAGE);
   });
 
   it.each<[string, unknown]>([
