@@ -432,10 +432,6 @@ export function OrderStatus({ id, submitFn }: Props) {
                 USDC locked. Waiting for the merchant to pay {formatIDR(fiatAmount)}{' '}
                 to your bank…
               </p>
-              <p className="text-center text-[11.5px] text-lp-faint">
-                If the timer runs out unpaid, your USDC is auto-refunded from escrow — no action
-                needed.
-              </p>
             </div>
           )
         )}
