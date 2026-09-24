@@ -1,4 +1,4 @@
-import { postSettleDisputeDeadline } from './dispute.util';
+import { postSettleDisputeDeadline, refundOpensAt } from './dispute.util';
 import { signingCutoffSecs } from '../config/contract-limits';
 
 export function serializeOrderBase(
@@ -22,6 +22,7 @@ export function serializeOrderBase(
     pay_deadline: Number(order.payDeadline),
     confirm_deadline: Number(order.confirmDeadline),
     dispute_deadline: Number(order.disputeDeadline),
+    refund_opens_at: Number(refundOpensAt(order)),
     expires_at: order.expiresAt,
     sign_by: signingCutoffSecs(Number(order.payDeadline)),
     created_at: order.createdAt,
