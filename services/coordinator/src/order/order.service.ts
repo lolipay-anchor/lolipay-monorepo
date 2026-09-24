@@ -365,6 +365,7 @@ export class OrderService {
     const serialized = serializeOrderBase(currentOrder, config);
     if (shouldReveal) {
       serialized.payment_instructions = getPaymentInstructions(currentOrder);
+      serialized.payment_institution = getPaymentInstitution(currentOrder);
     } else if (mayReveal) {
       serialized.payment_instructions_withheld = 'kyc_required';
     }
@@ -551,6 +552,7 @@ export class OrderService {
         (currentOrder.lp ?? lp).status === 'APPROVED';
       if (lpMayReveal && (await this.identityVerified(currentOrder.personId, this.prisma))) {
         serialized.payment_instructions = getPaymentInstructions(currentOrder);
+        serialized.payment_institution = getPaymentInstitution(currentOrder);
       } else if (lpMayReveal) {
         serialized.payment_instructions_withheld = 'kyc_required';
       }
@@ -605,6 +607,10 @@ function getPaymentInstructions(order: any): string | undefined {
     return order.lpPaymentDetails ?? undefined;
   }
   return order.userPaymentDetails ?? undefined;
+}
+
+function getPaymentInstitution(order: any): string | undefined {
+  return order.flow === 'TOP_UP' ? (order.lpPaymentLabel ?? undefined) : undefined;
 }
 
 function buildCreateTradeParams(

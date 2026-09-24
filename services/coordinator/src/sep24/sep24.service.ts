@@ -8,7 +8,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { acceptedForFunds, popupMayOfferVendor } from '../kyc/screening-requirement';
-import { KycStatus } from '../generated/prisma/client';
+import { KycStatus, Prisma, Rail } from '../generated/prisma/client';
 import { RESOLVER_WINDOW_SECS, signingCutoffSecs } from '../config/contract-limits';
 import { refundOpensAt } from '../order/dispute.util';
 import { RefundSignerService } from '../stellar/refund-signer.service';
@@ -55,7 +55,19 @@ const ORDER_FIELDS = {
   payDeadline: true,
   confirmDeadline: true,
   flow: true,
+  rail: true,
+  lpPaymentLabel: true,
 } as const;
+
+type Sep24RowWithOrder = Prisma.Sep24TransactionGetPayload<{
+  include: { order: { select: typeof ORDER_FIELDS } };
+}>;
+
+const RAIL_WORDS: Record<Rail, string> = {
+  BANK: 'bank account',
+  EWALLET: 'e-wallet',
+  QRIS: 'QRIS code',
+};
 
 @Injectable()
 export class Sep24Service {
@@ -128,7 +140,7 @@ export class Sep24Service {
     return new Set(rows.filter((r) => r.status !== 'REJECTED' && !refused.has(r.personId)).map((r) => r.personId));
   }
 
-  private async dress(rows: any[]): Promise<Sep24TransactionJson[]> {
+  private async dress(rows: Sep24RowWithOrder[]): Promise<Sep24TransactionJson[]> {
     const screened = await this.screenedPeople([...new Set(rows.map((r) => r.personId))]);
     return rows.map((row) => {
       const record: Sep24Record = {
@@ -569,6 +581,8 @@ export class Sep24Service {
       fiatAmount: bigint;
       fiatCurrency: string;
       lpPaymentDetails: string | null;
+      lpPaymentLabel: string | null;
+      rail: Rail;
       ref: string | null;
       payDeadline: bigint | null;
     } | null;
@@ -577,9 +591,13 @@ export class Sep24Service {
     if (row.flow !== 'TOP_UP' || !o || o.status !== 'FUNDED') return '';
     if (!o.payDeadline || Number(o.payDeadline) * 1000 <= Date.now()) return '';
     const due = new Date(Number(o.payDeadline) * 1000).toISOString();
+    const institution = o.lpPaymentLabel
+      ? `<p dir="ltr"><strong>${escapeHtml(o.lpPaymentLabel)}</strong> ${escapeHtml(RAIL_WORDS[o.rail])}</p>`
+      : '';
     return [
       `<p>Send <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to:</p>`,
-      `<pre>${escapeHtml(o.lpPaymentDetails ?? 'your provider will be shown here')}</pre>`,
+      institution,
+      `<pre dir="ltr">${escapeHtml(o.lpPaymentDetails ?? 'your provider will be shown here')}</pre>`,
       `<p>Reference: <strong>${escapeHtml(o.ref ?? '')}</strong></p>`,
       `<p><strong>Send it before ${escapeHtml(due)}.</strong></p>`,
     ].join('');

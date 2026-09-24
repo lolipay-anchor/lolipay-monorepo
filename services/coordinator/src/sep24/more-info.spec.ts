@@ -75,7 +75,7 @@ describe('the more-info page of a deposit', () => {
       payDeadline: 1_800_000_000n,
     }).moreInfo('tx-1');
     expect(html).toContain('Send <strong>200.000</strong> IDR to:');
-    expect(html).toContain('<pre>BCA 1234567890 a.n. Budi &lt;Santoso&gt;</pre>');
+    expect(html).toContain('<pre dir="ltr">BCA 1234567890 a.n. Budi &lt;Santoso&gt;</pre>');
     expect(html).toContain('Reference: <strong>LP-42</strong>');
     expect(html).toContain('<strong>Send it before 2027-01-15T08:00:00.000Z.</strong>');
   });

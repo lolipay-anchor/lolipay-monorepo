@@ -14,6 +14,7 @@ const CONTRACT = 'CREVOKEDPROVIDER';
 const FAKE_TRADE_ID = 'b'.repeat(64);
 const USER_BANK = 'BCA 1234567890 a/n Depositor';
 const LP_BANK = 'BNI 9876543210 a/n Provider';
+const LP_LABEL = 'BNI';
 
 function lpRow(status: string) {
   return {
@@ -46,6 +47,7 @@ function makeOrder(lpStatus: string, overrides: Partial<any> = {}): any {
     lpId: 'lp-1',
     userPaymentDetails: USER_BANK,
     lpPaymentDetails: LP_BANK,
+    lpPaymentLabel: LP_LABEL,
     payDeadline: BigInt(Math.floor(Date.now() / 1000) + 1800),
     confirmDeadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
     disputeDeadline: BigInt(Math.floor(Date.now() / 1000) + 7200),
@@ -141,6 +143,51 @@ describe('a provider whose approval was withdrawn stops receiving the counterpar
     const serialized = await svc.getOrder('order-1', USER_ADDR);
 
     expect(serialized.payment_instructions).toBe(LP_BANK);
+  });
+
+  it('tells the depositor which institution the bare account number belongs to, on a top-up', async () => {
+    const order = makeOrder('REVOKED', { flow: 'TOP_UP' });
+    const { svc } = build(order);
+
+    const serialized = await svc.getOrder('order-1', USER_ADDR);
+
+    expect(serialized.payment_institution).toBe(LP_LABEL);
+  });
+
+  it('never sends an institution label on a withdrawal, because the field belongs to the LP row, not the depositor\'s own account', async () => {
+    const { svc } = build(makeOrder('APPROVED'));
+
+    const serialized = await svc.getOrder('order-1', LP_ADDR);
+
+    expect(serialized.payment_institution).toBeUndefined();
+  });
+
+  it('never sends an institution label on the assignment list for a withdrawal either', async () => {
+    const { svc } = build(makeOrder('APPROVED'));
+
+    const rows = await svc.listLpAssignments(LP_ADDR);
+
+    expect(rows[0].order.payment_institution).toBeUndefined();
+  });
+
+  it('withholds the institution from a top-up depositor exactly when it withholds the account number', async () => {
+    const order = makeOrder('APPROVED', { flow: 'TOP_UP', status: 'MATCHED' });
+    const { svc } = build(order);
+
+    const serialized = await svc.getOrder('order-1', USER_ADDR);
+
+    expect(serialized.payment_instructions).toBeUndefined();
+    expect(serialized.payment_institution).toBeUndefined();
+  });
+
+  it('leaves the institution undefined for an order written before the label column existed', async () => {
+    const order = makeOrder('APPROVED', { flow: 'TOP_UP', lpPaymentLabel: null });
+    const { svc } = build(order);
+
+    const serialized = await svc.getOrder('order-1', USER_ADDR);
+
+    expect(serialized.payment_instructions).toBe(LP_BANK);
+    expect(serialized.payment_institution).toBeUndefined();
   });
 
   it('withholds the payment instructions from a REVOKED provider on the assignment list too', async () => {
