@@ -1,9 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
 
-const EXCLUDED_TOP_LEVEL_DIRS = new Set(['generated', 'scripts']);
-
-const ALLOWED_READERS = new Set(['order/order.serialize.ts', 'sep24/sep24-transaction.ts']);
+const EXCLUDED_TOP_LEVEL_DIRS = new Set(['generated']);
 
 function collectSourceFiles(root: string, relPath: string): string[] {
   const abs = join(root, relPath);
@@ -19,10 +17,9 @@ function collectSourceFiles(root: string, relPath: string): string[] {
   });
 }
 
-describe('userClaimedPaidAt is an unsigned, display-only claim — nothing that decides money or capacity may read it, ANYWHERE in src', () => {
+describe('userClaimedPaidAt is an unsigned, display-only claim — every LITERAL occurrence of the identifier in hand-written src is guarded here; a full-row Prisma read that returns the field without ever naming it (such as admin/admin.service.ts listOrders(), which has no select) is invisible to this scan and is not covered by it', () => {
   const srcRoot = join(__dirname, '..');
-  const allFiles = collectSourceFiles(srcRoot, '');
-  const files = allFiles.filter((f) => !ALLOWED_READERS.has(relative(srcRoot, f)));
+  const files = collectSourceFiles(srcRoot, '');
 
   it('found source files to guard, so a broken scan cannot pass silently', () => {
     expect(files.length).toBeGreaterThan(50);
@@ -47,18 +44,10 @@ describe('userClaimedPaidAt is an unsigned, display-only claim — nothing that 
     expect(files.map((f) => relative(srcRoot, f))).toContain(relPath);
   });
 
-  it('order/order.service.ts is NOT on the allow-list — a future writer must live in its own file', () => {
-    expect(ALLOWED_READERS.has('order/order.service.ts')).toBe(false);
-  });
-
   it.each(files.map((f): [string, string] => [relative(srcRoot, f), f]))(
     '%s does not read userClaimedPaidAt',
     (_relPath, file) => {
       expect(readFileSync(file, 'utf8')).not.toContain('userClaimedPaidAt');
     },
   );
-
-  it.each([...ALLOWED_READERS])('the allow-listed file %s exists, so it is excluded and not merely absent', (relPath) => {
-    expect(statSync(join(srcRoot, relPath)).isFile()).toBe(true);
-  });
 });
