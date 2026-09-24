@@ -277,6 +277,7 @@ describe('OrderStatus component', () => {
       flow: 'WITHDRAW',
       status: 'FUNDED',
       confirm_deadline: now - 60,
+      refund_opens_at: now - 60,
     }
     mockGetOrder.mockResolvedValue(order)
 
@@ -304,6 +305,7 @@ describe('OrderStatus component', () => {
         flow: 'WITHDRAW',
         status: 'FUNDED',
         confirm_deadline: now + 2,
+        refund_opens_at: now + 2,
       }
       mockGetOrder.mockResolvedValue(order)
 

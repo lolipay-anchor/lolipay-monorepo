@@ -39,7 +39,7 @@ describe('the countdown a user sees never counts to an instant nothing enforces 
 
   it('still tells a withdrawing user how long the provider has to pay at FUNDED, before confirm_deadline has passed', () => {
     const now = Math.floor(Date.now() / 1000)
-    const cd = activeCountdown({ ...base, status: 'FUNDED', confirm_deadline: now + 3_600 })
+    const cd = activeCountdown({ ...base, status: 'FUNDED', confirm_deadline: now + 3_600, refund_opens_at: now + 3_600 })
     expect(cd).toEqual({ deadline: now + 3_600, label: 'Merchant pays within' })
   })
 
