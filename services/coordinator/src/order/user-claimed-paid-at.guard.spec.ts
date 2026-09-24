@@ -17,12 +17,50 @@ function collectSourceFiles(root: string, relPath: string): string[] {
   });
 }
 
-describe('userClaimedPaidAt is an unsigned, display-only claim — every LITERAL occurrence of the identifier in hand-written src is guarded here; a full-row Prisma read that returns the field without ever naming it (such as admin/admin.service.ts listOrders(), which has no select) is invisible to this scan and is not covered by it', () => {
+const TOP_LEVEL_SOURCE_DIRS = [
+  'admin',
+  'anchor',
+  'auth',
+  'config',
+  'email',
+  'indexer',
+  'kyc',
+  'lp',
+  'maintenance',
+  'market',
+  'matching',
+  'money',
+  'monitoring',
+  'notification',
+  'order',
+  'outbox',
+  'person',
+  'prisma',
+  'profile',
+  'rate',
+  'realtime',
+  'reputation',
+  'scripts',
+  'sep10',
+  'sep24',
+  'stellar',
+  'storage',
+];
+
+describe('userClaimedPaidAt is an unsigned, display-only claim — every LITERAL occurrence of the identifier in non-test src is guarded here; a full-row Prisma read that returns the field without ever naming it (such as admin/admin.service.ts listOrders(), which has no select) is invisible to this scan and is not covered by it', () => {
   const srcRoot = join(__dirname, '..');
   const files = collectSourceFiles(srcRoot, '');
+  const relFiles = files.map((f) => relative(srcRoot, f));
 
-  it('found source files to guard, so a broken scan cannot pass silently — measured 161 on 2026-09-24, floor set just under it so a narrowed scan is caught rather than merely a broken one', () => {
-    expect(files.length).toBeGreaterThan(160);
+  it.each(TOP_LEVEL_SOURCE_DIRS.map((d): [string] => [d]))(
+    'the guarded set includes at least one file from src/%s, so a narrowed scan is caught by directory rather than by a file count that churns on unrelated deletions',
+    (dir) => {
+      expect(relFiles.some((f) => f.startsWith(`${dir}/`))).toBe(true);
+    },
+  );
+
+  it('the guarded set never includes a file from src/generated, named here as a literal rather than read from the scan\'s own exclusion list, so this assertion can witness that exclusion breaking', () => {
+    expect(relFiles.some((f) => f.startsWith('generated/'))).toBe(false);
   });
 
   it('the search is proven live by finding payDeadline somewhere in the guarded tree', () => {
