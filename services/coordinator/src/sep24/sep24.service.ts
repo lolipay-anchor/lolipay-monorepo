@@ -589,14 +589,13 @@ export class Sep24Service {
     if (row.flow !== 'TOP_UP' || !o || o.status !== 'FUNDED') return '';
     if (!o.payDeadline || Number(o.payDeadline) * 1000 <= Date.now()) return '';
     const due = timeTag(o.payDeadline);
-    const institution = o.lpPaymentLabel
-      ? `<p dir="ltr"><code dir="ltr">${escapeHtml(o.lpPaymentLabel)}</code> ${escapeHtml(RAIL_WORDS[o.rail])}</p>`
-      : '';
+    const destination = o.lpPaymentLabel
+      ? ` to the <span dir="ltr">${escapeHtml(o.lpPaymentLabel)}</span> ${escapeHtml(RAIL_WORDS[o.rail])} below`
+      : ' to';
     const reference = o.ref ? `<p>Reference: <strong>${escapeHtml(o.ref)}</strong></p>` : '';
     return [
       '<h2>How to pay</h2>',
-      `<p>Send <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to:</p>`,
-      institution,
+      `<p dir="ltr">Send <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)}${destination}:</p>`,
       `<pre dir="ltr">${escapeHtml(o.lpPaymentDetails ?? '')}</pre>`,
       reference,
       `<p><strong>Send it before ${due}.</strong></p>`,
