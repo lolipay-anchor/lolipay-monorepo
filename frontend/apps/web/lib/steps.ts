@@ -82,9 +82,13 @@ export function stepsFor(status: OrderStatus, flow: Flow = 'TOP_UP'): Step[] {
 
 export type ActiveCountdown =
   | { deadline: number; label: string; expired?: false }
-  | { label: string; expired: true }
+  | { label: string; value: string; expired: true }
 
-type CountdownWindow = { deadline: number; label: string; pastLabel: string | null }
+type CountdownWindow = {
+  deadline: number
+  label: string
+  past: { label: string; value: string } | null
+}
 
 function windowFor(
   order: {
@@ -105,23 +109,23 @@ function windowFor(
       return {
         deadline: order.sign_by ?? Math.floor(new Date(order.expires_at).getTime() / 1000),
         label: 'Lock within',
-        pastLabel: null,
+        past: null,
       }
     case 'FUNDED':
       if (lpPaysFiat) {
         return {
           deadline: order.refund_opens_at + 1,
           label: 'Merchant pays within',
-          pastLabel: "Merchant's time is up",
+          past: { label: "Merchant's time is up", value: 'Refund open' },
         }
       }
       if (now < order.pay_deadline) {
-        return { deadline: order.pay_deadline, label: 'Pay within', pastLabel: null }
+        return { deadline: order.pay_deadline, label: 'Pay within', past: null }
       }
       return {
         deadline: order.refund_opens_at + 1,
         label: 'Can still be confirmed for',
-        pastLabel: null,
+        past: null,
       }
     default:
       return null
@@ -141,6 +145,6 @@ export function activeCountdown(order: {
   const w = windowFor(order, now)
   if (w === null) return null
   if (now < w.deadline) return { deadline: w.deadline, label: w.label }
-  if (w.pastLabel === null) return null
-  return { label: w.pastLabel, expired: true }
+  if (w.past === null) return null
+  return { ...w.past, expired: true }
 }

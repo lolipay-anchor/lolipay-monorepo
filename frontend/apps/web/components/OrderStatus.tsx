@@ -204,7 +204,7 @@ export function OrderStatus({ id, submitFn }: Props) {
           <div className="flex items-center justify-between rounded-lp-card border border-lp-line bg-lp-surface px-4 py-[14px]">
             <span className="text-[13px] text-lp-muted">{cd.label}</span>
             {cd.expired ? (
-              <span className="text-[17px] font-bold text-lp-ink">Refund open</span>
+              <span className="text-[17px] font-bold text-lp-ink">{cd.value}</span>
             ) : (
               <Countdown
                 deadline={cd.deadline * 1000}

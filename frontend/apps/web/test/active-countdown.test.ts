@@ -42,6 +42,7 @@ describe('the countdown a user sees never counts to an instant nothing enforces 
   it('shows the expired state at FUNDED once confirm_deadline has passed, instead of freezing on a stale countdown', () => {
     expect(activeCountdown({ ...base, status: 'FUNDED' })).toEqual({
       label: "Merchant's time is up",
+      value: 'Refund open',
       expired: true,
     })
   })
@@ -152,6 +153,6 @@ describe('the merchant-pays countdown on a withdrawal survives through the same 
       confirm_deadline: now,
       refund_opens_at: now,
     })
-    expect(cd).toEqual({ label: "Merchant's time is up", expired: true })
+    expect(cd).toEqual({ label: "Merchant's time is up", value: 'Refund open', expired: true })
   })
 })
