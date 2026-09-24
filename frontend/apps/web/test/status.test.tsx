@@ -724,7 +724,7 @@ describe('OrderStatus component', () => {
         ...BASE_ORDER,
         id: 'ord-transition1',
         payment_instructions: 'BCA 1234567890',
-        pay_deadline: Math.floor(Date.now() / 1000) + 1,
+        pay_deadline: Math.ceil(Date.now() / 1000) + 1,
       }
       mockGetOrder.mockResolvedValue(order)
 
