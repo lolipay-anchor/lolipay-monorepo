@@ -227,7 +227,7 @@ describe('OrderStatus component', () => {
     expect(screen.getByText(/1\.600\.000/)).toBeTruthy()
   })
 
-  it('shows the EXACT third-party-transfer warning for TOP_UP+FUNDED', async () => {
+  it('shows the EXACT own-name sentence for TOP_UP+FUNDED, with no name-check claim', async () => {
     const order: Order = { ...BASE_ORDER, id: 'ord-c6', status: 'FUNDED' }
     mockGetOrder.mockResolvedValue(order)
 
@@ -240,7 +240,7 @@ describe('OrderStatus component', () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          'Pay from a bank account in your own name — third-party transfers are rejected and auto-refunded.',
+          'Send the rupiah from an account in your own name. lolipay does not check who sent it.',
         ),
       ).toBeTruthy()
     })
@@ -763,7 +763,7 @@ describe('OrderStatus component', () => {
     expect(screen.getByText('BCA 1234567890')).toBeTruthy()
     expect(
       screen.queryByText(
-        'Pay from a bank account in your own name — third-party transfers are rejected and auto-refunded.',
+        'Send the rupiah from an account in your own name. lolipay does not check who sent it.',
       ),
     ).toBeNull()
     expect(screen.queryByRole('button', { name: /paid/i })).toBeNull()

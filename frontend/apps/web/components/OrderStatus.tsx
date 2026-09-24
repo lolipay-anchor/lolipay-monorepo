@@ -328,8 +328,8 @@ export function OrderStatus({ id, submitFn }: Props) {
                 <div className="flex items-start gap-2.5 rounded-[14px] bg-lp-amber-soft px-[14px] py-[12px]">
                   <AlertTriangle size={17} strokeWidth={1.8} className="mt-0.5 flex-none text-lp-amber" aria-hidden="true" />
                   <span className="text-xs leading-[1.45] text-lp-ink">
-                    Pay from a bank account in your own name — third-party transfers are rejected and
-                    auto-refunded.
+                    Send the rupiah from an account in your own name. lolipay does not check who
+                    sent it.
                   </span>
                 </div>
 
