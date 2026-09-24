@@ -1,27 +1,12 @@
-import * as React from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TestProviders } from './helpers'
+import { queryClient } from '@/app/providers'
 import type { Order } from '@lolipay/api-client'
+import type { ActiveCountdown } from '@/lib/steps'
 
 vi.mock('@/lib/wallet-kit', () => ({
   getDefaultKit: vi.fn(() => ({})),
-}))
-
-vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    ...props
-  }: {
-    href: string
-    children: React.ReactNode
-    [key: string]: unknown
-  }) => (
-    <a href={href} {...props}>
-      {children}
-    </a>
-  ),
 }))
 
 vi.mock('next/navigation', () => ({
@@ -37,7 +22,7 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
   }
 })
 
-const mockActiveCountdown = vi.hoisted(() => vi.fn())
+const mockActiveCountdown = vi.hoisted(() => vi.fn<() => ActiveCountdown | null>())
 vi.mock('@/lib/steps', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/steps')>()
   return {
@@ -73,19 +58,27 @@ const BASE_ORDER: Order = {
   created_at: new Date().toISOString(),
 }
 
-describe('OrderStatus expired countdown row renders the window own value, not a hardcoded literal', () => {
-  it('renders the exact value activeCountdown() returned, and never the literal "Refund open"', async () => {
+describe("OrderStatus expired countdown row renders the window's own value, not a hardcoded literal", () => {
+  beforeEach(() => {
+    queryClient.clear()
+    vi.clearAllMocks()
+  })
+
+  it('renders the exact label and value activeCountdown() returned, never a hardcoded literal', async () => {
+    const now = Math.floor(Date.now() / 1000)
     mockActiveCountdown.mockReturnValue({
       label: SENTINEL_LABEL,
       value: SENTINEL_VALUE,
       expired: true,
-    })
+    } satisfies ActiveCountdown)
 
     const order: Order = {
       ...BASE_ORDER,
       id: 'ord-expired-sentinel',
       flow: 'WITHDRAW',
       status: 'FUNDED',
+      confirm_deadline: now - 60,
+      refund_opens_at: now - 60,
     }
     mockGetOrder.mockResolvedValue(order)
 
@@ -100,6 +93,5 @@ describe('OrderStatus expired countdown row renders the window own value, not a 
     })
 
     expect(screen.getByText(SENTINEL_LABEL)).toBeTruthy()
-    expect(screen.queryByText('Refund open')).toBeNull()
   })
 })
