@@ -10,7 +10,9 @@ import {
   NO_CONTROL_OR_FORMAT_CHARS_RE,
   normalizePaymentMethodLabel,
   PAYMENT_METHOD_LABEL_COST_CEILING,
+  PAYMENT_METHOD_LABEL_DIGIT_RE,
   PAYMENT_METHOD_LABEL_HAS_LETTERS_RE,
+  PAYMENT_METHOD_LABEL_MAX_DIGITS,
   PAYMENT_METHOD_LABEL_MAX_LEN,
 } from './payment-destination';
 import { DANGEROUS_CONTROL_OR_FORMAT_CODE_POINTS, WIDENED_BAD_CODE_POINTS } from './test-helpers';
@@ -124,6 +126,24 @@ describe('PAYMENT_METHOD_LABEL_HAS_LETTERS_RE requires at least two letters and 
       expect(elapsedMs).toBeLessThan(50);
     },
   );
+});
+
+describe('PAYMENT_METHOD_LABEL_DIGIT_RE counts every digit in a label, not just the longest contiguous run', () => {
+  it('counts digits split across several groups the way a bank statement prints an account number', () => {
+    expect(('0025 0100 0123 456'.match(PAYMENT_METHOD_LABEL_DIGIT_RE) ?? []).length).toBe(15);
+  });
+
+  it('counts a non-ASCII decimal-digit script the same as ASCII digits', () => {
+    expect(('٠١٢٣٤٥'.match(PAYMENT_METHOD_LABEL_DIGIT_RE) ?? []).length).toBe(6);
+  });
+
+  it('counts zero digits in a plain institution name', () => {
+    expect(('Bank Mandiri'.match(PAYMENT_METHOD_LABEL_DIGIT_RE) ?? []).length).toBe(0);
+  });
+
+  it('PAYMENT_METHOD_LABEL_MAX_DIGITS sits below the shortest real Indonesian phone or bank account number', () => {
+    expect(PAYMENT_METHOD_LABEL_MAX_DIGITS).toBeLessThan(10);
+  });
 });
 
 describe('normalizePaymentMethodLabel bounds its OUTPUT at PAYMENT_METHOD_LABEL_COST_CEILING before any regex runs, regardless of shape', () => {

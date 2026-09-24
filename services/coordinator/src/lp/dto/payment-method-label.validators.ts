@@ -1,8 +1,10 @@
 import { ValidateBy, ValidationOptions, buildMessage } from 'class-validator';
 import {
   NO_CONTROL_OR_FORMAT_CHARS_RE,
+  PAYMENT_METHOD_LABEL_DIGIT_RE,
   PAYMENT_METHOD_LABEL_HAS_LETTERS_RE,
   PAYMENT_METHOD_LABEL_LENGTH_RE,
+  PAYMENT_METHOD_LABEL_MAX_DIGITS,
   PAYMENT_METHOD_LABEL_MAX_LEN,
 } from '../../order/payment-destination';
 
@@ -40,13 +42,19 @@ export function HasNoDisallowedPaymentMethodChars(validationOptions?: Validation
   );
 }
 
+function isNotAccountOrPhoneNumberShaped(value: string): boolean {
+  const digitCount = (value.match(PAYMENT_METHOD_LABEL_DIGIT_RE) ?? []).length;
+  return digitCount <= PAYMENT_METHOD_LABEL_MAX_DIGITS;
+}
+
 export function HasReadablePaymentMethodName(validationOptions?: ValidationOptions) {
   return ValidateBy(
     {
       name: 'hasReadablePaymentMethodName',
       validator: {
         validate: (value: unknown): boolean =>
-          typeof value !== 'string' || PAYMENT_METHOD_LABEL_HAS_LETTERS_RE.test(value),
+          typeof value !== 'string' ||
+          (PAYMENT_METHOD_LABEL_HAS_LETTERS_RE.test(value) && isNotAccountOrPhoneNumberShaped(value)),
         defaultMessage: buildMessage(() => PAYMENT_METHOD_LABEL_NO_NAME_MESSAGE, validationOptions),
       },
     },

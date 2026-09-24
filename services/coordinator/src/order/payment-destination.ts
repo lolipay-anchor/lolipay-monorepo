@@ -10,6 +10,8 @@ export const PAYMENT_METHOD_LABEL_LENGTH_RE = new RegExp(
   'u',
 );
 export const PAYMENT_METHOD_LABEL_HAS_LETTERS_RE = /\p{L}[^\p{L}]*\p{L}/u;
+export const PAYMENT_METHOD_LABEL_DIGIT_RE = /\p{Nd}/gu;
+export const PAYMENT_METHOD_LABEL_MAX_DIGITS = 5;
 
 const LABEL_EDGE_WHITESPACE_RE = /^\p{Zs}+|\p{Zs}+$/gu;
 
