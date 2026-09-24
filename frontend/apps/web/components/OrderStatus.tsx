@@ -134,8 +134,10 @@ export function OrderStatus({ id, submitFn }: Props) {
 
   const payDeadlineMs = order ? order.pay_deadline * 1000 : null
   const refundOpensAtMs = order ? (order.refund_opens_at + 1) * 1000 : null
+  const confirmDeadlineMs = order ? order.confirm_deadline * 1000 : null
   const pastDeadline = useElapsed(payDeadlineMs)
   const refundElapsed = useElapsed(refundOpensAtMs)
+  useElapsed(confirmDeadlineMs)
 
   if (isLoading) {
     return (
@@ -202,11 +204,15 @@ export function OrderStatus({ id, submitFn }: Props) {
         {cd && (
           <div className="flex items-center justify-between rounded-lp-card border border-lp-line bg-lp-surface px-4 py-[14px]">
             <span className="text-[13px] text-lp-muted">{cd.label}</span>
-            <Countdown
-              deadline={cd.deadline * 1000}
-              onExpire={invalidate}
-              className="text-[17px] font-bold"
-            />
+            {cd.expired ? (
+              <span className="text-[17px] font-bold text-lp-ink">Refund open</span>
+            ) : (
+              <Countdown
+                deadline={cd.deadline * 1000}
+                onExpire={invalidate}
+                className="text-[17px] font-bold"
+              />
+            )}
           </div>
         )}
 
@@ -407,16 +413,31 @@ export function OrderStatus({ id, submitFn }: Props) {
           )}
 
         {lpPaysFiat && order.status === 'FUNDED' && (
-          <div className="flex flex-col gap-1.5 rounded-lp-card border border-lp-line bg-lp-surface p-4">
-            <p className="text-center text-[13px] text-lp-muted">
-              USDC locked. Waiting for the merchant to pay {formatIDR(fiatAmount)}{' '}
-              to your bank…
-            </p>
-            <p className="text-center text-[11.5px] text-lp-faint">
-              If the timer runs out unpaid, your USDC is auto-refunded from escrow — no action
-              needed.
-            </p>
-          </div>
+          cd?.expired ? (
+            <div className="flex flex-col gap-1.5 rounded-lp-card border border-lp-line bg-lp-surface p-4">
+              <p className="text-center text-[13.5px] font-semibold text-lp-ink">
+                The merchant did not confirm your payout in time.
+              </p>
+              <p className="text-center text-[13px] text-lp-ink-soft">
+                The escrow is now open to return your USDC to your wallet, and no one&apos;s
+                permission is needed to do it.
+              </p>
+              <p className="text-center text-[11.5px] text-lp-faint">
+                This page updates on its own.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5 rounded-lp-card border border-lp-line bg-lp-surface p-4">
+              <p className="text-center text-[13px] text-lp-muted">
+                USDC locked. Waiting for the merchant to pay {formatIDR(fiatAmount)}{' '}
+                to your bank…
+              </p>
+              <p className="text-center text-[11.5px] text-lp-faint">
+                If the timer runs out unpaid, your USDC is auto-refunded from escrow — no action
+                needed.
+              </p>
+            </div>
+          )
         )}
 
         {lpPaysFiat && order.status === 'FIAT_PAID' && (

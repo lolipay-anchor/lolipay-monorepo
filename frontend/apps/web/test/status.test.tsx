@@ -269,6 +269,65 @@ describe('OrderStatus component', () => {
     expect(screen.getByTestId('open-dispute')).toBeTruthy()
   })
 
+  it('lpPaysFiat+FUNDED past confirm_deadline: shows the expired refund-open row and panel, not a frozen countdown', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    const order: Order = {
+      ...BASE_ORDER,
+      id: 'ord-withdraw-late',
+      flow: 'WITHDRAW',
+      status: 'FUNDED',
+      confirm_deadline: now - 60,
+    }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-withdraw-late" />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText("Merchant's time is up")).toBeTruthy()
+    })
+    expect(screen.getByText('Refund open')).toBeTruthy()
+    expect(screen.getByText('The merchant did not confirm your payout in time.')).toBeTruthy()
+    expect(screen.queryByText(/Waiting for the merchant to pay/)).toBeNull()
+  })
+
+  it(
+    'lpPaysFiat+FUNDED: crosses confirm_deadline while mounted and switches from the live countdown to the expired row',
+    async () => {
+      const now = Math.floor(Date.now() / 1000)
+      const order: Order = {
+        ...BASE_ORDER,
+        id: 'ord-withdraw-crossing',
+        flow: 'WITHDRAW',
+        status: 'FUNDED',
+        confirm_deadline: now + 2,
+      }
+      mockGetOrder.mockResolvedValue(order)
+
+      render(
+        <TestProviders>
+          <OrderStatusComponent id="ord-withdraw-crossing" />
+        </TestProviders>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Merchant pays within')).toBeTruthy()
+      })
+
+      await waitFor(
+        () => {
+          expect(screen.getByText("Merchant's time is up")).toBeTruthy()
+        },
+        { timeout: 3000 },
+      )
+      expect(screen.getByText('Refund open')).toBeTruthy()
+    },
+    8000,
+  )
+
   it('RELEASED (TOP_UP): shows the flow-aware Done panel, hides all action CTAs, Done → /orders', async () => {
     const order: Order = { ...BASE_ORDER, id: 'ord-c8', status: 'RELEASED' }
     mockGetOrder.mockResolvedValue(order)

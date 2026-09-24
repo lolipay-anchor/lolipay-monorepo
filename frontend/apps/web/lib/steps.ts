@@ -80,6 +80,12 @@ export function stepsFor(status: OrderStatus, flow: Flow = 'TOP_UP'): Step[] {
   })
 }
 
+export interface ActiveCountdown {
+  deadline: number
+  label: string
+  expired?: boolean
+}
+
 export function activeCountdown(order: {
   status: OrderStatus
   flow: Flow
@@ -88,7 +94,7 @@ export function activeCountdown(order: {
   refund_opens_at: number
   expires_at: string
   sign_by?: number
-}): { deadline: number; label: string } | null {
+}): ActiveCountdown | null {
   const lpPaysFiat = order.flow !== 'TOP_UP'
   switch (order.status) {
     case 'MATCHED':
@@ -99,6 +105,9 @@ export function activeCountdown(order: {
       }
     case 'FUNDED':
       if (lpPaysFiat) {
+        if (Date.now() >= order.confirm_deadline * 1000) {
+          return { deadline: order.confirm_deadline, label: "Merchant's time is up", expired: true }
+        }
         return { deadline: order.confirm_deadline, label: 'Merchant pays within' }
       }
       if (Date.now() < order.pay_deadline * 1000) {

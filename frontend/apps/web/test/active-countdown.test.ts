@@ -29,8 +29,18 @@ describe('the countdown a user sees never counts to an instant nothing enforces 
     expect(activeCountdown({ ...base, flow: 'TOP_UP', status: 'FIAT_PAID' })).toEqual({ deadline: 3_600, label: 'Merchant releases within' })
   })
 
-  it('still tells a withdrawing user how long the provider has to pay at FUNDED, which the refund route really opens after', () => {
-    expect(activeCountdown({ ...base, status: 'FUNDED' })).toEqual({ deadline: 3_600, label: 'Merchant pays within' })
+  it('shows the expired state at FUNDED once confirm_deadline has passed, instead of freezing on a stale countdown', () => {
+    expect(activeCountdown({ ...base, status: 'FUNDED' })).toEqual({
+      deadline: 3_600,
+      label: "Merchant's time is up",
+      expired: true,
+    })
+  })
+
+  it('still tells a withdrawing user how long the provider has to pay at FUNDED, before confirm_deadline has passed', () => {
+    const now = Math.floor(Date.now() / 1000)
+    const cd = activeCountdown({ ...base, status: 'FUNDED', confirm_deadline: now + 3_600 })
+    expect(cd).toEqual({ deadline: now + 3_600, label: 'Merchant pays within' })
   })
 
   it('counts to the pay deadline at FUNDED on a top-up, before that deadline has passed', () => {
