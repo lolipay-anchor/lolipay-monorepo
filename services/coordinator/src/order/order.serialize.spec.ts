@@ -42,8 +42,10 @@ describe('an order carries the hash of the transaction that settled it', () => {
     expect(serializeOrderBase({ ...order }).settlement_tx_hash).toBeNull();
   });
 
-  it('publishes exactly the keys it published before plus the settlement hash', () => {
+  it('publishes exactly the keys it published before plus the settlement hash and the refund-opens-at instant', () => {
     expect(KEYS_BEFORE).toHaveLength(34);
-    expect(Object.keys(serializeOrderBase(order)).sort()).toEqual([...KEYS_BEFORE, 'settlement_tx_hash'].sort());
+    expect(Object.keys(serializeOrderBase(order)).sort()).toEqual(
+      [...KEYS_BEFORE, 'settlement_tx_hash', 'refund_opens_at'].sort(),
+    );
   });
 });
