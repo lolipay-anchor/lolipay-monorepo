@@ -56,6 +56,7 @@ const BASE_ORDER: Order = {
   status: 'FUNDED',
   pay_deadline: Math.floor(Date.now() / 1000) + 3600,
   confirm_deadline: Math.floor(Date.now() / 1000) + 7200,
+  refund_opens_at: Math.floor(Date.now() / 1000) + 7200,
   dispute_deadline: Math.floor(Date.now() / 1000) + 86400,
   expires_at: new Date(Date.now() + 3600000).toISOString(),
   created_at: new Date().toISOString(),

@@ -65,6 +65,7 @@ const MOCK_ORDER = {
   status: 'FUNDED' as const,
   pay_deadline: 1700000000,
   confirm_deadline: 1700003600,
+  refund_opens_at: 1700003600,
   dispute_deadline: 1700090000,
   expires_at: '2024-01-16T10:00:00.000Z',
   created_at: '2024-01-15T10:00:00.000Z',

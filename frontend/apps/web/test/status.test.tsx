@@ -60,6 +60,7 @@ const BASE_ORDER: Order = {
   status: 'FUNDED' as const,
   pay_deadline: Math.floor(Date.now() / 1000) + 3600,
   confirm_deadline: Math.floor(Date.now() / 1000) + 7200,
+  refund_opens_at: Math.floor(Date.now() / 1000) + 7200,
   dispute_deadline: Math.floor(Date.now() / 1000) + 86400,
   expires_at: new Date(Date.now() + 3600000).toISOString(),
   created_at: new Date().toISOString(),
@@ -375,8 +376,24 @@ describe('OrderStatus component', () => {
     expect((screen.getByTestId('settlement-link') as HTMLAnchorElement).getAttribute('href')).toBe(
       `https://stellar.expert/explorer/testnet/tx/${hash}`,
     )
-    const sentence = screen.getByText('The escrow was returned on-chain — no funds were lost.')
+    const sentence = screen.getByText('The USDC went back to the provider.')
     expect(sentence.compareDocumentPosition(screen.getByTestId('settlement-link')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByText(/no funds were lost/i)).toBeNull()
+  })
+
+  it('REFUNDED (WITHDRAW): tells the depositor their own USDC came back to them, not the provider', async () => {
+    const order: Order = { ...BASE_ORDER, id: 'ord-c10f', flow: 'WITHDRAW', status: 'REFUNDED' }
+    mockGetOrder.mockResolvedValue(order)
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-c10f" />
+      </TestProviders>,
+    )
+    await waitFor(() => {
+      expect(screen.getByText('Your USDC came back to you.')).toBeTruthy()
+    })
+    expect(screen.queryByText('The USDC went back to the provider.')).toBeNull()
+    expect(screen.queryByText(/no funds were lost/i)).toBeNull()
   })
 
   it('EXPIRED with a settlement hash, which orphan recovery writes when it returns the escrow, links the refund instead of claiming nothing moved', async () => {
@@ -591,7 +608,7 @@ describe('OrderStatus component', () => {
     expect(screen.queryByText('Something wrong? Open a dispute')).toBeNull()
   })
 
-  it('State A: shows the institution in mono with dir="ltr", the rail noun plain beside it, both isolated', async () => {
+  it('State A: folds the institution into the transfer sentence, never as a standalone line, mono-free, dir="ltr" isolated', async () => {
     const order: Order = {
       ...BASE_ORDER,
       id: 'ord-inst1',
@@ -614,11 +631,11 @@ describe('OrderStatus component', () => {
     const institutionSpan = screen.getByText('bca')
     expect(institutionSpan.tagName).toBe('SPAN')
     expect(institutionSpan.getAttribute('dir')).toBe('ltr')
-    expect(institutionSpan.className).toContain('font-geist-mono')
+    expect(institutionSpan.className).not.toContain('font-geist-mono')
 
-    const institutionRow = institutionSpan.closest('p')
-    expect(institutionRow?.getAttribute('dir')).toBe('ltr')
-    expect(institutionRow?.textContent).toBe('bca bank account')
+    const sentence = institutionSpan.closest('p')
+    expect(sentence?.getAttribute('dir')).toBe('ltr')
+    expect(sentence?.textContent).toBe('Send exactly Rp 1.600.000 to the bca bank account below:')
 
     expect(screen.getByText('1231231231').getAttribute('dir')).toBe('ltr')
   })
@@ -647,6 +664,41 @@ describe('OrderStatus component', () => {
     expect(institutionSpan.getAttribute('dir')).toBe('ltr')
     expect(institutionSpan.closest('p')?.getAttribute('dir')).toBe('ltr')
     expect(screen.getByText('9988776655').getAttribute('dir')).toBe('ltr')
+  })
+
+  it('State B (closed, institution present): folds the institution into its own lolipay-authored sentence, mono-free, isolated', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    const order: Order = {
+      ...BASE_ORDER,
+      id: 'ord-inst-closed1',
+      payment_instructions: '1231231231',
+      payment_institution: 'bca',
+      rail: 'BANK',
+      pay_deadline: now - 60,
+      refund_opens_at: now + 300,
+    }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-inst-closed1" />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('The account you were given:')).toBeTruthy()
+    })
+
+    const institutionSpan = screen.getByText('bca')
+    expect(institutionSpan.tagName).toBe('SPAN')
+    expect(institutionSpan.getAttribute('dir')).toBe('ltr')
+    expect(institutionSpan.className).not.toContain('font-geist-mono')
+
+    const sentence = institutionSpan.closest('p')
+    expect(sentence?.getAttribute('dir')).toBe('ltr')
+    expect(sentence?.textContent).toBe('The bca bank account below.')
+
+    expect(screen.getByText('1231231231').getAttribute('dir')).toBe('ltr')
   })
 
   it('State A: omits the institution line entirely when payment_institution is absent — never a placeholder', async () => {
@@ -716,6 +768,100 @@ describe('OrderStatus component', () => {
     expect(screen.queryByRole('button', { name: /paid/i })).toBeNull()
     expect(screen.getByText(/already transferred/i)).toBeTruthy()
   })
+
+  it('State B, still inside the confirmation window: names the control, never the outcome, and shows a countdown to when the refund opens instead of "Pay within"', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    const order: Order = {
+      ...BASE_ORDER,
+      id: 'ord-closed2',
+      payment_instructions: 'BCA 1234567890',
+      pay_deadline: now - 60,
+      refund_opens_at: now + 300,
+    }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-closed2" />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/Payment window closed/i)).toBeTruthy()
+    })
+
+    expect(screen.getByText('Do not start a transfer now.')).toBeTruthy()
+    expect(screen.getByText(/Your USDC has not moved/)).toBeTruthy()
+    expect(screen.queryByText(/is on its way back/i)).toBeNull()
+    expect(screen.queryByText(/will be returned/i)).toBeNull()
+    expect(screen.queryByText(/no funds were lost/i)).toBeNull()
+    expect(screen.queryByText(/contact support/i)).toBeNull()
+    expect(screen.queryByText(/an operator will review/i)).toBeNull()
+    expect(screen.queryByText('you will be refunded', { exact: false })).toBeNull()
+
+    expect(screen.getByText('Can still be confirmed for')).toBeTruthy()
+    expect(screen.queryByText('Pay within')).toBeNull()
+  })
+
+  it('State B, past the confirmation window: shows no countdown at all, and keeps only what is still true', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    const order: Order = {
+      ...BASE_ORDER,
+      id: 'ord-closed3',
+      payment_instructions: 'BCA 1234567890',
+      pay_deadline: now - 7200,
+      refund_opens_at: now - 60,
+    }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-closed3" />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/Payment window closed/i)).toBeTruthy()
+    })
+
+    expect(screen.getByText('Do not start a transfer now.')).toBeTruthy()
+    expect(screen.queryByText('Pay within')).toBeNull()
+    expect(screen.queryByText('Can still be confirmed for')).toBeNull()
+  })
+
+  it(
+    'State B: crosses the refund-opens instant while mounted and the countdown row disappears, even though the fetched order never changes',
+    async () => {
+      const now = Math.floor(Date.now() / 1000)
+      const order: Order = {
+        ...BASE_ORDER,
+        id: 'ord-refund-transition',
+        payment_instructions: 'BCA 1234567890',
+        pay_deadline: now - 60,
+        refund_opens_at: now + 2,
+      }
+      mockGetOrder.mockResolvedValue(order)
+
+      render(
+        <TestProviders>
+          <OrderStatusComponent id="ord-refund-transition" />
+        </TestProviders>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Can still be confirmed for')).toBeTruthy()
+      })
+
+      await waitFor(
+        () => {
+          expect(screen.queryByText('Can still be confirmed for')).toBeNull()
+        },
+        { timeout: 3000 },
+      )
+      expect(screen.queryByText('Pay within')).toBeNull()
+    },
+    8000,
+  )
 
   it(
     'State A→B transition: crosses the deadline while mounted and the invitation disappears without the data changing',

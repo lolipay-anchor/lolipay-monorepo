@@ -65,6 +65,7 @@ function makeOrder(overrides: Partial<import('@lolipay/api-client').Order> = {})
     status: 'FUNDED' as const,
     pay_deadline: Math.floor(Date.now() / 1000) + 1800,
     confirm_deadline: Math.floor(Date.now() / 1000) + 3600,
+    refund_opens_at: Math.floor(Date.now() / 1000) + 3600,
     dispute_deadline: Math.floor(Date.now() / 1000) + 90000,
     expires_at: '2024-01-16T10:00:00.000Z',
     created_at: '2024-01-15T10:00:00.000Z',

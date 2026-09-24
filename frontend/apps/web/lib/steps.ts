@@ -85,6 +85,7 @@ export function activeCountdown(order: {
   flow: Flow
   pay_deadline: number
   confirm_deadline: number
+  refund_opens_at: number
   expires_at: string
   sign_by?: number
 }): { deadline: number; label: string } | null {
@@ -97,11 +98,16 @@ export function activeCountdown(order: {
         label: 'Lock within',
       }
     case 'FUNDED':
-
-      return {
-        deadline: lpPaysFiat ? order.confirm_deadline : order.pay_deadline,
-        label: lpPaysFiat ? 'Merchant pays within' : 'Pay within',
+      if (lpPaysFiat) {
+        return { deadline: order.confirm_deadline, label: 'Merchant pays within' }
       }
+      if (Date.now() < order.pay_deadline * 1000) {
+        return { deadline: order.pay_deadline, label: 'Pay within' }
+      }
+      if (Date.now() < order.refund_opens_at * 1000) {
+        return { deadline: order.refund_opens_at, label: 'Can still be confirmed for' }
+      }
+      return null
     case 'FIAT_PAID':
       if (lpPaysFiat) return null
       return { deadline: order.confirm_deadline, label: 'Merchant releases within' }

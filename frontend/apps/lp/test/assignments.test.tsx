@@ -58,6 +58,7 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
     status: 'MATCHED',
     pay_deadline: 0,
     confirm_deadline: 0,
+    refund_opens_at: 0,
     dispute_deadline: 0,
     expires_at: new Date().toISOString(),
     created_at: new Date().toISOString(),

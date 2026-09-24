@@ -53,6 +53,19 @@ function caseId(orderId: string): string {
   return '#' + orderId.slice(-6).toUpperCase()
 }
 
+function useElapsed(deadlineMs: number | null): boolean {
+  const [elapsed, setElapsed] = React.useState(false)
+  React.useEffect(() => {
+    setElapsed(false)
+    if (deadlineMs == null) return
+    const msLeft = deadlineMs - Date.now()
+    if (msLeft <= 0) return
+    const timer = setTimeout(() => setElapsed(true), msLeft)
+    return () => clearTimeout(timer)
+  }, [deadlineMs])
+  return elapsed
+}
+
 interface Props {
   id: string
 
@@ -109,15 +122,9 @@ export function OrderStatus({ id, submitFn }: Props) {
   })
 
   const payDeadlineMs = order ? order.pay_deadline * 1000 : null
-  const [pastDeadline, setPastDeadline] = React.useState(false)
-  React.useEffect(() => {
-    setPastDeadline(false)
-    if (payDeadlineMs == null) return
-    const msLeft = payDeadlineMs - Date.now()
-    if (msLeft <= 0) return
-    const timer = setTimeout(() => setPastDeadline(true), msLeft)
-    return () => clearTimeout(timer)
-  }, [payDeadlineMs])
+  const refundOpensAtMs = order ? order.refund_opens_at * 1000 : null
+  const pastDeadline = useElapsed(payDeadlineMs)
+  useElapsed(refundOpensAtMs)
 
   if (isLoading) {
     return (
@@ -151,6 +158,12 @@ export function OrderStatus({ id, submitFn }: Props) {
   const canPostSettleDispute = postSettleDeadlineMs != null && postSettleDeadlineMs > Date.now()
 
   const paymentWindowClosed = pastDeadline || (payDeadlineMs !== null && payDeadlineMs <= Date.now())
+
+  const destinationNumber = order.payment_instructions ? (
+    <p className="font-geist-mono text-[15px] font-bold text-lp-accent-ink" dir="ltr">
+      {order.payment_instructions}
+    </p>
+  ) : null
 
   return (
     <div className="flex min-h-screen flex-col bg-lp-paper pb-28">
@@ -215,26 +228,31 @@ export function OrderStatus({ id, submitFn }: Props) {
                   Payment window closed
                 </p>
                 <p className="mb-1 text-[13.5px] font-semibold text-lp-ink">
-                  Do not start a transfer now. The USDC is on its way back to the provider.
+                  Do not start a transfer now.
+                </p>
+                <p className="text-[13px] text-lp-ink-soft">
+                  Your USDC has not moved. A transfer that has already arrived can still be
+                  confirmed by lolipay; after that, the escrow can be returned to the provider.
                 </p>
                 {order.payment_instructions && (
                   <>
+                    <p className="mb-1 mt-2 text-[13.5px] font-semibold text-lp-ink">
+                      The account you were given:
+                    </p>
                     {order.payment_institution && (
-                      <p className="mb-1 mt-2 text-[15px] font-bold text-lp-accent-ink" dir="ltr">
-                        <span className="font-geist-mono" dir="ltr">
-                          {order.payment_institution}
-                        </span>{' '}
-                        {RAIL_WORDS[order.rail]}
+                      <p className="mb-1 text-[13.5px] font-semibold text-lp-ink" dir="ltr">
+                        {'The '}
+                        <span dir="ltr">{order.payment_institution}</span>
+                        {` ${RAIL_WORDS[order.rail]} below.`}
                       </p>
                     )}
-                    <p className="font-geist-mono text-[15px] font-bold text-lp-accent-ink" dir="ltr">
-                      {order.payment_instructions}
-                    </p>
+                    {destinationNumber}
                   </>
                 )}
                 <p className="mt-3 text-[13px] text-lp-ink-soft">
-                  Already transferred? Keep your receipt and stay on this page — this order is
-                  still being settled, and the outcome appears here.
+                  <span className="font-semibold text-lp-ink">Already transferred?</span> Keep
+                  your receipt and stay on this page — it updates on its own. If the escrow is
+                  returned to the provider and you did pay, open a dispute from this page.
                 </p>
               </div>
             ) : order.payment_instructions ? (
@@ -242,20 +260,21 @@ export function OrderStatus({ id, submitFn }: Props) {
                 <p className="mb-1 font-geist-mono text-[11px] uppercase tracking-[.08em] text-lp-muted">
                   Transfer to
                 </p>
-                <p className="mb-1 text-[13.5px] font-semibold text-lp-ink">
-                  Send exactly {formatIDR(fiatAmount)} to:
+                <p
+                  className="mb-1 text-[13.5px] font-semibold text-lp-ink"
+                  dir={order.payment_institution ? 'ltr' : undefined}
+                >
+                  {order.payment_institution ? (
+                    <>
+                      {`Send exactly ${formatIDR(fiatAmount)} to the `}
+                      <span dir="ltr">{order.payment_institution}</span>
+                      {` ${RAIL_WORDS[order.rail]} below:`}
+                    </>
+                  ) : (
+                    `Send exactly ${formatIDR(fiatAmount)} to:`
+                  )}
                 </p>
-                {order.payment_institution && (
-                  <p className="mb-1 text-[15px] font-bold text-lp-accent-ink" dir="ltr">
-                    <span className="font-geist-mono" dir="ltr">
-                      {order.payment_institution}
-                    </span>{' '}
-                    {RAIL_WORDS[order.rail]}
-                  </p>
-                )}
-                <p className="font-geist-mono text-[15px] font-bold text-lp-accent-ink" dir="ltr">
-                  {order.payment_instructions}
-                </p>
+                {destinationNumber}
                 {order.ref && (
                   <>
                     <p className="mb-1 mt-3 text-[13.5px] font-semibold text-lp-ink">
@@ -437,8 +456,8 @@ export function OrderStatus({ id, submitFn }: Props) {
           >
             <Undo2 size={38} strokeWidth={1.7} className="text-lp-amber" aria-hidden="true" />
             <p className="font-geist text-[19px] font-bold text-lp-ink">Refunded — escrow returned</p>
-            <p className="text-[13px] text-lp-ink-soft">
-              The escrow was returned on-chain — no funds were lost.
+            <p className="text-[13px] font-semibold text-lp-ink">
+              {lpPaysFiat ? 'Your USDC came back to you.' : 'The USDC went back to the provider.'}
             </p>
             <SettlementLink hash={order.settlement_tx_hash} className="text-[13px] font-semibold underline" />
             {canPostSettleDispute && (

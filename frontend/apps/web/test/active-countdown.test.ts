@@ -5,6 +5,7 @@ const base = {
   flow: 'WITHDRAW' as const,
   pay_deadline: 1_800,
   confirm_deadline: 3_600,
+  refund_opens_at: 3_600,
   expires_at: '2096-10-02T06:56:40.000Z',
 }
 
@@ -30,5 +31,41 @@ describe('the countdown a user sees never counts to an instant nothing enforces 
 
   it('still tells a withdrawing user how long the provider has to pay at FUNDED, which the refund route really opens after', () => {
     expect(activeCountdown({ ...base, status: 'FUNDED' })).toEqual({ deadline: 3_600, label: 'Merchant pays within' })
+  })
+
+  it('counts to the pay deadline at FUNDED on a top-up, before that deadline has passed', () => {
+    const now = Math.floor(Date.now() / 1000)
+    const cd = activeCountdown({
+      ...base,
+      flow: 'TOP_UP',
+      status: 'FUNDED',
+      pay_deadline: now + 500,
+      refund_opens_at: now + 900,
+    })
+    expect(cd).toEqual({ deadline: now + 500, label: 'Pay within' })
+  })
+
+  it('switches to counting the refund-opens instant once the pay deadline has passed but the refund has not opened yet', () => {
+    const now = Math.floor(Date.now() / 1000)
+    const cd = activeCountdown({
+      ...base,
+      flow: 'TOP_UP',
+      status: 'FUNDED',
+      pay_deadline: now - 500,
+      refund_opens_at: now + 900,
+    })
+    expect(cd).toEqual({ deadline: now + 900, label: 'Can still be confirmed for' })
+  })
+
+  it('shows no countdown at all once the refund window has opened, because a zeroed clock cannot be told apart from a stalled one', () => {
+    const now = Math.floor(Date.now() / 1000)
+    const cd = activeCountdown({
+      ...base,
+      flow: 'TOP_UP',
+      status: 'FUNDED',
+      pay_deadline: now - 900,
+      refund_opens_at: now - 500,
+    })
+    expect(cd).toBeNull()
   })
 })
