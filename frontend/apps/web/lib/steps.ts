@@ -84,7 +84,7 @@ export type ActiveCountdown =
   | { deadline: number; label: string; expired?: false }
   | { label: string; expired: true }
 
-type Window = { deadline: number; label: string; pastLabel: string | null }
+type CountdownWindow = { deadline: number; label: string; pastLabel: string | null }
 
 function windowFor(
   order: {
@@ -97,7 +97,7 @@ function windowFor(
     sign_by?: number
   },
   now: number,
-): Window | null {
+): CountdownWindow | null {
   const lpPaysFiat = order.flow !== 'TOP_UP'
   switch (order.status) {
     case 'MATCHED':
