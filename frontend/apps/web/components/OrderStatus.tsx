@@ -27,7 +27,7 @@ import { DarkHeroCard, StatusPill, Stepper, Countdown, HoldToRelease, SkeletonLi
 import { client } from '@/lib/client'
 import { formatIDR, formatUSDC } from '@/lib/money'
 import { stepsFor, isTerminal, activeCountdown } from '@/lib/steps'
-import type { Flow } from '@lolipay/api-client'
+import type { Flow, Rail } from '@lolipay/api-client'
 import { pillFor } from '@/lib/format'
 import { IvePaidSheet } from '@/components/IvePaidSheet'
 import { EscrowLocked } from '@/components/EscrowLocked'
@@ -38,6 +38,12 @@ import { useSignOrderTx, type SubmitFn } from '@/hooks/useSignOrderTx'
 import { useRealtimeChannel } from '@/hooks/useRealtimeChannel'
 import { useToast } from '@/components/Toast'
 
+
+const RAIL_WORDS: Record<Rail, string> = {
+  BANK: 'bank account',
+  EWALLET: 'e-wallet',
+  QRIS: 'QRIS code',
+}
 
 function releasedTitle(flow: Flow): string {
   return flow === 'TOP_UP' ? 'USDC delivered ✓' : 'Payment complete'
@@ -102,6 +108,17 @@ export function OrderStatus({ id, submitFn }: Props) {
     },
   })
 
+  const payDeadlineMs = order ? order.pay_deadline * 1000 : null
+  const [pastDeadline, setPastDeadline] = React.useState(false)
+  React.useEffect(() => {
+    setPastDeadline(false)
+    if (payDeadlineMs == null) return
+    const msLeft = payDeadlineMs - Date.now()
+    if (msLeft <= 0) return
+    const timer = setTimeout(() => setPastDeadline(true), msLeft)
+    return () => clearTimeout(timer)
+  }, [payDeadlineMs])
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-lp-paper px-[18px] pt-4">
@@ -132,6 +149,8 @@ export function OrderStatus({ id, submitFn }: Props) {
     ? Date.parse(order.post_settle_dispute_until)
     : null
   const canPostSettleDispute = postSettleDeadlineMs != null && postSettleDeadlineMs > Date.now()
+
+  const paymentWindowClosed = pastDeadline || (payDeadlineMs !== null && payDeadlineMs <= Date.now())
 
   return (
     <div className="flex min-h-screen flex-col bg-lp-paper pb-28">
@@ -190,15 +209,51 @@ export function OrderStatus({ id, submitFn }: Props) {
         {}
         {!lpPaysFiat && order.status === 'FUNDED' && (
           <div className="flex flex-col gap-3" data-testid="ive-paid-slot">
-            {order.payment_instructions && (
+            {paymentWindowClosed ? (
+              <div className="rounded-lp-card border border-lp-line bg-lp-surface p-4">
+                <p className="mb-1 font-geist-mono text-[11px] uppercase tracking-[.08em] text-lp-muted">
+                  Payment window closed
+                </p>
+                <p className="mb-1 text-[13.5px] font-semibold text-lp-ink">
+                  Do not start a transfer now. The USDC is on its way back to the provider.
+                </p>
+                {order.payment_instructions && (
+                  <>
+                    {order.payment_institution && (
+                      <p className="mb-1 mt-2 text-[15px] font-bold text-lp-accent-ink" dir="ltr">
+                        <span className="font-geist-mono" dir="ltr">
+                          {order.payment_institution}
+                        </span>{' '}
+                        {RAIL_WORDS[order.rail]}
+                      </p>
+                    )}
+                    <p className="font-geist-mono text-[15px] font-bold text-lp-accent-ink" dir="ltr">
+                      {order.payment_instructions}
+                    </p>
+                  </>
+                )}
+                <p className="mt-3 text-[13px] text-lp-ink-soft">
+                  Already transferred? Keep your receipt and stay on this page — this order is
+                  still being settled, and the outcome appears here.
+                </p>
+              </div>
+            ) : order.payment_instructions ? (
               <div className="rounded-lp-card border border-lp-line bg-lp-surface p-4">
                 <p className="mb-1 font-geist-mono text-[11px] uppercase tracking-[.08em] text-lp-muted">
                   Transfer to
                 </p>
                 <p className="mb-1 text-[13.5px] font-semibold text-lp-ink">
-                  Transfer {formatIDR(fiatAmount)} to
+                  Send exactly {formatIDR(fiatAmount)} to:
                 </p>
-                <p className="font-geist-mono text-[15px] font-bold text-lp-accent-ink">
+                {order.payment_institution && (
+                  <p className="mb-1 text-[15px] font-bold text-lp-accent-ink" dir="ltr">
+                    <span className="font-geist-mono" dir="ltr">
+                      {order.payment_institution}
+                    </span>{' '}
+                    {RAIL_WORDS[order.rail]}
+                  </p>
+                )}
+                <p className="font-geist-mono text-[15px] font-bold text-lp-accent-ink" dir="ltr">
                   {order.payment_instructions}
                 </p>
                 {order.ref && (
@@ -219,33 +274,54 @@ export function OrderStatus({ id, submitFn }: Props) {
                   </>
                 )}
               </div>
+            ) : order.payment_instructions_withheld === 'kyc_required' ? (
+              <div className="rounded-lp-card border border-lp-line bg-lp-surface p-4">
+                <p className="mb-1 font-geist-mono text-[11px] uppercase tracking-[.08em] text-lp-muted">
+                  Transfer to
+                </p>
+                <p className="text-[13.5px] text-lp-ink">
+                  Your USDC is locked, but we cannot show you where to send the money until your
+                  identity check is complete.{' '}
+                  <Link href="/profile" className="font-semibold underline">
+                    Open Profile
+                  </Link>{' '}
+                  to finish it.
+                </p>
+                <p className="mt-2 text-[11.5px] text-lp-faint">
+                  The payment timer above keeps running.
+                </p>
+              </div>
+            ) : null}
+
+            {!paymentWindowClosed && (
+              <>
+                <div className="flex items-start gap-2.5 rounded-[14px] bg-lp-amber-soft px-[14px] py-[12px]">
+                  <AlertTriangle size={17} strokeWidth={1.8} className="mt-0.5 flex-none text-lp-amber" aria-hidden="true" />
+                  <span className="text-xs leading-[1.45] text-lp-ink">
+                    Pay from a bank account in your own name — third-party transfers are rejected and
+                    auto-refunded.
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSheetOpen(true)}
+                  className="w-full rounded-lp-cta bg-lp-ink py-4 font-geist text-[15px] font-semibold text-lp-paper transition"
+                >
+                  I&apos;ve paid
+                </button>
+
+                <IvePaidSheet
+                  order={order}
+                  open={sheetOpen}
+                  onClose={() => setSheetOpen(false)}
+                  onConfirmed={() => {
+                    setSheetOpen(false)
+                    invalidate()
+                  }}
+                />
+              </>
             )}
-
-            <div className="flex items-start gap-2.5 rounded-[14px] bg-lp-amber-soft px-[14px] py-[12px]">
-              <AlertTriangle size={17} strokeWidth={1.8} className="mt-0.5 flex-none text-lp-amber" aria-hidden="true" />
-              <span className="text-xs leading-[1.45] text-lp-ink">
-                Pay from a bank account in your own name — third-party transfers are rejected and
-                auto-refunded.
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setSheetOpen(true)}
-              className="w-full rounded-lp-cta bg-lp-ink py-4 font-geist text-[15px] font-semibold text-lp-paper transition"
-            >
-              I&apos;ve paid
-            </button>
-
-            <IvePaidSheet
-              order={order}
-              open={sheetOpen}
-              onClose={() => setSheetOpen(false)}
-              onConfirmed={() => {
-                setSheetOpen(false)
-                invalidate()
-              }}
-            />
           </div>
         )}
 

@@ -591,6 +591,166 @@ describe('OrderStatus component', () => {
     expect(screen.queryByText('Something wrong? Open a dispute')).toBeNull()
   })
 
+  it('State A: shows the institution in mono with dir="ltr", the rail noun plain beside it, both isolated', async () => {
+    const order: Order = {
+      ...BASE_ORDER,
+      id: 'ord-inst1',
+      payment_instructions: '1231231231',
+      payment_institution: 'bca',
+      rail: 'BANK',
+    }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-inst1" />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('bca')).toBeTruthy()
+    })
+
+    const institutionSpan = screen.getByText('bca')
+    expect(institutionSpan.tagName).toBe('SPAN')
+    expect(institutionSpan.getAttribute('dir')).toBe('ltr')
+    expect(institutionSpan.className).toContain('font-geist-mono')
+
+    const institutionRow = institutionSpan.closest('p')
+    expect(institutionRow?.getAttribute('dir')).toBe('ltr')
+    expect(institutionRow?.textContent).toBe('bca bank account')
+
+    expect(screen.getByText('1231231231').getAttribute('dir')).toBe('ltr')
+  })
+
+  it('State A: isolates a strong-RTL institution name so it cannot pull the account number into its run', async () => {
+    const order: Order = {
+      ...BASE_ORDER,
+      id: 'ord-inst2',
+      payment_instructions: '9988776655',
+      payment_institution: 'بنك مصر',
+      rail: 'BANK',
+    }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-inst2" />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('بنك مصر')).toBeTruthy()
+    })
+
+    const institutionSpan = screen.getByText('بنك مصر')
+    expect(institutionSpan.getAttribute('dir')).toBe('ltr')
+    expect(institutionSpan.closest('p')?.getAttribute('dir')).toBe('ltr')
+    expect(screen.getByText('9988776655').getAttribute('dir')).toBe('ltr')
+  })
+
+  it('State A: omits the institution line entirely when payment_institution is absent — never a placeholder', async () => {
+    const order = { ...BASE_ORDER, id: 'ord-inst3', payment_instructions: 'BCA 1234567890' }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-inst3" />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('BCA 1234567890')).toBeTruthy()
+    })
+    expect(screen.queryByText(/unknown bank/i)).toBeNull()
+    expect(screen.queryByText('bank account')).toBeNull()
+  })
+
+  it('State C: payment_instructions_withheld=kyc_required shows guidance instead of a blank card', async () => {
+    const order = {
+      ...BASE_ORDER,
+      id: 'ord-kyc1',
+      payment_instructions: undefined,
+      payment_instructions_withheld: 'kyc_required' as const,
+    }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-kyc1" />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/identity check is complete/i)).toBeTruthy()
+    })
+    expect(screen.getByRole('link', { name: /open profile/i })).toHaveAttribute('href', '/profile')
+    expect(screen.getByText(/payment timer above keeps running/i)).toBeTruthy()
+    expect(screen.queryByText(/Verify your identity before your first trade/i)).toBeNull()
+  })
+
+  it('State B: payment window already closed at mount — no invitation to transfer, instructions kept for someone who already paid', async () => {
+    const order: Order = {
+      ...BASE_ORDER,
+      id: 'ord-closed1',
+      payment_instructions: 'BCA 1234567890',
+      pay_deadline: Math.floor(Date.now() / 1000) - 60,
+    }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-closed1" />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/Payment window closed/i)).toBeTruthy()
+    })
+    expect(screen.getByText('BCA 1234567890')).toBeTruthy()
+    expect(
+      screen.queryByText(
+        'Pay from a bank account in your own name — third-party transfers are rejected and auto-refunded.',
+      ),
+    ).toBeNull()
+    expect(screen.queryByRole('button', { name: /paid/i })).toBeNull()
+    expect(screen.getByText(/already transferred/i)).toBeTruthy()
+  })
+
+  it(
+    'State A→B transition: crosses the deadline while mounted and the invitation disappears without the data changing',
+    async () => {
+      const order: Order = {
+        ...BASE_ORDER,
+        id: 'ord-transition1',
+        payment_instructions: 'BCA 1234567890',
+        pay_deadline: Math.floor(Date.now() / 1000) + 1,
+      }
+      mockGetOrder.mockResolvedValue(order)
+
+      render(
+        <TestProviders>
+          <OrderStatusComponent id="ord-transition1" />
+        </TestProviders>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Send exactly Rp 1.600.000 to:')).toBeTruthy()
+      })
+      expect(screen.getByRole('button', { name: /paid/i })).toBeTruthy()
+
+      await waitFor(
+        () => {
+          expect(screen.getByText(/Payment window closed/i)).toBeTruthy()
+        },
+        { timeout: 3000 },
+      )
+      expect(screen.getByText('BCA 1234567890')).toBeTruthy()
+      expect(screen.queryByRole('button', { name: /paid/i })).toBeNull()
+    },
+    8000,
+  )
+
   it('REFUNDED: shows the post-settle dispute link when post_settle_dispute_until is present and future', async () => {
     const order: Order = {
       ...BASE_ORDER,
