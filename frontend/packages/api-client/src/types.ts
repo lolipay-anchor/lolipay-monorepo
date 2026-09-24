@@ -42,6 +42,8 @@ export interface Order {
   created_at: string
   payment_instructions?: string
   payment_instructions_withheld?: 'kyc_required'
+  payment_institution?: string
+  user_claimed_paid_at?: string | null
   lp_reputation?: LpReputation
 
   ref?: string | null
