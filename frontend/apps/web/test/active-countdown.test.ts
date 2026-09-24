@@ -47,14 +47,15 @@ describe('the countdown a user sees never counts to an instant nothing enforces 
 
   it('switches to counting the refund-opens instant once the pay deadline has passed but the refund has not opened yet', () => {
     const now = Math.floor(Date.now() / 1000)
+    const refundOpensAt = now + 900
     const cd = activeCountdown({
       ...base,
       flow: 'TOP_UP',
       status: 'FUNDED',
       pay_deadline: now - 500,
-      refund_opens_at: now + 900,
+      refund_opens_at: refundOpensAt,
     })
-    expect(cd).toEqual({ deadline: now + 900, label: 'Can still be confirmed for' })
+    expect(cd).toEqual({ deadline: refundOpensAt + 1, label: 'Can still be confirmed for' })
   })
 
   it('shows no countdown at all once the refund window has opened, because a zeroed clock cannot be told apart from a stalled one', () => {
@@ -75,7 +76,7 @@ describe('the refund-opens countdown survives through the boundary second, agree
     vi.useRealTimers()
   })
 
-  it('at exactly refund_opens_at: still counts down — the chain has not opened the refund yet', () => {
+  it('at exactly refund_opens_at: still counts down — the chain has not opened the refund yet, and the shown clock targets the same instant the row unmounts at', () => {
     vi.useFakeTimers()
     const now = Math.floor(Date.now() / 1000)
     vi.setSystemTime(now * 1000)
@@ -86,7 +87,7 @@ describe('the refund-opens countdown survives through the boundary second, agree
       pay_deadline: now - 500,
       refund_opens_at: now,
     })
-    expect(cd).toEqual({ deadline: now, label: 'Can still be confirmed for' })
+    expect(cd).toEqual({ deadline: now + 1, label: 'Can still be confirmed for' })
   })
 
   it('at refund_opens_at + 1 second: the row disappears, matching the instant the chain actually opens the refund', () => {
