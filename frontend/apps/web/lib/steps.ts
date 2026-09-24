@@ -104,7 +104,7 @@ export function activeCountdown(order: {
       if (Date.now() < order.pay_deadline * 1000) {
         return { deadline: order.pay_deadline, label: 'Pay within' }
       }
-      if (Date.now() < order.refund_opens_at * 1000) {
+      if (Date.now() < (order.refund_opens_at + 1) * 1000) {
         return { deadline: order.refund_opens_at, label: 'Can still be confirmed for' }
       }
       return null

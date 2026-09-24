@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { activeCountdown } from '@/lib/steps'
 
 const base = {
@@ -65,6 +65,40 @@ describe('the countdown a user sees never counts to an instant nothing enforces 
       status: 'FUNDED',
       pay_deadline: now - 900,
       refund_opens_at: now - 500,
+    })
+    expect(cd).toBeNull()
+  })
+})
+
+describe('the refund-opens countdown survives through the boundary second, agreeing with the chain (ts <= opens_at refuses)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('at exactly refund_opens_at: still counts down — the chain has not opened the refund yet', () => {
+    vi.useFakeTimers()
+    const now = Math.floor(Date.now() / 1000)
+    vi.setSystemTime(now * 1000)
+    const cd = activeCountdown({
+      ...base,
+      flow: 'TOP_UP',
+      status: 'FUNDED',
+      pay_deadline: now - 500,
+      refund_opens_at: now,
+    })
+    expect(cd).toEqual({ deadline: now, label: 'Can still be confirmed for' })
+  })
+
+  it('at refund_opens_at + 1 second: the row disappears, matching the instant the chain actually opens the refund', () => {
+    vi.useFakeTimers()
+    const now = Math.floor(Date.now() / 1000)
+    vi.setSystemTime((now + 1) * 1000)
+    const cd = activeCountdown({
+      ...base,
+      flow: 'TOP_UP',
+      status: 'FUNDED',
+      pay_deadline: now - 500,
+      refund_opens_at: now,
     })
     expect(cd).toBeNull()
   })
