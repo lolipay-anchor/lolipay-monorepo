@@ -28,7 +28,7 @@ import {
   mintInteractiveToken,
   readInteractiveToken,
 } from './interactive-token';
-import { effectiveIdrPerUsdc, escapeHtml, formatFiat, formatUsdc, interactiveScreen, page, settledRefreshSecs, identityField } from './interactive-page';
+import { effectiveIdrPerUsdc, escapeHtml, formatFiat, formatUsdc, interactiveScreen, page, settledRefreshSecs, identityField, timeTag } from './interactive-page';
 import { explorerTxUrl } from './explorer-url';
 import { withOwnSentence } from './interactive-sentence';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
@@ -376,16 +376,14 @@ export class Sep24Service {
     }
     if (screen === 'waiting_on_fiat') {
       const o = row.order as any;
-      const until = o.confirmDeadline
-        ? new Date(Number(o.confirmDeadline) * 1000).toISOString()
-        : null;
+      const until = o.confirmDeadline ? timeTag(o.confirmDeadline) : null;
       return page(
         'Your USDC is in escrow',
         [
           `<p>The provider says they are sending <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to your bank account. This page refreshes itself.</p>`,
           '<p>When they mark it sent, a button appears here. <strong>That is their claim, not proof.</strong> Check your own bank account before you press it — pressing it releases your USDC to them.</p>',
           until
-            ? `<p>If they never mark it sent, your USDC can be refunded out of the escrow after <strong>${escapeHtml(until)}</strong> — that route is open to anyone, including you. Once they do mark it sent, it closes, and only your confirmation or a dispute can settle the trade.</p>`
+            ? `<p>If they never mark it sent, your USDC can be refunded out of the escrow after <strong>${until}</strong> — that route is open to anyone, including you. Once they do mark it sent, it closes, and only your confirmation or a dispute can settle the trade.</p>`
             : '',
         ].join(''),
         30,
@@ -400,7 +398,7 @@ export class Sep24Service {
       if (signBy && signBy.getTime() <= Date.now()) {
         return page(
           'This signing window has closed',
-          `<p>The signing window for this withdrawal closed at <strong>${escapeHtml(signBy.toISOString())}</strong>. If you did not sign, nothing left your wallet and this withdrawal will expire on its own. If you did sign and it went through, this page will show your escrow once the network confirms it. Start a new withdrawal from your wallet when you are ready.</p>`,
+          `<p>The signing window for this withdrawal closed at <strong>${timeTag(signBy.getTime() / 1000)}</strong>. If you did not sign, nothing left your wallet and this withdrawal will expire on its own. If you did sign and it went through, this page will show your escrow once the network confirms it. Start a new withdrawal from your wallet when you are ready.</p>`,
         );
       }
       return page(
@@ -410,8 +408,8 @@ export class Sep24Service {
             ? [
                 `<p>Your wallet will ask you to approve moving <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC into escrow. The provider then pays <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to your bank account, and the escrow releases to them when you confirm it arrived. Nothing leaves your wallet until you approve it.</p>`,
                 `<p>Rate: 1 USDC ≈ <strong>${escapeHtml(formatFiat(effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount)))}</strong> ${escapeHtml(o.fiatCurrency)}, fixed for this order.</p>`,
-                `<p>If the provider never marks the rupiah sent, anyone, including you, can take the USDC back out of the escrow after <strong>${escapeHtml(new Date(Number(refundOpensAt(o)) * 1000).toISOString())}</strong>${anchorRefunds ? ', and this anchor\'s refund service does it for you' : '; this anchor will not do it for you, so the route is open on chain to anyone, including you'}. Once they do mark it sent, only your confirmation or a dispute can move it, decided by the resolver, or by the platform if the resolver does not act within ${RESOLVER_WINDOW_SECS / 3600} hours.</p>`,
-                `<p>Sign before <strong>${escapeHtml(signBy!.toISOString())}</strong>. After that the escrow refuses the signature and this withdrawal expires.</p>`,
+                `<p>If the provider never marks the rupiah sent, anyone, including you, can take the USDC back out of the escrow after <strong>${timeTag(refundOpensAt(o))}</strong>${anchorRefunds ? ', and this anchor\'s refund service does it for you' : '; this anchor will not do it for you, so the route is open on chain to anyone, including you'}. Once they do mark it sent, only your confirmation or a dispute can move it, decided by the resolver, or by the platform if the resolver does not act within ${RESOLVER_WINDOW_SECS / 3600} hours.</p>`,
+                `<p>Sign before <strong>${timeTag(signBy!.getTime() / 1000)}</strong>. After that the escrow refuses the signature and this withdrawal expires.</p>`,
               ].join('')
             : [
                 `<p>The provider says they sent <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to:</p>`,
@@ -441,7 +439,7 @@ export class Sep24Service {
         [
           payment,
           `<p>You receive <strong>${escapeHtml(formatUsdc(net))}</strong> USDC for it: 1 USDC ≈ <strong>${escapeHtml(formatFiat(effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount)))}</strong> ${escapeHtml(o.fiatCurrency)} on the <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC escrowed, minus a fee of <strong>${escapeHtml(formatUsdc(platformFee + lpFee))}</strong> USDC (${(o.platformFeeBps + o.lpFeeBps) / 100}%), all fixed for this order.</p>`,
-          `<p>After that a new transfer cannot be matched; one already sent can still be confirmed until <strong>${escapeHtml(new Date(Number(refundOpensAt(o)) * 1000).toISOString())}</strong>, when the escrow returns the USDC to the provider.</p>`,
+          `<p>After that a new transfer cannot be matched; one already sent can still be confirmed until <strong>${timeTag(refundOpensAt(o))}</strong>, when the escrow returns the USDC to the provider.</p>`,
           '<p>You may close this window. Your wallet will show the deposit once it settles.</p>',
         ].join(''),
         30,
@@ -590,16 +588,18 @@ export class Sep24Service {
     const o = row.order;
     if (row.flow !== 'TOP_UP' || !o || o.status !== 'FUNDED') return '';
     if (!o.payDeadline || Number(o.payDeadline) * 1000 <= Date.now()) return '';
-    const due = new Date(Number(o.payDeadline) * 1000).toISOString();
+    const due = timeTag(o.payDeadline);
     const institution = o.lpPaymentLabel
-      ? `<p dir="ltr"><strong>${escapeHtml(o.lpPaymentLabel)}</strong> ${escapeHtml(RAIL_WORDS[o.rail])}</p>`
+      ? `<p dir="ltr"><code dir="ltr">${escapeHtml(o.lpPaymentLabel)}</code> ${escapeHtml(RAIL_WORDS[o.rail])}</p>`
       : '';
+    const reference = o.ref ? `<p>Reference: <strong>${escapeHtml(o.ref)}</strong></p>` : '';
     return [
+      '<h2>How to pay</h2>',
       `<p>Send <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to:</p>`,
       institution,
-      `<pre dir="ltr">${escapeHtml(o.lpPaymentDetails ?? 'your provider will be shown here')}</pre>`,
-      `<p>Reference: <strong>${escapeHtml(o.ref ?? '')}</strong></p>`,
-      `<p><strong>Send it before ${escapeHtml(due)}.</strong></p>`,
+      `<pre dir="ltr">${escapeHtml(o.lpPaymentDetails ?? '')}</pre>`,
+      reference,
+      `<p><strong>Send it before ${due}.</strong></p>`,
     ].join('');
   }
 

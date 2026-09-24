@@ -47,6 +47,7 @@ const STYLE = [
   'main{max-width:26rem;margin:0 auto;padding:1.25rem}',
   '.brand{font-weight:700;letter-spacing:.02em;color:#555;margin:0 0 .5rem}',
   'h1{font-size:1.35rem;margin:.25rem 0 1rem}',
+  'h2{font-size:1.05rem;margin:1.25rem 0 .5rem}',
   'label{display:block;margin:.75rem 0 .25rem;font-weight:600}',
   'input,select{width:100%;font:inherit;font-weight:400;padding:.6rem;border:1px solid #bbb;border-radius:.5rem;box-sizing:border-box}',
   'button,.btn{display:block;width:100%;min-height:44px;margin-top:1rem;font:inherit;font-weight:600;border:0;border-radius:.5rem;background:#111;color:#fff;text-align:center;text-decoration:none;padding:.75rem;box-sizing:border-box}',
@@ -90,6 +91,18 @@ export function identityField(name: string): string {
 export function formatFiat(amount: unknown): string {
   const digits = fiatDigits(amount);
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+export function formatDeadline(secs: bigint | number): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Jakarta', day: 'numeric', month: 'long', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  }).format(new Date(Number(secs) * 1000)) + ' WIB';
+}
+
+export function timeTag(secs: bigint | number): string {
+  const iso = new Date(Number(secs) * 1000).toISOString();
+  return `<time datetime="${escapeHtml(iso)}">${escapeHtml(formatDeadline(secs))}</time>`;
 }
 
 export function formatUsdc(units: bigint): string {

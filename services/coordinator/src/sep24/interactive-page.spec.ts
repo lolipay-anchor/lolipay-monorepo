@@ -1,5 +1,5 @@
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
-import { interactiveScreen, escapeHtml, page, formatFiat, formatUsdc, effectiveIdrPerUsdc, settledRefreshSecs, identityField } from './interactive-page';
+import { interactiveScreen, escapeHtml, page, formatFiat, formatUsdc, effectiveIdrPerUsdc, settledRefreshSecs, identityField, formatDeadline, timeTag } from './interactive-page';
 
 const at = (kycStatus: any, screened: boolean, orderStatus: any) =>
   interactiveScreen({ kycStatus, screened, orderStatus });
@@ -105,6 +105,26 @@ describe('formatFiat', () => {
     expect(formatFiat('Rp 1.234.567')).toBe('1.234.567');
     expect(formatFiat(200000n)).toBe('200.000');
     expect(formatFiat('')).toBe('');
+  });
+});
+
+describe('formatDeadline', () => {
+  it('renders a UTC instant in Jakarta local time with a literal WIB suffix, in English', () => {
+    expect(formatDeadline(1_800_000_000n)).toBe('15 January 2027 at 15:00 WIB');
+    expect(formatDeadline(4_000_000_000)).toBe('2 October 2096 at 14:06 WIB');
+  });
+
+  it('is stable across the year, because Jakarta never observes daylight saving', () => {
+    expect(formatDeadline(Math.floor(Date.UTC(2026, 0, 15, 12, 0, 0) / 1000))).toContain('19:00 WIB');
+    expect(formatDeadline(Math.floor(Date.UTC(2026, 6, 15, 12, 0, 0) / 1000))).toContain('19:00 WIB');
+  });
+});
+
+describe('timeTag', () => {
+  it('wraps a human WIB reading around the machine-readable UTC instant', () => {
+    expect(timeTag(1_800_000_000n)).toBe(
+      '<time datetime="2027-01-15T08:00:00.000Z">15 January 2027 at 15:00 WIB</time>',
+    );
   });
 });
 

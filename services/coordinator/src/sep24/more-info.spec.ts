@@ -77,7 +77,7 @@ describe('the more-info page of a deposit', () => {
     expect(html).toContain('Send <strong>200.000</strong> IDR to:');
     expect(html).toContain('<pre dir="ltr">BCA 1234567890 a.n. Budi &lt;Santoso&gt;</pre>');
     expect(html).toContain('Reference: <strong>LP-42</strong>');
-    expect(html).toContain('<strong>Send it before 2027-01-15T08:00:00.000Z.</strong>');
+    expect(html).toContain('<strong>Send it before <time datetime="2027-01-15T08:00:00.000Z">15 January 2027 at 15:00 WIB</time>.</strong>');
   });
 
   it('stops telling a depositor to send rupiah once the pay window has closed, and says what the transaction JSON says instead', async () => {

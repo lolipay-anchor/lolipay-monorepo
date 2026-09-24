@@ -68,8 +68,43 @@ describe('the popup names the institution a bare account number belongs to', () 
   it('wraps the institution and the account number each in their own dir="ltr" block, not one shared run', async () => {
     const { svc } = projectingService(rawOrder);
     const html = await svc.moreInfo('tx-1');
-    expect(html).toContain('<p dir="ltr"><strong>BCA</strong> bank account</p>');
+    expect(html).toContain('<p dir="ltr"><code dir="ltr">BCA</code> bank account</p>');
     expect(html).toContain('<pre dir="ltr">1231231231</pre>');
+    expect(html).toMatch(/<[a-z]+[^>]*\sdir="ltr"[^>]*>BCA</);
+  });
+
+  it('renders the institution as a verbatim run, not an emphasised word, so lolipay is never read as the author of a typo', async () => {
+    const { svc } = projectingService({ ...rawOrder, lpPaymentLabel: 'bca' });
+    const html = await svc.moreInfo('tx-1');
+    expect(html).not.toContain('<strong>bca</strong>');
+    expect(html).toContain('<code dir="ltr">bca</code>');
+  });
+
+  it('renders the pay-by deadline as WIB for a human, with the UTC instant kept machine-readable', async () => {
+    const { svc } = projectingService(rawOrder);
+    const html = await svc.moreInfo('tx-1');
+    expect(html).toContain('<code dir="ltr">BCA</code>');
+    expect(html).toContain('<time datetime="2096-10-02T07:06:40.000Z">2 October 2096 at 14:06 WIB</time>');
+    expect(html).not.toContain('2096-10-02T07:06:40.000Z<');
+  });
+
+  it('gives the payment block its own heading for a screen-reader to jump to', async () => {
+    const { svc } = projectingService(rawOrder);
+    const html = await svc.moreInfo('tx-1');
+    expect(html).toMatch(/<h2>[^<]+<\/h2><p>Send/);
+  });
+
+  it('never promises to show a provider that has not been assigned, and shows the absence as an empty block instead', async () => {
+    const { svc } = projectingService({ ...rawOrder, lpPaymentDetails: null });
+    const html = await svc.moreInfo('tx-1');
+    expect(html).not.toContain('your provider will be shown here');
+    expect(html).toContain('<pre dir="ltr"></pre>');
+  });
+
+  it('drops the reference row entirely rather than showing a labelled blank', async () => {
+    const { svc } = projectingService({ ...rawOrder, ref: null });
+    const html = await svc.moreInfo('tx-1');
+    expect(html).not.toContain('Reference:');
   });
 
   it('says e-wallet for an e-wallet rail and QRIS code for a QRIS rail', async () => {

@@ -227,6 +227,18 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       }
     });
 
+    it('names the confirm-by instant in Jakarta local time, not a raw UTC string, because this message is read by a person', () => {
+      const refundAt = 1_000_003_600;
+      jest.useFakeTimers().setSystemTime(refundAt * 1000 - 500);
+      try {
+        const dep = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', payDeadline: 1_000_000_000n, confirmDeadline: BigInt(refundAt) }) }), BASE);
+        expect(dep.message).toContain('9 September 2001 at 09:46 WIB');
+        expect(dep.message).not.toContain('2001-09-09T02:46:40.000Z');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it('between the send-by instant and the refund instant a deposit is told not to start a transfer, but that one already sent can still be confirmed, because the attestor has an hour of grace', () => {
       const now = Math.floor(Date.now() / 1000);
       const dep = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', payDeadline: BigInt(now - 600), confirmDeadline: BigInt(now + 1200) }) }), BASE);
