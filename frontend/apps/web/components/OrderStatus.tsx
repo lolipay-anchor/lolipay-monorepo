@@ -122,7 +122,7 @@ export function OrderStatus({ id, submitFn }: Props) {
   })
 
   const payDeadlineMs = order ? order.pay_deadline * 1000 : null
-  const refundOpensAtMs = order ? order.refund_opens_at * 1000 : null
+  const refundOpensAtMs = order ? (order.refund_opens_at + 1) * 1000 : null
   const pastDeadline = useElapsed(payDeadlineMs)
   const refundElapsed = useElapsed(refundOpensAtMs)
 

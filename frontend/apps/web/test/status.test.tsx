@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { TestProviders } from './helpers'
 import type { Order } from '@lolipay/api-client'
 
@@ -926,4 +926,68 @@ describe('OrderStatus component', () => {
     })
   })
 
+})
+
+describe('OrderStatus — refund window opens strictly after refund_opens_at (agrees with the chain)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('at exactly refund_opens_at: still shows "can still be confirmed" — the chain refuses ts <= opens_at', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const nowSecs = Math.floor(Date.now() / 1000)
+    vi.setSystemTime(nowSecs * 1000)
+
+    const order: Order = {
+      ...BASE_ORDER,
+      id: 'ord-refund-boundary',
+      payment_instructions: 'BCA 1234567890',
+      pay_deadline: nowSecs - 60,
+      refund_opens_at: nowSecs,
+    }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-refund-boundary" />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/can still be confirmed by lolipay/i)).toBeTruthy()
+    })
+    expect(screen.queryByText(/lolipay can no longer confirm/i)).toBeNull()
+  })
+
+  it('at refund_opens_at + 1 second: switches to "lolipay can no longer confirm" / escrow returned', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const nowSecs = Math.floor(Date.now() / 1000)
+    vi.setSystemTime(nowSecs * 1000)
+
+    const order: Order = {
+      ...BASE_ORDER,
+      id: 'ord-refund-boundary2',
+      payment_instructions: 'BCA 1234567890',
+      pay_deadline: nowSecs - 60,
+      refund_opens_at: nowSecs,
+    }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-refund-boundary2" />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/can still be confirmed by lolipay/i)).toBeTruthy()
+    })
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    await waitFor(() => {
+      expect(screen.getByText(/lolipay can no longer confirm/i)).toBeTruthy()
+    })
+    expect(screen.queryByText(/can still be confirmed by lolipay/i)).toBeNull()
+  })
 })
