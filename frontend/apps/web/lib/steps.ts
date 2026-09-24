@@ -80,10 +80,52 @@ export function stepsFor(status: OrderStatus, flow: Flow = 'TOP_UP'): Step[] {
   })
 }
 
-export interface ActiveCountdown {
-  deadline: number
-  label: string
-  expired?: boolean
+export type ActiveCountdown =
+  | { deadline: number; label: string; expired?: false }
+  | { label: string; expired: true }
+
+type Window = { deadline: number; label: string; pastLabel: string | null }
+
+function windowFor(
+  order: {
+    status: OrderStatus
+    flow: Flow
+    pay_deadline: number
+    confirm_deadline: number
+    refund_opens_at: number
+    expires_at: string
+    sign_by?: number
+  },
+  now: number,
+): Window | null {
+  const lpPaysFiat = order.flow !== 'TOP_UP'
+  switch (order.status) {
+    case 'MATCHED':
+    case 'AWAITING_ONCHAIN':
+      return {
+        deadline: order.sign_by ?? Math.floor(new Date(order.expires_at).getTime() / 1000),
+        label: 'Lock within',
+        pastLabel: null,
+      }
+    case 'FUNDED':
+      if (lpPaysFiat) {
+        return {
+          deadline: order.refund_opens_at + 1,
+          label: 'Merchant pays within',
+          pastLabel: "Merchant's time is up",
+        }
+      }
+      if (now < order.pay_deadline) {
+        return { deadline: order.pay_deadline, label: 'Pay within', pastLabel: null }
+      }
+      return {
+        deadline: order.refund_opens_at + 1,
+        label: 'Can still be confirmed for',
+        pastLabel: null,
+      }
+    default:
+      return null
+  }
 }
 
 export function activeCountdown(order: {
@@ -95,32 +137,10 @@ export function activeCountdown(order: {
   expires_at: string
   sign_by?: number
 }): ActiveCountdown | null {
-  const lpPaysFiat = order.flow !== 'TOP_UP'
-  switch (order.status) {
-    case 'MATCHED':
-    case 'AWAITING_ONCHAIN':
-      return {
-        deadline: order.sign_by ?? Math.floor(new Date(order.expires_at).getTime() / 1000),
-        label: 'Lock within',
-      }
-    case 'FUNDED':
-      if (lpPaysFiat) {
-        if (Date.now() >= order.confirm_deadline * 1000) {
-          return { deadline: order.confirm_deadline, label: "Merchant's time is up", expired: true }
-        }
-        return { deadline: order.confirm_deadline, label: 'Merchant pays within' }
-      }
-      if (Date.now() < order.pay_deadline * 1000) {
-        return { deadline: order.pay_deadline, label: 'Pay within' }
-      }
-      if (Date.now() < (order.refund_opens_at + 1) * 1000) {
-        return { deadline: order.refund_opens_at + 1, label: 'Can still be confirmed for' }
-      }
-      return null
-    case 'FIAT_PAID':
-      if (lpPaysFiat) return null
-      return { deadline: order.confirm_deadline, label: 'Merchant releases within' }
-    default:
-      return null
-  }
+  const now = Math.floor(Date.now() / 1000)
+  const w = windowFor(order, now)
+  if (w === null) return null
+  if (now < w.deadline) return { deadline: w.deadline, label: w.label }
+  if (w.pastLabel === null) return null
+  return { label: w.pastLabel, expired: true }
 }

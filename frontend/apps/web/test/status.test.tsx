@@ -304,8 +304,8 @@ describe('OrderStatus component', () => {
         id: 'ord-withdraw-crossing',
         flow: 'WITHDRAW',
         status: 'FUNDED',
-        confirm_deadline: now + 2,
-        refund_opens_at: now + 2,
+        confirm_deadline: now + 1,
+        refund_opens_at: now + 1,
       }
       mockGetOrder.mockResolvedValue(order)
 

@@ -132,12 +132,12 @@ export function OrderStatus({ id, submitFn }: Props) {
     },
   })
 
+  const cd = order ? activeCountdown(order) : null
   const payDeadlineMs = order ? order.pay_deadline * 1000 : null
   const refundOpensAtMs = order ? (order.refund_opens_at + 1) * 1000 : null
-  const confirmDeadlineMs = order ? order.confirm_deadline * 1000 : null
   const pastDeadline = useElapsed(payDeadlineMs)
   const refundElapsed = useElapsed(refundOpensAtMs)
-  useElapsed(confirmDeadlineMs)
+  useElapsed(cd && !cd.expired ? cd.deadline * 1000 : null)
 
   if (isLoading) {
     return (
@@ -162,7 +162,6 @@ export function OrderStatus({ id, submitFn }: Props) {
 
   const lpPaysFiat = order.flow !== 'TOP_UP'
   const steps = stepsFor(order.status, order.flow)
-  const cd = activeCountdown(order)
   const pill = pillFor(order.status, order.flow)
 
   const postSettleDeadlineMs = order.post_settle_dispute_until

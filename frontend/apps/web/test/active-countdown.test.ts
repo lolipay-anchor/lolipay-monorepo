@@ -16,22 +16,23 @@ describe('the countdown a user sees never counts to an instant nothing enforces 
 
   it('counts the lock window at MATCHED to sign_by, the instant the coordinator stops accepting the signature, a minute before expires_at', () => {
     const cd = activeCountdown({ ...base, status: 'MATCHED', sign_by: 3_999_999_340 })
-    expect(cd?.label).toBe('Lock within')
-    expect(cd?.deadline).toBe(3_999_999_340)
+    expect(cd).toEqual({ deadline: 3_999_999_340, label: 'Lock within' })
   })
 
   it('falls back to expires_at for an order the coordinator serialised before sign_by existed', () => {
     const cd = activeCountdown({ ...base, status: 'MATCHED' })
-    expect(cd?.deadline).toBe(Math.floor(new Date(base.expires_at).getTime() / 1000))
+    expect(cd).toEqual({
+      deadline: Math.floor(new Date(base.expires_at).getTime() / 1000),
+      label: 'Lock within',
+    })
   })
 
-  it('still counts the merchant release window on a deposit at FIAT_PAID, a countdown about the counterparty while the user keeps the dispute door', () => {
-    expect(activeCountdown({ ...base, flow: 'TOP_UP', status: 'FIAT_PAID' })).toEqual({ deadline: 3_600, label: 'Merchant releases within' })
+  it('shows no countdown at FIAT_PAID on a deposit either, because confirm_and_release has no deadline on that flow any more than the withdrawal side does', () => {
+    expect(activeCountdown({ ...base, flow: 'TOP_UP', status: 'FIAT_PAID' })).toBeNull()
   })
 
   it('shows the expired state at FUNDED once confirm_deadline has passed, instead of freezing on a stale countdown', () => {
     expect(activeCountdown({ ...base, status: 'FUNDED' })).toEqual({
-      deadline: 3_600,
       label: "Merchant's time is up",
       expired: true,
     })
@@ -40,7 +41,7 @@ describe('the countdown a user sees never counts to an instant nothing enforces 
   it('still tells a withdrawing user how long the provider has to pay at FUNDED, before confirm_deadline has passed', () => {
     const now = Math.floor(Date.now() / 1000)
     const cd = activeCountdown({ ...base, status: 'FUNDED', confirm_deadline: now + 3_600, refund_opens_at: now + 3_600 })
-    expect(cd).toEqual({ deadline: now + 3_600, label: 'Merchant pays within' })
+    expect(cd).toEqual({ deadline: now + 3_601, label: 'Merchant pays within' })
   })
 
   it('counts to the pay deadline at FUNDED on a top-up, before that deadline has passed', () => {
@@ -112,5 +113,37 @@ describe('the refund-opens countdown survives through the boundary second, agree
       refund_opens_at: now,
     })
     expect(cd).toBeNull()
+  })
+})
+
+describe('the merchant-pays countdown on a withdrawal survives through the same boundary second, agreeing with the chain (ts <= opens_at refuses)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('at exactly refund_opens_at (== confirm_deadline on a WITHDRAW order): still counts down', () => {
+    vi.useFakeTimers()
+    const now = Math.floor(Date.now() / 1000)
+    vi.setSystemTime(now * 1000)
+    const cd = activeCountdown({
+      ...base,
+      status: 'FUNDED',
+      confirm_deadline: now,
+      refund_opens_at: now,
+    })
+    expect(cd).toEqual({ deadline: now + 1, label: 'Merchant pays within' })
+  })
+
+  it('at refund_opens_at + 1 second: switches to the expired row, matching the instant the chain actually opens the refund', () => {
+    vi.useFakeTimers()
+    const now = Math.floor(Date.now() / 1000)
+    vi.setSystemTime((now + 1) * 1000)
+    const cd = activeCountdown({
+      ...base,
+      status: 'FUNDED',
+      confirm_deadline: now,
+      refund_opens_at: now,
+    })
+    expect(cd).toEqual({ label: "Merchant's time is up", expired: true })
   })
 })
