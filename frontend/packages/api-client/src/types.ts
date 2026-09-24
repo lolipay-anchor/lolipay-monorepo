@@ -36,6 +36,7 @@ export interface Order {
   status: OrderStatus
   pay_deadline: number
   confirm_deadline: number
+  refund_opens_at: number
   dispute_deadline: number
   expires_at: string
   sign_by?: number
