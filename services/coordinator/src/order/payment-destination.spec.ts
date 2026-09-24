@@ -9,6 +9,7 @@ import {
   checkPaymentDestination,
   NO_CONTROL_OR_FORMAT_CHARS_RE,
   normalizePaymentMethodLabel,
+  PAYMENT_METHOD_LABEL_BAD_CHARS_RE,
   PAYMENT_METHOD_LABEL_COST_CEILING,
   PAYMENT_METHOD_LABEL_DIGIT_RE,
   PAYMENT_METHOD_LABEL_HAS_LETTERS_RE,
@@ -228,4 +229,55 @@ describe('NO_CONTROL_OR_FORMAT_CHARS_RE agrees with checkPaymentDestination on e
     expect(checkPaymentDestination(`BCA 123${emoji}456`).ok).toBe(true);
     expect(NO_CONTROL_OR_FORMAT_CHARS_RE.test(emoji)).toBe(true);
   });
+});
+
+describe('PAYMENT_METHOD_LABEL_DIGIT_RE counts every \\p{No} digit form, not only \\p{Nd}, and stops short of \\p{Nl}', () => {
+  it('counts circled digits (U+2460 series), which \\p{Nd} alone does not classify as a digit', () => {
+    expect(('⓪①②③④⑤⑥'.match(PAYMENT_METHOD_LABEL_DIGIT_RE) ?? []).length).toBe(7);
+  });
+
+  it('counts superscript digits (U+2070 series), which \\p{Nd} alone does not classify as a digit', () => {
+    expect(('⁰¹²³'.match(PAYMENT_METHOD_LABEL_DIGIT_RE) ?? []).length).toBe(4);
+  });
+
+  it('does not count Roman numerals (\\p{Nl}), which are letter-shaped and plausible inside a real name', () => {
+    expect(('ⅧⅫ'.match(PAYMENT_METHOD_LABEL_DIGIT_RE) ?? []).length).toBe(0);
+  });
+
+  it('still counts fullwidth digits, already \\p{Nd} before this change', () => {
+    expect(('００２５'.match(PAYMENT_METHOD_LABEL_DIGIT_RE) ?? []).length).toBe(4);
+  });
+});
+
+describe('PAYMENT_METHOD_LABEL_BAD_CHARS_RE refuses sentence-terminating punctuation a label could use to escape the noun slot', () => {
+  it.each<[string, string]>([
+    ['a period', '.'],
+    ['an exclamation mark', '!'],
+    ['a question mark', '?'],
+    ['a semicolon', ';'],
+    ['a colon', ':'],
+    ['an em dash (U+2014)', '—'],
+    ['an en dash (U+2013)', '–'],
+    ['a horizontal bar (U+2015)', '―'],
+  ])('refuses a label carrying %s', (_name, ch) => {
+    expect(PAYMENT_METHOD_LABEL_BAD_CHARS_RE.test(`BCA${ch} Kirim ke rekening lain`)).toBe(false);
+  });
+
+  it.each<[string, string]>([
+    ['a hyphen', 'BPD Jabar-Banten'],
+    ['an ampersand', 'AT&T Bank'],
+    ['an apostrophe', "People's Bank"],
+    ['a comma', 'Bank Central Asia, Tbk'],
+    ['parentheses', 'Bank Rakyat Indonesia (Persero) Tbk'],
+    ['a plain 64-character label', 'B'.repeat(64)],
+  ])('still accepts a real institution name containing %s', (_name, label) => {
+    expect(PAYMENT_METHOD_LABEL_BAD_CHARS_RE.test(label)).toBe(true);
+  });
+
+  it.each([...DANGEROUS_CONTROL_OR_FORMAT_CODE_POINTS, ...WIDENED_BAD_CODE_POINTS])(
+    'still refuses %s, the existing control/format corpus',
+    (_label, codePoint) => {
+      expect(PAYMENT_METHOD_LABEL_BAD_CHARS_RE.test(`BCA${codePoint}`)).toBe(false);
+    },
+  );
 });

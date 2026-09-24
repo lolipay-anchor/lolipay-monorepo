@@ -1,6 +1,6 @@
 import { ValidateBy, ValidationOptions, buildMessage } from 'class-validator';
 import {
-  NO_CONTROL_OR_FORMAT_CHARS_RE,
+  PAYMENT_METHOD_LABEL_BAD_CHARS_RE,
   PAYMENT_METHOD_LABEL_DIGIT_RE,
   PAYMENT_METHOD_LABEL_HAS_LETTERS_RE,
   PAYMENT_METHOD_LABEL_LENGTH_RE,
@@ -34,7 +34,7 @@ export function HasNoDisallowedPaymentMethodChars(validationOptions?: Validation
       name: 'hasNoDisallowedPaymentMethodChars',
       validator: {
         validate: (value: unknown): boolean =>
-          typeof value !== 'string' || NO_CONTROL_OR_FORMAT_CHARS_RE.test(value),
+          typeof value !== 'string' || PAYMENT_METHOD_LABEL_BAD_CHARS_RE.test(value),
         defaultMessage: buildMessage(() => PAYMENT_METHOD_LABEL_BAD_CHARS_MESSAGE, validationOptions),
       },
     },
