@@ -21,8 +21,8 @@ describe('userClaimedPaidAt is an unsigned, display-only claim — every LITERAL
   const srcRoot = join(__dirname, '..');
   const files = collectSourceFiles(srcRoot, '');
 
-  it('found source files to guard, so a broken scan cannot pass silently', () => {
-    expect(files.length).toBeGreaterThan(50);
+  it('found source files to guard, so a broken scan cannot pass silently — measured 161 on 2026-09-24, floor set just under it so a narrowed scan is caught rather than merely a broken one', () => {
+    expect(files.length).toBeGreaterThan(160);
   });
 
   it('the search is proven live by finding payDeadline somewhere in the guarded tree', () => {
