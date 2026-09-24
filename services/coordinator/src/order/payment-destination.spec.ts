@@ -112,7 +112,7 @@ describe('PAYMENT_METHOD_LABEL_HAS_LETTERS_RE requires at least two letters and 
     expect(PAYMENT_METHOD_LABEL_HAS_LETTERS_RE.test('B' + '1'.repeat(500) + 'I')).toBe(true);
   });
 
-  it.each([4_000, 16_000, 50_000, 99_000])(
+  it.each([8_000, 16_000, 50_000, 99_000])(
     'classifies a %i-character adversarial string (no letters at all) in well under 50ms, never the quadratic blowup of the anchor-free nested-quantifier regex it replaced',
     (n) => {
       const adversarial = '1'.repeat(n);
