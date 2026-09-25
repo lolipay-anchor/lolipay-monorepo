@@ -46,7 +46,7 @@ describe('opening a verification a customer can actually complete', () => {
     });
   });
 
-  it('names the customer and the two identity fields to the provider, so the delivery can be matched back and the document can be checked', async () => {
+  it('names the customer and sends the two identity fields inside expected_details, so the delivery can be matched back', async () => {
     const { p, fetcher } = provider({ status: 201, body: created });
     await p.start(REF, fields);
     const [, init] = fetcher.mock.calls[0];
@@ -65,7 +65,7 @@ describe('opening a verification a customer can actually complete', () => {
     expect(init.body).not.toContain('example-api-key');
   });
 
-  it('forwards the two names the customer typed, so the provider can check them against the document', async () => {
+  it('sends the two names the customer typed inside expected_details', async () => {
     const { p, fetcher } = provider({ status: 201, body: created });
     await p.start(REF, fields);
     const [, init] = fetcher.mock.calls[0];
@@ -74,17 +74,18 @@ describe('opening a verification a customer can actually complete', () => {
     expect(parsed.expected_details.last_name).toBe(fields.last_name);
   });
 
-  it('never forwards the email address, id type or id country code, because the provider collects them itself', async () => {
+  it('never forwards the email address, id type or id country code, anywhere in the request, because the provider collects them itself', async () => {
     const { p, fetcher } = provider({ status: 201, body: created });
     await p.start(REF, fields);
-    const [, init] = fetcher.mock.calls[0];
-    const found = leaves(JSON.parse(init.body));
+    const [url, init] = fetcher.mock.calls[0];
+    const found = leaves([url, { ...init, body: JSON.parse(init.body) }]);
+    expect(found).toContain(fields.first_name);
     expect(found).not.toContain(fields.email_address);
     expect(found).not.toContain(fields.id_type);
     expect(found).not.toContain(fields.id_country_code);
   });
 
-  it('trims the two names before sending them, so leading or trailing whitespace does not spoil the vendor s match', async () => {
+  it('sends the two names with surrounding whitespace removed', async () => {
     const { p, fetcher } = provider({ status: 201, body: created });
     await p.start(REF, { ...fields, first_name: ' Budi ', last_name: ' Santoso ' });
     const [, init] = fetcher.mock.calls[0];

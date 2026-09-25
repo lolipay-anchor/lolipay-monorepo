@@ -186,7 +186,7 @@ export class Sep24Controller {
     const fields: Record<string, string> = {};
     for (const f of REQUIRED_KYC_FIELDS) {
       const v = (body ?? {})[f];
-      if (typeof v === 'string') fields[f] = v;
+      if (typeof v === 'string' && v.length <= 255) fields[f] = v;
     }
     await this.sep24.submitIdentity(id, token, fields);
     res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
