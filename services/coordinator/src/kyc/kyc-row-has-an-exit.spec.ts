@@ -178,6 +178,17 @@ const SHAPES: { name: string; stored: any; exit: (requireAml: boolean) => Exit }
     stored: row({ status: 'PROCESSING', providerRef: null }),
     exit: () => 'ASKED',
   },
+  {
+    name: 'a delivery that arrived while the provider still calls it in review, so the provider link is withdrawn rather than reopened',
+    stored: row({
+      status: 'PROCESSING',
+      providerRef: 'session-1',
+      verificationUrl: 'https://verify.didit.me/s/1',
+      deliveredAt: fresh(),
+      screenedAt: null,
+    }),
+    exit: () => 'WAITING',
+  },
 ];
 
 function aged(stored: any) {
@@ -190,8 +201,8 @@ function aged(stored: any) {
 
 describe('every KycVerification row sits in exactly one of four states, so nobody is left holding a row that asks nothing of them and lets them do nothing', () => {
   it('enumerates every shape a writer of this table can produce, so a shape dropped from the list fails here rather than going untested', () => {
-    expect(SHAPES).toHaveLength(10);
-    expect(new Set(SHAPES.map((s) => s.name)).size).toBe(10);
+    expect(SHAPES).toHaveLength(11);
+    expect(new Set(SHAPES.map((s) => s.name)).size).toBe(11);
   });
 
   for (const requireAml of [true, false]) {
