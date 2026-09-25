@@ -12,7 +12,7 @@ const cfg = {
   jwtAudience: 'lolipay-app',
 } as any;
 
-function depositAt(payDeadline: bigint, confirmDeadline: bigint) {
+function depositAt(payDeadline: bigint, confirmDeadline: bigint, overrides: Record<string, unknown> = {}) {
   const order = {
     id: 'order-1',
     status: 'FUNDED',
@@ -29,6 +29,7 @@ function depositAt(payDeadline: bigint, confirmDeadline: bigint) {
     lpPaymentLabel: 'BCA',
     lpPaymentDetails: '1231231231',
     rail: 'BANK',
+    ...overrides,
   };
   const row = { id: 'tx-1', orderId: 'order-1', stellarAccount: 'GUSER', personId: 'person-1', flow: 'TOP_UP', order };
   const accepted = { customerRef: 'GUSER', personId: 'person-1', status: 'ACCEPTED', screenedAt: new Date(), deliveredAt: new Date() };
@@ -51,5 +52,21 @@ describe('the deposit instructions screen names the confirm-by instant in WIB', 
     const html = await depositAt(4_000_000_000n, 4_000_010_000n);
     expect(html).toContain('<strong><time datetime="2096-10-02T08:06:40.000Z">2 October 2096 at 15:06 WIB</time></strong>');
     expect(html).not.toContain('2096-10-02T08:06:40.000Z<');
+  });
+});
+
+describe('once the depositor has claimed they sent the rupiah, ADR 0059', () => {
+  it('stops asking them to send it and never falls back to another page that also lies', async () => {
+    const unclaimed = await depositAt(4_000_000_000n, 4_000_010_000n);
+    expect(unclaimed).toContain('Send your rupiah');
+    expect(unclaimed).toContain('How to pay');
+
+    const html = await depositAt(4_000_000_000n, 4_000_010_000n, {
+      userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z'),
+    });
+    expect(html).not.toContain('Send your rupiah');
+    expect(html).not.toContain('How to pay');
+    expect(html).not.toMatch(/Status: <strong>pending_external<\/strong>/);
+    expect(html).not.toContain('The time to pay has passed');
   });
 });

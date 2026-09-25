@@ -257,6 +257,15 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       const out = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status, ...deadlines }) }), BASE);
       expect(out).not.toHaveProperty('user_action_required_by');
     });
+
+    it('is absent once the depositor has claimed they paid, ADR 0059, because there is nothing further to wait on them for', () => {
+      const out = serializeSep24(
+        tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z'), ...deadlines }) }),
+        BASE,
+      );
+      expect(out.status).toBe('pending_external');
+      expect(out).not.toHaveProperty('user_action_required_by');
+    });
   });
 
   describe('message names the action a wallet is waiting on the user for, which the spec asks for wherever a deadline is published', () => {
@@ -277,6 +286,17 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       const out = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED' }) }), BASE);
       expect(out.message).toMatch(/send the rupiah/i);
       expect(out.message).toMatch(/deposit page you opened from your wallet/i);
+    });
+
+    it('stops telling a depositing user to send the rupiah once they have claimed they already did, ADR 0059', () => {
+      const out = serializeSep24(
+        tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z') }) }),
+        BASE,
+      );
+      expect(out.message).toBe(
+        "You told this anchor you sent the rupiah. It is being checked against the provider's account; nothing further is needed from you.",
+      );
+      expect(out.message).not.toMatch(/^send the rupiah/i);
     });
 
     it.each([

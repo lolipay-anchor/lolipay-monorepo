@@ -99,4 +99,29 @@ describe('what an escrow trade looks like to a wallet that only speaks SEP-24', 
   it('refuses to guess at an order state it does not recognise', () => {
     expect(() => at('SOMETHING_NEW')).toThrow(/SOMETHING_NEW/);
   });
+
+  describe('once the depositor tells lolipay they sent the rupiah, ADR 0059', () => {
+    const claimedAt = new Date('2026-09-25T00:00:00.000Z');
+
+    it('reports pending_external only for a TOP_UP order that is FUNDED and carries a claim, leaving every other state exactly as before', () => {
+      expect(sep24Status({ status: 'FUNDED', userClaimedPaidAt: claimedAt } as any, 'TOP_UP')).toBe('pending_external');
+      for (const [status, expected] of [
+        ['CREATED', 'pending_anchor'],
+        ['MATCHED', 'pending_anchor'],
+        ['AWAITING_ONCHAIN', 'pending_anchor'],
+        ['FIAT_PAID', 'pending_anchor'],
+        ['DISPUTED', 'pending_anchor'],
+        ['RELEASED', 'completed'],
+        ['REFUNDED', 'refunded'],
+        ['EXPIRED', 'expired'],
+        ['CANCELLED', 'expired'],
+      ] as const) {
+        expect(sep24Status({ status, userClaimedPaidAt: claimedAt } as any, 'TOP_UP')).toBe(expected);
+      }
+    });
+
+    it('lists pending_external among the statuses this anchor actually emits, or the acceptance-suite membership check stops covering it', () => {
+      expect(SEP24_EMITTED_STATUSES).toContain('pending_external');
+    });
+  });
 });
