@@ -87,6 +87,7 @@ describe('opening a verification a customer can actually complete', () => {
     expect(wireSurface).not.toContain(fields.email_address);
     expect(wireSurface).not.toContain(fields.id_type);
     expect(wireSurface).not.toContain(fields.id_country_code);
+    expect(wireSurface).toContain('application/json');
   });
 
   it('sends the two names with surrounding whitespace removed', async () => {
