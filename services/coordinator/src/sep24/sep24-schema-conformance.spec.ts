@@ -29,6 +29,7 @@ const order = {
   ref: null,
   payDeadline: 1_790_000_000n,
   confirmDeadline: 1_790_003_600n,
+  userClaimedPaidAt: null,
 };
 
 type SuiteStatus = 'incomplete' | 'pending_' | 'pending_user_transfer_start' | 'completed';
@@ -44,6 +45,7 @@ const settled = {
     ref: null,
     payDeadline: 1_790_000_000n,
     confirmDeadline: 1_790_003_600n,
+    userClaimedPaidAt: null,
   },
   settlementTxHash: 'a'.repeat(64),
   settledAt: new Date('2026-09-01T01:00:00.000Z'),

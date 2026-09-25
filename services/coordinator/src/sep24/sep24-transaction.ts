@@ -18,6 +18,7 @@ export interface Sep24Order {
   ref: string | null;
   payDeadline: bigint;
   confirmDeadline: bigint;
+  userClaimedPaidAt: Date | null;
 }
 
 export interface Sep24Record {
@@ -135,6 +136,12 @@ function userAction(withdrawing: boolean, order: Sep24Order): { by?: bigint; mes
     return null;
   }
   if (order.status === 'FUNDED') {
+    if (order.userClaimedPaidAt) {
+      return {
+        message:
+          "You told this anchor you sent the rupiah. It is being checked against the provider's account; nothing further is needed from you.",
+      };
+    }
     const now = Date.now();
     const nowSecs = Math.floor(now / 1000);
     const refundAtSecs = Number(refundOpensAt({ flow: 'TOP_UP', payDeadline: order.payDeadline, confirmDeadline: order.confirmDeadline }));

@@ -57,6 +57,7 @@ const ORDER_FIELDS = {
   flow: true,
   rail: true,
   lpPaymentLabel: true,
+  userClaimedPaidAt: true,
 } as const;
 
 type Sep24RowWithOrder = Prisma.Sep24TransactionGetPayload<{
@@ -476,6 +477,7 @@ export class Sep24Service {
       screened,
       orderStatus: (row.order?.status as any) ?? null,
       flow: row.flow,
+      userClaimedPaidAt: (row.order as any)?.userClaimedPaidAt ?? null,
     });
   }
 

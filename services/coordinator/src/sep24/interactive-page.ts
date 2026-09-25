@@ -12,6 +12,7 @@ export type InteractiveScreen =
   | 'sign_funding'
   | 'sign_release'
   | 'instructions'
+  | 'claim_received'
   | 'settled';
 
 export function interactiveScreen(input: {
@@ -19,6 +20,7 @@ export function interactiveScreen(input: {
   screened: boolean;
   orderStatus: OrderStatus | null;
   flow?: 'TOP_UP' | 'WITHDRAW';
+  userClaimedPaidAt?: Date | null;
 }): InteractiveScreen {
   if (input.kycStatus === 'REJECTED') return 'refused';
   if (input.kycStatus === null || input.kycStatus === 'NEEDS_INFO') return 'identity';
@@ -29,7 +31,10 @@ export function interactiveScreen(input: {
     if (withdrawing && input.orderStatus !== 'CREATED') return 'sign_funding';
     return 'waiting_on_escrow';
   }
-  if (input.orderStatus === 'FUNDED') return withdrawing ? 'waiting_on_fiat' : 'instructions';
+  if (input.orderStatus === 'FUNDED') {
+    if (withdrawing) return 'waiting_on_fiat';
+    return input.userClaimedPaidAt ? 'claim_received' : 'instructions';
+  }
   if (input.orderStatus === 'FIAT_PAID' && withdrawing) return 'sign_release';
   return 'settled';
 }

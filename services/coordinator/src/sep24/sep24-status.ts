@@ -3,6 +3,7 @@ import type { OrderStatus } from '../generated/prisma/client';
 export type Sep24Status =
   | 'incomplete'
   | 'pending_anchor'
+  | 'pending_external'
   | 'pending_user_transfer_start'
   | 'pending_user'
   | 'completed'
@@ -12,6 +13,7 @@ export type Sep24Status =
 export const SEP24_EMITTED_STATUSES: readonly Sep24Status[] = [
   'incomplete',
   'pending_anchor',
+  'pending_external',
   'pending_user_transfer_start',
   'pending_user',
   'completed',
@@ -40,10 +42,11 @@ const WITHDRAW_BY_ORDER_STATUS: Partial<Record<OrderStatus, Sep24Status>> = {
 };
 
 export function sep24Status(
-  order: { status: OrderStatus } | null,
+  order: { status: OrderStatus; userClaimedPaidAt?: Date | null } | null,
   flow: 'TOP_UP' | 'WITHDRAW' = 'TOP_UP',
 ): Sep24Status {
   if (!order) return 'incomplete';
+  if (flow === 'TOP_UP' && order.status === 'FUNDED' && order.userClaimedPaidAt) return 'pending_external';
   const mapped = (flow === 'WITHDRAW' && WITHDRAW_BY_ORDER_STATUS[order.status]) || BY_ORDER_STATUS[order.status];
   if (!mapped) {
     throw new Error(`sep24Status: no SEP-24 status is mapped for order status ${order.status}`);
