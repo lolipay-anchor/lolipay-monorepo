@@ -1,6 +1,6 @@
 import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
-import { DiditKycProvider } from './didit-kyc-provider';
+import { DIDIT_SESSION_URL, DiditKycProvider } from './didit-kyc-provider';
 
 const REF = 'GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ';
 const fields = {
@@ -74,20 +74,33 @@ describe('opening a verification a customer can actually complete', () => {
     expect(parsed.expected_details.last_name).toBe(fields.last_name);
   });
 
-  it('never forwards the email address, id type or id country code, anywhere in the request, because the provider collects them itself', async () => {
+  it('never puts the email address, id type or id country code into the request body', async () => {
     const { p, fetcher } = provider({ status: 201, body: created });
     await p.start(REF, fields);
-    const [url, init] = fetcher.mock.calls[0];
-    const found = leaves([url, { ...init, body: JSON.parse(init.body) }]);
+    const [, init] = fetcher.mock.calls[0];
+    const found = leaves(JSON.parse(init.body));
     expect(found).toContain(fields.first_name);
     expect(found).not.toContain(fields.email_address);
     expect(found).not.toContain(fields.id_type);
     expect(found).not.toContain(fields.id_country_code);
-    const wireSurface = [url, ...Object.values(init.headers as Record<string, string>)].join('\n');
-    expect(wireSurface).not.toContain(fields.email_address);
-    expect(wireSurface).not.toContain(fields.id_type);
-    expect(wireSurface).not.toContain(fields.id_country_code);
-    expect(wireSurface).toContain('application/json');
+  });
+
+  it('makes exactly one request, to the session endpoint, with exactly the two headers it needs and no other channel', async () => {
+    const { p, fetcher } = provider({ status: 201, body: created });
+    await p.start(REF, fields);
+    const wire = fetcher.mock.calls.map(([url, init]: [string, any]) => [
+      url,
+      { ...init, headers: Object.fromEntries(new Headers(init.headers)) },
+    ]);
+    expect(wire).toStrictEqual([[
+      DIDIT_SESSION_URL,
+      {
+        method: 'POST',
+        headers: { 'x-api-key': 'example-api-key-not-a-real-one', 'content-type': 'application/json' },
+        body: expect.any(String),
+        signal: expect.anything(),
+      },
+    ]]);
   });
 
   it('sends the two names with surrounding whitespace removed', async () => {
