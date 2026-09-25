@@ -47,6 +47,28 @@ const TOP_LEVEL_SOURCE_DIRS = [
   'storage',
 ];
 
+const USER_CLAIMED_PAID_AT_ALLOWED_READERS = [
+  'sep24/interactive-page.ts',
+  'sep24/sep24-status.ts',
+  'sep24/sep24-transaction.ts',
+  'sep24/sep24.service.ts',
+];
+
+const USER_CLAIMED_PAID_AT_DENIED_READERS = [
+  'monitoring/monitoring.conditions.ts',
+  'indexer/indexer.service.ts',
+  'order/order-tx.service.ts',
+  'admin/admin.service.ts',
+];
+
+const USER_CLAIMED_PAID_AT_FORBIDDEN_ALLOWLIST_ADDITIONS = [
+  'order/test-helpers.ts',
+  'auth/auth-test-helpers.ts',
+  'storage/object-storage.fake.ts',
+  'kyc/stub-kyc-provider.ts',
+  'scripts/sep24-fixtures.ts',
+];
+
 describe('userClaimedPaidAt is an unsigned, display-only claim — every LITERAL occurrence of the identifier in non-test src is guarded here; a full-row Prisma read that returns the field without ever naming it (such as admin/admin.service.ts listOrders(), which has no select) is invisible to this scan and is not covered by it', () => {
   const srcRoot = join(__dirname, '..');
   const files = collectSourceFiles(srcRoot, '');
@@ -82,10 +104,33 @@ describe('userClaimedPaidAt is an unsigned, display-only claim — every LITERAL
     expect(files.map((f) => relative(srcRoot, f))).toContain(relPath);
   });
 
+  it.each(USER_CLAIMED_PAID_AT_ALLOWED_READERS.map((p): [string] => [p]))(
+    'allowlisted reader %s is present in the guarded set, so deleting the file (not just the identifier inside it) also reddens the equality check below rather than silently shrinking the row count',
+    (relPath) => {
+      expect(relFiles).toContain(relPath);
+    },
+  );
+
   it.each(files.map((f): [string, string] => [relative(srcRoot, f), f]))(
-    '%s does not read userClaimedPaidAt',
-    (_relPath, file) => {
-      expect(readFileSync(file, 'utf8')).not.toContain('userClaimedPaidAt');
+    '%s reads userClaimedPaidAt if, and only if, it is one of the four allowlisted sep24 readers — an EQUALITY check, not a subset check: a new reader anywhere reddens this row because the set grew, and a listed reader that stops reading it also reddens its own row because the set shrank',
+    (relPath, file) => {
+      const readsClaim = readFileSync(file, 'utf8').includes('userClaimedPaidAt');
+      expect(readsClaim).toBe(USER_CLAIMED_PAID_AT_ALLOWED_READERS.includes(relPath));
+    },
+  );
+
+  it.each(USER_CLAIMED_PAID_AT_DENIED_READERS.map((p): [string] => [p]))(
+    '%s is denied as a LITERAL, independent of the allowlist array above, so this assertion can witness its own exclusion breaking the same way the generated/ check above does; the admin/admin.service.ts row is a STRING denial only — listOrders() is a full-row findMany with no select and already serves this column to the admin API without any file naming it',
+    (relPath) => {
+      expect(readFileSync(join(srcRoot, relPath), 'utf8')).not.toContain('userClaimedPaidAt');
+    },
+  );
+
+  it.each(USER_CLAIMED_PAID_AT_FORBIDDEN_ALLOWLIST_ADDITIONS.map((p): [string] => [p]))(
+    '%s is present in the guarded set and must never be added to USER_CLAIMED_PAID_AT_ALLOWED_READERS; it is a non-spec, non-generated file this scan does not exclude, and a claim-carrying fixture belongs in the spec file that needs it, not here, or this equality check would permanently license a non-sep24 file to read the column',
+    (relPath) => {
+      expect(relFiles).toContain(relPath);
+      expect(USER_CLAIMED_PAID_AT_ALLOWED_READERS).not.toContain(relPath);
     },
   );
 });
