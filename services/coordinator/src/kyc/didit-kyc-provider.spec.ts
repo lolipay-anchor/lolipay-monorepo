@@ -83,6 +83,10 @@ describe('opening a verification a customer can actually complete', () => {
     expect(found).not.toContain(fields.email_address);
     expect(found).not.toContain(fields.id_type);
     expect(found).not.toContain(fields.id_country_code);
+    const wireSurface = [url, ...Object.values(init.headers as Record<string, string>)].join('\n');
+    expect(wireSurface).not.toContain(fields.email_address);
+    expect(wireSurface).not.toContain(fields.id_type);
+    expect(wireSurface).not.toContain(fields.id_country_code);
   });
 
   it('sends the two names with surrounding whitespace removed', async () => {
