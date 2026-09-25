@@ -103,7 +103,7 @@ export class DiditKycProvider implements KycProvider, OnModuleInit, OnModuleDest
     return true;
   }
 
-  async start(customerRef: string, _fields: Record<string, string>): Promise<KycDecision> {
+  async start(customerRef: string, fields: Record<string, string>): Promise<KycDecision> {
     const apiKey = this.cfg.diditApiKey;
     const workflowId = this.cfg.diditWorkflowId;
     if (!apiKey || !workflowId) {
@@ -120,7 +120,7 @@ export class DiditKycProvider implements KycProvider, OnModuleInit, OnModuleDest
     const reserved = Date.now();
     this.started.push(reserved);
     try {
-      return await this.open(customerRef);
+      return await this.open(customerRef, fields);
     } catch (e) {
       const held = this.started.lastIndexOf(reserved);
       if (held >= 0) this.started.splice(held, 1);
@@ -128,13 +128,20 @@ export class DiditKycProvider implements KycProvider, OnModuleInit, OnModuleDest
     }
   }
 
-  private async open(customerRef: string): Promise<KycDecision> {
+  private async open(customerRef: string, fields: Record<string, string>): Promise<KycDecision> {
     const apiKey = this.cfg.diditApiKey;
     const workflowId = this.cfg.diditWorkflowId;
     const res = await this.fetcher(DIDIT_SESSION_URL, {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'content-type': 'application/json' },
-      body: JSON.stringify({ workflow_id: workflowId, vendor_data: customerRef }),
+      body: JSON.stringify({
+        workflow_id: workflowId,
+        vendor_data: customerRef,
+        expected_details: {
+          first_name: fields.first_name.trim(),
+          last_name: fields.last_name.trim(),
+        },
+      }),
       signal: AbortSignal.timeout(DIDIT_TIMEOUT_MS),
     });
 

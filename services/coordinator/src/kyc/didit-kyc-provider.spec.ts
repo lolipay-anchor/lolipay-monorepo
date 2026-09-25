@@ -29,6 +29,11 @@ function provider(reply: { status: number; body: unknown }, cfg: Record<string, 
   return { p: new DiditKycProvider(config, refusals, fetcher), fetcher, refusals };
 }
 
+function leaves(value: unknown): unknown[] {
+  if (value === null || typeof value !== 'object') return [value];
+  return Object.values(value as Record<string, unknown>).flatMap(leaves);
+}
+
 const created = { session_id: 'sess-1', url: 'https://verify.didit.me/session/abc', status: 'Not Started' };
 
 describe('opening a verification a customer can actually complete', () => {
@@ -41,11 +46,15 @@ describe('opening a verification a customer can actually complete', () => {
     });
   });
 
-  it('names the customer to the provider, so the delivery can be matched back', async () => {
+  it('names the customer and the two identity fields to the provider, so the delivery can be matched back and the document can be checked', async () => {
     const { p, fetcher } = provider({ status: 201, body: created });
     await p.start(REF, fields);
     const [, init] = fetcher.mock.calls[0];
-    expect(JSON.parse(init.body)).toEqual({ workflow_id: 'wf-1', vendor_data: REF });
+    expect(JSON.parse(init.body)).toEqual({
+      workflow_id: 'wf-1',
+      vendor_data: REF,
+      expected_details: { first_name: 'Budi', last_name: 'Santoso' },
+    });
   });
 
   it('sends the key in the header the provider expects, and never in the body', async () => {
@@ -56,11 +65,30 @@ describe('opening a verification a customer can actually complete', () => {
     expect(init.body).not.toContain('example-api-key');
   });
 
-  it('never forwards what the customer typed, because the provider collects it itself', async () => {
+  it('forwards the two names the customer typed, so the provider can check them against the document', async () => {
     const { p, fetcher } = provider({ status: 201, body: created });
     await p.start(REF, fields);
     const [, init] = fetcher.mock.calls[0];
-    for (const value of Object.values(fields)) expect(init.body).not.toContain(value);
+    const parsed = JSON.parse(init.body);
+    expect(parsed.expected_details.first_name).toBe(fields.first_name);
+    expect(parsed.expected_details.last_name).toBe(fields.last_name);
+  });
+
+  it('never forwards the email address, id type or id country code, because the provider collects them itself', async () => {
+    const { p, fetcher } = provider({ status: 201, body: created });
+    await p.start(REF, fields);
+    const [, init] = fetcher.mock.calls[0];
+    const found = leaves(JSON.parse(init.body));
+    expect(found).not.toContain(fields.email_address);
+    expect(found).not.toContain(fields.id_type);
+    expect(found).not.toContain(fields.id_country_code);
+  });
+
+  it('trims the two names before sending them, so leading or trailing whitespace does not spoil the vendor s match', async () => {
+    const { p, fetcher } = provider({ status: 201, body: created });
+    await p.start(REF, { ...fields, first_name: ' Budi ', last_name: ' Santoso ' });
+    const [, init] = fetcher.mock.calls[0];
+    expect(JSON.parse(init.body).expected_details).toEqual({ first_name: 'Budi', last_name: 'Santoso' });
   });
 
   it.each([
