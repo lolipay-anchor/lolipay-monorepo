@@ -179,7 +179,7 @@ const SHAPES: { name: string; stored: any; exit: (requireAml: boolean) => Exit }
     exit: () => 'ASKED',
   },
   {
-    name: 'a delivery that arrived while the provider still calls it in review, so the provider link is withdrawn rather than reopened',
+    name: 'a delivery that arrived while the provider still calls it in review',
     stored: row({
       status: 'PROCESSING',
       providerRef: 'session-1',
