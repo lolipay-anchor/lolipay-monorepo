@@ -34,6 +34,7 @@ import { withOwnSentence } from './interactive-sentence';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
 import { PersonService } from '../person/person.service';
 import { sep24Status } from './sep24-status';
+import { EMAIL_OUTBOX_KIND } from '../email/email.service';
 import {
   SEP24_PAGE_DEFAULT,
   SEP24_PAGE_MAX,
@@ -423,14 +424,34 @@ export class Sep24Service {
         ].join(''),
       );
     }
+    if (screen === 'claim_received') {
+      const o = row.order as any;
+      const claimedSecs = Math.floor(new Date(o.userClaimedPaidAt).getTime() / 1000);
+      return page(
+        'We have asked the provider to check their account',
+        [
+          `<p>You told us at <strong>${timeTag(claimedSecs)}</strong> that you sent <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)}. That is recorded on this deposit.</p>`,
+          '<p>The provider has to see the money in their own account before the USDC can be released. We cannot tell you how long that takes.</p>',
+          `<p>If it is not confirmed by <strong>${timeTag(refundOpensAt(o))}</strong>, the escrow returns the USDC to the provider and this deposit closes without one. <strong>Keep your transfer receipt until then.</strong></p>`,
+          '<p>This page keeps itself up to date. You may close it — your wallet will show the deposit if it settles.</p>',
+        ].join(''),
+        30,
+      );
+    }
     if (screen === 'instructions') {
       const o = row.order as any;
       const payment = this.paymentLine({ flow: row.flow, order: o });
       if (!payment) {
         const [tx] = await this.dress([row]);
+        const nowSecs = Math.floor(Date.now() / 1000);
+        const claimable = nowSecs <= Number(refundOpensAt(o));
         return page(
           'The time to pay has passed',
-          `${tx.message ? `<p>${escapeHtml(tx.message)}</p>` : ''}<p>You may close this window.</p>`,
+          [
+            tx.message ? `<p>${escapeHtml(tx.message)}</p>` : '',
+            claimable ? this.claimControl(id, false) : '',
+            '<p>You may close this window.</p>',
+          ].join(''),
           30,
         );
       }
@@ -441,7 +462,7 @@ export class Sep24Service {
           payment,
           `<p>You receive <strong>${escapeHtml(formatUsdc(net))}</strong> USDC for it: 1 USDC ≈ <strong>${escapeHtml(formatFiat(effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount)))}</strong> ${escapeHtml(o.fiatCurrency)} on the <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC escrowed, minus a fee of <strong>${escapeHtml(formatUsdc(platformFee + lpFee))}</strong> USDC (${(o.platformFeeBps + o.lpFeeBps) / 100}%), all fixed for this order.</p>`,
           `<p>After that a new transfer cannot be matched; one already sent can still be confirmed until <strong>${timeTag(refundOpensAt(o))}</strong>, when the escrow returns the USDC to the provider.</p>`,
-          '<p>You may close this window. Your wallet will show the deposit once it settles.</p>',
+          this.claimControl(id, true),
         ].join(''),
         30,
       );
@@ -564,6 +585,67 @@ export class Sep24Service {
         );
       }
     }
+  }
+
+  async claimPaid(id: string, token: string): Promise<void> {
+    const { row } = await this.interactiveState(id, token);
+    const orderId = row.orderId;
+    if (!orderId) return;
+    await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.order.updateMany({
+        where: { id: orderId, flow: 'TOP_UP', status: 'FUNDED', userClaimedPaidAt: null },
+        data: { userClaimedPaidAt: new Date() },
+      });
+      if (updated.count !== 1) return;
+      const claimed = await tx.order.findUnique({
+        where: { id: orderId },
+        select: { lpId: true, fiatAmount: true, fiatCurrency: true, ref: true, payDeadline: true, confirmDeadline: true },
+      });
+      const lpId = claimed?.lpId ?? null;
+      const lp = lpId ? await tx.lp.findUnique({ where: { id: lpId }, select: { alertEmail: true } }) : null;
+      if (!claimed || !lpId || !lp?.alertEmail) {
+        throw new ConflictException('this deposit has no provider on file to notify of the claim right now');
+      }
+      const refundAtSecs = refundOpensAt({
+        flow: 'TOP_UP',
+        payDeadline: claimed.payDeadline,
+        confirmDeadline: claimed.confirmDeadline,
+      });
+      const refPart = claimed.ref ? `, reference ${claimed.ref}` : '';
+      const subject = 'A depositor says they have sent your rupiah';
+      const text =
+        `A depositor on order ${orderId} says they have sent ${formatFiat(claimed.fiatAmount)} ${claimed.fiatCurrency} to your account${refPart}. That is their claim, not proof — check your own account.\n\n` +
+        `Nothing has moved on chain and nothing is required from you yet. If the transfer is not confirmed before ${new Date(Number(refundAtSecs) * 1000).toISOString()}, the escrow returns your USDC to you and the order closes.`;
+      await tx.outboxMessage.createMany({
+        data: [
+          {
+            kind: EMAIL_OUTBOX_KIND,
+            payload: { personId: null, lpId, subject, text } as Prisma.InputJsonValue,
+            dedupeKey: `email:${orderId}:USER_CLAIMED_PAID:${lpId}`,
+          },
+        ],
+        skipDuplicates: true,
+      });
+    });
+  }
+
+  private claimControl(id: string, beforeDeadline: boolean): string {
+    const form = `<form method="post" action="${escapeHtml(this.formAction(id, '/paid'))}"><button type="submit">I have sent the rupiah</button></form>`;
+    if (beforeDeadline) {
+      return [
+        '<h2>Already sent it?</h2>',
+        '<p>Tell us, and we will ask the provider to check their account. This does not move any USDC and it does not finish your deposit — it only records that you say the transfer is on its way.</p>',
+        form,
+        '<p class="hint">Send the money first. Pressing this before you have sent it will not make the deposit arrive any sooner.</p>',
+        '<p>You may close this window. Your wallet will show the deposit if it settles.</p>',
+      ].join('');
+    }
+    return [
+      '<h2>Did you already send it?</h2>',
+      '<p>If you sent the rupiah before the deadline, tell us now. It is the only way we know to go and look for it.</p>',
+      form,
+      '<p class="hint">If you have not sent it, do not send it now. Close this window and start a new deposit from your wallet.</p>',
+    ].join('');
   }
 
   private settlementLine(status: string, hash: string | null | undefined): string {

@@ -210,6 +210,22 @@ export class Sep24Controller {
     res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
   }
 
+  @UseFilters(InteractiveErrorFilter)
+  @Post('interactive/:id/paid')
+  @Header('cross-origin-opener-policy', 'unsafe-none')
+  @Throttle({ default: { ttl: 3_600_000, limit: 40 } })
+  @Header('cache-control', 'no-store')
+  async paid(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    this.refuseForeignOrigin(req);
+    const token = this.usableSession(req, id);
+    await this.sep24.claimPaid(id, token);
+    res.redirect(302, `/sep24/interactive/${encodeURIComponent(id)}`);
+  }
+
   @Get('interactive/:id/fund-tx')
   @Header('cross-origin-opener-policy', 'unsafe-none')
   @Throttle({ default: { ttl: 3_600_000, limit: 20 } })
