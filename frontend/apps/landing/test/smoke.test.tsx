@@ -21,11 +21,14 @@ afterEach(() => {
 
 describe('landing smoke', () => {
   it('renders the hero and the buy/sell widget even when the anchor is unreachable', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
     render(await Home())
     expect(screen.getByRole('heading', { name: /spend crypto/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Buy' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sell' })).toBeInTheDocument()
     expect(screen.getByText(/connect wallet to continue/i)).toBeInTheDocument()
+    logged.mockRestore()
   })
 
   it('carries the fee the anchor publishes all the way from /sep24/info onto the page', async () => {

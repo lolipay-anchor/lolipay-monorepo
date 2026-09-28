@@ -49,14 +49,16 @@ describe('BuySellWidget', () => {
     expect(screen.queryByText('30.78')).not.toBeInTheDocument()
   })
 
-  it('sell tab converts USDC to IDR using the withdraw fee, not the deposit one', async () => {
-    render(<BuySellWidget fees={FEES} />)
-    await waitFor(() => screen.getByText(/live rate/i))
+  it('shows no rupiah figure on the sell tab even when the anchor publishes a withdraw fee, because the only rate it has is the buy side of the spread', async () => {
+    render(<BuySellWidget fees={{ depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: 2 }} />)
+    await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Sell' }))
 
-    expect(screen.getByText('470.400')).toBeInTheDocument()
-    expect(screen.queryByText('472.800')).not.toBeInTheDocument()
-    expect(valueBeside('Fee')).toBe('Rp 9.600')
+    expect(valueBeside('You receive')).toContain('—')
+    expect(valueBeside('Fee')).toBe('—')
+    expect(screen.queryByText('470.400')).not.toBeInTheDocument()
+    expect(screen.queryByText('Rp 9.600')).not.toBeInTheDocument()
+    expect(screen.getByText(SELL_HELPER)).toBeInTheDocument()
   })
 
   it('renders no fee-bearing figure at all when the anchor publishes no fee', async () => {

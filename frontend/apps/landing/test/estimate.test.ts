@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { MARKETS, formatLocal } from '../lib/markets'
-import { estimateBuy, estimateSell } from '../lib/estimate'
+import { estimateBuy } from '../lib/estimate'
 
 const ANCHOR_DEPOSIT_FEE_PERCENT = 1.5
 
@@ -22,18 +22,10 @@ describe('estimate', () => {
     expect(usdcNet).toBeCloseTo((500000 / 16732) * (1 - ANCHOR_DEPOSIT_FEE_PERCENT / 100), 6)
     expect(feeUsdc).toBeCloseTo((500000 / 16732) * (ANCHOR_DEPOSIT_FEE_PERCENT / 100), 6)
   })
-  it('sell: takes the fee percent it is given off the local leg', () => {
-    const { localNet, feeLocal } = estimateSell(30, 16732, ANCHOR_DEPOSIT_FEE_PERCENT)
-    expect(localNet).toBeCloseTo(30 * (1 - ANCHOR_DEPOSIT_FEE_PERCENT / 100) * 16732, 6)
-    expect(feeLocal).toBeCloseTo(30 * (ANCHOR_DEPOSIT_FEE_PERCENT / 100) * 16732, 6)
-  })
-
   it('the fee is the argument, not a constant: distinct fees give distinct quotes', () => {
     for (const pct of [1.5, 2.5]) {
       expect(estimateBuy(500000, 16000, pct).feeUsdc).toBeCloseTo((500000 / 16000) * (pct / 100), 6)
       expect(estimateBuy(500000, 16000, pct).usdcNet).toBeCloseTo((500000 / 16000) * (1 - pct / 100), 6)
-      expect(estimateSell(30, 16000, pct).feeLocal).toBeCloseTo(30 * (pct / 100) * 16000, 6)
-      expect(estimateSell(30, 16000, pct).localNet).toBeCloseTo(30 * (1 - pct / 100) * 16000, 6)
     }
     expect(estimateBuy(500000, 16000, 1.5).feeUsdc).not.toBeCloseTo(estimateBuy(500000, 16000, 2.5).feeUsdc, 6)
   })

@@ -1,7 +1,7 @@
 'use client'
 import * as React from 'react'
 import { MARKETS, formatLocal, type Market } from '../lib/markets'
-import { estimateBuy, estimateSell } from '../lib/estimate'
+import { estimateBuy } from '../lib/estimate'
 import type { AnchorFees } from '../lib/anchor-fees'
 import { useLiveRate } from '../hooks/useLiveRate'
 
@@ -25,20 +25,12 @@ export function BuySellWidget({ fees }: { fees: AnchorFees }) {
   const isBuy = tab === 'buy'
 
   const local = parseFloat(sanitize(payLocal)) || 0
-  const usdc = parseFloat(sanitize(paySell)) || 0
 
   const buy = rate != null && fees.depositPercent != null ? estimateBuy(local, rate, fees.depositPercent) : null
-  const sell = rate != null && fees.withdrawPercent != null ? estimateSell(usdc, rate, fees.withdrawPercent) : null
 
-  const getValue = isBuy ? (buy ? buy.usdcNet.toFixed(2) : '—') : sell ? numOnly(sell.localNet, market) : '—'
+  const getValue = isBuy && buy ? buy.usdcNet.toFixed(2) : '—'
   const getUnit = isBuy ? 'USDC' : market.code
-  const feeText = isBuy
-    ? buy
-      ? `${buy.feeUsdc.toFixed(2)} USDC`
-      : '—'
-    : sell
-      ? formatLocal(sell.feeLocal, market)
-      : '—'
+  const feeText = isBuy && buy ? `${buy.feeUsdc.toFixed(2)} USDC` : '—'
 
   const buyChips =
     rate != null
