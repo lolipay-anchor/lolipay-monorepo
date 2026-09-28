@@ -348,14 +348,14 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       expect(out).not.toHaveProperty('message');
     });
 
-    it('does not let a depositor who said they paid reach a refunded deposit in silence, and says no USDC was sent to them rather than that they were repaid', () => {
+    it('does not let a depositor who said they paid reach a refunded deposit in silence, and says the escrow sent them no USDC rather than that they were repaid', () => {
       const out = serializeSep24(
         tx({ flow: 'TOP_UP', order: order({ status: 'REFUNDED', userClaimedPaidAt: CLAIMED, settledAt: new Date('2026-09-26T00:00:00.000Z') }) }),
         BASE,
       );
       expect(out.status).toBe('refunded');
       expect(out.message).toBe(
-        'This deposit closed without completing, and no USDC was sent to you. If you did send the rupiah, keep your transfer receipt: sign in with this same wallet at app.lolipay.app, where the order shows whether a dispute can still be opened and until when.',
+        'This deposit closed without completing, and the escrow sent no USDC to you. If you did send the rupiah, keep your transfer receipt: sign in with this same wallet at app.lolipay.app, where the order shows whether a dispute can still be opened and until when.',
       );
       expect(out.message).not.toMatch(/refunded to you|your money back|fully refunded/i);
     });
@@ -364,7 +364,7 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       const out = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'REFUNDED', settledAt: new Date('2026-09-26T00:00:00.000Z') }) }), BASE);
       expect(out.status).toBe('refunded');
       expect(out.message).toBe(
-        'This deposit closed without completing, and no USDC was sent to you. If you did send the rupiah, keep your transfer receipt: sign in with this same wallet at app.lolipay.app, where the order shows whether a dispute can still be opened and until when.',
+        'This deposit closed without completing, and the escrow sent no USDC to you. If you did send the rupiah, keep your transfer receipt: sign in with this same wallet at app.lolipay.app, where the order shows whether a dispute can still be opened and until when.',
       );
       expect(out).not.toHaveProperty('user_action_required_by');
     });

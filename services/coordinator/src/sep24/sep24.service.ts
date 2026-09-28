@@ -457,11 +457,11 @@ export class Sep24Service {
       const txId = escapeHtml(id);
       const opening = claimed
         ? [
-            `<p>You told us at <strong>${timeTag(Math.floor(new Date(o.userClaimedPaidAt).getTime() / 1000))}</strong> that you had sent <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)}. This deposit closed without completing, so the escrow returned the USDC to the provider. <strong>No USDC was sent to you.</strong></p>`,
+            `<p>You told us at <strong>${timeTag(Math.floor(new Date(o.userClaimedPaidAt).getTime() / 1000))}</strong> that you had sent <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)}. This deposit closed without completing, so the escrow returned the USDC to the provider. <strong>The escrow sent no USDC to you.</strong></p>`,
             `<p>If you did send that money, keep your transfer receipt. Keep ${ref ? `the reference <strong>${ref}</strong> and ` : ''}this transaction id: <strong>${txId}</strong>.</p>`,
           ]
         : [
-            '<p>This deposit closed without completing, so the escrow returned the USDC to the provider. <strong>No USDC was sent to you.</strong> The rupiah account on this deposit belongs to the provider, not to this anchor.</p>',
+            '<p>This deposit closed without completing, so the escrow returned the USDC to the provider. <strong>The escrow sent no USDC to you.</strong> The rupiah account on this deposit belongs to the provider, not to this anchor.</p>',
             `<p>If you did send the rupiah, keep your transfer receipt${ref ? `, the reference <strong>${ref}</strong> and` : ' and'} this transaction id: <strong>${txId}</strong>.</p>`,
           ];
       return page(

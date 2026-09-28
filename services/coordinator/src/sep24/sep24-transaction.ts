@@ -162,7 +162,7 @@ function userAction(withdrawing: boolean, order: Sep24Order): { by?: bigint; mes
   if (order.status === 'REFUNDED') {
     return {
       message:
-        'This deposit closed without completing, and no USDC was sent to you. If you did send the rupiah, keep your transfer receipt: sign in with this same wallet at app.lolipay.app, where the order shows whether a dispute can still be opened and until when.',
+        'This deposit closed without completing, and the escrow sent no USDC to you. If you did send the rupiah, keep your transfer receipt: sign in with this same wallet at app.lolipay.app, where the order shows whether a dispute can still be opened and until when.',
     };
   }
   return null;

@@ -64,10 +64,10 @@ describe('the refunded screen a depositor who said they had paid sees', () => {
     expect(html).not.toContain('This deposit was not completed');
   });
 
-  it('repeats the claim it holds, says no USDC was sent, and asks for the receipt', async () => {
+  it('repeats the claim it holds, says the escrow sent no USDC, and asks for the receipt', async () => {
     const html = await refundedDeposit({ userClaimedPaidAt: CLAIMED_AT });
     expect(html).toContain(
-      `<p>You told us at <strong>${CLAIMED_TIME_TAG}</strong> that you had sent <strong>200.000</strong> IDR. This deposit closed without completing, so the escrow returned the USDC to the provider. <strong>No USDC was sent to you.</strong></p>`,
+      `<p>You told us at <strong>${CLAIMED_TIME_TAG}</strong> that you had sent <strong>200.000</strong> IDR. This deposit closed without completing, so the escrow returned the USDC to the provider. <strong>The escrow sent no USDC to you.</strong></p>`,
     );
     expect(html).toContain(
       '<p>If you did send that money, keep your transfer receipt. Keep the reference <strong>LP-REF</strong> and this transaction id: <strong>tx-1</strong>.</p>',
@@ -105,7 +105,7 @@ describe('the refunded screen a depositor who never said they had paid sees', ()
     const html = await refundedDeposit();
     expect(html).toContain('<h1>This deposit was not completed</h1>');
     expect(html).toContain(
-      '<p>This deposit closed without completing, so the escrow returned the USDC to the provider. <strong>No USDC was sent to you.</strong> The rupiah account on this deposit belongs to the provider, not to this anchor.</p>',
+      '<p>This deposit closed without completing, so the escrow returned the USDC to the provider. <strong>The escrow sent no USDC to you.</strong> The rupiah account on this deposit belongs to the provider, not to this anchor.</p>',
     );
   });
 
