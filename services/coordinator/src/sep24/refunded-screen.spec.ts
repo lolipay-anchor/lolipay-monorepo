@@ -74,6 +74,11 @@ describe('the refunded screen a depositor who said they had paid sees', () => {
     );
   });
 
+  it('never tells this depositor their rupiah went unconfirmed, because a refund can follow one this anchor did confirm', async () => {
+    const html = await refundedDeposit({ userClaimedPaidAt: CLAIMED_AT });
+    expect(html).not.toMatch(/never confirmed|not confirmed|no rupiah was confirmed|nothing was taken/i);
+  });
+
   it('links the refund on chain, points at the app for the dispute, and closes the deposit off', async () => {
     const html = await refundedDeposit({ userClaimedPaidAt: CLAIMED_AT });
     expect(html).toContain(SETTLEMENT_PARAGRAPH);
@@ -109,6 +114,7 @@ describe('the refunded screen a depositor who never said they had paid sees', ()
     expect(html).toContain(
       '<p>If you did send the rupiah, keep your transfer receipt, the reference <strong>LP-REF</strong> and this transaction id: <strong>tx-1</strong>.</p>',
     );
+    expect(html).not.toMatch(/never confirmed|not confirmed|no rupiah was confirmed|nothing was taken/i);
   });
 
   it('links the refund on chain and points at the app with the same sentence the claimed screen uses', async () => {
