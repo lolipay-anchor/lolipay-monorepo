@@ -639,10 +639,12 @@ export class Sep24Service {
       if (updated.count !== 1) return;
       const claimed = await tx.order.findUnique({
         where: { id: orderId },
-        select: { lpId: true, fiatAmount: true, fiatCurrency: true, ref: true, payDeadline: true, confirmDeadline: true },
+        select: { lpId: true, fiatAmount: true, fiatCurrency: true, ref: true, rail: true, payDeadline: true, confirmDeadline: true },
       });
       const lpId = claimed?.lpId ?? null;
-      const lp = lpId ? await tx.lp.findUnique({ where: { id: lpId }, select: { alertEmail: true } }) : null;
+      const lp = lpId
+        ? await tx.lp.findUnique({ where: { id: lpId }, select: { alertEmail: true, stellarAddress: true } })
+        : null;
       if (!claimed || !lpId || !lp?.alertEmail) {
         throw withInteractiveSentence(
           new ServiceUnavailableException('this deposit has no provider on file to notify of the claim right now'),
@@ -665,6 +667,18 @@ export class Sep24Service {
             kind: EMAIL_OUTBOX_KIND,
             payload: { personId: null, lpId, subject, text } as Prisma.InputJsonValue,
             dedupeKey: `email:${orderId}:USER_CLAIMED_PAID:${lpId}`,
+          },
+        ],
+        skipDuplicates: true,
+      });
+      await tx.notification.createMany({
+        data: [
+          {
+            address: lp.stellarAddress,
+            orderId,
+            event: 'USER_CLAIMED_PAID',
+            title: subject,
+            body: `Check your ${RAIL_WORDS[claimed.rail]} for ${formatFiat(claimed.fiatAmount)} ${claimed.fiatCurrency}. That is their claim, not proof. Your release control appears on the order once the transfer is confirmed.`,
           },
         ],
         skipDuplicates: true,

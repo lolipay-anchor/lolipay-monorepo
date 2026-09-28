@@ -34,6 +34,7 @@ function setup(orderId: string | null = 'order-1', overrides: Record<string, unk
     order: { updateMany: jest.fn(), findUnique: jest.fn() },
     lp: { findUnique: jest.fn() },
     outboxMessage: { createMany: jest.fn() },
+    notification: { createMany: jest.fn() },
   };
   const accepted = { customerRef: 'GUSER', personId: 'person-1', status: 'ACCEPTED', screenedAt: new Date(), deliveredAt: new Date() };
   const prisma: any = {
@@ -55,10 +56,10 @@ function setup(orderId: string | null = 'order-1', overrides: Record<string, unk
 function provider(tx: ReturnType<typeof setup>['tx']) {
   tx.order.updateMany.mockResolvedValue({ count: 1 });
   tx.order.findUnique.mockResolvedValue({
-    lpId: 'lp-1', fiatAmount: 4_000_000n, fiatCurrency: 'IDR', ref: null,
+    lpId: 'lp-1', fiatAmount: 4_000_000n, fiatCurrency: 'IDR', ref: null, rail: 'BANK',
     payDeadline: BigInt(NOW_SECS + 600), confirmDeadline: BigInt(NOW_SECS + 2400),
   });
-  tx.lp.findUnique.mockResolvedValue({ alertEmail: 'lp@example.com' });
+  tx.lp.findUnique.mockResolvedValue({ alertEmail: 'lp@example.com', stellarAddress: 'GLPWALLET' });
 }
 
 describe('claimPaid writes the conditional claim and asks the provider, ADR 0059 step 4 — the $transaction here is a fake that runs the callback and neither isolates nor rolls back, so the refusal cases below prove the throw leaves the callback with nothing enqueued, and cannot prove that Prisma discarded the claim row itself', () => {
@@ -332,5 +333,84 @@ describe('the claim control before the pay deadline, ADR 0059 D3 slot 1A', () =>
     expect(html).toContain('action="/sep24/interactive/tx-1/paid"');
     expect(html).toContain('This does not move any USDC and it does not finish your deposit');
     expect(html).not.toContain('Did you already send it?');
+  });
+});
+
+describe('the claim reaches the provider IN THE APP, not only in their inbox — the screen said "waiting for the buyer\'s payment" while the email said the opposite', () => {
+  it('writes exactly one Notification row addressed to the provider\'s own wallet, never to the depositor, carrying the same title as the email so one event is not described in two voices', async () => {
+    const { service, tx, token } = setup('order-1');
+    provider(tx);
+    await service.claimPaid('tx-1', token);
+    expect(tx.notification.createMany).toHaveBeenCalledTimes(1);
+    const rows = tx.notification.createMany.mock.calls[0][0].data;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].address).toBe('GLPWALLET');
+    expect(rows[0].address).not.toBe('GUSER');
+    expect(rows[0].orderId).toBe('order-1');
+    expect(rows[0].title).toBe('A depositor says they have sent your rupiah');
+    expect(rows[0].title).toBe(
+      tx.outboxMessage.createMany.mock.calls[0][0].data[0].payload.subject,
+    );
+    expect(rows[0].body).toBe(
+      'Check your bank account for 4.000.000 IDR. That is their claim, not proof. Your release control appears on the order once the transfer is confirmed.',
+    );
+  });
+
+  it('names the rail from the order\'s own column rather than a fixed word, so a non-BANK deposit does not tell the provider to check an account it never had', async () => {
+    const { service, tx, token } = setup('order-1');
+    provider(tx);
+    tx.order.findUnique.mockResolvedValue({
+      lpId: 'lp-1', fiatAmount: 250_000n, fiatCurrency: 'IDR', ref: null, rail: 'EWALLET',
+      payDeadline: BigInt(NOW_SECS + 600), confirmDeadline: BigInt(NOW_SECS + 2400),
+    });
+    await service.claimPaid('tx-1', token);
+    const body = tx.notification.createMany.mock.calls[0][0].data[0].body as string;
+    expect(body).toBe(
+      'Check your e-wallet for 250.000 IDR. That is their claim, not proof. Your release control appears on the order once the transfer is confirmed.',
+    );
+    expect(tx.order.findUnique.mock.calls[0][0].select.rail).toBe(true);
+  });
+
+  it('promises the provider no refund, no deadline and no act of their own, because the automatic escrow return is gated on Config.autoRefund and on REFUND_SIGNER_SECRET and the provider is not the fiat attestor', async () => {
+    const { service, tx, token } = setup('order-1');
+    provider(tx);
+    await service.claimPaid('tx-1', token);
+    const body = tx.notification.createMany.mock.calls[0][0].data[0].body as string;
+    expect(body).not.toMatch(/refund|returned|escrow/i);
+    expect(body).not.toMatch(/\bhours?\b|\bminutes?\b|deadline|before \d/i);
+    expect(body).not.toMatch(/has (arrived|been received)|confirm (it|receipt|the transfer)|mark/i);
+  });
+
+  it('takes an event that no order STATUS can equal, because the unique key is (address, orderId, event) and the provider already holds a FUNDED row on this order that skipDuplicates would silently keep instead', async () => {
+    const { service, tx, token } = setup('order-1');
+    provider(tx);
+    await service.claimPaid('tx-1', token);
+    const call = tx.notification.createMany.mock.calls[0][0];
+    expect(call.data[0].event).toBe('USER_CLAIMED_PAID');
+    expect(call.data[0].event).not.toBe('FUNDED');
+    expect(call.data[0].event).not.toBe('FIAT_PAID');
+    expect(call.skipDuplicates).toBe(true);
+  });
+
+  it('writes no second row on a second press, and the row it wrote the first time is inside the same transaction as the claim itself, so a failed enqueue cannot leave a screen saying something the column does not', async () => {
+    const first = setup('order-1');
+    provider(first.tx);
+    await first.service.claimPaid('tx-1', first.token);
+    expect(first.tx.notification.createMany).toHaveBeenCalledTimes(1);
+    expect(first.prisma.$transaction).toHaveBeenCalledTimes(1);
+
+    const second = setup('order-1', { userClaimedPaidAt: new Date('2026-09-28T00:00:00.000Z') });
+    provider(second.tx);
+    await second.service.claimPaid('tx-1', second.token);
+    expect(second.prisma.$transaction).not.toHaveBeenCalled();
+    expect(second.tx.notification.createMany).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing for the provider when the conditional claim update matched no row, the race in which the order moved between the read and the write', async () => {
+    const { service, tx, token } = setup('order-1');
+    provider(tx);
+    tx.order.updateMany.mockResolvedValue({ count: 0 });
+    await service.claimPaid('tx-1', token);
+    expect(tx.notification.createMany).not.toHaveBeenCalled();
   });
 });
