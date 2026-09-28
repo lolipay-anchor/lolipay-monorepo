@@ -124,6 +124,7 @@ describe('claimPaid writes the conditional claim and asks the provider, ADR 0059
     expect(text).toContain('the escrow can be returned to you from that time — the route is open on chain to anyone, including you — and the order closes.');
     expect(text).not.toMatch(/escrow returns/i);
     expect(text).not.toMatch(/nothing is required from you yet/i);
+    expect(text).not.toMatch(/confirm it on your dashboard/i);
   });
 
   it('refuses the press with a sentence of its own when the matched provider has no alertEmail on file, rather than letting the filter offer a fresh deposit that cannot help', async () => {
@@ -164,6 +165,26 @@ describe('claimPaid writes the conditional claim and asks the provider, ADR 0059
     expect(prisma.$transaction).toHaveBeenCalled();
     expect(tx.order.updateMany).toHaveBeenCalled();
     expect(tx.outboxMessage.createMany).toHaveBeenCalled();
+  });
+
+  it('bounds the claim on the CLAMPED refund instant and not on the raw attest grace, which is the only window where the two forms disagree; the admitted half holds payDeadline fixed so the refusal is attributable to confirmDeadline and to nothing else', async () => {
+    const refused = setup('order-1', {
+      payDeadline: BigInt(NOW_SECS - 2_000),
+      confirmDeadline: BigInt(NOW_SECS - 200),
+    });
+    provider(refused.tx);
+    await refused.service.claimPaid('tx-1', refused.token);
+    expect(refused.prisma.$transaction).not.toHaveBeenCalled();
+    expect(refused.tx.order.updateMany).not.toHaveBeenCalled();
+
+    const admitted = setup('order-1', {
+      payDeadline: BigInt(NOW_SECS - 2_000),
+      confirmDeadline: BigInt(NOW_SECS + 1_000),
+    });
+    provider(admitted.tx);
+    await admitted.service.claimPaid('tx-1', admitted.token);
+    expect(admitted.prisma.$transaction).toHaveBeenCalled();
+    expect(admitted.tx.order.updateMany).toHaveBeenCalled();
   });
 
   it('still records the claim when a REJECTED screening exists for this person, because the gate that decides whether USDC may be committed is order.service.ts identityVerified on order creation, and this press moves nothing — ADR 0059 D3 states the predicate with no identity term', async () => {
@@ -256,6 +277,18 @@ describe('the claim control after the pay deadline, ADR 0059 D3 slot 1B', () => 
     expect(html).toContain('The time to pay has passed');
     expect(html).not.toContain('Did you already send it?');
     expect(html).not.toContain('/paid"');
+  });
+
+  it('withholds the control on the CLAMPED refund instant and not on the raw attest grace, which is the only window where the two forms disagree; the second render holds payDeadline fixed so the withholding is attributable to confirmDeadline and to nothing else', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const closed = await renderClaimable(BigInt(now - 2_000), BigInt(now - 200));
+    expect(closed).toContain('The time to pay has passed');
+    expect(closed).not.toContain('Did you already send it?');
+    expect(closed).not.toContain('/paid"');
+
+    const open = await renderClaimable(BigInt(now - 2_000), BigInt(now + 1_000));
+    expect(open).toContain('Did you already send it?');
+    expect(open).toContain('action="/sep24/interactive/tx-1/paid"');
   });
 
   it('tells them to close the window once, in the control\'s own hint where there is a control and on its own where there is not', async () => {
