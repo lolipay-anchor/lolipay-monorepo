@@ -36,6 +36,22 @@ const FINALITY_PROMISE = 'Nothing further happens on this transaction'
 
 const TOML_URL = 'https://lolipay.app/.well-known/stellar.toml'
 
+const WITHDRAWN = [
+  'was never available either',
+  'loses the routes that would complete it',
+  'keeps the one that returns the USDC',
+  'when the person cannot sign it themselves',
+  'A deposit is unaffected',
+  'can complete its own side of a withdrawal',
+]
+
+const RULED = [
+  'a single privileged lolipay key',
+  'keeps every route that returns the USDC to the provider',
+  'While a trade is funded',
+  'Once it has closed',
+]
+
 const SECTIONS = [
   'The anchor, and the one document that describes it',
   'What lolipay holds a key for, and what no key can reach',
@@ -105,6 +121,29 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
     }
     for (const miss of ['sooner', 'concurrently', 'todos', 'betamax', 'swipe']) {
       expect(miss).not.toMatch(DATING_WORD)
+    }
+  })
+})
+
+describe('the custody and withdrawal prose carries only the clauses the ruling left standing', () => {
+  it('carries none of the six withdrawn clauses, each proven findable in a synthetic haystack first so that a zero is a real absence and not a broken read', () => {
+    const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
+
+    expect(page.length).toBeGreaterThan(0)
+    expect(WITHDRAWN).toHaveLength(6)
+    for (const clause of WITHDRAWN) {
+      expect(`x ${clause} y`.split(clause).length - 1).toBe(1)
+      expect(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 0`)
+    }
+  })
+
+  it('carries each of the four specified clauses exactly once, so that dropping a load-bearing scope qualifier or restating one at a second site goes red', () => {
+    const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
+
+    expect(page.length).toBeGreaterThan(0)
+    expect(RULED).toHaveLength(4)
+    for (const clause of RULED) {
+      expect(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 1`)
     }
   })
 })
