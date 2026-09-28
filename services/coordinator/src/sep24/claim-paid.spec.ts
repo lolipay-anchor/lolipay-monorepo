@@ -128,10 +128,36 @@ describe('claimPaid writes the conditional claim and asks the provider, ADR 0059
     expect(text).not.toMatch(/confirm it on your dashboard/i);
   });
 
-  it('refuses the press with a sentence of its own when the matched provider has no alertEmail on file, rather than letting the filter offer a fresh deposit that cannot help', async () => {
+  it('does not throw when the matched provider has no alertEmail on file: the in-app row is written and only the email is skipped', async () => {
     const { service, tx, token } = setup('order-1');
     provider(tx);
-    tx.lp.findUnique.mockResolvedValue({ alertEmail: null });
+    tx.lp.findUnique.mockResolvedValue({ alertEmail: null, stellarAddress: 'GLPWALLET' });
+    await service.claimPaid('tx-1', token);
+    expect(tx.order.updateMany).toHaveBeenCalled();
+    expect(tx.outboxMessage.createMany).not.toHaveBeenCalled();
+    expect(tx.notification.createMany).toHaveBeenCalledTimes(1);
+    const rows = tx.notification.createMany.mock.calls[0][0].data;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].address).toBe('GLPWALLET');
+    expect(rows[0].event).toBe('USER_CLAIMED_PAID');
+  });
+
+  it('skips the email on an empty alertEmail too, not only on null', async () => {
+    const { service, tx, token } = setup('order-1');
+    provider(tx);
+    tx.lp.findUnique.mockResolvedValue({ alertEmail: '', stellarAddress: 'GLPWALLET' });
+    await service.claimPaid('tx-1', token);
+    expect(tx.outboxMessage.createMany).not.toHaveBeenCalled();
+    expect(tx.notification.createMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('still refuses the press with its own sentence when the order has no provider matched at all', async () => {
+    const { service, tx, token } = setup('order-1');
+    provider(tx);
+    tx.order.findUnique.mockResolvedValue({
+      lpId: null, fiatAmount: 4_000_000n, fiatCurrency: 'IDR', ref: null, rail: 'BANK',
+      payDeadline: BigInt(NOW_SECS + 600), confirmDeadline: BigInt(NOW_SECS + 2400),
+    });
     const thrown = await service.claimPaid('tx-1', token).then(() => null, (e: unknown) => e);
     expect(thrown).toBeInstanceOf(ServiceUnavailableException);
     expect((thrown as ServiceUnavailableException).getStatus()).toBe(503);
@@ -142,6 +168,7 @@ describe('claimPaid writes the conditional claim and asks the provider, ADR 0059
     expect(said).not.toMatch(/try again|start a fresh one|dispute/i);
     expect(tx.order.updateMany).toHaveBeenCalled();
     expect(tx.outboxMessage.createMany).not.toHaveBeenCalled();
+    expect(tx.notification.createMany).not.toHaveBeenCalled();
   });
 
   it('records nothing once the escrow refund window has opened, because every instant the claim would publish to the provider is then already in the past, ADR 0059 D3', async () => {

@@ -645,7 +645,7 @@ export class Sep24Service {
       const lp = lpId
         ? await tx.lp.findUnique({ where: { id: lpId }, select: { alertEmail: true, stellarAddress: true } })
         : null;
-      if (!claimed || !lpId || !lp?.alertEmail) {
+      if (!claimed || !lpId || !lp) {
         throw withInteractiveSentence(
           new ServiceUnavailableException('this deposit has no provider on file to notify of the claim right now'),
           CLAIM_HAS_NO_PROVIDER_TO_NOTIFY_SENTENCE,
@@ -661,16 +661,18 @@ export class Sep24Service {
       const text =
         `A depositor on order ${orderId} says they have sent ${formatFiat(claimed.fiatAmount)} ${claimed.fiatCurrency} to your account${refPart}. That is their claim, not proof — check your own account.\n\n` +
         `Nothing has moved on chain, and there is no control for you on this order yet. If the transfer is not confirmed before ${new Date(Number(refundAtSecs) * 1000).toISOString()}, the escrow can be returned to you from that time — the route is open on chain to anyone, including you — and the order closes.`;
-      await tx.outboxMessage.createMany({
-        data: [
-          {
-            kind: EMAIL_OUTBOX_KIND,
-            payload: { personId: null, lpId, subject, text } as Prisma.InputJsonValue,
-            dedupeKey: `email:${orderId}:USER_CLAIMED_PAID:${lpId}`,
-          },
-        ],
-        skipDuplicates: true,
-      });
+      if (lp.alertEmail) {
+        await tx.outboxMessage.createMany({
+          data: [
+            {
+              kind: EMAIL_OUTBOX_KIND,
+              payload: { personId: null, lpId, subject, text } as Prisma.InputJsonValue,
+              dedupeKey: `email:${orderId}:USER_CLAIMED_PAID:${lpId}`,
+            },
+          ],
+          skipDuplicates: true,
+        });
+      }
       await tx.notification.createMany({
         data: [
           {
