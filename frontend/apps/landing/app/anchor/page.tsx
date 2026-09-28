@@ -150,7 +150,7 @@ export default async function AnchorPage() {
         <H2>The anchor, and the one document that describes it</H2>
         <P>
           {
-            "lolipay is a peer-to-peer on and off ramp between Indonesian rupiah and USDC on Stellar. A person sends rupiah and receives USDC, or sends USDC and receives rupiah. The counterparty on the rupiah side is another person, a liquidity provider with their own collateral at stake, rather than a house account. There is no pooled anchor balance: each trade locks USDC in its own Soroban escrow, and that escrow's payout destinations are fixed when the trade is created."
+            "lolipay is a peer-to-peer on and off ramp between Indonesian rupiah and USDC on Stellar. A person sends rupiah and receives USDC, or sends USDC and receives rupiah. The counterparty on the rupiah side is another person, a liquidity provider with their own collateral at stake, rather than a house account. There is no pooled anchor balance: each trade locks USDC in its own Soroban escrow, and that escrow's payout destinations are fixed when the trade is created. lolipay does hold keys that can act on a trade already in flight; what they can and cannot reach is below."
           }
         </P>
         <P>Four SEPs carry the integration.</P>
@@ -182,7 +182,7 @@ export default async function AnchorPage() {
               term: 'NETWORK_PASSPHRASE',
               detail: (
                 <>
-                  {'The Stellar network this anchor operates on. It publishes the test network passphrase, '}
+                  {'The Stellar network this anchor operates on. It publishes the network passphrase, '}
                   <code className={MONO}>{passphrase}</code>
                   {'. Sign every challenge and every Soroban call against the passphrase you read here.'}
                 </>
@@ -224,14 +224,36 @@ export default async function AnchorPage() {
                 <>
                   {'Whether the asset is backed by an off-chain reserve. This document declares '}
                   <code className={MONO}>{anchored}</code>
-                  {
-                    ', and desc says the same in words: the asset itself is not redeemable and is not backed by anything.'
-                  }
+                  {'.'}
                 </>
               ),
             },
           ]}
         />
+      </Plain>
+
+      <Plain>
+        <H2>What lolipay holds a key for, and what no key can reach</H2>
+        <P>
+          {
+            "lolipay holds three keys that can act on a trade already running, and the contract forces them to be three different accounts: an administrator, a dispute resolver, and a fiat attestor. What none of them can do is change where the money goes. Every payout an escrow can make names one of four accounts fixed when the trade was created - the account receiving the USDC, the account that provided it, the provider's fee wallet and the platform's fee wallet - and the contract never writes those four again. It also refuses, after it is initialised, to change the USDC asset, the platform fee wallet, or the attestor itself. A key can decide which of a trade's own outcomes happens; none can add a destination to it."
+          }
+        </P>
+        <P>
+          {
+            "The attestor records that the rupiah arrived on a deposit. That is the step that moves a deposit past FUNDED when the person cannot sign it themselves, and it is also a required second signature when a dispute raised on a funded deposit is resolved. The resolver decides a dispute, and the decision is one of two values, release or refund, so it chooses between the two destinations the trade already holds and cannot name a third. The administrator sets the fee and the dispute window, pauses the contract, and can appoint a different resolver. It also has one money-moving path: once the resolver's own window has passed, the administrator can resolve a funded-trade dispute as a refund, and that is the only route on which a single lolipay key unwinds an escrow without a second signature. It still returns the USDC to the account that provided it."
+          }
+        </P>
+        <P>
+          {
+            "A pause is not a freeze, and the difference matters if you are holding a deposit open. It stops new trades, stops the attestor recording a transfer, stops an early release, and stops a dispute being raised on a funded trade. It does not stop the depositor marking their own transfer, and it does not stop a refund. So a funded deposit that a pause catches loses the routes that would complete it and keeps the one that returns the USDC to the provider - and in a wallet that cannot sign in the interactive page, the depositor's own route was never available either."
+          }
+        </P>
+        <P>
+          {
+            "One route needs no key at all. When the window to record a deposit's rupiah has closed, the refund that returns the USDC to the provider checks only the clock: anyone may call it, the provider included. A deposit whose rupiah was sent but never recorded can therefore end with the USDC back with the provider, which is why the refunded status on this anchor does not claim the rupiah never arrived. Tell your user to keep their transfer receipt."
+          }
+        </P>
       </Plain>
 
       <Band>
@@ -247,12 +269,12 @@ export default async function AnchorPage() {
         <H3>What to build instead: open the interactive page and poll the record.</H3>
         <P>
           {
-            "That signature happens in the interactive page's own browser context, so the page needs a wallet there that answers an injected request and response protocol over window.postMessage. It posts messages carrying source: 'FREIGHTER_EXTERNAL_MSG_REQUEST' and listens for source: 'FREIGHTER_EXTERNAL_MSG_RESPONSE' from the same window, asking for a connection, then an address, then a signature. Any wallet that answers that protocol completes a withdrawal. A withdrawal asks for two signatures on it, not one: the first locks the USDC in escrow, the second releases it once the rupiah has arrived."
+            "That signature happens in the interactive page's own browser context, so the page needs a wallet there that answers an injected request and response protocol over window.postMessage. It posts messages carrying source: 'FREIGHTER_EXTERNAL_MSG_REQUEST' and listens for source: 'FREIGHTER_EXTERNAL_MSG_RESPONSE' from the same window, asking for a connection, then an address, then a signature. Any wallet that answers that protocol can complete its own side of a withdrawal. Its side is the two signatures. Between them sit the provider's rupiah transfer and the provider's own on-chain call marking it sent, and your wallet drives neither: a withdrawal whose provider never sends sits at pending_anchor, and no second signature is asked for. Two further things stay yours. The protocol is Freighter's, and its SUBMIT_TRANSACTION message asks your wallet to sign, not to send - it answers with signedTransaction, and the interactive page broadcasts it, so a wallet that reads the name literally and submits will put the same transaction on the network twice. And the approval prompt is yours: a wallet that answers a signing request without asking the person, and without checking which origin asked, is a signer that any page can drive. A withdrawal asks for two signatures on it, not one: the first locks the USDC in escrow, the second releases it once the rupiah has arrived."
           }
         </P>
         <P>
           {
-            'The consequence to design around: if your wallet opens SEP-24 interactive URLs in an embedded webview with no injected provider, a deposit completes and a withdrawal cannot. The page tells the person so in words rather than failing silently, but it cannot finish there.'
+            'The consequence to design around: if your wallet opens SEP-24 interactive URLs in an embedded webview with no injected provider, a withdrawal cannot finish there. The page says so in words rather than failing silently - it tells the person to open the link in a browser where their wallet is installed. A deposit is unaffected, because the interactive page never asks a depositor to sign anything, so no wallet has to answer it there. What a deposit waits on instead is described under pending_external below.'
           }
         </P>
         <P>
@@ -294,7 +316,7 @@ export default async function AnchorPage() {
         <H2>Identity</H2>
         <P>
           {
-            'Identity verification is required before a deposit trade can open, and it is performed by a third-party identity provider. Neither your wallet nor lolipay renders those screens: the person completes them inside the SEP-24 interactive page.'
+            `Identity verification is required before a deposit trade can open, and it is performed by a third-party identity provider. Neither your wallet nor lolipay renders those screens: the interactive page links out to the provider's own page with target="_blank", so the person leaves it to verify and may not come back the same way. The interactive page refreshes itself and picks the result up on its own. Keep it reachable, and do not treat the person leaving it, or finishing on another device, as an abandoned flow.`
           }
         </P>
         <P>
@@ -342,7 +364,7 @@ export default async function AnchorPage() {
             {
               term: 'pending_external',
               detail:
-                'The person has reported that the rupiah was sent, and the provider has been asked to confirm it against their own account. Render message, which tells the person not to send a second time.',
+                "The person has reported that the rupiah was sent, and the provider has been asked to check their own account for it. Nothing on the SEP-24 surface advances this status: the report the person filed is unsigned and moves nothing on chain, and the provider cannot mark the transfer received - the escrow does not admit them to that call. It advances when this anchor records the transfer against the order, and the provider's own confirmation is what releases the escrow at the step after that. Render message, which tells the person not to send a second time.",
             },
             {
               term: 'completed',
@@ -357,7 +379,7 @@ export default async function AnchorPage() {
             {
               term: 'expired',
               detail:
-                'The order closed before the escrow was funded, so no money moved and the person was never asked to send any: because they cancelled it, because it went stale before a provider funded it, or because this anchor stood the provider down. Nothing further happens on this transaction.',
+                'This anchor gave up on the order: because the person cancelled it, because it went stale before a provider funded it, or because this anchor stood the provider down. It does not by itself tell you that no escrow was funded, and it is not terminal. Do not present it to the person as a closed transaction and do not stop polling on it: a transaction that reports expired can afterwards report any status this anchor reports for a live trade, up to completed or refunded.',
             },
           ]}
         />
@@ -394,7 +416,7 @@ export default async function AnchorPage() {
             {
               term: 'expired',
               detail:
-                "The order closed before the USDC was locked, so nothing left the person's account: because they cancelled it, because the signing window passed, or because this anchor stood the provider down. Nothing further happens on this transaction.",
+                'This anchor gave up on the order: because the person cancelled it, because the signing window passed, or because this anchor stood the provider down. It does not by itself tell you that the USDC was never locked, and it is not terminal. Do not stop polling on it, and do not tell the person their USDC is untouched: a withdrawal that reports expired can still be holding it in escrow, and can afterwards report any status this anchor reports for a live trade, up to completed or refunded.',
             },
           ]}
         />

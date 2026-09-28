@@ -32,10 +32,13 @@ const BANNED = [
 
 const DATING_WORD = new RegExp(`\\b(${BANNED.join('|')})\\b`, 'i')
 
+const FINALITY_PROMISE = 'Nothing further happens on this transaction'
+
 const TOML_URL = 'https://lolipay.app/.well-known/stellar.toml'
 
 const SECTIONS = [
   'The anchor, and the one document that describes it',
+  'What lolipay holds a key for, and what no key can reach',
   'What your wallet must be able to do, and where your token goes',
   'Identity',
   'The transaction record',
@@ -88,6 +91,14 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
     }
   })
 
+  it('nowhere carries the sentence "Nothing further happens on this transaction", because expired is not terminal on this anchor: EXPIRED and CANCELLED both report it, every on-chain target admits both as a from-status, and maintenance auto-refunds that pool', () => {
+    const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
+
+    expect(page.length).toBeGreaterThan(0)
+    expect(`x ${FINALITY_PROMISE}.`.split(FINALITY_PROMISE).length - 1).toBe(1)
+    expect(page.split(FINALITY_PROMISE).length - 1).toBe(0)
+  })
+
   it('fires on the words it bans and stays silent on the words that merely contain them', () => {
     for (const hit of ['Coming soon', 'currently unavailable', 'TODO: fix this', 'in beta', 'for now']) {
       expect(hit).toMatch(DATING_WORD)
@@ -99,7 +110,7 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
 })
 
 describe('the anchor page a wallet developer lands on', () => {
-  it('carries the five sections, and points at the one document that is the authority', async () => {
+  it('carries the six sections, and points at the one document that is the authority', async () => {
     render(await AnchorPage())
 
     for (const name of SECTIONS) {
@@ -125,6 +136,9 @@ describe('the anchor page a wallet developer lands on', () => {
       expect(screen.queryByText('test')).toBeNull()
       expect(screen.getByText('true')).toBeInTheDocument()
       expect(screen.queryByText('false')).toBeNull()
+
+      expect(screen.queryAllByText(/is not backed by anything/)).toHaveLength(0)
+      expect(screen.queryAllByText(/test network passphrase/)).toHaveLength(0)
     } finally {
       delete process.env.CURRENCY_ANCHOR_ASSET_TYPE
       delete process.env.CURRENCY_ANCHOR_ASSET
@@ -145,6 +159,21 @@ describe('the anchor page a wallet developer lands on', () => {
 
     expect(screen.getAllByText('—')).toHaveLength(2)
     expect(screen.getByText('Test SDF Network ; September 2015')).toBeInTheDocument()
+
+    expect(screen.queryAllByText(/desc says the same in words/)).toHaveLength(0)
+  })
+
+  it('warns on both expired rows that the status is not terminal, because a wallet that stops polling there can leave its user with USDC still locked', async () => {
+    render(await AnchorPage())
+
+    const terms = screen.getAllByText('expired')
+    expect(terms).toHaveLength(2)
+
+    for (const term of terms) {
+      const meaning = term.nextElementSibling?.textContent ?? ''
+      expect(meaning).toMatch(/is not terminal/)
+      expect(meaning).toMatch(/do not stop polling/i)
+    }
   })
 })
 
