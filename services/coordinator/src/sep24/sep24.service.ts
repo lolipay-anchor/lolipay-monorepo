@@ -591,12 +591,12 @@ export class Sep24Service {
   }
 
   async claimPaid(id: string, token: string): Promise<void> {
-    const state = await this.interactiveState(id, token);
-    const { row, kyc } = state;
+    const { row } = await this.interactiveState(id, token);
     const orderId = row.orderId;
     if (!orderId) return;
-    if (this.screenFor(row, kyc, state) !== 'instructions') return;
-    if (Math.floor(Date.now() / 1000) > Number(refundOpensAt(row.order as any))) return;
+    const o = row.order as any;
+    if (row.flow !== 'TOP_UP' || !o || o.status !== 'FUNDED' || o.userClaimedPaidAt) return;
+    if (Math.floor(Date.now() / 1000) > Number(refundOpensAt(o))) return;
     await this.prisma.$transaction(async (tx) => {
       const updated = await tx.order.updateMany({
         where: { id: orderId, flow: 'TOP_UP', status: 'FUNDED', userClaimedPaidAt: null },

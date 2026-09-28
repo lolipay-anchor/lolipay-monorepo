@@ -166,15 +166,16 @@ describe('claimPaid writes the conditional claim and asks the provider, ADR 0059
     expect(tx.outboxMessage.createMany).toHaveBeenCalled();
   });
 
-  it('records nothing when this identity was refused after the escrow was funded, the same screen gate the identity and amount posts already carry', async () => {
+  it('still records the claim when a REJECTED screening exists for this person, because the gate that decides whether USDC may be committed is order.service.ts identityVerified on order creation, and this press moves nothing — ADR 0059 D3 states the predicate with no identity term', async () => {
     const { service, prisma, tx, token, accepted } = setup('order-1');
     provider(tx);
     prisma.kycVerification.findFirst = jest.fn(async (a: any) =>
       a?.where?.status === 'REJECTED' ? { rejectionReason: 'the document could not be read' } : accepted,
     );
     await service.claimPaid('tx-1', token);
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(tx.order.updateMany).not.toHaveBeenCalled();
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(tx.order.updateMany).toHaveBeenCalled();
+    expect(tx.outboxMessage.createMany).toHaveBeenCalled();
   });
 
   it('refuses the press when the order carries no provider at all', async () => {
