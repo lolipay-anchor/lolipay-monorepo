@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
 const SRC = join(__dirname, '..');
 
@@ -11,6 +11,7 @@ const OPTED_IN: Array<[string, string, number, string]> = [
   ['order/order.service.ts', 'new BadRequestException(PAYMENT_DESTINATION_BAD_CHARS_SENTENCE)', 1, 'PAYMENT_DESTINATION_BAD_CHARS_SENTENCE'],
   ['order/order.service.ts', 'new BadRequestException(PAYMENT_DESTINATION_TOO_SHORT_SENTENCE)', 1, 'PAYMENT_DESTINATION_TOO_SHORT_SENTENCE'],
   ['kyc/sep12.service.ts', "new ForbiddenException('this identity was refused and cannot be resubmitted here')", 2, 'IDENTITY_REFUSED_SENTENCE'],
+  ['sep24/sep24.service.ts', "new ServiceUnavailableException('this deposit has no provider on file to notify of the claim right now')", 1, 'CLAIM_HAS_NO_PROVIDER_TO_NOTIFY_SENTENCE'],
 ];
 
 function everySourceFile(dir: string): string[] {
@@ -25,7 +26,20 @@ function flattened(relative: string): string {
   return readFileSync(join(SRC, relative), 'utf8').replace(/\s+/g, ' ');
 }
 
-describe('every refusal this commit opted in still carries its marker at the throw', () => {
+describe('every refusal opted in carries its marker at the throw, and the rows below are every withInteractiveSentence site in non-spec src rather than a sample of them', () => {
+  it('lists every site there is, naming each file it finds rather than counting them, so a new opt-in cannot be added without taking a row here — the half a per-row check cannot see', () => {
+    const found = everySourceFile(SRC)
+      .flatMap((f) =>
+        readFileSync(f, 'utf8')
+          .split('throw withInteractiveSentence(')
+          .slice(1)
+          .map(() => relative(SRC, f)),
+      )
+      .sort();
+    const listed = OPTED_IN.flatMap(([rel, , count]) => Array<string>(count).fill(rel)).sort();
+    expect(found).toEqual(listed);
+  });
+
   it.each(OPTED_IN)(
     '%s wraps every %s, and there are %i of them, each handed %s',
     (relative, construction, expected, sentence) => {
