@@ -114,6 +114,17 @@ describe('claimPaid writes the conditional claim and asks the provider, ADR 0059
     expect(job.payload.text).not.toMatch(/confirm it on your dashboard/i);
   });
 
+  it('tells the provider the escrow route can open rather than that it will run, and names no act as required of them, because an email is read hours after it is rendered and cannot re-render', async () => {
+    const { service, tx, token } = setup('order-1');
+    provider(tx);
+    await service.claimPaid('tx-1', token);
+    const text = tx.outboxMessage.createMany.mock.calls[0][0].data[0].payload.text as string;
+    expect(text).toContain('Nothing has moved on chain, and there is no control for you on this order yet.');
+    expect(text).toContain('the escrow can be returned to you from that time — the route is open on chain to anyone, including you — and the order closes.');
+    expect(text).not.toMatch(/escrow returns/i);
+    expect(text).not.toMatch(/nothing is required from you yet/i);
+  });
+
   it('refuses the press and enqueues nothing when the matched provider has no alertEmail on file', async () => {
     const { service, tx, token } = setup('order-1');
     tx.order.updateMany.mockResolvedValue({ count: 1 });

@@ -83,3 +83,22 @@ describe('once the depositor has claimed they sent the rupiah, ADR 0059', () => 
     expect(behind).not.toContain('If it is not confirmed by');
   });
 });
+
+describe('a refund promise on the deposit screens says the route can open, never that it will run', () => {
+  it('says so on the instructions screen, before the depositor has claimed anything', async () => {
+    const html = await depositAt(4_000_000_000n, 4_000_010_000n);
+    expect(html).toContain('after which the escrow can be returned to the provider');
+    expect(html).not.toMatch(/escrow returns/i);
+  });
+
+  it('says so on the confirmation screen, and stops telling them to keep a receipt only until the instant their evidence becomes useful', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const html = await depositAt(BigInt(now - 600), BigInt(now + 2_400), {
+      userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z'),
+    });
+    expect(html).toContain('the escrow can be returned to the provider and this deposit closes without one');
+    expect(html).toContain('<strong>Keep your transfer receipt.</strong>');
+    expect(html).not.toMatch(/escrow returns/i);
+    expect(html).not.toMatch(/until then/i);
+  });
+});

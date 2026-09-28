@@ -435,7 +435,7 @@ export class Sep24Service {
           `<p>You told us at <strong>${timeTag(claimedSecs)}</strong> that you sent <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)}. That is recorded on this deposit.</p>`,
           '<p>The provider has to see the money in their own account before the USDC can be released. We cannot tell you how long that takes.</p>',
           confirmable
-            ? `<p>If it is not confirmed by <strong>${timeTag(refundAtSecs)}</strong>, the escrow returns the USDC to the provider and this deposit closes without one. <strong>Keep your transfer receipt until then.</strong></p>`
+            ? `<p>If it is not confirmed by <strong>${timeTag(refundAtSecs)}</strong>, the escrow can be returned to the provider and this deposit closes without one. <strong>Keep your transfer receipt.</strong></p>`
             : '',
           '<p>This page keeps itself up to date. You may close it — your wallet will show the deposit if it settles.</p>',
         ].join(''),
@@ -465,7 +465,7 @@ export class Sep24Service {
         [
           payment,
           `<p>You receive <strong>${escapeHtml(formatUsdc(net))}</strong> USDC for it: 1 USDC ≈ <strong>${escapeHtml(formatFiat(effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount)))}</strong> ${escapeHtml(o.fiatCurrency)} on the <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC escrowed, minus a fee of <strong>${escapeHtml(formatUsdc(platformFee + lpFee))}</strong> USDC (${(o.platformFeeBps + o.lpFeeBps) / 100}%), all fixed for this order.</p>`,
-          `<p>After that a new transfer cannot be matched; one already sent can still be confirmed until <strong>${timeTag(refundOpensAt(o))}</strong>, when the escrow returns the USDC to the provider.</p>`,
+          `<p>After that a new transfer cannot be matched; one already sent can still be confirmed until <strong>${timeTag(refundOpensAt(o))}</strong>, after which the escrow can be returned to the provider.</p>`,
           this.claimControl(id, true),
         ].join(''),
         30,
@@ -622,7 +622,7 @@ export class Sep24Service {
       const subject = 'A depositor says they have sent your rupiah';
       const text =
         `A depositor on order ${orderId} says they have sent ${formatFiat(claimed.fiatAmount)} ${claimed.fiatCurrency} to your account${refPart}. That is their claim, not proof — check your own account.\n\n` +
-        `Nothing has moved on chain and nothing is required from you yet. If the transfer is not confirmed before ${new Date(Number(refundAtSecs) * 1000).toISOString()}, the escrow returns your USDC to you and the order closes.`;
+        `Nothing has moved on chain, and there is no control for you on this order yet. If the transfer is not confirmed before ${new Date(Number(refundAtSecs) * 1000).toISOString()}, the escrow can be returned to you from that time — the route is open on chain to anyone, including you — and the order closes.`;
       await tx.outboxMessage.createMany({
         data: [
           {
