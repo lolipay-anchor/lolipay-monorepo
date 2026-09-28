@@ -41,12 +41,41 @@ describe('which screen a depositor sees, decided from facts two tables already h
     expect(at('ACCEPTED', true, 'FUNDED')).toBe('instructions');
   });
 
-  it.each(['FIAT_PAID', 'RELEASED', 'REFUNDED', 'DISPUTED', 'EXPIRED', 'CANCELLED'])(
+  it.each(['FIAT_PAID', 'RELEASED', 'DISPUTED', 'EXPIRED', 'CANCELLED'])(
     'reports %s as settled rather than asking for anything',
     (status) => {
       expect(at('ACCEPTED', true, status)).toBe('settled');
     },
   );
+
+  it('sends a refunded deposit to its own screen when the depositor said they had paid', () => {
+    expect(
+      interactiveScreen({
+        kycStatus: 'ACCEPTED',
+        screened: true,
+        orderStatus: 'REFUNDED',
+        userClaimedPaidAt: new Date(1_800_000_000_000),
+      }),
+    ).toBe('refunded_claimed');
+  });
+
+  it('sends a refunded deposit to a different screen when the depositor never said they had paid', () => {
+    expect(
+      interactiveScreen({
+        kycStatus: 'ACCEPTED',
+        screened: true,
+        orderStatus: 'REFUNDED',
+        userClaimedPaidAt: null,
+      }),
+    ).toBe('refunded_unclaimed');
+  });
+
+  it('never reports a refunded deposit as settled, whichever way the claim went', () => {
+    const screen = (claimed: Date | null) =>
+      interactiveScreen({ kycStatus: 'ACCEPTED', screened: true, orderStatus: 'REFUNDED', userClaimedPaidAt: claimed });
+    expect(screen(new Date(1_800_000_000_000))).not.toBe('settled');
+    expect(screen(null)).not.toBe('settled');
+  });
 });
 
 describe('which screen a withdrawing user sees, which is never the depositor one', () => {

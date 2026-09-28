@@ -13,6 +13,8 @@ export type InteractiveScreen =
   | 'sign_release'
   | 'instructions'
   | 'claim_received'
+  | 'refunded_claimed'
+  | 'refunded_unclaimed'
   | 'settled';
 
 export function interactiveScreen(input: {
@@ -34,6 +36,9 @@ export function interactiveScreen(input: {
   if (input.orderStatus === 'FUNDED') {
     if (withdrawing) return 'waiting_on_fiat';
     return input.userClaimedPaidAt ? 'claim_received' : 'instructions';
+  }
+  if (input.orderStatus === 'REFUNDED' && !withdrawing) {
+    return input.userClaimedPaidAt ? 'refunded_claimed' : 'refunded_unclaimed';
   }
   if (input.orderStatus === 'FIAT_PAID' && withdrawing) return 'sign_release';
   return 'settled';

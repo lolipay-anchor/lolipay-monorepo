@@ -450,6 +450,32 @@ export class Sep24Service {
         30,
       );
     }
+    if (screen === 'refunded_claimed' || screen === 'refunded_unclaimed') {
+      const o = row.order as any;
+      const claimed = screen === 'refunded_claimed';
+      const ref = o.ref ? escapeHtml(o.ref) : null;
+      const txId = escapeHtml(id);
+      const opening = claimed
+        ? [
+            `<p>You told us at <strong>${timeTag(Math.floor(new Date(o.userClaimedPaidAt).getTime() / 1000))}</strong> that you had sent <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)}. It was not confirmed in time, so the escrow returned the USDC to the provider and this deposit is closed. <strong>No USDC was sent to you.</strong></p>`,
+            `<p>If you did send that money, keep your transfer receipt. Keep ${ref ? `the reference <strong>${ref}</strong> and ` : ''}this transaction id: <strong>${txId}</strong>.</p>`,
+          ]
+        : [
+            '<p>No rupiah was confirmed for this deposit, so the escrow returned the USDC to the provider and it is closed. <strong>No USDC was sent to you, and nothing was taken from you by this anchor.</strong></p>',
+            `<p>If you did send the rupiah and it was simply never confirmed, keep your transfer receipt${ref ? `, the reference <strong>${ref}</strong> and` : ' and'} this transaction id: <strong>${txId}</strong>.</p>`,
+          ];
+      return page(
+        claimed ? 'This deposit was refunded to the provider' : 'This deposit was not completed',
+        [
+          ...opening,
+          this.settlementLine('refunded', o.settlementTxHash),
+          '<p>If you sent the rupiah, sign in with this same wallet at <a href="https://app.lolipay.app">app.lolipay.app</a>: the order appears there with its evidence, and it shows whether a dispute can still be opened and until when. That needs a wallet that can sign on Stellar — Freighter, or one that connects over WalletConnect.</p>',
+          claimed
+            ? '<p>Do not send any more money for this deposit. Start a new one from your wallet when you are ready.</p>'
+            : '<p>Start a new deposit from your wallet when you are ready.</p>',
+        ].join(''),
+      );
+    }
     if (screen === 'instructions') {
       const o = row.order as any;
       const payment = this.paymentLine({ flow: row.flow, order: o });
