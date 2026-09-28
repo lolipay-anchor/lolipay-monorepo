@@ -80,6 +80,33 @@ describe('the more-info page of a deposit', () => {
     expect(html).toContain('<strong>Send it before <time datetime="2027-01-15T08:00:00.000Z">15 January 2027 at 15:00 WIB</time>.</strong>');
   });
 
+  it('stops telling a depositor how to pay once they have said they paid, on the one page that has no session guard, and never offers the claim control there', async () => {
+    const funded = {
+      ...baseOrder,
+      status: 'FUNDED',
+      settlementTxHash: null,
+      settledAt: null,
+      lpPaymentDetails: 'BCA 1234567890',
+      ref: 'LP-42',
+      payDeadline: 1_800_000_000n,
+      confirmDeadline: 1_800_001_800n,
+    };
+    const unclaimed = await service({ ...funded, userClaimedPaidAt: null }).moreInfo('tx-1');
+    expect(unclaimed).toContain('Status: <strong>pending_user_transfer_start</strong>');
+    expect(unclaimed).toContain('How to pay');
+    expect(unclaimed).toContain('BCA 1234567890');
+    expect(unclaimed).toContain('Send it before');
+    expect(unclaimed).not.toContain('/paid');
+
+    const claimed = await service({ ...funded, userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z') }).moreInfo('tx-1');
+    expect(claimed).toContain('Status: <strong>pending_external</strong>');
+    expect(claimed).not.toContain('How to pay');
+    expect(claimed).not.toContain('BCA 1234567890');
+    expect(claimed).not.toContain('Send it before');
+    expect(claimed).toContain('You told this anchor you sent the rupiah');
+    expect(claimed).not.toContain('/paid');
+  });
+
   it('stops telling a depositor to send rupiah once the pay window has closed, and says what the transaction JSON says instead', async () => {
     const past = BigInt(Math.floor(Date.now() / 1000) - 600);
     const html = await service({ ...baseOrder, status: 'FUNDED', settlementTxHash: null, settledAt: null, lpPaymentDetails: 'BCA 1234567890', ref: 'LP-42', payDeadline: past, confirmDeadline: past + 3600n }).moreInfo('tx-1');

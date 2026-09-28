@@ -667,10 +667,11 @@ export class Sep24Service {
       rail: Rail;
       ref: string | null;
       payDeadline: bigint | null;
+      userClaimedPaidAt: Date | null;
     } | null;
   }): string {
     const o = row.order;
-    if (row.flow !== 'TOP_UP' || !o || o.status !== 'FUNDED') return '';
+    if (row.flow !== 'TOP_UP' || !o || o.status !== 'FUNDED' || o.userClaimedPaidAt) return '';
     if (!o.payDeadline || Number(o.payDeadline) * 1000 <= Date.now()) return '';
     const due = timeTag(o.payDeadline);
     const destination = o.lpPaymentLabel
