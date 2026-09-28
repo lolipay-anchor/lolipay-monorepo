@@ -347,7 +347,7 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       expect(out).not.toHaveProperty('message');
     });
 
-    it('does not let a depositor who said they paid reach a refunded deposit in silence, and says the escrow went back rather than that they were repaid', () => {
+    it('does not let a depositor who said they paid reach a refunded deposit in silence, and says no USDC was sent to them rather than that they were repaid', () => {
       const out = serializeSep24(
         tx({ flow: 'TOP_UP', order: order({ status: 'REFUNDED', userClaimedPaidAt: CLAIMED, settledAt: new Date('2026-09-26T00:00:00.000Z') }) }),
         BASE,

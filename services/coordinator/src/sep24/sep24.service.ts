@@ -429,14 +429,22 @@ export class Sep24Service {
       const claimedSecs = Math.floor(new Date(o.userClaimedPaidAt).getTime() / 1000);
       const refundAtSecs = Number(refundOpensAt(o));
       const confirmable = Math.floor(Date.now() / 1000) <= refundAtSecs;
+      const middle = confirmable
+        ? [
+            '<p>The provider has to see the money in their own account before the USDC can be released. We cannot tell you how long that takes.</p>',
+            `<p>If it is not confirmed by <strong>${timeTag(refundAtSecs)}</strong>, the escrow can be returned to the provider and this deposit closes without one. <strong>Keep your transfer receipt.</strong></p>`,
+          ]
+        : [
+            `<p>The provider was asked to check their own account for it, and the time for that ran out at <strong>${timeTag(refundAtSecs)}</strong>. This anchor can no longer record the transfer as received, and from that time the escrow can be returned to the provider — that route is open on chain to anyone, including them.</p>`,
+            '<p>Do not send any more money for this deposit, and do not start a new one to make up for it. <strong>Keep your transfer receipt.</strong></p>',
+          ];
       return page(
-        'We have asked the provider to check their account',
+        confirmable
+          ? 'We have asked the provider to check their account'
+          : 'The time to confirm this deposit has passed',
         [
           `<p>You told us at <strong>${timeTag(claimedSecs)}</strong> that you sent <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)}. That is recorded on this deposit.</p>`,
-          '<p>The provider has to see the money in their own account before the USDC can be released. We cannot tell you how long that takes.</p>',
-          confirmable
-            ? `<p>If it is not confirmed by <strong>${timeTag(refundAtSecs)}</strong>, the escrow can be returned to the provider and this deposit closes without one. <strong>Keep your transfer receipt.</strong></p>`
-            : '',
+          ...middle,
           '<p>This page keeps itself up to date. You may close it — your wallet will show the deposit if it settles.</p>',
         ].join(''),
         30,

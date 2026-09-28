@@ -79,8 +79,11 @@ describe('once the depositor has claimed they sent the rupiah, ADR 0059', () => 
     expect(ahead).toContain('If it is not confirmed by');
 
     const behind = await depositAt(BigInt(now - 10_000), BigInt(now - 8_200), claimed);
-    expect(behind).toContain('We have asked the provider to check their account');
+    expect(behind).toContain('The time to confirm this deposit has passed');
+    expect(behind).not.toContain('We have asked the provider to check their account');
     expect(behind).not.toContain('If it is not confirmed by');
+    expect(behind).toContain('the time for that ran out at');
+    expect(behind).toContain('This anchor can no longer record the transfer as received');
   });
 });
 
@@ -91,14 +94,22 @@ describe('a refund promise on the deposit screens says the route can open, never
     expect(html).not.toMatch(/escrow returns/i);
   });
 
-  it('says so on the confirmation screen, and stops telling them to keep a receipt only until the instant their evidence becomes useful', async () => {
+  it('the receipt instruction renders in every state the confirmation screen can reach; the refund instant changes what is promised around it, never whether it is asked for', async () => {
     const now = Math.floor(Date.now() / 1000);
-    const html = await depositAt(BigInt(now - 600), BigInt(now + 2_400), {
-      userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z'),
-    });
-    expect(html).toContain('the escrow can be returned to the provider and this deposit closes without one');
-    expect(html).toContain('<strong>Keep your transfer receipt.</strong>');
-    expect(html).not.toMatch(/escrow returns/i);
-    expect(html).not.toMatch(/until then/i);
+    const claimed = { userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z') };
+
+    const ahead = await depositAt(BigInt(now - 600), BigInt(now + 2_400), claimed);
+    expect(ahead).toContain('the escrow can be returned to the provider and this deposit closes without one');
+    expect(ahead).toContain('<strong>Keep your transfer receipt.</strong>');
+    expect(ahead).not.toMatch(/escrow returns/i);
+    expect(ahead).not.toMatch(/until then/i);
+
+    const behind = await depositAt(BigInt(now - 10_000), BigInt(now - 8_200), claimed);
+    expect(behind).toContain(
+      'Do not send any more money for this deposit, and do not start a new one to make up for it. <strong>Keep your transfer receipt.</strong>',
+    );
+    expect(behind).toContain('from that time the escrow can be returned to the provider — that route is open on chain to anyone, including them');
+    expect(behind).not.toMatch(/escrow returns/i);
+    expect(behind).not.toMatch(/until then/i);
   });
 });
