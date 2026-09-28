@@ -427,12 +427,16 @@ export class Sep24Service {
     if (screen === 'claim_received') {
       const o = row.order as any;
       const claimedSecs = Math.floor(new Date(o.userClaimedPaidAt).getTime() / 1000);
+      const refundAtSecs = Number(refundOpensAt(o));
+      const confirmable = Math.floor(Date.now() / 1000) <= refundAtSecs;
       return page(
         'We have asked the provider to check their account',
         [
           `<p>You told us at <strong>${timeTag(claimedSecs)}</strong> that you sent <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)}. That is recorded on this deposit.</p>`,
           '<p>The provider has to see the money in their own account before the USDC can be released. We cannot tell you how long that takes.</p>',
-          `<p>If it is not confirmed by <strong>${timeTag(refundOpensAt(o))}</strong>, the escrow returns the USDC to the provider and this deposit closes without one. <strong>Keep your transfer receipt until then.</strong></p>`,
+          confirmable
+            ? `<p>If it is not confirmed by <strong>${timeTag(refundAtSecs)}</strong>, the escrow returns the USDC to the provider and this deposit closes without one. <strong>Keep your transfer receipt until then.</strong></p>`
+            : '',
           '<p>This page keeps itself up to date. You may close it — your wallet will show the deposit if it settles.</p>',
         ].join(''),
         30,
@@ -588,9 +592,12 @@ export class Sep24Service {
   }
 
   async claimPaid(id: string, token: string): Promise<void> {
-    const { row } = await this.interactiveState(id, token);
+    const state = await this.interactiveState(id, token);
+    const { row, kyc } = state;
     const orderId = row.orderId;
     if (!orderId) return;
+    if (this.screenFor(row, kyc, state) !== 'instructions') return;
+    if (Math.floor(Date.now() / 1000) > Number(refundOpensAt(row.order as any))) return;
     await this.prisma.$transaction(async (tx) => {
       const updated = await tx.order.updateMany({
         where: { id: orderId, flow: 'TOP_UP', status: 'FUNDED', userClaimedPaidAt: null },

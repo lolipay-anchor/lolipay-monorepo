@@ -69,4 +69,17 @@ describe('once the depositor has claimed they sent the rupiah, ADR 0059', () => 
     expect(html).not.toMatch(/Status: <strong>pending_external<\/strong>/);
     expect(html).not.toContain('The time to pay has passed');
   });
+
+  it('names the refund instant as something still to come only while it is still to come', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const claimed = { userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z') };
+
+    const ahead = await depositAt(BigInt(now - 600), BigInt(now + 2_400), claimed);
+    expect(ahead).toContain('We have asked the provider to check their account');
+    expect(ahead).toContain('If it is not confirmed by');
+
+    const behind = await depositAt(BigInt(now - 10_000), BigInt(now - 8_200), claimed);
+    expect(behind).toContain('We have asked the provider to check their account');
+    expect(behind).not.toContain('If it is not confirmed by');
+  });
 });

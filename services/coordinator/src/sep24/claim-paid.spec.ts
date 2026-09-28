@@ -12,22 +12,51 @@ const cfg = {
   jwtAudience: 'lolipay-app',
 } as any;
 
-function setup(orderId: string | null = 'order-1') {
-  const row = { id: 'tx-1', orderId, stellarAccount: 'GUSER', personId: 'person-1', flow: 'TOP_UP', order: null };
+const NOW_SECS = Math.floor(Date.now() / 1000);
+
+function setup(orderId: string | null = 'order-1', overrides: Record<string, unknown> = {}) {
+  const order = orderId
+    ? {
+        id: orderId,
+        status: 'FUNDED',
+        personId: 'person-1',
+        flow: 'TOP_UP',
+        payDeadline: BigInt(NOW_SECS + 600),
+        confirmDeadline: BigInt(NOW_SECS + 2400),
+        userClaimedPaidAt: null,
+        ...overrides,
+      }
+    : null;
+  const row = { id: 'tx-1', orderId, stellarAccount: 'GUSER', personId: 'person-1', flow: 'TOP_UP', order };
   const tx = {
     order: { updateMany: jest.fn(), findUnique: jest.fn() },
     lp: { findUnique: jest.fn() },
     outboxMessage: { createMany: jest.fn() },
   };
+  const accepted = { customerRef: 'GUSER', personId: 'person-1', status: 'ACCEPTED', screenedAt: new Date(), deliveredAt: new Date() };
   const prisma: any = {
     sep24Transaction: { findUnique: jest.fn(async () => row) },
-    kycVerification: { findUnique: jest.fn(async () => null), findFirst: jest.fn(async () => null) },
+    order: { findUnique: jest.fn(async () => order) },
+    kycVerification: {
+      findUnique: jest.fn(async () => accepted),
+      findFirst: jest.fn(async (a: any) => (a?.where?.status === 'REJECTED' ? null : accepted)),
+    },
     $transaction: jest.fn(async (cb: any) => cb(tx)),
   };
+  const orderStatus: any = { refreshOrderStatus: jest.fn(async () => order) };
   const people: any = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) };
-  const service = new Sep24Service(prisma, cfg, {} as any, {} as any, {} as any, people, {} as any, {} as any, { isConfigured: false } as any);
+  const service = new Sep24Service(prisma, cfg, {} as any, {} as any, {} as any, people, {} as any, orderStatus, { isConfigured: false } as any);
   const token = mintInteractiveToken(cfg, 'tx-1', 'GUSER');
-  return { service, tx, token };
+  return { service, prisma, tx, token, accepted };
+}
+
+function provider(tx: ReturnType<typeof setup>['tx']) {
+  tx.order.updateMany.mockResolvedValue({ count: 1 });
+  tx.order.findUnique.mockResolvedValue({
+    lpId: 'lp-1', fiatAmount: 4_000_000n, fiatCurrency: 'IDR', ref: null,
+    payDeadline: BigInt(NOW_SECS + 600), confirmDeadline: BigInt(NOW_SECS + 2400),
+  });
+  tx.lp.findUnique.mockResolvedValue({ alertEmail: 'lp@example.com' });
 }
 
 describe('claimPaid writes the conditional claim and asks the provider, ADR 0059 step 4', () => {
@@ -53,12 +82,19 @@ describe('claimPaid writes the conditional claim and asks the provider, ADR 0059
     expect(where.userClaimedPaidAt).toBeNull();
   });
 
-  it('enqueues nothing on a repeat press, where the conditional update matches no row', async () => {
+  it('enqueues nothing when the conditional update matches no row, the race in which the order moved between the read and the write', async () => {
     const { service, tx, token } = setup('order-1');
     tx.order.updateMany.mockResolvedValue({ count: 0 });
     await service.claimPaid('tx-1', token);
     expect(tx.order.findUnique).not.toHaveBeenCalled();
     expect(tx.outboxMessage.createMany).not.toHaveBeenCalled();
+  });
+
+  it('attempts no write at all on a second press, because a claim already on the order puts the reader on the confirmation screen rather than the instructions one', async () => {
+    const { service, prisma, tx, token } = setup('order-1', { userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z') });
+    await service.claimPaid('tx-1', token);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
   });
 
   it('reads the provider from a typed select and builds the outbox payload from that value, never from the loosely-typed interactive row', async () => {
@@ -87,6 +123,41 @@ describe('claimPaid writes the conditional claim and asks the provider, ADR 0059
     tx.lp.findUnique.mockResolvedValue({ alertEmail: null });
     await expect(service.claimPaid('tx-1', token)).rejects.toThrow();
     expect(tx.outboxMessage.createMany).not.toHaveBeenCalled();
+  });
+
+  it('records nothing once the escrow refund window has opened, because every instant the claim would publish to the provider is then already in the past, ADR 0059 D3', async () => {
+    const { service, prisma, tx, token } = setup('order-1', {
+      payDeadline: BigInt(NOW_SECS - 10_000),
+      confirmDeadline: BigInt(NOW_SECS - 8_200),
+    });
+    provider(tx);
+    await service.claimPaid('tx-1', token);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
+    expect(tx.outboxMessage.createMany).not.toHaveBeenCalled();
+  });
+
+  it('still records the claim on the last side of that instant, so the bound above is a bound on time and not a blanket refusal after the pay deadline', async () => {
+    const { service, prisma, tx, token } = setup('order-1', {
+      payDeadline: BigInt(NOW_SECS - 600),
+      confirmDeadline: BigInt(NOW_SECS + 2_400),
+    });
+    provider(tx);
+    await service.claimPaid('tx-1', token);
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(tx.order.updateMany).toHaveBeenCalled();
+    expect(tx.outboxMessage.createMany).toHaveBeenCalled();
+  });
+
+  it('records nothing when this identity was refused after the escrow was funded, the same screen gate the identity and amount posts already carry', async () => {
+    const { service, prisma, tx, token, accepted } = setup('order-1');
+    provider(tx);
+    prisma.kycVerification.findFirst = jest.fn(async (a: any) =>
+      a?.where?.status === 'REJECTED' ? { rejectionReason: 'the document could not be read' } : accepted,
+    );
+    await service.claimPaid('tx-1', token);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
   });
 
   it('refuses the press when the order carries no provider at all', async () => {
