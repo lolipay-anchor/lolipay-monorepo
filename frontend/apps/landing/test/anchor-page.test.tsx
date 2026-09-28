@@ -43,11 +43,14 @@ const WITHDRAWN = [
   'when the person cannot sign it themselves',
   'A deposit is unaffected',
   'can complete its own side of a withdrawal',
+  'So a pause does not stop a funded deposit completing',
+  'has no on-chain move of their own',
 ]
 
 const RULED = [
   'a single privileged lolipay key',
-  'keeps every route that returns the USDC to the provider',
+  'Every call that returns the USDC to the provider reads no pause',
+  'Between that deadline and the refund opening',
   'While a trade is funded',
   'Once it has closed',
 ]
@@ -126,22 +129,22 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
 })
 
 describe('the custody and withdrawal prose carries only the clauses the ruling left standing', () => {
-  it('carries none of the six withdrawn clauses, each proven findable in a synthetic haystack first so that a zero is a real absence and not a broken read', () => {
+  it('carries none of the eight withdrawn clauses, each proven findable in a synthetic haystack first so that a zero is a real absence and not a broken read', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
 
     expect(page.length).toBeGreaterThan(0)
-    expect(WITHDRAWN).toHaveLength(6)
+    expect(WITHDRAWN).toHaveLength(8)
     for (const clause of WITHDRAWN) {
       expect(`x ${clause} y`.split(clause).length - 1).toBe(1)
       expect(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 0`)
     }
   })
 
-  it('carries each of the four specified clauses exactly once, so that dropping a load-bearing scope qualifier or restating one at a second site goes red', () => {
+  it('carries each of the five specified clauses exactly once, so that dropping a load-bearing scope qualifier or restating one at a second site goes red', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
 
     expect(page.length).toBeGreaterThan(0)
-    expect(RULED).toHaveLength(4)
+    expect(RULED).toHaveLength(5)
     for (const clause of RULED) {
       expect(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 1`)
     }

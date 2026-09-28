@@ -246,17 +246,17 @@ export default async function AnchorPage() {
         </P>
         <P>
           {
-            "A pause is not a freeze, and the difference matters if you are holding a deposit open. It stops new trades, stops the attestor recording a transfer, stops an early release, and stops a dispute being raised on a funded trade. It does not stop the account receiving the USDC marking the transfer, and it does not stop a refund. So a pause does not stop a funded deposit completing: that account marks the transfer, the account that provided the USDC releases on that record, and neither call consults the pause. A pause keeps every route that returns the USDC to the provider."
+            "A pause is not a freeze, and the difference matters if you are holding a deposit open. It stops new trades, stops the attestor recording a transfer, stops an early release, and stops a dispute being raised on a funded trade. Those four are the only calls that read it. Every call that returns the USDC to the provider reads no pause, and neither does the account receiving the USDC marking the transfer, nor the account that provided it releasing on that record. So what a pause costs a funded deposit depends on the deadline for that account's own record of the transfer, which on every trade the contract accepts falls earlier than the attestor's. Before that deadline a pause does not stop the deposit completing: that account marks the transfer, the account that provided the USDC releases on that record, and neither call consults the pause. Between that deadline and the refund opening, every call that could still complete the deposit is one a pause stops, so a pause there ends that deposit's chance of completing; the refund then opens on its own clock whether the pause is lifted or not."
           }
         </P>
         <P>
           {
-            "One route needs no key at all. When the window to record a deposit's rupiah has closed, the refund that returns the USDC to the provider checks only the clock: anyone may call it, the provider included. A deposit whose rupiah was sent but never recorded can therefore end with the USDC back with the provider, which is why the refunded status on this anchor does not claim the rupiah never arrived. Tell your user to keep their transfer receipt."
+            "One route needs no key at all. When the window to record a deposit's rupiah has closed, the refund that returns the USDC to the provider checks only the clock: anyone may call it, the person and the provider included. A deposit whose rupiah was sent but never recorded can therefore end with the USDC back with the provider, which is why the refunded status on this anchor does not claim the rupiah never arrived. Tell your user to keep their transfer receipt."
           }
         </P>
         <P>
           {
-            "What the depositor holds is worth stating in the same breath: on a funded deposit, nothing. While a trade is funded the escrow admits only the resolver to raise a dispute, and on a funded withdrawal it admits nobody at all, so a depositor whose rupiah went unrecorded has no on-chain move of their own before the escrow closes. Once it has closed, released or refunded, they may raise one within the post-settlement window. That is why the transfer receipt matters, and why this page tells you to have them keep it."
+            "Who may raise a dispute is narrower than any of the routes above. While a trade is funded the escrow admits only the resolver to raise one, and on a funded withdrawal it admits nobody at all, the resolver included. Once it has closed, released or refunded, the person and the provider may each raise a dispute of their own within the post-settlement window. That is why the transfer receipt matters, and why this page tells you to have them keep it."
           }
         </P>
       </Plain>
