@@ -67,7 +67,7 @@ describe('the refunded screen a depositor who said they had paid sees', () => {
   it('repeats the claim it holds, says no USDC was sent, and asks for the receipt', async () => {
     const html = await refundedDeposit({ userClaimedPaidAt: CLAIMED_AT });
     expect(html).toContain(
-      `<p>You told us at <strong>${CLAIMED_TIME_TAG}</strong> that you had sent <strong>200.000</strong> IDR. It was not confirmed in time, so the escrow returned the USDC to the provider and this deposit is closed. <strong>No USDC was sent to you.</strong></p>`,
+      `<p>You told us at <strong>${CLAIMED_TIME_TAG}</strong> that you had sent <strong>200.000</strong> IDR. This deposit closed without completing, so the escrow returned the USDC to the provider. <strong>No USDC was sent to you.</strong></p>`,
     );
     expect(html).toContain(
       '<p>If you did send that money, keep your transfer receipt. Keep the reference <strong>LP-REF</strong> and this transaction id: <strong>tx-1</strong>.</p>',
@@ -96,18 +96,18 @@ describe('the refunded screen a depositor who said they had paid sees', () => {
 });
 
 describe('the refunded screen a depositor who never said they had paid sees', () => {
-  it('says the deposit was not completed, and that this anchor took nothing', async () => {
+  it('says the deposit was not completed, and that the rupiah account on it belongs to the provider', async () => {
     const html = await refundedDeposit();
     expect(html).toContain('<h1>This deposit was not completed</h1>');
     expect(html).toContain(
-      '<p>No rupiah was confirmed for this deposit, so the escrow returned the USDC to the provider and it is closed. <strong>No USDC was sent to you, and nothing was taken from you by this anchor.</strong></p>',
+      '<p>This deposit closed without completing, so the escrow returned the USDC to the provider. <strong>No USDC was sent to you.</strong> The rupiah account on this deposit belongs to the provider, not to this anchor.</p>',
     );
   });
 
-  it('still asks for the receipt, because a transfer nobody confirmed may still have been sent', async () => {
+  it('asks for the receipt without assuming the transfer went unconfirmed, because a refund can follow one this anchor did confirm', async () => {
     const html = await refundedDeposit();
     expect(html).toContain(
-      '<p>If you did send the rupiah and it was simply never confirmed, keep your transfer receipt, the reference <strong>LP-REF</strong> and this transaction id: <strong>tx-1</strong>.</p>',
+      '<p>If you did send the rupiah, keep your transfer receipt, the reference <strong>LP-REF</strong> and this transaction id: <strong>tx-1</strong>.</p>',
     );
   });
 
@@ -126,7 +126,7 @@ describe('the refunded screen a depositor who never said they had paid sees', ()
   it('drops the reference clause rather than printing an empty one when the order carries no reference', async () => {
     const html = await refundedDeposit({ ref: null });
     expect(html).toContain(
-      '<p>If you did send the rupiah and it was simply never confirmed, keep your transfer receipt and this transaction id: <strong>tx-1</strong>.</p>',
+      '<p>If you did send the rupiah, keep your transfer receipt and this transaction id: <strong>tx-1</strong>.</p>',
     );
     expect(html).not.toContain('the reference');
   });
