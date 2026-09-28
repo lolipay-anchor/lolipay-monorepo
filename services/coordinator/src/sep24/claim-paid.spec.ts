@@ -270,7 +270,7 @@ describe('the claim control after the pay deadline, ADR 0059 D3 slot 1B', () => 
 });
 
 describe('the claim control before the pay deadline, ADR 0059 D3 slot 1A', () => {
-  it('offers the control on the screen a depositor sees for the whole pay window, which nothing else asserts and which can therefore be deleted in silence', async () => {
+  it('offers the control on the screen a depositor sees for the whole pay window, which nothing else asserts and which, before this case existed, was deleted with the suite staying green', async () => {
     const now = Math.floor(Date.now() / 1000);
     const html = await renderClaimable(BigInt(now + 1_800), BigInt(now + 3_600));
     expect(html).toContain('Send your rupiah');
