@@ -129,13 +129,13 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
 })
 
 describe('the custody and withdrawal prose carries only the clauses the ruling left standing', () => {
-  it('carries none of the eight withdrawn clauses, each proven findable in a synthetic haystack first so that a zero is a real absence and not a broken read', () => {
+  it('carries none of the eight withdrawn clauses, and none of them is degenerate', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
 
     expect(page.length).toBeGreaterThan(0)
     expect(WITHDRAWN).toHaveLength(8)
+    expect(WITHDRAWN.every((clause) => clause.length > 0)).toBe(true)
     for (const clause of WITHDRAWN) {
-      expect(`x ${clause} y`.split(clause).length - 1).toBe(1)
       expect(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 0`)
     }
   })
