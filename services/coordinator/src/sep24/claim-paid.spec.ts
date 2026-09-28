@@ -92,7 +92,7 @@ describe('claimPaid writes the conditional claim and asks the provider, ADR 0059
     expect(tx.outboxMessage.createMany).not.toHaveBeenCalled();
   });
 
-  it('attempts no write at all on a second press, because a claim already on the order puts the reader on the confirmation screen rather than the instructions one', async () => {
+  it('attempts no write at all on a second press, because claimPaid returns on its own early predicate when the order already carries userClaimedPaidAt, before any transaction is opened', async () => {
     const { service, prisma, tx, token } = setup('order-1', { userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z') });
     await service.claimPaid('tx-1', token);
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -185,6 +185,17 @@ describe('claimPaid writes the conditional claim and asks the provider, ADR 0059
     await admitted.service.claimPaid('tx-1', admitted.token);
     expect(admitted.prisma.$transaction).toHaveBeenCalled();
     expect(admitted.tx.order.updateMany).toHaveBeenCalled();
+  });
+
+  it('refuses the claim once the GRACED pay deadline has passed while the confirm deadline is still ahead, so the bound is the earlier of the two and not the confirm deadline alone', async () => {
+    const { service, prisma, tx, token } = setup('order-1', {
+      payDeadline: BigInt(NOW_SECS - 4_000),
+      confirmDeadline: BigInt(NOW_SECS + 1_000),
+    });
+    provider(tx);
+    await service.claimPaid('tx-1', token);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
   });
 
   it('still records the claim when a REJECTED screening exists for this person, because the gate that decides whether USDC may be committed is order.service.ts identityVerified on order creation, and this press moves nothing — ADR 0059 D3 states the predicate with no identity term', async () => {
@@ -289,6 +300,14 @@ describe('the claim control after the pay deadline, ADR 0059 D3 slot 1B', () => 
     const open = await renderClaimable(BigInt(now - 2_000), BigInt(now + 1_000));
     expect(open).toContain('Did you already send it?');
     expect(open).toContain('action="/sep24/interactive/tx-1/paid"');
+  });
+
+  it('withholds the control once the GRACED pay deadline has passed while the confirm deadline is still ahead, so the bound is the earlier of the two and not the confirm deadline alone', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const html = await renderClaimable(BigInt(now - 4_000), BigInt(now + 1_000));
+    expect(html).toContain('The time to pay has passed');
+    expect(html).not.toContain('Did you already send it?');
+    expect(html).not.toContain('/paid"');
   });
 
   it('tells them to close the window once, in the control\'s own hint where there is a control and on its own where there is not', async () => {

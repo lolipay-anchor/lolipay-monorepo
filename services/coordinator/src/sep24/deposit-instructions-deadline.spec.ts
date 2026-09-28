@@ -70,19 +70,20 @@ describe('once the depositor has claimed they sent the rupiah, ADR 0059', () => 
     expect(html).not.toContain('The time to pay has passed');
   });
 
-  it('names the refund instant as something still to come only while it is still to come', async () => {
+  it('names the refund instant as something still to come only while it is still to come, and names the REFUND instant in both paragraphs rather than the instant the depositor claimed at', async () => {
     const now = Math.floor(Date.now() / 1000);
     const claimed = { userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z') };
+    const iso = (secs: number) => new Date(secs * 1000).toISOString();
 
     const ahead = await depositAt(BigInt(now - 600), BigInt(now + 2_400), claimed);
     expect(ahead).toContain('We have asked the provider to check their account');
-    expect(ahead).toContain('If it is not confirmed by');
+    expect(ahead).toContain(`If it is not confirmed by <strong><time datetime="${iso(now + 2_400)}"`);
 
     const behind = await depositAt(BigInt(now - 10_000), BigInt(now - 8_200), claimed);
     expect(behind).toContain('The time to confirm this deposit has passed');
     expect(behind).not.toContain('We have asked the provider to check their account');
     expect(behind).not.toContain('If it is not confirmed by');
-    expect(behind).toContain('the time for that ran out at');
+    expect(behind).toContain(`the time for that ran out at <strong><time datetime="${iso(now - 8_200)}"`);
     expect(behind).toContain('This anchor can no longer record the transfer as received');
   });
 });
