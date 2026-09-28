@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { fetchAnchorFees } from '../lib/anchor-fees'
 
 const LIVE_INFO_PAYLOAD = {
@@ -11,7 +11,14 @@ const LIVE_INFO_PAYLOAD = {
 const respondWith = (body: unknown, ok = true) =>
   vi.fn().mockResolvedValue({ ok, json: () => Promise.resolve(body) })
 
+let logged: ReturnType<typeof vi.spyOn>
+
+beforeEach(() => {
+  logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+})
+
 afterEach(() => {
+  logged.mockRestore()
   vi.unstubAllGlobals()
 })
 
@@ -69,5 +76,31 @@ describe('fetchAnchorFees', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.reject(new SyntaxError('Unexpected token <')) }))
 
     await expect(fetchAnchorFees()).resolves.toEqual({ depositPercent: null, withdrawPercent: null })
+  })
+
+  it('leaves a trace naming the status when the anchor refuses, instead of degrading silently', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 429, json: () => Promise.resolve({}) }))
+
+    await fetchAnchorFees()
+
+    expect(logged).toHaveBeenCalledTimes(1)
+    expect(String(logged.mock.calls[0])).toContain('429')
+  })
+
+  it('leaves a trace naming the error when the fetch throws, instead of degrading silently', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')))
+
+    await fetchAnchorFees()
+
+    expect(logged).toHaveBeenCalledTimes(1)
+    expect(String(logged.mock.calls[0])).toContain('ECONNREFUSED')
+  })
+
+  it('says nothing when the anchor answers, so a line in the journal means something went wrong', async () => {
+    vi.stubGlobal('fetch', respondWith(LIVE_INFO_PAYLOAD))
+
+    await fetchAnchorFees()
+
+    expect(logged).not.toHaveBeenCalled()
   })
 })

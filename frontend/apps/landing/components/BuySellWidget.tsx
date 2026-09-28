@@ -171,6 +171,11 @@ export function BuySellWidget({ fees }: { fees: AnchorFees }) {
                 <span className="font-geist text-[30px] font-bold tabular-nums tracking-[-.02em] text-lp-accent-ink">{getValue}</span>
                 <span className="font-geist text-base font-bold text-lp-muted">{getUnit}</span>
               </div>
+              {!isBuy && (
+                <p className="mt-2.5 text-[11.5px] leading-[1.45] text-lp-muted">
+                  A sell is quoted when you start one. Connect your wallet to see how much rupiah you get.
+                </p>
+              )}
             </div>
 
             <div className="mt-3.5 flex gap-2">
@@ -188,12 +193,18 @@ export function BuySellWidget({ fees }: { fees: AnchorFees }) {
             </div>
           </>
         
-        <div className="mt-3.5 flex justify-between border-t border-lp-line-2 pt-3.5 text-[12.5px] text-lp-muted">
-          <span>Rate</span>
-          <span className="font-geist-mono tabular-nums text-lp-ink">{rate != null ? `1 USDC = ${formatLocal(rate, market)}` : '—'}</span>
-        </div>
-        <div className="mt-1.5 flex justify-between text-[12.5px] text-lp-muted">
-          <span>Network + LP fee</span>
+        {isBuy && (
+          <div className="mt-3.5 flex justify-between border-t border-lp-line-2 pt-3.5 text-[12.5px] text-lp-muted">
+            <span>Rate</span>
+            <span className="font-geist-mono tabular-nums text-lp-ink">{rate != null ? `1 USDC = ${formatLocal(rate, market)}` : '—'}</span>
+          </div>
+        )}
+        <div
+          className={`flex justify-between text-[12.5px] text-lp-muted ${
+            isBuy ? 'mt-1.5' : 'mt-3.5 border-t border-lp-line-2 pt-3.5'
+          }`}
+        >
+          <span>Fee</span>
           <span className="font-geist-mono tabular-nums text-lp-ink">{feeText}</span>
         </div>
         <div className="mt-1.5 flex justify-between text-[12.5px] text-lp-muted">

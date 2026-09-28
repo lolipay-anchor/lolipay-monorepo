@@ -13,6 +13,7 @@ const ANCHOR_DEPOSIT_FEE_PERCENT = 1.5
 const FEES: AnchorFees = { depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: 2 }
 
 const valueBeside = (label: string) => screen.getByText(label).nextSibling?.textContent
+const SELL_HELPER = 'A sell is quoted when you start one. Connect your wallet to see how much rupiah you get.'
 
 describe('BuySellWidget', () => {
   beforeEach(() => {
@@ -34,7 +35,7 @@ describe('BuySellWidget', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Buy' }))
 
     const gross = 500000 / 16000
-    expect(valueBeside('Network + LP fee')).toBe(`${(gross * (ANCHOR_DEPOSIT_FEE_PERCENT / 100)).toFixed(2)} USDC`)
+    expect(valueBeside('Fee')).toBe(`${(gross * (ANCHOR_DEPOSIT_FEE_PERCENT / 100)).toFixed(2)} USDC`)
     expect(valueBeside('You receive')).toContain((gross * (1 - ANCHOR_DEPOSIT_FEE_PERCENT / 100)).toFixed(2))
   })
 
@@ -43,7 +44,7 @@ describe('BuySellWidget', () => {
     await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Buy' }))
 
-    expect(valueBeside('Network + LP fee')).toBe('0.94 USDC')
+    expect(valueBeside('Fee')).toBe('0.94 USDC')
     expect(valueBeside('You receive')).toContain('30.31')
     expect(screen.queryByText('30.78')).not.toBeInTheDocument()
   })
@@ -55,7 +56,7 @@ describe('BuySellWidget', () => {
 
     expect(screen.getByText('470.400')).toBeInTheDocument()
     expect(screen.queryByText('472.800')).not.toBeInTheDocument()
-    expect(valueBeside('Network + LP fee')).toBe('Rp 9.600')
+    expect(valueBeside('Fee')).toBe('Rp 9.600')
   })
 
   it('renders no fee-bearing figure at all when the anchor publishes no fee', async () => {
@@ -64,7 +65,7 @@ describe('BuySellWidget', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Buy' }))
 
     expect(valueBeside('You receive')).toContain('—')
-    expect(valueBeside('Network + LP fee')).toBe('—')
+    expect(valueBeside('Fee')).toBe('—')
 
     expect(screen.queryByText('30.78')).not.toBeInTheDocument()
     expect(screen.queryByText(/31[.,]25/)).not.toBeInTheDocument()
@@ -82,8 +83,8 @@ describe('BuySellWidget', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Sell' }))
     expect(valueBeside('You receive')).toContain('—')
-    expect(valueBeside('Network + LP fee')).toBe('—')
-    expect(valueBeside('Rate')).toBe('1 USDC = Rp 16.000')
+    expect(valueBeside('Fee')).toBe('—')
+    expect(screen.queryByText('Rate')).not.toBeInTheDocument()
 
     expect(screen.queryByText('470.400')).not.toBeInTheDocument()
     expect(screen.queryByText('478.560')).not.toBeInTheDocument()
@@ -97,6 +98,39 @@ describe('BuySellWidget', () => {
 
     const ifItBorrowedTheDepositFee = (30 * (1 - ANCHOR_DEPOSIT_FEE_PERCENT / 100) * 16000).toLocaleString('id-ID')
     expect(screen.queryByText(ifItBorrowedTheDepositFee)).not.toBeInTheDocument()
+    expect(valueBeside('You receive')).toContain('—')
+  })
+
+  it('quotes a rate on the buy tab only, because the published rate is on the buy side of the spread', async () => {
+    render(<BuySellWidget fees={FEES} />)
+    await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Buy' }))
+    expect(valueBeside('Rate')).toBe('1 USDC = Rp 16.000')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sell' }))
+    expect(screen.queryByText('Rate')).not.toBeInTheDocument()
+    expect(screen.queryByText(/1 USDC = Rp/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the sell tab whole without the rate row: the settlement rail and the CTA both stay', async () => {
+    render(<BuySellWidget fees={FEES} />)
+    await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Sell' }))
+
+    expect(valueBeside('Settlement')).toBe('QRIS · Indonesia')
+    expect(screen.getByText(/connect wallet to continue/i)).toBeInTheDocument()
+  })
+
+  it('tells the seller why the rupiah figure is a dash, on the sell tab only, and keeps the dash', async () => {
+    render(<BuySellWidget fees={{ depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: null }} />)
+    await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Buy' }))
+    expect(screen.queryByText(SELL_HELPER)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sell' }))
+    expect(screen.getByText(SELL_HELPER)).toBeInTheDocument()
     expect(valueBeside('You receive')).toContain('—')
   })
 

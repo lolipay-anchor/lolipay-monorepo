@@ -40,7 +40,7 @@ describe('landing smoke', () => {
 
     const gross = 500000 / 16000
     const publishedPercent = LIVE_INFO_PAYLOAD.deposit.USDC.fee_percent
-    expect(screen.getByText('Network + LP fee').nextSibling?.textContent).toBe(
+    expect(screen.getByText('Fee').nextSibling?.textContent).toBe(
       `${(gross * (publishedPercent / 100)).toFixed(2)} USDC`,
     )
     expect(screen.getByText('You receive').nextSibling?.textContent).toContain(
@@ -49,14 +49,17 @@ describe('landing smoke', () => {
   })
 
   it('shows no fee-bearing figure on the page when the anchor is unreachable at prerender', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')))
 
     render(await Home())
     await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
 
-    expect(screen.getByText('Network + LP fee').nextSibling?.textContent).toBe('—')
+    expect(screen.getByText('Fee').nextSibling?.textContent).toBe('—')
     expect(screen.getByText('You receive').nextSibling?.textContent).toContain('—')
     expect(screen.queryByText('30.78')).not.toBeInTheDocument()
     expect(screen.getByText('Rate').nextSibling?.textContent).toBe('1 USDC = Rp 16.000')
+    expect(logged).toHaveBeenCalledTimes(1)
+    logged.mockRestore()
   })
 })

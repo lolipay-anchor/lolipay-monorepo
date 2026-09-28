@@ -17,13 +17,17 @@ function publishedPercent(info: unknown, direction: 'deposit' | 'withdraw'): num
 export async function fetchAnchorFees(): Promise<AnchorFees> {
   try {
     const res = await fetch(`${API_BASE}/sep24/info`, { signal: AbortSignal.timeout(TIMEOUT_MS) })
-    if (!res.ok) return NO_ANCHOR_FEES
+    if (!res.ok) {
+      console.error(`anchor fees unavailable: ${API_BASE}/sep24/info returned ${res.status}`)
+      return NO_ANCHOR_FEES
+    }
     const info = await res.json()
     return {
       depositPercent: publishedPercent(info, 'deposit'),
       withdrawPercent: publishedPercent(info, 'withdraw'),
     }
-  } catch {
+  } catch (err) {
+    console.error(`anchor fees unavailable: ${API_BASE}/sep24/info failed`, err)
     return NO_ANCHOR_FEES
   }
 }
