@@ -45,11 +45,13 @@ const WITHDRAWN = [
   'can complete its own side of a withdrawal',
   'So a pause does not stop a funded deposit completing',
   'has no on-chain move of their own',
+  "ends that deposit's chance of completing",
+  'Those four are the only calls that read it',
 ]
 
 const RULED = [
   'a single privileged lolipay key',
-  'Every call that returns the USDC to the provider reads no pause',
+  'A pause stops no call that returns the USDC to the provider',
   'Between that deadline and the refund opening',
   'While a trade is funded',
   'Once it has closed',
@@ -129,11 +131,11 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
 })
 
 describe('the custody and withdrawal prose carries only the clauses the ruling left standing', () => {
-  it('carries none of the eight withdrawn clauses, and none of them is degenerate', () => {
+  it('carries none of the ten withdrawn clauses, and none of them is degenerate', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
 
     expect(page.length).toBeGreaterThan(0)
-    expect(WITHDRAWN).toHaveLength(8)
+    expect(WITHDRAWN).toHaveLength(10)
     expect(WITHDRAWN.every((clause) => clause.length > 0)).toBe(true)
     for (const clause of WITHDRAWN) {
       expect(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 0`)
