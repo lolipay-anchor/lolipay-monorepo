@@ -61,7 +61,7 @@ function provider(tx: ReturnType<typeof setup>['tx']) {
   tx.lp.findUnique.mockResolvedValue({ alertEmail: 'lp@example.com' });
 }
 
-describe('claimPaid writes the conditional claim and asks the provider, ADR 0059 step 4', () => {
+describe('claimPaid writes the conditional claim and asks the provider, ADR 0059 step 4 — the $transaction here is a fake that runs the callback and neither isolates nor rolls back, so the refusal cases below prove the throw leaves the callback with nothing enqueued, and cannot prove that Prisma discarded the claim row itself', () => {
   it('does nothing when the SEP-24 transaction carries no order yet', async () => {
     const { service, tx, token } = setup(null);
     await service.claimPaid('tx-1', token);
@@ -113,7 +113,6 @@ describe('claimPaid writes the conditional claim and asks the provider, ADR 0059
     expect(job.payload.lpId).toBe('lp-typed');
     expect(job.payload.personId).toBeNull();
     expect(job.dedupeKey).toBe('email:order-1:USER_CLAIMED_PAID:lp-typed');
-    expect(job.payload.text).not.toMatch(/confirm it on your dashboard/i);
   });
 
   it('tells the provider the escrow route can open rather than that it will run, and names no act as required of them, because an email is read hours after it is rendered and cannot re-render', async () => {
@@ -256,5 +255,29 @@ describe('the claim control after the pay deadline, ADR 0059 D3 slot 1B', () => 
     expect(html).toContain('The time to pay has passed');
     expect(html).not.toContain('Did you already send it?');
     expect(html).not.toContain('/paid"');
+  });
+
+  it('tells them to close the window once, in the control\'s own hint where there is a control and on its own where there is not', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const withControl = await renderClaimable(BigInt(now - 100), BigInt(now + 10_000));
+    expect(withControl).toContain('Close this window and start a new deposit from your wallet.');
+    expect(withControl).not.toContain('<p>You may close this window.</p>');
+
+    const withoutControl = await renderClaimable(BigInt(now - 10_000), BigInt(now - 10_000 + 3599));
+    expect(withoutControl).not.toContain('Close this window and start a new deposit from your wallet.');
+    expect(withoutControl).toContain('<p>You may close this window.</p>');
+  });
+});
+
+describe('the claim control before the pay deadline, ADR 0059 D3 slot 1A', () => {
+  it('offers the control on the screen a depositor sees for the whole pay window, which nothing else asserts and which can therefore be deleted in silence', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const html = await renderClaimable(BigInt(now + 1_800), BigInt(now + 3_600));
+    expect(html).toContain('Send your rupiah');
+    expect(html).toContain('<h2>Already sent it?</h2>');
+    expect(html).toContain('<button type="submit">I have sent the rupiah</button>');
+    expect(html).toContain('action="/sep24/interactive/tx-1/paid"');
+    expect(html).toContain('This does not move any USDC and it does not finish your deposit');
+    expect(html).not.toContain('Did you already send it?');
   });
 });

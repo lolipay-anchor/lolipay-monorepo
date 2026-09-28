@@ -453,8 +453,7 @@ export class Sep24Service {
           'The time to pay has passed',
           [
             tx.message ? `<p>${escapeHtml(tx.message)}</p>` : '',
-            claimable ? this.claimControl(id, false) : '',
-            '<p>You may close this window.</p>',
+            claimable ? this.claimControl(id, false) : '<p>You may close this window.</p>',
           ].join(''),
           30,
         );

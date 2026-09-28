@@ -42,7 +42,7 @@ const WITHDRAW_BY_ORDER_STATUS: Partial<Record<OrderStatus, Sep24Status>> = {
 };
 
 export function sep24Status(
-  order: { status: OrderStatus; userClaimedPaidAt?: Date | null } | null,
+  order: { status: OrderStatus; userClaimedPaidAt: Date | null } | null,
   flow: 'TOP_UP' | 'WITHDRAW' = 'TOP_UP',
 ): Sep24Status {
   if (!order) return 'incomplete';

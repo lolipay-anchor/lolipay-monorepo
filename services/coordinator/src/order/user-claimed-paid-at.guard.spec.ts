@@ -67,6 +67,7 @@ const USER_CLAIMED_PAID_AT_FORBIDDEN_ALLOWLIST_ADDITIONS = [
   'storage/object-storage.fake.ts',
   'kyc/stub-kyc-provider.ts',
   'scripts/sep24-fixtures.ts',
+  'order/order.serialize.ts',
 ];
 
 describe('userClaimedPaidAt is an unsigned, display-only claim — every LITERAL occurrence of the identifier in non-test src is guarded here; a full-row Prisma read that returns the field without ever naming it (such as admin/admin.service.ts listOrders(), which has no select) is invisible to this scan and is not covered by it', () => {
@@ -120,14 +121,14 @@ describe('userClaimedPaidAt is an unsigned, display-only claim — every LITERAL
   );
 
   it.each(USER_CLAIMED_PAID_AT_DENIED_READERS.map((p): [string] => [p]))(
-    '%s is denied as a LITERAL, independent of the allowlist array above, so this assertion can witness its own exclusion breaking the same way the generated/ check above does; the admin/admin.service.ts row is a STRING denial only — listOrders() is a full-row findMany with no select and already serves this column to the admin API without any file naming it',
+    '%s is denied as a LITERAL, independent of the allowlist array above, so this assertion can witness its own exclusion breaking the same way the generated/ check above does; the admin/admin.service.ts row is a STRING denial only — listOrders() is a full-row findMany with no select, so it hands this column to the controller without any file naming it, and what keeps it off the admin API is serializeOrderBase being an explicit field allowlist that does not carry it',
     (relPath) => {
       expect(readFileSync(join(srcRoot, relPath), 'utf8')).not.toContain('userClaimedPaidAt');
     },
   );
 
   it.each(USER_CLAIMED_PAID_AT_FORBIDDEN_ALLOWLIST_ADDITIONS.map((p): [string] => [p]))(
-    '%s is present in the guarded set and must never be added to USER_CLAIMED_PAID_AT_ALLOWED_READERS; it is a non-spec, non-generated file this scan does not exclude, and a claim-carrying fixture belongs in the spec file that needs it, not here, or this equality check would permanently license a non-sep24 file to read the column',
+    '%s is present in the guarded set and must never be added to USER_CLAIMED_PAID_AT_ALLOWED_READERS, because allowlisting any of them would permanently license a non-sep24 file to read the column: the shared fixtures because they are non-spec, non-generated files this scan does not exclude and a claim-carrying fixture belongs in the spec file that needs it, and order/order.serialize.ts because lolipay own web app already ships a SIGNED I-have-paid with opposite powers and the unsigned claim deliberately does not reach that surface',
     (relPath) => {
       expect(relFiles).toContain(relPath);
       expect(USER_CLAIMED_PAID_AT_ALLOWED_READERS).not.toContain(relPath);
