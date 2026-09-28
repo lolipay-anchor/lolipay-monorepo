@@ -342,6 +342,7 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       ['WITHDRAW', 'CREATED'],
       ['WITHDRAW', 'FUNDED'],
       ['WITHDRAW', 'RELEASED'],
+      ['WITHDRAW', 'REFUNDED'],
     ])('says nothing on a %s at %s, where the user is not the one waited on', (flow, status) => {
       const out = serializeSep24(tx({ flow: flow as any, order: order({ status }) }), BASE);
       expect(out).not.toHaveProperty('message');
@@ -359,10 +360,13 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       expect(out.message).not.toMatch(/refunded to you|your money back|fully refunded/i);
     });
 
-    it('leaves a refunded deposit that was never claimed exactly as it was, because the sentence that fits it has not been written yet', () => {
+    it('reaches a refunded deposit that was never claimed too, because the sentence asks whether they sent the rupiah instead of assuming a button was pressed, and it still asks nothing of them', () => {
       const out = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'REFUNDED', settledAt: new Date('2026-09-26T00:00:00.000Z') }) }), BASE);
       expect(out.status).toBe('refunded');
-      expect(out).not.toHaveProperty('message');
+      expect(out.message).toBe(
+        'This deposit closed without completing, and no USDC was sent to you. If you did send the rupiah, keep your transfer receipt: sign in with this same wallet at app.lolipay.app, where the order shows whether a dispute can still be opened and until when.',
+      );
+      expect(out).not.toHaveProperty('user_action_required_by');
     });
 
     it('says nothing before an order exists, where the popup itself is the message', () => {

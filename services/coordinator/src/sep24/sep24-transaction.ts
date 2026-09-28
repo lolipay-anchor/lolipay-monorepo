@@ -159,7 +159,7 @@ function userAction(withdrawing: boolean, order: Sep24Order): { by?: bigint; mes
             : 'The time to send the rupiah has passed. Do not send it now; anyone, including the provider, can now return the escrow to them.',
     };
   }
-  if (order.status === 'REFUNDED' && order.userClaimedPaidAt) {
+  if (order.status === 'REFUNDED') {
     return {
       message:
         'This deposit closed without completing, and no USDC was sent to you. If you did send the rupiah, keep your transfer receipt: sign in with this same wallet at app.lolipay.app, where the order shows whether a dispute can still be opened and until when.',
