@@ -30,7 +30,7 @@ import {
 } from './interactive-token';
 import { effectiveIdrPerUsdc, escapeHtml, formatFiat, formatUsdc, interactiveScreen, page, settledRefreshSecs, identityField, timeTag } from './interactive-page';
 import { explorerTxUrl } from './explorer-url';
-import { withOwnSentence } from './interactive-sentence';
+import { CLAIM_HAS_NO_PROVIDER_TO_NOTIFY_SENTENCE, withInteractiveSentence, withOwnSentence } from './interactive-sentence';
 import { REQUIRED_KYC_FIELDS } from '../kyc/kyc-provider';
 import { PersonService } from '../person/person.service';
 import { sep24Status } from './sep24-status';
@@ -611,7 +611,10 @@ export class Sep24Service {
       const lpId = claimed?.lpId ?? null;
       const lp = lpId ? await tx.lp.findUnique({ where: { id: lpId }, select: { alertEmail: true } }) : null;
       if (!claimed || !lpId || !lp?.alertEmail) {
-        throw new ConflictException('this deposit has no provider on file to notify of the claim right now');
+        throw withInteractiveSentence(
+          new ServiceUnavailableException('this deposit has no provider on file to notify of the claim right now'),
+          CLAIM_HAS_NO_PROVIDER_TO_NOTIFY_SENTENCE,
+        );
       }
       const refundAtSecs = refundOpensAt({
         flow: 'TOP_UP',
@@ -649,7 +652,7 @@ export class Sep24Service {
     }
     return [
       '<h2>Did you already send it?</h2>',
-      '<p>If you sent the rupiah before the deadline, tell us now. It is the only way we know to go and look for it.</p>',
+      '<p>If you sent the rupiah before the deadline, tell us now — it is what asks the provider to check their own account for it.</p>',
       form,
       '<p class="hint">If you have not sent it, do not send it now. Close this window and start a new deposit from your wallet.</p>',
     ].join('');

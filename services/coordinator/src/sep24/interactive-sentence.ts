@@ -32,6 +32,13 @@ export const LP_CAPACITY_LOST_SENTENCE =
   'Nothing you entered was wrong and no money has moved. ' +
   'Go back and submit again — this anchor will look for another provider.';
 
+export const CLAIM_HAS_NO_PROVIDER_TO_NOTIFY_SENTENCE =
+  'This anchor could not pass your message to the provider, so it has not recorded that you sent the rupiah — ' +
+  'and nothing you change here will get past that. Nothing else on this deposit has changed, and nothing has been ' +
+  'taken from you by this anchor. If you have already sent the rupiah, do not send it a second time and do not ' +
+  'start a new deposit: keep your transfer receipt and the reference shown on this page. This deposit still runs ' +
+  'to its own deadline, after which the escrow can be returned to the provider and it closes.';
+
 export const IDENTITY_REFUSED_SENTENCE =
   'This anchor has refused this identity, and that decision does not change. ' +
   'Sending your details here again will not reopen it, so there is nothing to wait for.';

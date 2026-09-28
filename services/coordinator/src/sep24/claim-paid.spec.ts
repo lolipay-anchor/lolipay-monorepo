@@ -1,5 +1,7 @@
+import { ServiceUnavailableException } from '@nestjs/common';
 import { Sep24Service } from './sep24.service';
 import { mintInteractiveToken } from './interactive-token';
+import { interactiveSentenceOf } from './interactive-sentence';
 
 const cfg = {
   anchorBaseUrl: 'https://api.lolipay.app',
@@ -125,14 +127,19 @@ describe('claimPaid writes the conditional claim and asks the provider, ADR 0059
     expect(text).not.toMatch(/nothing is required from you yet/i);
   });
 
-  it('refuses the press and enqueues nothing when the matched provider has no alertEmail on file', async () => {
+  it('refuses the press with a sentence of its own when the matched provider has no alertEmail on file, rather than letting the filter offer a fresh deposit that cannot help', async () => {
     const { service, tx, token } = setup('order-1');
-    tx.order.updateMany.mockResolvedValue({ count: 1 });
-    tx.order.findUnique.mockResolvedValue({
-      lpId: 'lp-1', fiatAmount: 4_000_000n, fiatCurrency: 'IDR', ref: null, payDeadline: 1n, confirmDeadline: 2n,
-    });
+    provider(tx);
     tx.lp.findUnique.mockResolvedValue({ alertEmail: null });
-    await expect(service.claimPaid('tx-1', token)).rejects.toThrow();
+    const thrown = await service.claimPaid('tx-1', token).then(() => null, (e: unknown) => e);
+    expect(thrown).toBeInstanceOf(ServiceUnavailableException);
+    expect((thrown as ServiceUnavailableException).getStatus()).toBe(503);
+    const said = interactiveSentenceOf(thrown);
+    expect(said).toContain('it has not recorded that you sent the rupiah');
+    expect(said).toContain('nothing has been taken from you by this anchor');
+    expect(said).toContain('do not send it a second time and do not start a new deposit');
+    expect(said).not.toMatch(/try again|start a fresh one|dispute/i);
+    expect(tx.order.updateMany).toHaveBeenCalled();
     expect(tx.outboxMessage.createMany).not.toHaveBeenCalled();
   });
 
@@ -234,6 +241,13 @@ describe('the claim control after the pay deadline, ADR 0059 D3 slot 1B', () => 
     expect(html).toContain('The time to pay has passed');
     expect(html).toContain('Did you already send it?');
     expect(html).toContain("action=\"/sep24/interactive/tx-1/paid\"");
+  });
+
+  it('says what pressing it actually does, which is ask the provider to look, and never claims this anchor goes looking itself', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const html = await renderClaimable(BigInt(now - 100), BigInt(now + 10_000));
+    expect(html).toContain('tell us now — it is what asks the provider to check their own account for it');
+    expect(html).not.toMatch(/the only way we know/i);
   });
 
   it('offers no claim control once the refund window has itself opened, because only the anchor button before that instant means anything', async () => {

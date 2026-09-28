@@ -19,6 +19,8 @@ const tx = (over: Partial<Sep24Record> = {}): Sep24Record => ({
   ...over,
 });
 
+const CLAIMED = new Date('2026-09-25T00:00:00.000Z');
+
 const order = (over: Record<string, unknown> = {}) => ({
   status: 'FUNDED',
   usdcAmount: 25_0000000n,
@@ -288,15 +290,49 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       expect(out.message).toMatch(/deposit page you opened from your wallet/i);
     });
 
-    it('stops telling a depositing user to send the rupiah once they have claimed they already did, ADR 0059', () => {
+    it('tells a depositor who has claimed while the time to send is still ahead not to send a second time, and what the instant it names would mean, ADR 0059', () => {
       const out = serializeSep24(
-        tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z') }) }),
+        tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', userClaimedPaidAt: CLAIMED }) }),
         BASE,
       );
       expect(out.message).toBe(
-        "You told this anchor you sent the rupiah. It is being checked against the provider's account; nothing further is needed from you.",
+        'You told this anchor you sent the rupiah, and the provider has been asked to check their account. Do not send it a second time. Keep your transfer receipt. If it is not confirmed by 2 October 2096 at 15:06 WIB, the escrow can be returned to the provider and this deposit closes.',
       );
       expect(out.message).not.toMatch(/^send the rupiah/i);
+      expect(out.message).not.toMatch(/nothing further is needed from you/i);
+    });
+
+    it('tells a depositor who has claimed after the time to send has passed not to start a transfer now, while still naming the instant one already sent can be confirmed by', () => {
+      const refundAt = 1_000_003_600;
+      jest.useFakeTimers().setSystemTime(refundAt * 1000 - 500);
+      try {
+        const out = serializeSep24(
+          tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', userClaimedPaidAt: CLAIMED, payDeadline: 1_000_000_000n, confirmDeadline: BigInt(refundAt) }) }),
+          BASE,
+        );
+        expect(out.message).toBe(
+          'You told this anchor you sent the rupiah, and the provider has been asked to check their account. The time to send it has passed — do not start a transfer now. Keep your transfer receipt. One already sent can still be confirmed until 9 September 2001 at 09:46 WIB; after that anyone, including the provider, can return the escrow to them.',
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('tells a depositor who has claimed after the refund instant that the route is open to anyone, and names no instant at all, because every instant it could name is in the past', () => {
+      const refundAt = 1_000_003_600;
+      jest.useFakeTimers().setSystemTime(refundAt * 1000 + 1500);
+      try {
+        const out = serializeSep24(
+          tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', userClaimedPaidAt: CLAIMED, payDeadline: 1_000_000_000n, confirmDeadline: BigInt(refundAt) }) }),
+          BASE,
+        );
+        expect(out.message).toBe(
+          'You told this anchor you sent the rupiah. The time to confirm it has passed, and anyone, including the provider, can now return the escrow to them. Do not send any more money for this deposit. Keep your transfer receipt.',
+        );
+        expect(out.message).not.toContain('WIB');
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it.each([
@@ -308,6 +344,24 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       ['WITHDRAW', 'RELEASED'],
     ])('says nothing on a %s at %s, where the user is not the one waited on', (flow, status) => {
       const out = serializeSep24(tx({ flow: flow as any, order: order({ status }) }), BASE);
+      expect(out).not.toHaveProperty('message');
+    });
+
+    it('does not let a depositor who said they paid reach a refunded deposit in silence, and says the escrow went back rather than that they were repaid', () => {
+      const out = serializeSep24(
+        tx({ flow: 'TOP_UP', order: order({ status: 'REFUNDED', userClaimedPaidAt: CLAIMED, settledAt: new Date('2026-09-26T00:00:00.000Z') }) }),
+        BASE,
+      );
+      expect(out.status).toBe('refunded');
+      expect(out.message).toBe(
+        'This deposit closed without completing, and no USDC was sent to you. If you did send the rupiah, keep your transfer receipt: sign in with this same wallet at app.lolipay.app, where the order shows whether a dispute can still be opened and until when.',
+      );
+      expect(out.message).not.toMatch(/refunded to you|your money back|fully refunded/i);
+    });
+
+    it('leaves a refunded deposit that was never claimed exactly as it was, because the sentence that fits it has not been written yet', () => {
+      const out = serializeSep24(tx({ flow: 'TOP_UP', order: order({ status: 'REFUNDED', settledAt: new Date('2026-09-26T00:00:00.000Z') }) }), BASE);
+      expect(out.status).toBe('refunded');
       expect(out).not.toHaveProperty('message');
     });
 

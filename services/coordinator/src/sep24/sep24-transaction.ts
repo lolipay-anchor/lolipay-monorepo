@@ -136,15 +136,19 @@ function userAction(withdrawing: boolean, order: Sep24Order): { by?: bigint; mes
     return null;
   }
   if (order.status === 'FUNDED') {
-    if (order.userClaimedPaidAt) {
-      return {
-        message:
-          "You told this anchor you sent the rupiah. It is being checked against the provider's account; nothing further is needed from you.",
-      };
-    }
     const now = Date.now();
     const nowSecs = Math.floor(now / 1000);
     const refundAtSecs = Number(refundOpensAt({ flow: 'TOP_UP', payDeadline: order.payDeadline, confirmDeadline: order.confirmDeadline }));
+    if (order.userClaimedPaidAt) {
+      return {
+        message:
+          Number(order.payDeadline) * 1000 > now
+            ? `You told this anchor you sent the rupiah, and the provider has been asked to check their account. Do not send it a second time. Keep your transfer receipt. If it is not confirmed by ${formatDeadline(refundAtSecs)}, the escrow can be returned to the provider and this deposit closes.`
+            : refundAtSecs >= nowSecs
+              ? `You told this anchor you sent the rupiah, and the provider has been asked to check their account. The time to send it has passed — do not start a transfer now. Keep your transfer receipt. One already sent can still be confirmed until ${formatDeadline(refundAtSecs)}; after that anyone, including the provider, can return the escrow to them.`
+              : 'You told this anchor you sent the rupiah. The time to confirm it has passed, and anyone, including the provider, can now return the escrow to them. Do not send any more money for this deposit. Keep your transfer receipt.',
+      };
+    }
     return {
       by: order.payDeadline,
       message:
@@ -153,6 +157,12 @@ function userAction(withdrawing: boolean, order: Sep24Order): { by?: bigint; mes
           : refundAtSecs >= nowSecs
             ? `The time to send the rupiah has passed. Do not start a transfer now. One you already sent can still be confirmed by the anchor until ${formatDeadline(refundAtSecs)}; after that anyone, including the provider, can return the escrow to them.`
             : 'The time to send the rupiah has passed. Do not send it now; anyone, including the provider, can now return the escrow to them.',
+    };
+  }
+  if (order.status === 'REFUNDED' && order.userClaimedPaidAt) {
+    return {
+      message:
+        'This deposit closed without completing, and no USDC was sent to you. If you did send the rupiah, keep your transfer receipt: sign in with this same wallet at app.lolipay.app, where the order shows whether a dispute can still be opened and until when.',
     };
   }
   return null;
