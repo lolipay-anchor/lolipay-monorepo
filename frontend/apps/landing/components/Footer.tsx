@@ -1,3 +1,5 @@
+import Link from 'next/link'
+
 export function Footer() {
   return (
     <footer className="border-t border-lp-line bg-lp-raise">
@@ -31,15 +33,18 @@ export function Footer() {
           <div>
             <div className="mb-3 font-geist-mono text-xs uppercase tracking-[.08em] text-lp-muted">Learn</div>
             <div className="flex flex-col gap-[9px] text-sm">
-              <a href="#how" className="text-lp-ink-soft no-underline">
+              <Link href="/#how" className="text-lp-ink-soft no-underline">
                 How it works
-              </a>
-              <a href="#features" className="text-lp-ink-soft no-underline">
+              </Link>
+              <Link href="/#features" className="text-lp-ink-soft no-underline">
                 Features
-              </a>
-              <a href="#providers" className="text-lp-ink-soft no-underline">
+              </Link>
+              <Link href="/#providers" className="text-lp-ink-soft no-underline">
                 For providers
-              </a>
+              </Link>
+              <Link href="/anchor" className="text-lp-ink-soft no-underline">
+                For wallet developers
+              </Link>
             </div>
           </div>
           <div>
