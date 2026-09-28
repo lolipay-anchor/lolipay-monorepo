@@ -498,7 +498,9 @@ describe('the screen that actually asks for money', () => {
     expect(res.text).toContain('BCA 1234567890 a/n Budi');
     expect(res.text).toContain(`LP-REF-${id.slice(0, 8)}`);
     expect(res.text).toContain('4.000.000');
-    expect(res.text).toMatch(/before 20\d\d-/);
+    expect(res.text).toMatch(
+      /Send it before <time datetime="20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d\.\d\d\dZ">[^<]*20\d\d at \d\d:\d\d WIB<\/time>\./,
+    );
   });
 
   it('escapes provider details, which are free text somebody else controls', async () => {
