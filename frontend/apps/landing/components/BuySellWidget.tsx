@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { MARKETS, formatLocal, type Market } from '../lib/markets'
 import { estimateBuy, estimateSell } from '../lib/estimate'
+import type { AnchorFees } from '../lib/anchor-fees'
 import { useLiveRate } from '../hooks/useLiveRate'
 
 const sanitize = (raw: string) => raw.replace(/[^0-9.]/g, '')
@@ -12,7 +13,7 @@ const tabIdle = 'flex-1 rounded-[9px] bg-transparent px-[18px] py-2.5 text-lp-mu
 
 type Tab = 'buy' | 'sell'
 
-export function BuySellWidget() {
+export function BuySellWidget({ fees }: { fees: AnchorFees }) {
   const [tab, setTab] = React.useState<Tab>('buy')
   const [payLocal, setPayLocal] = React.useState('500000')
   const [paySell, setPaySell] = React.useState('30')
@@ -26,8 +27,8 @@ export function BuySellWidget() {
   const local = parseFloat(sanitize(payLocal)) || 0
   const usdc = parseFloat(sanitize(paySell)) || 0
 
-  const buy = rate != null ? estimateBuy(local, rate) : null
-  const sell = rate != null ? estimateSell(usdc, rate) : null
+  const buy = rate != null && fees.depositPercent != null ? estimateBuy(local, rate, fees.depositPercent) : null
+  const sell = rate != null && fees.withdrawPercent != null ? estimateSell(usdc, rate, fees.withdrawPercent) : null
 
   const getValue = isBuy ? (buy ? buy.usdcNet.toFixed(2) : '—') : sell ? numOnly(sell.localNet, market) : '—'
   const getUnit = isBuy ? 'USDC' : market.code

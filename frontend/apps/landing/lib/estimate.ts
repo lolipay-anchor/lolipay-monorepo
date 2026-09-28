@@ -1,10 +1,10 @@
-const FEE = 0.003
-
-export function estimateBuy(localAmount: number, rate: number) {
+export function estimateBuy(localAmount: number, rate: number, feePercent: number) {
   const gross = rate > 0 ? localAmount / rate : 0
-  return { usdcNet: gross * (1 - FEE), feeUsdc: gross * FEE }
+  const fee = feePercent / 100
+  return { usdcNet: gross * (1 - fee), feeUsdc: gross * fee }
 }
 
-export function estimateSell(usdc: number, rate: number) {
-  return { localNet: usdc * (1 - FEE) * rate, feeLocal: usdc * FEE * rate }
+export function estimateSell(usdc: number, rate: number, feePercent: number) {
+  const fee = feePercent / 100
+  return { localNet: usdc * (1 - fee) * rate, feeLocal: usdc * fee * rate }
 }

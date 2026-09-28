@@ -9,6 +9,7 @@ import { getRate } from '@lolipay/api-client'
 import { Nav } from '../components/Nav'
 import { HeroCopy } from '../components/HeroCopy'
 import { BuySellWidget } from '../components/BuySellWidget'
+import { NO_ANCHOR_FEES } from '../lib/anchor-fees'
 
 const APP_URL = 'https://app.lolipay.app'
 
@@ -28,8 +29,8 @@ describe('Connect wallet routes to the app', () => {
     expect(screen.getByRole('link', { name: /connect wallet/i })).toHaveAttribute('href', APP_URL)
   })
 
-  it('widget CTA links to the app', async () => {
-    render(<BuySellWidget />)
+  it('widget CTA links to the app even when no fee is published', async () => {
+    render(<BuySellWidget fees={NO_ANCHOR_FEES} />)
     expect(screen.getByRole('link', { name: /connect wallet to continue/i })).toHaveAttribute(
       'href',
       APP_URL,

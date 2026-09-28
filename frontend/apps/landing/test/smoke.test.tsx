@@ -9,8 +9,8 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
 import Home from '../app/page'
 
 describe('landing smoke', () => {
-  it('renders the hero and the buy/sell widget', () => {
-    render(<Home />)
+  it('renders the hero and the buy/sell widget even when the anchor is unreachable', async () => {
+    render(await Home())
     expect(screen.getByRole('heading', { name: /spend crypto/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Buy' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sell' })).toBeInTheDocument()
