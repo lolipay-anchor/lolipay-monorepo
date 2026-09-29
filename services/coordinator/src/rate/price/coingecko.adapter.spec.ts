@@ -190,6 +190,18 @@ describe('CoinGeckoAdapter.fetchPrices', () => {
     expect((err as Error).message).not.toMatch(/[\r\n]/);
   });
 
+  it('sanitizes a raw line/format separator that JSON.stringify does not escape, within the ten-character body preview', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => '\u2028ABCDEFGHI',
+    } as unknown as Response);
+
+    const message = await adapter.fetchPrices(['IDR']).catch((e: Error) => e.message);
+
+    expect(message).not.toMatch(/[^\x20-\x7e]/);
+  });
+
   it('includes Retry-After in the thrown message when the response carries the header', async () => {
     fetchMock.mockResolvedValue(jsonResponse({}, false, 429, { 'retry-after': '29' }));
 

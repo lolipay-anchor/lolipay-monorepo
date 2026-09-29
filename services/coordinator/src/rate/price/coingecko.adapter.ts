@@ -53,7 +53,7 @@ export class CoinGeckoAdapter implements PriceAdapter {
     try {
       j = JSON.parse(bodyText) as { 'usd-coin'?: Record<string, number> };
     } catch {
-      throw new Error(`coingecko invalid JSON: ${JSON.stringify(bodyText.slice(0, 10))}`);
+      throw new Error(`coingecko invalid JSON: ${sanitizeForLog(JSON.stringify(bodyText.slice(0, 10)))}`);
     }
     const raw = j['usd-coin'] ?? {};
 
