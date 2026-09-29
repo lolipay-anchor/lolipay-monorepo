@@ -72,7 +72,9 @@ export class RateService {
     let price: string;
     try {
       price = await this.refreshPrice(code);
-    } catch {
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`refreshPrice failed for ${code}: ${message}`);
       throw new ServiceUnavailableException('price source unavailable');
     }
 

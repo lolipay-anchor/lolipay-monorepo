@@ -311,6 +311,33 @@ describe('RateService.getReferencePrice', () => {
     await expect(svc.getReferencePrice('IDR')).rejects.toThrow('price source unavailable');
   });
 
+  it('logs the underlying adapter error and fiat code before throwing 503, never the adapter object', async () => {
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const staleFetchedAt = new Date(Date.now() - 200_000);
+    const prisma = makePrisma({
+      fiatPriceCache: {
+        findUnique: jest.fn().mockResolvedValue({
+          fiat: 'IDR', source: 'coingecko', pricePerUsdc: '16000', fetchedAt: staleFetchedAt,
+        }),
+        upsert: jest.fn(),
+      },
+    });
+    const adapter = {
+      name: 'mock',
+      fetchPrices: jest.fn().mockRejectedValue(new Error('coingecko 403')),
+    };
+    const svc = makeSvc(prisma, adapter);
+
+    await expect(svc.getReferencePrice('IDR')).rejects.toThrow('price source unavailable');
+
+    expect(err).toHaveBeenCalledTimes(1);
+    expect(err.mock.calls[0]).toHaveLength(1);
+    expect(typeof err.mock.calls[0][0]).toBe('string');
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('coingecko 403'));
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('IDR'));
+    err.mockRestore();
+  });
+
   it('rejects a source price below the plausible floor and does NOT cache it', async () => {
     const prisma = makePrisma();
     const adapter = { name: 'mock', fetchPrices: jest.fn().mockResolvedValue({ IDR: '3' }) };
