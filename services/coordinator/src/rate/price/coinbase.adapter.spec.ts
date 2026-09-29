@@ -44,8 +44,9 @@ describe('CoinbaseAdapter.fetchPrices', () => {
     await adapter.fetchPrices(['IDR', 'PHP', 'VND']);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://api.coinbase.com/v2/exchange-rates?currency=USDC');
+    expect(init?.redirect).toBe('error');
   });
 
   it('matches fiat codes against Coinbase UPPERCASE rate keys, not lowercase', async () => {

@@ -16,7 +16,7 @@ export class CoinGeckoAdapter implements PriceAdapter {
     try {
       r = await fetch(
         `https://api.coingecko.com/api/v3/simple/price?ids=usd-coin&vs_currencies=${vsCurrencies}`,
-        { signal: ctrl.signal },
+        { signal: ctrl.signal, redirect: 'error' },
       );
       bodyText = await r.text();
     } catch (e: any) {

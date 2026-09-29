@@ -18,7 +18,7 @@ export class CoinbaseAdapter implements PriceAdapter {
     try {
       let r: Response;
       try {
-        r = await fetch(COINBASE_URL, { signal: ctrl.signal });
+        r = await fetch(COINBASE_URL, { signal: ctrl.signal, redirect: 'error' });
       } catch (e: any) {
         throw new Error(`coinbase fetch error: ${sanitize(String(e?.message ?? e))}`);
       }

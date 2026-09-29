@@ -45,10 +45,11 @@ describe('CoinGeckoAdapter.fetchPrices', () => {
     await adapter.fetchPrices(['IDR', 'PHP']);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(
       'https://api.coingecko.com/api/v3/simple/price?ids=usd-coin&vs_currencies=idr,php',
     );
+    expect(init?.redirect).toBe('error');
   });
 
   it('stringifies a whole-number price without a trailing decimal (matches prior single-fiat behavior)', async () => {
