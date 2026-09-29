@@ -130,3 +130,23 @@ describe('the email channel', () => {
     });
   });
 });
+
+describe('the send itself is fetched once, never followed elsewhere', () => {
+  const realFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = realFetch;
+  });
+
+  it('asks fetch to reject a redirect, so this send cannot be followed to a second host', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, status: 200, text: async () => '{}' });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const { handler } = make({});
+
+    await handler()({ personId: 'p1', subject: 'S', text: 'T' });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.resend.com/emails',
+      expect.objectContaining({ redirect: 'error' }),
+    );
+  });
+});

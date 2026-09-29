@@ -116,5 +116,6 @@ function defaultResolve(timeoutMs: number) {
 }
 
 function defaultFetch(timeoutMs: number) {
-  return (url: string) => fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  return (url: string) =>
+    fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'error' });
 }

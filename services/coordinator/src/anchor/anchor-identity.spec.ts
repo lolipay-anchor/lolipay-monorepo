@@ -74,3 +74,34 @@ describe('the anchor is asked whether it still agrees with itself', () => {
     ).rejects.toThrow(/WEB_AUTH_ENDPOINT/);
   });
 });
+
+describe('the endpoint the toml advertises is fetched once, never followed elsewhere', () => {
+  const realFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = realFetch;
+  });
+
+  it('asks fetch to reject a redirect, so the endpoint the toml advertises cannot be followed to a second host', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () =>
+        JSON.stringify({ transaction: 'x', network_passphrase: 'Test SDF Network ; September 2015' }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await checkAnchorIdentity('lolipay.app', {
+      resolveToml: async () => PARSED,
+      readChallenge: () => ({
+        source: 'GBS7GJRD4NXT6GNEP7ODBMK63P72NRML6NQMJSG7ZNHIUYJW2XJCM64C',
+        webAuthDomain: 'api.lolipay.app',
+        homeDomain: 'lolipay.app',
+        networkPassphrase: 'Test SDF Network ; September 2015',
+      }),
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('https://api.lolipay.app/auth?account='),
+      expect.objectContaining({ redirect: 'error' }),
+    );
+  });
+});

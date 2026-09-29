@@ -205,6 +205,7 @@ describe('StellarReadService.getAccountFirstTxAt', () => {
     expect(result).toBe('2020-01-01T00:00:00Z');
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining(`/accounts/${FAKE_LP}/transactions?order=asc&limit=1&include_failed=false`),
+      expect.objectContaining({ redirect: 'error' }),
     );
   });
 
@@ -629,5 +630,49 @@ describe('who may settle a dispute is read from the contract, never assumed', ()
     const svc = makeSvc();
     (svc as any).simulateCall = async () => cfg;
     await expect(svc.readDisputeSigners(FAKE_CONTRACT_ID)).rejects.toThrow(/no readable resolver and admin/);
+  });
+});
+
+describe('both Horizon reads are fetched once, never followed elsewhere', () => {
+  function svcWithCfg() {
+    return new StellarReadService({
+      rpcUrl: 'x',
+      networkPassphrase: 'x',
+      stakingContractId: 'C',
+      escrowContractId: 'C',
+      horizonUrl: 'https://horizon.test',
+      usdcAssetCode: 'USDC',
+      usdcAssetIssuer: 'GISSUER',
+    } as any);
+  }
+
+  afterEach(() => {
+    (global.fetch as any) = undefined;
+  });
+
+  it('hasUsdcTrustline asks fetch to reject a redirect rather than reading a balance list from wherever it is sent', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ balances: [] }) });
+    (global as any).fetch = fetchMock;
+
+    await svcWithCfg().hasUsdcTrustline(FAKE_LP);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `https://horizon.test/accounts/${FAKE_LP}`,
+      expect.objectContaining({ redirect: 'error' }),
+    );
+  });
+
+  it('getAccountFirstTxAt asks fetch to reject a redirect rather than dating a wallet from wherever it is sent', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ _embedded: { records: [] } }) });
+    (global as any).fetch = fetchMock;
+
+    await svcWithCfg().getAccountFirstTxAt(FAKE_LP);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`https://horizon.test/accounts/${FAKE_LP}/transactions?order=asc`),
+      expect.objectContaining({ redirect: 'error' }),
+    );
   });
 });

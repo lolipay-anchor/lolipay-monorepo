@@ -98,7 +98,9 @@ export class StellarReadService {
     if (cached && now - cached.at < StellarReadService.TRUSTLINE_TTL_MS) return cached.has;
     try {
       const res = await withRpcTimeout(
-        fetch(`${this.cfg.horizonUrl}/accounts/${encodeURIComponent(address)}`),
+        fetch(`${this.cfg.horizonUrl}/accounts/${encodeURIComponent(address)}`, {
+          redirect: 'error',
+        }),
         'horizon',
       );
       if (res.status === 404) {
@@ -136,6 +138,7 @@ export class StellarReadService {
       const res = await withRpcTimeout(
         fetch(
           `${this.cfg.horizonUrl}/accounts/${encodeURIComponent(address)}/transactions?order=asc&limit=1&include_failed=false`,
+          { redirect: 'error' },
         ),
         'horizon',
       );

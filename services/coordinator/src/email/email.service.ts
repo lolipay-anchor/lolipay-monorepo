@@ -76,6 +76,7 @@ export class EmailService implements OnModuleInit {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
+      redirect: 'error',
     });
     return { ok: res.ok, status: res.status, body: await res.text() };
   }

@@ -44,7 +44,7 @@ async function main(): Promise<void> {
 }
 
 async function fetchText(url: string): Promise<string> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000), redirect: 'error' });
   if (!res.ok) throw new Error(`${url} answered ${res.status}`);
   return res.text();
 }

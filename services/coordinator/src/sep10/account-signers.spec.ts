@@ -85,3 +85,17 @@ describe('the account loader asks the right chain, at the right address', () => 
     expect(calls.some((c) => c.includes(MUXED))).toBe(false);
   });
 });
+
+describe('every Horizon read on the auth path is fetched once, never followed elsewhere', () => {
+  it('asks fetch to reject a redirect, so a signer set is never read from a host Horizon points at', async () => {
+    const { svc } = makeService('https://horizon.example', { '/': rootOk });
+
+    await svc.load(KP.publicKey()).catch(() => undefined);
+
+    const calls = (global.fetch as jest.Mock).mock.calls;
+    expect(calls.length).toBe(2);
+    for (const call of calls) {
+      expect((call[1] as RequestInit | undefined)?.redirect).toBe('error');
+    }
+  });
+});

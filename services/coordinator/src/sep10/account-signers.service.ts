@@ -64,6 +64,9 @@ export class AccountSignersService {
 
   private get(path: string): Promise<Response> {
     const base = this.cfg.horizonUrl.replace(/\/+$/, '');
-    return fetch(`${base}${path}`, { signal: AbortSignal.timeout(HORIZON_TIMEOUT_MS) });
+    return fetch(`${base}${path}`, {
+      signal: AbortSignal.timeout(HORIZON_TIMEOUT_MS),
+      redirect: 'error',
+    });
   }
 }
