@@ -119,6 +119,16 @@ describe('CoinbaseAdapter.fetchPrices', () => {
     expect(result).toEqual({ PHP: '16234.500000' });
   });
 
+  it('omits a fiat whose rate arrives as a JSON number rather than the documented decimal string (fail-closed, not accidental)', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ data: { currency: 'USDC', rates: { IDR: 16234.5 } } }),
+    );
+
+    const result = await adapter.fetchPrices(['IDR']);
+
+    expect(result.IDR).toBeUndefined();
+  });
+
   it('throws when the base currency is not USDC', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ data: { currency: 'USD', rates: { IDR: '16234.5' } } }),
