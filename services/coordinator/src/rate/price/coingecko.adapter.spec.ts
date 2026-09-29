@@ -79,7 +79,7 @@ describe('CoinGeckoAdapter.fetchPrices', () => {
     expect(result).toEqual({ IDR: '16234.5' });
   });
 
-  it('rejects a rate that is not literally a JSON number, even when it would coerce to a plausible one', async () => {
+  it('rejects an array via Number.isFinite refusing to coerce it (the global isFinite would have accepted it)', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ 'usd-coin': { idr: ['17979.22'], php: 58.4 } }));
 
     const result = await adapter.fetchPrices(['IDR', 'PHP']);
