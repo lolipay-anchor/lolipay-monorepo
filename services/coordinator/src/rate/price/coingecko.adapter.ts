@@ -60,7 +60,7 @@ export class CoinGeckoAdapter implements PriceAdapter {
     const result: Record<string, string> = {};
     for (const fiat of fiats) {
       const price = raw[fiat.toLowerCase()];
-      if (typeof price === 'number' && Number.isFinite(price) && price > 0) {
+      if (Number.isFinite(price) && price > 0) {
         result[fiat.toUpperCase()] = String(price);
       }
     }
