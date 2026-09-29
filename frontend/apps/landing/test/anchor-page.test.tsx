@@ -74,6 +74,8 @@ const WITHDRAWN = [
   'nothing for your wallet to read on the SEP-24 record',
   'can and cannot reach is below',
   'change where the money goes.',
+  'Render message, which tells the person to keep',
+  'keep their transfer receipt.',
 ]
 
 const TRADE_STATE_HEADINGS = [
@@ -146,8 +148,10 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
     expect(page.split(FINALITY_PROMISE).length - 1).toBe(0)
   })
 
-  it('fires on the words it bans and stays silent on the words that merely contain them, and keeps all eighteen banned words', () => {
-    expect(BANNED).toHaveLength(18)
+  it('fires on the words it bans and stays silent on the words that merely contain them, and keeps all eighteen banned words in this exact set and order', () => {
+    expect(BANNED.join('|')).toBe(
+      'soon|beta|currently|for now|at the moment|shortly|eventually|upcoming|roadmap|stay tuned|under construction|in progress|todo|tbd|wip|fixme|placeholder|lorem',
+    )
     for (const hit of ['Coming soon', 'currently unavailable', 'TODO: fix this', 'in beta', 'for now']) {
       expect(hit).toMatch(DATING_WORD)
     }
@@ -158,17 +162,19 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
 })
 
 describe('the custody and withdrawal prose carries only the clauses the ruling left standing', () => {
-  it('carries none of the thirty-seven withdrawn clauses, and none of them is degenerate, and does carry the two narrowed replacements', () => {
+  it('carries none of the thirty-nine withdrawn clauses, and none of them is degenerate, and does carry the two narrowed replacements and a86e926\'s two corrected sentences', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
 
     expect(page.length).toBeGreaterThan(0)
-    expect(WITHDRAWN).toHaveLength(37)
+    expect(WITHDRAWN).toHaveLength(39)
     expect(WITHDRAWN.every((clause) => clause.length > 0)).toBe(true)
     for (const clause of WITHDRAWN) {
       expect.soft(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 0`)
     }
-    expect(page).toContain('can and cannot reach in that escrow is below')
-    expect(page).toContain('change where the money goes in it.')
+    expect.soft(page).toContain('can and cannot reach in that escrow is below')
+    expect.soft(page).toContain('change where the money goes in it.')
+    expect.soft(page).toContain("a dispute they raise from their order on lolipay's own app accepts a file they attach.")
+    expect.soft(page).toContain('A wallet that shows only the receipt clause drops that.')
   })
 })
 
