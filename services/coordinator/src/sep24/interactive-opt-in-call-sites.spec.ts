@@ -6,10 +6,7 @@ const SRC = join(__dirname, '..');
 const OPTED_IN: Array<[string, string, number, string]> = [
   ['matching/matching.service.ts', "new ServiceUnavailableException('no eligible LP available')", 1, 'NO_PROVIDER_SENTENCE'],
   ['order/order.service.ts', "new ServiceUnavailableException('no eligible LP available')", 1, 'LP_CAPACITY_LOST_SENTENCE'],
-  ['order/order.service.ts', 'new BadRequestException(PAYMENT_DESTINATION_MISSING_SENTENCE)', 1, 'PAYMENT_DESTINATION_MISSING_SENTENCE'],
-  ['order/order.service.ts', 'new BadRequestException(PAYMENT_DESTINATION_TOO_LONG_SENTENCE)', 1, 'PAYMENT_DESTINATION_TOO_LONG_SENTENCE'],
-  ['order/order.service.ts', 'new BadRequestException(PAYMENT_DESTINATION_BAD_CHARS_SENTENCE)', 1, 'PAYMENT_DESTINATION_BAD_CHARS_SENTENCE'],
-  ['order/order.service.ts', 'new BadRequestException(PAYMENT_DESTINATION_TOO_SHORT_SENTENCE)', 1, 'PAYMENT_DESTINATION_TOO_SHORT_SENTENCE'],
+  ['order/order.service.ts', 'new BadRequestException(sentence)', 1, 'sentence'],
   ['kyc/sep12.service.ts', "new ForbiddenException('this identity was refused and cannot be resubmitted here')", 2, 'IDENTITY_REFUSED_SENTENCE'],
   ['sep24/sep24.service.ts', "new ServiceUnavailableException('this deposit has no provider on file to notify of the claim right now')", 1, 'CLAIM_HAS_NO_PROVIDER_TO_NOTIFY_SENTENCE'],
 ];

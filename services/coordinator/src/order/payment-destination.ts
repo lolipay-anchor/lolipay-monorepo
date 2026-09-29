@@ -32,12 +32,11 @@ export function normalizePaymentMethodLabel(value: unknown): unknown {
   return boundToCostCeiling(value.replace(LABEL_EDGE_WHITESPACE_RE, '').normalize('NFC'));
 }
 
-const STELLAR_SECRET_SEED_SHAPE_RE = /S[A-Z2-7]{55}/;
+const STELLAR_SECRET_SEED_SHAPE_RE = /S[A-Z2-7]{55}/i;
 
 export const PAYMENT_DESTINATION_SECRET_KEY_SENTENCE =
-  'Those details contain what looks like a Stellar secret key, so this anchor has not stored them and will not pass them on. ' +
-  'Anyone holding that key controls the wallet, so treat it as compromised: create a new wallet and move your funds to it. ' +
-  'Then enter the bank account the rupiah should go to, and nothing else.';
+  'That looks like a Stellar secret key, and this field needs a bank account. ' +
+  'If it is your secret key and not a public address, it is no longer safe to use — move your funds to a new wallet.';
 
 export type PaymentDestinationProblem =
   | 'missing'

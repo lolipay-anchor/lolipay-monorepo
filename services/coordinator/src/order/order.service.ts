@@ -17,7 +17,11 @@ import {
   PAYMENT_DESTINATION_TOO_SHORT_SENTENCE,
   withInteractiveSentence,
 } from '../sep24/interactive-sentence';
-import { checkPaymentDestination } from './payment-destination';
+import {
+  checkPaymentDestination,
+  PAYMENT_DESTINATION_SECRET_KEY_SENTENCE,
+  type PaymentDestinationProblem,
+} from './payment-destination';
 import { acceptedForFunds } from '../kyc/screening-requirement';
 import { signingDeadlineSecs } from '../config/contract-limits';
 import { Prisma } from '../generated/prisma/client';
@@ -47,30 +51,21 @@ import { PROVIDER_LOST_WHERE } from '../reputation/dispute-outcome';
 
 export const MAX_REF_ATTEMPTS = 5;
 
+const PAYMENT_DESTINATION_SENTENCES: Record<PaymentDestinationProblem, string> = {
+  missing: PAYMENT_DESTINATION_MISSING_SENTENCE,
+  too_long: PAYMENT_DESTINATION_TOO_LONG_SENTENCE,
+  bad_chars: PAYMENT_DESTINATION_BAD_CHARS_SENTENCE,
+  secret_key: PAYMENT_DESTINATION_SECRET_KEY_SENTENCE,
+  too_short: PAYMENT_DESTINATION_TOO_SHORT_SENTENCE,
+};
+
 export function validatePaymentDestination(raw: unknown): string {
   const check = checkPaymentDestination(raw);
   if (check.ok) return check.value;
-  if (check.problem === 'missing') {
-    throw withInteractiveSentence(
-      new BadRequestException(PAYMENT_DESTINATION_MISSING_SENTENCE),
-      PAYMENT_DESTINATION_MISSING_SENTENCE,
-    );
-  }
-  if (check.problem === 'too_long') {
-    throw withInteractiveSentence(
-      new BadRequestException(PAYMENT_DESTINATION_TOO_LONG_SENTENCE),
-      PAYMENT_DESTINATION_TOO_LONG_SENTENCE,
-    );
-  }
-  if (check.problem === 'bad_chars') {
-    throw withInteractiveSentence(
-      new BadRequestException(PAYMENT_DESTINATION_BAD_CHARS_SENTENCE),
-      PAYMENT_DESTINATION_BAD_CHARS_SENTENCE,
-    );
-  }
+  const sentence = PAYMENT_DESTINATION_SENTENCES[check.problem];
   throw withInteractiveSentence(
-    new BadRequestException(PAYMENT_DESTINATION_TOO_SHORT_SENTENCE),
-    PAYMENT_DESTINATION_TOO_SHORT_SENTENCE,
+    new BadRequestException(sentence),
+    sentence,
   );
 }
 

@@ -4,7 +4,10 @@ import { StellarReadService } from '../stellar/stellar-read.service';
 import { OrderStatus, Prisma, Rail } from '../generated/prisma/client';
 import { applyBps, baseUnitsToUsdc } from '../money/money';
 import { matchableLpWhere } from '../matching/matching.service';
-import { checkPaymentDestination } from '../order/payment-destination';
+import {
+  checkPaymentDestination,
+  type PaymentDestinationProblem,
+} from '../order/payment-destination';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -14,13 +17,22 @@ export const PAYMENT_METHOD_TOO_SHORT_MESSAGE =
   'Those payment details are too short for anyone to pay into. Enter the full destination and the name it belongs to.';
 export const PAYMENT_METHOD_TOO_LONG_MESSAGE =
   'Those payment details are too long. Keep it to 500 characters or fewer.';
+export const PAYMENT_METHOD_SECRET_KEY_MESSAGE =
+  'That looks like a Stellar secret key, and this field needs a payment destination. ' +
+  'If it is your secret key and not a public address, it is no longer safe to use — move your funds to a new wallet.';
+
+const PAYMENT_METHOD_MESSAGES: Record<PaymentDestinationProblem, string> = {
+  missing: PAYMENT_METHOD_TOO_SHORT_MESSAGE,
+  too_long: PAYMENT_METHOD_TOO_LONG_MESSAGE,
+  bad_chars: PAYMENT_METHOD_BAD_CHARS_MESSAGE,
+  secret_key: PAYMENT_METHOD_SECRET_KEY_MESSAGE,
+  too_short: PAYMENT_METHOD_TOO_SHORT_MESSAGE,
+};
 
 function requirePaymentDestination(raw: unknown): string {
   const check = checkPaymentDestination(raw);
   if (check.ok) return check.value;
-  if (check.problem === 'bad_chars') throw new BadRequestException(PAYMENT_METHOD_BAD_CHARS_MESSAGE);
-  if (check.problem === 'too_long') throw new BadRequestException(PAYMENT_METHOD_TOO_LONG_MESSAGE);
-  throw new BadRequestException(PAYMENT_METHOD_TOO_SHORT_MESSAGE);
+  throw new BadRequestException(PAYMENT_METHOD_MESSAGES[check.problem]);
 }
 
 export async function personIdForWallet(
