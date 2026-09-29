@@ -69,6 +69,9 @@ const WITHDRAWN = [
   'The person and the provider may each raise one',
   'those two outcomes move the USDC the same way',
   'back with the provider through the refund',
+  'the only place a lolipay key moves an escrow alone',
+  'neither party holds the key that ends it',
+  'nothing for your wallet to read on the SEP-24 record',
 ]
 
 const TRADE_STATE_HEADINGS = [
@@ -152,11 +155,11 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
 })
 
 describe('the custody and withdrawal prose carries only the clauses the ruling left standing', () => {
-  it('carries none of the thirty-two withdrawn clauses, and none of them is degenerate', () => {
+  it('carries none of the thirty-five withdrawn clauses, and none of them is degenerate', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
 
     expect(page.length).toBeGreaterThan(0)
-    expect(WITHDRAWN).toHaveLength(32)
+    expect(WITHDRAWN).toHaveLength(35)
     expect(WITHDRAWN.every((clause) => clause.length > 0)).toBe(true)
     for (const clause of WITHDRAWN) {
       expect(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 0`)
