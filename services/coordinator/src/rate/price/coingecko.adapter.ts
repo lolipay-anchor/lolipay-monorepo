@@ -12,18 +12,26 @@ export class CoinGeckoAdapter implements PriceAdapter {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
     let r: Response;
+    let bodyText: string;
     try {
       r = await fetch(
         `https://api.coingecko.com/api/v3/simple/price?ids=usd-coin&vs_currencies=${vsCurrencies}`,
         { signal: ctrl.signal },
       );
+      bodyText = await r.text();
     } catch (e: any) {
       throw new Error(`coingecko fetch error: ${e?.message ?? e}`);
     } finally {
       clearTimeout(timer);
     }
     if (!r.ok) throw new Error(`coingecko ${r.status}`);
-    const j = (await r.json()) as { 'usd-coin'?: Record<string, number> };
+
+    let j: { 'usd-coin'?: Record<string, number> };
+    try {
+      j = JSON.parse(bodyText) as { 'usd-coin'?: Record<string, number> };
+    } catch {
+      throw new Error(`coingecko invalid JSON: ${JSON.stringify(bodyText.slice(0, 10))}`);
+    }
     const raw = j['usd-coin'] ?? {};
 
     const result: Record<string, string> = {};

@@ -18,6 +18,7 @@ describe('CoinGeckoAdapter.fetchPrices', () => {
     return {
       ok,
       status,
+      text: async () => JSON.stringify(body),
       json: async () => body,
     } as Response;
   }
@@ -120,5 +121,42 @@ describe('CoinGeckoAdapter.fetchPrices', () => {
     const message = await adapter.fetchPrices(['IDR']).catch((e: Error) => e.message);
 
     expect(message).not.toMatch(/http/i);
+  });
+
+  it('does not clear the abort timer until the body has been read (regression: the body read was unbounded)', async () => {
+    let resolveText!: (v: string) => void;
+    const textPromise = new Promise<string>((res) => {
+      resolveText = res;
+    });
+    const clearSpy = jest.spyOn(global, 'clearTimeout');
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: () => textPromise,
+    } as unknown as Response);
+
+    const promise = adapter.fetchPrices(['IDR']);
+    await new Promise((r) => setImmediate(r));
+
+    expect(clearSpy).not.toHaveBeenCalled();
+
+    resolveText(JSON.stringify({ 'usd-coin': { idr: 16000 } }));
+    await promise;
+
+    expect(clearSpy).toHaveBeenCalled();
+    clearSpy.mockRestore();
+  });
+
+  it('caps a malformed-JSON body to 10 chars and escapes control characters before it reaches the thrown message', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => 'X\nFORGED_LEAK_DATA_THAT_SHOULD_NEVER_APPEAR',
+    } as unknown as Response);
+
+    const err = await adapter.fetchPrices(['IDR']).catch((e: Error) => e);
+
+    expect((err as Error).message).not.toContain('FORGED_LEAK_DATA_THAT_SHOULD_NEVER_APPEAR');
+    expect((err as Error).message).not.toMatch(/[\r\n]/);
   });
 });
