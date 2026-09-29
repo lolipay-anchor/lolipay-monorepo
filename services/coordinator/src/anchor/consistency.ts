@@ -64,6 +64,18 @@ function hostOf(endpoint: string | undefined): string | null {
   }
 }
 
+function httpsProbeUrl(endpoint: string, account: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:') return null;
+  url.searchParams.set('account', account);
+  return url.toString();
+}
+
 export interface AnchorProbe {
   resolveToml?: (domain: string) => Promise<Record<string, string>>;
   fetchImpl?: (url: string) => Promise<{ ok: boolean; text: () => Promise<string> }>;
@@ -85,7 +97,15 @@ export async function checkAnchorIdentity(
   }
 
   const probeAccount = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
-  const res = await fetchImpl(`${toml.WEB_AUTH_ENDPOINT}?account=${probeAccount}`);
+  const probeUrl = httpsProbeUrl(toml.WEB_AUTH_ENDPOINT, probeAccount);
+  if (probeUrl === null) {
+    return [
+      'the toml advertises a WEB_AUTH_ENDPOINT that is not https, so no challenge was ' +
+        `fetched from ${toml.WEB_AUTH_ENDPOINT}`,
+    ];
+  }
+
+  const res = await fetchImpl(probeUrl);
   if (!res.ok) throw new Error(`${toml.WEB_AUTH_ENDPOINT} answered ${(res as { status?: number }).status ?? 'badly'}`);
   const answer = JSON.parse(await res.text()) as { transaction: string; network_passphrase: string };
 
@@ -111,7 +131,7 @@ function defaultResolve(timeoutMs: number) {
   return async (domain: string): Promise<Record<string, string>> =>
     (await StellarToml.Resolver.resolve(domain, {
       timeout: timeoutMs,
-      allowedRedirects: 3,
+      allowedRedirects: 0,
     })) as Record<string, string>;
 }
 
