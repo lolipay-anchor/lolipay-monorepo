@@ -131,6 +131,15 @@ export class MarketsService implements OnModuleInit {
         );
       }
 
+      if (
+        nextEnabled === true &&
+        (await tx.paymentMethod.count({ where: { currency: code, active: true } })) === 0
+      ) {
+        throw new BadRequestException(
+          `cannot enable market ${code}: no active payment method carries this currency (matching selects providers by payment-method currency, so no order here could find one)`,
+        );
+      }
+
       const nextMin = (patch.priceMinPerUsdc ?? current.priceMinPerUsdc) as string;
       const nextMax = (patch.priceMaxPerUsdc ?? current.priceMaxPerUsdc) as string;
       const minNum = Number(nextMin);

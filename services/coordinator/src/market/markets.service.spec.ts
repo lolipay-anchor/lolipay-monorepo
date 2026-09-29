@@ -28,11 +28,23 @@ function makePrisma(overrides: Record<string, any> = {}) {
     update: jest.fn().mockResolvedValue({ id: 1 }),
     ...overrides.config,
   };
+  const paymentMethodRows: Array<Record<string, unknown>> = overrides.paymentMethodRows ?? [
+    { currency: 'IDR', active: true },
+  ];
+  const paymentMethod = {
+    count: jest.fn(async ({ where }: { where: Record<string, unknown> }) =>
+      paymentMethodRows.filter((row) =>
+        Object.entries(where).every(([field, value]) => row[field] === value),
+      ).length,
+    ),
+    ...overrides.paymentMethod,
+  };
   return {
     market,
     config,
+    paymentMethod,
 
-    $transaction: jest.fn((cb: any) => cb({ market, config })),
+    $transaction: jest.fn((cb: any) => cb({ market, config, paymentMethod })),
   } as any;
 }
 
@@ -136,10 +148,67 @@ describe('MarketsService.update', () => {
         }),
         update: jest.fn().mockResolvedValue({ code: 'VND', enabled: true, decimals: 0 }),
       },
+      paymentMethodRows: [{ currency: 'VND', active: true }],
     });
     const svc = new MarketsService(prisma);
     const updated = await svc.update('VND', { enabled: true });
     expect(updated.enabled).toBe(true);
+  });
+
+  it('refuses to enable a market that no active payment method carries', async () => {
+    const prisma = makePrisma({
+      market: {
+        findUnique: jest.fn().mockResolvedValue({
+          code: 'VND', enabled: false, decimals: 0, priceMinPerUsdc: '15000', priceMaxPerUsdc: '40000',
+        }),
+      },
+      paymentMethodRows: [{ currency: 'IDR', active: true }],
+    });
+    const svc = new MarketsService(prisma);
+
+    const err = await svc.update('VND', { enabled: true }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as Error).message).toContain('no active payment method carries this currency');
+    expect(prisma.market.update).not.toHaveBeenCalled();
+    expect(prisma.paymentMethod.count).toHaveBeenCalledWith({
+      where: { currency: 'VND', active: true },
+    });
+  });
+
+  it('admits enabling a market an active payment method does carry', async () => {
+    const prisma = makePrisma({
+      market: {
+        findUnique: jest.fn().mockResolvedValue({
+          code: 'IDR', enabled: false, decimals: 0, priceMinPerUsdc: '5000', priceMaxPerUsdc: '50000',
+        }),
+        update: jest.fn().mockResolvedValue({ code: 'IDR', enabled: true, decimals: 0 }),
+      },
+      paymentMethodRows: [{ currency: 'IDR', active: true }],
+    });
+    const svc = new MarketsService(prisma);
+
+    const updated = await svc.update('IDR', { enabled: true });
+
+    expect(updated.enabled).toBe(true);
+  });
+
+  it('refuses a decimals corridor for its decimals, not for its missing payment methods', async () => {
+    const prisma = makePrisma({
+      market: {
+        findUnique: jest.fn().mockResolvedValue({
+          code: 'PHP', enabled: false, decimals: 2, priceMinPerUsdc: '30', priceMaxPerUsdc: '120',
+        }),
+      },
+      paymentMethodRows: [],
+    });
+    const svc = new MarketsService(prisma);
+
+    const err = await svc.update('PHP', { enabled: true }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as Error).message).toContain('decimals=2');
+    expect((err as Error).message).not.toContain('no active payment method');
   });
 
   it('allows a non-enabling patch (e.g. bounds change) regardless of decimals', async () => {
