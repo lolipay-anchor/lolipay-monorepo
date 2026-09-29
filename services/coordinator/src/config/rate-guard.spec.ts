@@ -1,3 +1,4 @@
+import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { AppConfigService } from './app-config.service';
@@ -42,11 +43,25 @@ describe('the shipped defaults satisfy INV-30.1', () => {
     return Number((found as RegExpMatchArray)[1]);
   }
 
-  function envExampleDeviationBps(): number {
-    const env = readFileSync(join(__dirname, '../../.env.example'), 'utf8');
-    const found = env.match(/^PRICE_DEVIATION_MAX_BPS=(\d+)/m);
-    expect(found).not.toBeNull();
-    return Number((found as RegExpMatchArray)[1]);
+  function envTemplatesDeclaringDeviationBps(): { file: string; bps: number }[] {
+    const repoRoot = join(__dirname, '../../../..');
+    const declared = execFileSync(
+      'git',
+      ['ls-files', '--cached', '--others', '--exclude-standard', '*.env.example'],
+      { cwd: repoRoot, encoding: 'utf8' },
+    )
+      .split('\n')
+      .filter((file) => file.length > 0)
+      .map((file) => ({
+        file,
+        found: readFileSync(join(repoRoot, file), 'utf8').match(/^PRICE_DEVIATION_MAX_BPS=(\d+)/m),
+      }))
+      .filter((template) => template.found !== null)
+      .map(({ file, found }) => ({ file, bps: Number((found as RegExpMatchArray)[1]) }));
+    expect(declared.map(({ file }) => file)).toEqual(
+      expect.arrayContaining(['.env.example', 'services/coordinator/.env.example']),
+    );
+    return declared;
   }
 
   it('finds a spreadBps default in the Prisma schema to compare against', () => {
@@ -58,13 +73,24 @@ describe('the shipped defaults satisfy INV-30.1', () => {
     expect(spreadCoversPriceDeviation(schemaDefaultSpreadBps(), cfg.priceDeviationMaxBps)).toBeNull();
   });
 
-  it('keeps the .env.example deviation value strictly below the schema spread default', () => {
-    expect(spreadCoversPriceDeviation(schemaDefaultSpreadBps(), envExampleDeviationBps())).toBeNull();
+  it('finds every env template declaring the deviation allowance, including both shipped ones', () => {
+    expect(envTemplatesDeclaringDeviationBps().length).toBeGreaterThan(1);
   });
 
-  it('keeps .env.example and the built-in default in agreement', () => {
+  it('keeps every env template declaring the deviation allowance strictly below the schema spread default', () => {
+    const spread = schemaDefaultSpreadBps();
+    const templates = envTemplatesDeclaringDeviationBps();
+    expect(templates.length).toBeGreaterThan(1);
+    expect(
+      templates.filter(({ bps }) => spreadCoversPriceDeviation(spread, bps) !== null),
+    ).toEqual([]);
+  });
+
+  it('keeps every env template declaring the deviation allowance in agreement with the built-in default', () => {
     const cfg = new AppConfigService({ get: () => undefined } as any);
-    expect(envExampleDeviationBps()).toBe(cfg.priceDeviationMaxBps);
+    const templates = envTemplatesDeclaringDeviationBps();
+    expect(templates.length).toBeGreaterThan(1);
+    expect(templates.filter(({ bps }) => bps !== cfg.priceDeviationMaxBps)).toEqual([]);
   });
 });
 
