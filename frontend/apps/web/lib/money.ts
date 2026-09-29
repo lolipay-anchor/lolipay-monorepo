@@ -31,8 +31,9 @@ export function usdcBaseUnitsFor(idr: number, ratePerUsdc: number): string {
 
 export function effectiveIdrPerUsdc(fiatAmount: number, usdcBaseUnits: string): number | null {
   const usdc = Number(usdcBaseUnits)
-  if (!(usdc > 0) || !Number.isFinite(fiatAmount)) return null
-  return Math.round((fiatAmount * 1e7) / usdc)
+  if (!(usdc > 0)) return null
+  const rate = Math.round((fiatAmount * 1e7) / usdc)
+  return Number.isFinite(rate) && rate > 0 ? rate : null
 }
 
 export function effectiveRateLabel(fiatAmount: number, usdcBaseUnits: string): string {

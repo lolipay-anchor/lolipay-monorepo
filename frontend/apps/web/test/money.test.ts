@@ -64,9 +64,18 @@ describe('effectiveIdrPerUsdc derives the rate that actually governs the two amo
     expect(effectiveIdrPerUsdc(15, '100000000')).toBe(2)
   })
 
-  it('answers null rather than dividing by a zero or negative usdc amount, so a caller can render blank instead of a confident Rp 0', () => {
+  it('answers null rather than dividing by a zero or negative usdc amount', () => {
     expect(effectiveIdrPerUsdc(1624000, '0')).toBeNull()
     expect(effectiveIdrPerUsdc(1624000, '-100')).toBeNull()
+  })
+
+  it('answers null when the whole-rupiah rounding lands on zero, and admits the half-up boundary just above it', () => {
+    expect(effectiveIdrPerUsdc(1, '30000000')).toBeNull()
+    expect(effectiveIdrPerUsdc(1, '20000000')).toBe(1)
+  })
+
+  it('answers null when both amounts are negative, where the signs cancel into a rate the result alone cannot tell from a real one', () => {
+    expect(effectiveIdrPerUsdc(-1624000, '-1000000000')).toBeNull()
   })
 
   it('answers null for a non-finite fiat amount, including Infinity', () => {
@@ -82,5 +91,6 @@ describe('effectiveRateLabel is the one place that builds the "1 USDC = X" strin
 
   it('renders the em-dash this app already uses for a number it does not know, never "1 USDC = Rp 0" and never a bare "1 USDC ="', () => {
     expect(effectiveRateLabel(1624000, '0')).toBe('—')
+    expect(effectiveRateLabel(1, '30000000')).toBe('—')
   })
 })
