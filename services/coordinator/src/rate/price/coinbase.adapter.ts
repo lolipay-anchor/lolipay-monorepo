@@ -1,12 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PriceAdapter } from './price.types';
+import { sanitizeForLog } from './log-sanitizer';
 
 const FETCH_TIMEOUT_MS = 5_000;
 const COINBASE_URL = 'https://api.coinbase.com/v2/exchange-rates?currency=USDC';
-
-function sanitize(message: string): string {
-  return message.replace(/[\r\n]+/g, ' ').slice(0, 200);
-}
 
 @Injectable()
 export class CoinbaseAdapter implements PriceAdapter {
@@ -20,13 +17,15 @@ export class CoinbaseAdapter implements PriceAdapter {
       try {
         r = await fetch(COINBASE_URL, { signal: ctrl.signal, redirect: 'error' });
       } catch (e: any) {
-        throw new Error(`coinbase fetch error: ${sanitize(String(e?.message ?? e))}`);
+        throw new Error(`coinbase fetch error: ${sanitizeForLog(String(e?.message ?? e))}`);
       }
 
       if (!r.ok) {
         const retryAfter = r.headers?.get?.('retry-after');
         throw new Error(
-          retryAfter ? `coinbase ${r.status} retry-after ${retryAfter}` : `coinbase ${r.status}`,
+          retryAfter
+            ? `coinbase ${r.status} retry-after ${sanitizeForLog(String(retryAfter))}`
+            : `coinbase ${r.status}`,
         );
       }
 
@@ -34,12 +33,12 @@ export class CoinbaseAdapter implements PriceAdapter {
       try {
         j = await r.json();
       } catch (e: any) {
-        throw new Error(`coinbase fetch error: ${sanitize(String(e?.message ?? e))}`);
+        throw new Error(`coinbase fetch error: ${sanitizeForLog(String(e?.message ?? e))}`);
       }
 
       const currency = j?.data?.currency;
       if (currency !== 'USDC') {
-        throw new Error(`coinbase base currency ${sanitize(String(currency))}`);
+        throw new Error(`coinbase base currency ${sanitizeForLog(String(currency))}`);
       }
 
       const rates = j?.data?.rates;

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PriceAdapter } from './price.types';
+import { sanitizeForLog } from './log-sanitizer';
 
 const FETCH_TIMEOUT_MS = 5_000;
 
@@ -21,15 +22,17 @@ export class CoinGeckoAdapter implements PriceAdapter {
       bodyText = await r.text();
     } catch (e: any) {
       const cause = e?.cause?.message ?? e?.cause;
-      const causeSuffix = cause ? ` (cause: ${String(cause).slice(0, 120)})` : '';
-      throw new Error(`coingecko fetch error: ${e?.message ?? e}${causeSuffix}`);
+      const causeSuffix = cause ? ` (cause: ${sanitizeForLog(String(cause), 120)})` : '';
+      throw new Error(`coingecko fetch error: ${sanitizeForLog(String(e?.message ?? e))}${causeSuffix}`);
     } finally {
       clearTimeout(timer);
     }
     if (!r.ok) {
       const retryAfter = r.headers.get('retry-after');
       throw new Error(
-        retryAfter ? `coingecko ${r.status} (retry-after: ${retryAfter})` : `coingecko ${r.status}`,
+        retryAfter
+          ? `coingecko ${r.status} (retry-after: ${sanitizeForLog(String(retryAfter))})`
+          : `coingecko ${r.status}`,
       );
     }
 

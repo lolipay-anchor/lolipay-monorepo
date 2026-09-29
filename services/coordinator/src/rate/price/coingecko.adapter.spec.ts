@@ -173,6 +173,35 @@ describe('CoinGeckoAdapter.fetchPrices', () => {
     await expect(adapter.fetchPrices(['IDR'])).rejects.toThrow('coingecko 429 (retry-after: 29)');
   });
 
+  it('sanitizes a hostile Retry-After header before it reaches the thrown message', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({}, false, 429, { 'retry-after': '29\x1b[2Jx'.repeat(50) }),
+    );
+
+    const message = await adapter.fetchPrices(['IDR']).catch((e: Error) => e.message);
+
+    expect(message).not.toMatch(/[\x00-\x1f\x7f]/);
+    expect(message.length).toBeLessThanOrEqual('coingecko 429 (retry-after: )'.length + 200);
+  });
+
+  it('sanitizes a hostile fetch-rejection message before it reaches the thrown message', async () => {
+    fetchMock.mockRejectedValue(new Error('boom\x1b[2Jforged'.repeat(50)));
+
+    const message = await adapter.fetchPrices(['IDR']).catch((e: Error) => e.message);
+
+    expect(message).not.toMatch(/[\x00-\x1f\x7f]/);
+  });
+
+  it('sanitizes a hostile e.cause before it reaches the thrown message', async () => {
+    const err = new Error('terminated');
+    (err as any).cause = new Error('boom\x1b[2Jforged'.repeat(50));
+    fetchMock.mockRejectedValue(err);
+
+    const message = await adapter.fetchPrices(['IDR']).catch((e: Error) => e.message);
+
+    expect(message).not.toMatch(/[\x00-\x1f\x7f]/);
+  });
+
   it('omits the retry-after suffix when the response carries no such header', async () => {
     fetchMock.mockResolvedValue(jsonResponse({}, false, 403));
 

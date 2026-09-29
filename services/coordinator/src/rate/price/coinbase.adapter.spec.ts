@@ -120,6 +120,17 @@ describe('CoinbaseAdapter.fetchPrices', () => {
     await expect(adapter.fetchPrices(['IDR'])).rejects.toThrow('coinbase 429 retry-after 30');
   });
 
+  it('sanitizes a hostile Retry-After header before it reaches the thrown message', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({}, false, 429, { 'retry-after': '30\x1b[2Jx'.repeat(50) }),
+    );
+
+    const message = await adapter.fetchPrices(['IDR']).catch((e: Error) => e.message);
+
+    expect(message).not.toMatch(/[\x00-\x1f\x7f]/);
+    expect(message.length).toBeLessThanOrEqual('coinbase 429 retry-after '.length + 200);
+  });
+
   it('throws a wrapped error when fetch itself rejects', async () => {
     fetchMock.mockRejectedValue(new Error('boom'));
 
