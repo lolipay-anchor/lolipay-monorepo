@@ -4,7 +4,7 @@ import { sanitizeForLog } from './log-sanitizer';
 
 const FETCH_TIMEOUT_MS = 5_000;
 const COINBASE_URL = 'https://api.coinbase.com/v2/exchange-rates?currency=USDC';
-const NUMERIC_STRING_RE = /^\d+(\.\d+)?$/;
+const COINBASE_DECIMAL_RATE_RE = /^\d+(\.\d+)?$/;
 
 @Injectable()
 export class CoinbaseAdapter implements PriceAdapter {
@@ -50,7 +50,7 @@ export class CoinbaseAdapter implements PriceAdapter {
       const result: Record<string, string> = {};
       for (const fiat of fiats) {
         const raw = rates[fiat.toUpperCase()];
-        if (typeof raw !== 'string' || !NUMERIC_STRING_RE.test(raw)) {
+        if (typeof raw !== 'string' || !COINBASE_DECIMAL_RATE_RE.test(raw)) {
           continue;
         }
         const price = Number(raw);
