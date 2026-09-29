@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { CoinGeckoAdapter } from './price/coingecko.adapter';
+import { CoinbaseAdapter } from './price/coinbase.adapter';
 import { PRICE_ADAPTER } from './price/price-adapter.token';
 import { RateService } from './rate.service';
 import { RateController } from './rate.controller';
@@ -12,8 +12,8 @@ export { PRICE_ADAPTER } from './price/price-adapter.token';
 @Module({
   imports: [MarketModule, ReputationModule],
   providers: [
-    CoinGeckoAdapter,
-    { provide: PRICE_ADAPTER, useClass: CoinGeckoAdapter },
+    CoinbaseAdapter,
+    { provide: PRICE_ADAPTER, useClass: CoinbaseAdapter },
     RateService,
   ],
   controllers: [RateController, RatePublicController],
