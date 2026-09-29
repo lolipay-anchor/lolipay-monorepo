@@ -210,6 +210,29 @@ describe('OrderStatus component', () => {
     expect(screen.queryByTestId('ive-paid-slot')).toBeNull()
   })
 
+  it('shows the effective rate implied by fiat/usdc, never the raw rate_snapshot, and never its long-precision wire form', async () => {
+    const order: Order = {
+      ...BASE_ORDER,
+      id: 'ord-rate1',
+      payment_instructions: undefined,
+      usdc_amount: '1000000000',
+      fiat_amount: '1624000',
+      rate_snapshot: '17976.497988795364408085265',
+    }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-rate1" />
+      </TestProviders>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/rate Rp 16\.240/)).toBeTruthy()
+    })
+    expect(screen.queryByText(/17976\.497988795364408085265/)).toBeNull()
+  })
+
   it('shows USDC amount and fiat amount in summary card', async () => {
     const order = { ...BASE_ORDER, id: 'ord-c5', payment_instructions: undefined }
     mockGetOrder.mockResolvedValue(order)

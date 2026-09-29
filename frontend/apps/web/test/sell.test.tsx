@@ -41,6 +41,7 @@ describe('SellForm (WITHDRAW)', () => {
     mockCreateQuote.mockResolvedValue({
       quote_id: 'q-sell',
       fiat_amount: '3652000',
+      usdc_amount: '200000000',
       rate: '18260',
       platform_fee_bps: 30,
       lp_fee_bps: 120,
@@ -283,6 +284,56 @@ describe('SellForm (WITHDRAW)', () => {
   })
 })
 
+describe('SellForm — the locked rate is the rate that governs the amounts on screen, not the undiscounted mid', () => {
+  beforeEach(() => {
+    queryClient.clear()
+    vi.clearAllMocks()
+    mockCreateQuote.mockResolvedValue({
+      quote_id: 'q-spread',
+      fiat_amount: '359722',
+      usdc_amount: '200000000',
+      rate: '18260',
+      platform_fee_bps: 30,
+      lp_fee_bps: 120,
+      expires_at: new Date(Date.now() + 60000).toISOString(),
+    })
+    mockCreateOrder.mockResolvedValue({ order: { id: 'ord-spread', status: 'MATCHED' } })
+  })
+
+  it('shows the spread-adjusted rate in the quote breakdown, not the mid quote.rate', async () => {
+    render(
+      <TestProviders>
+        <SellForm />
+      </TestProviders>,
+    )
+    fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('1 USDC = Rp 17.986')).toBeTruthy()
+    })
+    expect(screen.queryByText('1 USDC = Rp 18.260')).toBeNull()
+  })
+
+  it('shows the SAME spread-adjusted rate in the review sheet the order is confirmed from', async () => {
+    render(
+      <TestProviders>
+        <SellForm />
+      </TestProviders>,
+    )
+    fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
+    fireEvent.change(screen.getByLabelText(/bank account/i), {
+      target: { value: 'BCA 123 a/n Me' },
+    })
+    await waitFor(() => expect(screen.getByText('1 USDC = Rp 17.986')).toBeTruthy())
+    await clickLockCta()
+
+    const sheet = () =>
+      within(screen.getByText('Review order').closest('div.flex.flex-col') as HTMLElement)
+    expect(sheet().getByText('1 USDC = Rp 17.986')).toBeTruthy()
+    expect(sheet().queryByText('1 USDC = Rp 18.260')).toBeNull()
+  })
+})
+
 describe('SellForm — balance and exceeds-balance', () => {
   beforeEach(() => {
     queryClient.clear()
@@ -290,6 +341,7 @@ describe('SellForm — balance and exceeds-balance', () => {
     mockCreateQuote.mockResolvedValue({
       quote_id: 'q-sell2',
       fiat_amount: '3652000',
+      usdc_amount: '200000000',
       rate: '18260',
       platform_fee_bps: 30,
       lp_fee_bps: 120,
@@ -328,6 +380,7 @@ describe('SellForm — quote expires while the review sheet is open', () => {
       mockCreateQuote.mockImplementation(async () => ({
         quote_id: 'q-short',
         fiat_amount: '3652000',
+        usdc_amount: '200000000',
         rate: '18260',
         platform_fee_bps: 30,
         lp_fee_bps: 120,
@@ -381,6 +434,7 @@ describe('SellForm — the review sheet is immune to a background quote refetch'
         ? {
             quote_id: 'q-first',
             fiat_amount: '3652000',
+            usdc_amount: '200000000',
             rate: '18260',
             platform_fee_bps: 30,
             lp_fee_bps: 120,
@@ -389,6 +443,7 @@ describe('SellForm — the review sheet is immune to a background quote refetch'
         : {
             quote_id: 'q-second',
             fiat_amount: '3900000',
+            usdc_amount: '200000000',
             rate: '19500',
             platform_fee_bps: 40,
             lp_fee_bps: 150,
@@ -463,6 +518,7 @@ describe('SellForm — exceeds-balance BigInt logic (authenticated, positive pat
     mockCreateQuote.mockResolvedValue({
       quote_id: 'q-sell-bal',
       fiat_amount: '3652000',
+      usdc_amount: '200000000',
       rate: '18260',
       platform_fee_bps: 30,
       lp_fee_bps: 120,

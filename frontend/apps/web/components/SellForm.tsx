@@ -8,7 +8,7 @@ import { createQuote, createOrder } from '@lolipay/api-client'
 import type { Quote } from '@lolipay/api-client'
 import { useAuth } from '@/app/providers'
 import { client } from '@/lib/client'
-import { formatIDR, formatUSDC, usdcToBaseUnits } from '@/lib/money'
+import { formatIDR, formatUSDC, usdcToBaseUnits, effectiveIdrPerUsdc } from '@/lib/money'
 import { formatUsdcBalance } from '@/lib/balance'
 import { useUsdcBalance } from '@/hooks/useUsdcBalance'
 import { QuoteBreakdown } from '@/components/QuoteBreakdown'
@@ -239,7 +239,10 @@ export function SellForm() {
         {quote ? (
           <QuoteBreakdown
             rows={[
-              { label: 'Rate (locked)', value: `1 USDC = ${formatIDR(Math.round(Number(quote.rate)))}` },
+              {
+                label: 'Rate (locked)',
+                value: `1 USDC = ${formatIDR(Math.round(effectiveIdrPerUsdc(parseInt(quote.fiat_amount, 10), quote.usdc_amount)))}`,
+              },
               {
                 label: cfg.receiveLabel,
                 value: formatIDR(parseInt(quote.fiat_amount, 10)),
@@ -302,7 +305,9 @@ export function SellForm() {
         rows={{
           youPay: `${formatUSDC(BigInt(reviewed?.usdcBaseUnits ?? '0'))} USDC`,
           youReceive: reviewed ? formatIDR(parseInt(reviewed.quote.fiat_amount, 10)) : '',
-          rate: reviewed ? `1 USDC = ${formatIDR(Math.round(Number(reviewed.quote.rate)))}` : '',
+          rate: reviewed
+            ? `1 USDC = ${formatIDR(Math.round(effectiveIdrPerUsdc(parseInt(reviewed.quote.fiat_amount, 10), reviewed.quote.usdc_amount)))}`
+            : '',
           rateHeldSecondsLeft: reviewedSecondsLeft,
         }}
       />

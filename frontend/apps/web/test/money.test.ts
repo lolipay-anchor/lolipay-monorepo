@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatIDR, formatUSDC, parseIDRInput, idrInputAccepted, usdcBaseUnitsFor } from '../lib/money'
+import { formatIDR, formatUSDC, parseIDRInput, idrInputAccepted, usdcBaseUnitsFor, effectiveIdrPerUsdc } from '../lib/money'
 describe('money', () => {
   it('formats IDR with thousands separators', () => {
     expect(formatIDR(1624000)).toBe('Rp 1.624.000')
@@ -48,5 +48,24 @@ describe('usdcBaseUnitsFor turns a rupiah amount into USDC base units without ev
     expect(usdcBaseUnitsFor(1624000, -16000)).toBe('0')
     expect(usdcBaseUnitsFor(1624000, Number.NaN)).toBe('0')
     expect(usdcBaseUnitsFor(-5000, 16000)).toBe('0')
+  })
+})
+
+describe('effectiveIdrPerUsdc derives the rate that actually governs the two amounts on screen, never the mid reference', () => {
+  it('divides fiat by usdc (base units, 7dp) rather than trusting a separately-carried mid rate', () => {
+    expect(effectiveIdrPerUsdc(359722, '200000000')).toBeCloseTo(17986.1, 1)
+  })
+
+  it('is unaffected by how many significant digits the mid price carried, because it never reads it', () => {
+    expect(effectiveIdrPerUsdc(1624000, '1000000000')).toBeCloseTo(16240, 6)
+  })
+
+  it('answers 0 rather than dividing by a zero or negative usdc amount', () => {
+    expect(effectiveIdrPerUsdc(1624000, '0')).toBe(0)
+    expect(effectiveIdrPerUsdc(1624000, '-100')).toBe(0)
+  })
+
+  it('answers 0 for a non-finite fiat amount', () => {
+    expect(effectiveIdrPerUsdc(Number.NaN, '200000000')).toBe(0)
   })
 })

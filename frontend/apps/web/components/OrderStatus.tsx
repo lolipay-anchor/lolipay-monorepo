@@ -25,7 +25,7 @@ import {
 } from '@lolipay/api-client'
 import { DarkHeroCard, StatusPill, Stepper, Countdown, HoldToRelease, SkeletonList } from '@lolipay/ui'
 import { client } from '@/lib/client'
-import { formatIDR, formatUSDC } from '@/lib/money'
+import { formatIDR, formatUSDC, effectiveIdrPerUsdc } from '@/lib/money'
 import { stepsFor, isTerminal, activeCountdown } from '@/lib/steps'
 import type { Flow, Rail } from '@lolipay/api-client'
 import { pillFor } from '@/lib/format'
@@ -184,7 +184,7 @@ export function OrderStatus({ id, submitFn }: Props) {
               </p>
               <p className="mt-[3px] text-[13px] opacity-60">
                 {lpPaysFiat ? 'You receive' : 'You pay'}{' '}
-                {formatIDR(fiatAmount)} · rate {order.rate_snapshot}
+                {formatIDR(fiatAmount)} · rate {formatIDR(Math.round(effectiveIdrPerUsdc(fiatAmount, order.usdc_amount)))}
               </p>
             </div>
             <StatusPill tone={pill.tone} className="shrink-0">
