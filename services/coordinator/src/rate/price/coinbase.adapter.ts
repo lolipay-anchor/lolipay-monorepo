@@ -53,16 +53,16 @@ export class CoinbaseAdapter implements PriceAdapter {
         if (raw == null) {
           continue;
         }
-        if (typeof raw !== 'string' || !COINBASE_DECIMAL_RATE_RE.test(raw)) {
-          console.error(
-            `coinbase ignoring malformed rate for ${fiat.toUpperCase()} (typeof ${typeof raw}): ${sanitizeForLog(String(raw))}`,
-          );
-          continue;
-        }
-        const price = Number(raw);
+        const isWellFormed = typeof raw === 'string' && COINBASE_DECIMAL_RATE_RE.test(raw);
+        const price = isWellFormed ? Number(raw) : NaN;
         if (Number.isFinite(price) && price > 0) {
           result[fiat.toUpperCase()] = price.toFixed(6);
+          continue;
         }
+        const reason = isWellFormed ? 'implausible magnitude' : 'malformed format';
+        console.error(
+          `coinbase ignoring refused rate for ${fiat.toUpperCase()} (${reason}, typeof ${typeof raw}): ${sanitizeForLog(String(raw))}`,
+        );
       }
       return result;
     } finally {

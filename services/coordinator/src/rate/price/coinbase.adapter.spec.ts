@@ -119,6 +119,23 @@ describe('CoinbaseAdapter.fetchPrices', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('IDR'));
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('1e4'));
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('string'));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('malformed format'));
+    errorSpy.mockRestore();
+  });
+
+  it('logs a well-formatted but numerically-implausible rate as a DIFFERENT refusal kind from a malformed one', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    fetchMock.mockResolvedValue(
+      jsonResponse({ data: { currency: 'USDC', rates: { IDR: '0' } } }),
+    );
+
+    const result = await adapter.fetchPrices(['IDR']);
+
+    expect(result.IDR).toBeUndefined();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('IDR'));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('0'));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('implausible magnitude'));
+    expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining('malformed format'));
     errorSpy.mockRestore();
   });
 
