@@ -205,6 +205,12 @@ export function BuySellWidget({ fees }: { fees: AnchorFees }) {
             {market.rail} · {market.country}
           </span>
         </div>
+        <div className="mt-1.5 flex justify-between text-[12.5px] text-lp-muted">
+          <span>Limits</span>
+          <span className="font-geist-mono tabular-nums text-lp-ink">
+            {fees.minAmount != null && fees.maxAmount != null ? `${fees.minAmount}–${fees.maxAmount} USDC` : '—'}
+          </span>
+        </div>
 
         {}
         <a

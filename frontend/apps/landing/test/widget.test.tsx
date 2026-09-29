@@ -124,6 +124,20 @@ describe('BuySellWidget', () => {
     expect(screen.getByText(/connect wallet to continue/i)).toBeInTheDocument()
   })
 
+  it('shows the published per-trade limits from the anchor, not a number invented client-side', async () => {
+    render(<BuySellWidget fees={{ ...FEES, minAmount: 5, maxAmount: 1000 }} />)
+    await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
+
+    expect(valueBeside('Limits')).toBe('5–1000 USDC')
+  })
+
+  it('shows a dash for limits when the anchor published no bound', async () => {
+    render(<BuySellWidget fees={NO_ANCHOR_FEES} />)
+    await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
+
+    expect(valueBeside('Limits')).toBe('—')
+  })
+
   it('tells the seller why the rupiah figure is a dash, on the sell tab only, and keeps the dash', async () => {
     render(<BuySellWidget fees={{ depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: null }} />)
     await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
