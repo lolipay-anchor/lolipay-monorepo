@@ -4,6 +4,11 @@ import { sanitizeForLog } from './log-sanitizer';
 
 const FETCH_TIMEOUT_MS = 5_000;
 
+function causeSuffixOf(e: any): string {
+  const cause = e?.cause?.message ?? e?.cause;
+  return cause ? ` (cause: ${sanitizeForLog(String(cause), 120)})` : '';
+}
+
 @Injectable()
 export class CoinGeckoAdapter implements PriceAdapter {
   name = 'coingecko';
@@ -15,15 +20,23 @@ export class CoinGeckoAdapter implements PriceAdapter {
     let r: Response;
     let bodyText: string;
     try {
-      r = await fetch(
-        `https://api.coingecko.com/api/v3/simple/price?ids=usd-coin&vs_currencies=${vsCurrencies}`,
-        { signal: ctrl.signal, redirect: 'error' },
-      );
-      bodyText = await r.text();
-    } catch (e: any) {
-      const cause = e?.cause?.message ?? e?.cause;
-      const causeSuffix = cause ? ` (cause: ${sanitizeForLog(String(cause), 120)})` : '';
-      throw new Error(`coingecko fetch error: ${sanitizeForLog(String(e?.message ?? e))}${causeSuffix}`);
+      try {
+        r = await fetch(
+          `https://api.coingecko.com/api/v3/simple/price?ids=usd-coin&vs_currencies=${vsCurrencies}`,
+          { signal: ctrl.signal, redirect: 'error' },
+        );
+      } catch (e: any) {
+        throw new Error(
+          `coingecko fetch error: ${sanitizeForLog(String(e?.message ?? e))}${causeSuffixOf(e)}`,
+        );
+      }
+      try {
+        bodyText = await r.text();
+      } catch (e: any) {
+        throw new Error(
+          `coingecko ${r.status} fetch error: ${sanitizeForLog(String(e?.message ?? e))}${causeSuffixOf(e)}`,
+        );
+      }
     } finally {
       clearTimeout(timer);
     }

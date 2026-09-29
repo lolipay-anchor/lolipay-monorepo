@@ -186,6 +186,22 @@ describe('CoinGeckoAdapter.fetchPrices', () => {
     expect(message.length).toBeLessThanOrEqual('coingecko 429 (retry-after: )'.length + 200);
   });
 
+  it('keeps the refusal status code when the body read itself stalls and aborts', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 403,
+      headers: { get: () => null },
+      text: () =>
+        new Promise((_resolve, reject) => {
+          const err = new Error('The operation was aborted');
+          err.name = 'AbortError';
+          reject(err);
+        }),
+    } as unknown as Response);
+
+    await expect(adapter.fetchPrices(['IDR'])).rejects.toThrow('coingecko 403 fetch error');
+  });
+
   it('sanitizes a hostile fetch-rejection message before it reaches the thrown message', async () => {
     fetchMock.mockRejectedValue(new Error('boom\x1b[2Jforged'.repeat(50)));
 
