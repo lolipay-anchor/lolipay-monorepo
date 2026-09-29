@@ -113,6 +113,23 @@ describe('the endpoint the toml advertises is only ever fetched over https', () 
     expect(problems[0]).toContain('169.254.169.254');
   });
 
+  it('reports a problem rather than throwing when the toml advertises something that is not a URL at all', async () => {
+    const sent: string[] = [];
+
+    const problems = await checkAnchorIdentity('lolipay.app', {
+      resolveToml: async () => ({ ...PARSED, WEB_AUTH_ENDPOINT: 'api.lolipay.app/auth' }),
+      fetchImpl: async (url: string) => {
+        sent.push(url);
+        return { ok: true, text: async () => JSON.stringify(CHALLENGE) };
+      },
+      readChallenge: reader('api.lolipay.app'),
+    });
+
+    expect(sent).toEqual([]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('api.lolipay.app/auth');
+  });
+
   it('adds the probe account as a query parameter, so an endpoint that already carries a query still asks for the account', async () => {
     const sent: string[] = [];
 
