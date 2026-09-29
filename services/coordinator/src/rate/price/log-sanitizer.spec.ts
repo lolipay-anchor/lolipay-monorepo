@@ -18,7 +18,41 @@ describe('sanitizeForLog', () => {
   });
 
   it('replaces NEL, LINE SEPARATOR and PARAGRAPH SEPARATOR with a space', () => {
-    expect(sanitizeForLog('a\u0085b c d')).toBe('a b c d');
+    const input = 'a' + String.fromCodePoint(0x85) + 'b' + String.fromCodePoint(0x2028) + 'c' + String.fromCodePoint(0x2029) + 'd';
+    expect(sanitizeForLog(input)).toBe('a b c d');
+  });
+
+  it('replaces the single-character CSI (0x9b), the C1 twin of ESC[, with a space', () => {
+    const input = 'a' + String.fromCodePoint(0x9b) + 'b';
+    expect(sanitizeForLog(input)).toBe('a b');
+  });
+
+  it('replaces bidi overrides and other Unicode format/whitespace characters outside printable ASCII', () => {
+    const input =
+      'a' +
+      String.fromCodePoint(0x202e) +
+      'b' +
+      String.fromCodePoint(0x200b) +
+      'c' +
+      String.fromCodePoint(0xa0) +
+      'd' +
+      String.fromCodePoint(0xfeff) +
+      'e';
+    expect(sanitizeForLog(input)).toBe('a b c d e');
+  });
+
+  it('replaces the whole class outside printable ASCII, as a mechanism rather than an enumerated list', () => {
+    for (const codePoint of [0x84, 0x8d, 0x9c, 0x9d, 0x202d, 0x2066, 0x2069, 0x200e, 0x200f, 0x180e]) {
+      const ch = String.fromCodePoint(codePoint);
+      expect(sanitizeForLog('a' + ch + 'b')).toBe('a b');
+    }
+  });
+
+  it('never leaves a lone surrogate half after capping length', () => {
+    const input = 'B'.repeat(199) + String.fromCodePoint(0x1f600) + 'tail';
+    const out = sanitizeForLog(input);
+    expect(out.length).toBeLessThanOrEqual(200);
+    expect(out).not.toMatch(/[\ud800-\udbff]$/);
   });
 
   it('caps length at 200 by default', () => {
@@ -27,5 +61,9 @@ describe('sanitizeForLog', () => {
 
   it('caps length at a given maximum', () => {
     expect(sanitizeForLog('x'.repeat(500), 120).length).toBe(120);
+  });
+
+  it('replace runs a run before slicing, so a long unsafe run collapses to one space rather than filling the cap', () => {
+    expect(sanitizeForLog('\x1b'.repeat(5000)).length).toBe(1);
   });
 });

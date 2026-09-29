@@ -1,5 +1,5 @@
-const UNSAFE_LOG_CHARS = /[\x00-\x1f\x7f\u0085\u2028\u2029]+/g;
+const NON_PRINTABLE_ASCII = /[^\x20-\x7e]+/g;
 
 export function sanitizeForLog(value: string, maxLen = 200): string {
-  return value.replace(UNSAFE_LOG_CHARS, ' ').slice(0, maxLen);
+  return value.replace(NON_PRINTABLE_ASCII, ' ').slice(0, maxLen);
 }
