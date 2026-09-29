@@ -50,7 +50,13 @@ export class CoinbaseAdapter implements PriceAdapter {
       const result: Record<string, string> = {};
       for (const fiat of fiats) {
         const raw = rates[fiat.toUpperCase()];
+        if (raw == null) {
+          continue;
+        }
         if (typeof raw !== 'string' || !COINBASE_DECIMAL_RATE_RE.test(raw)) {
+          console.error(
+            `coinbase ignoring malformed rate for ${fiat.toUpperCase()} (typeof ${typeof raw}): ${sanitizeForLog(String(raw))}`,
+          );
           continue;
         }
         const price = Number(raw);

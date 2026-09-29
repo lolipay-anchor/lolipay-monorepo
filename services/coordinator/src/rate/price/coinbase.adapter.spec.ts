@@ -72,6 +72,7 @@ describe('CoinbaseAdapter.fetchPrices', () => {
   });
 
   it('omits a fiat missing from the response instead of failing the whole call', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     fetchMock.mockResolvedValue(
       jsonResponse({ data: { currency: 'USDC', rates: { IDR: '16234.5' } } }),
     );
@@ -80,6 +81,8 @@ describe('CoinbaseAdapter.fetchPrices', () => {
 
     expect(result).toEqual({ IDR: '16234.500000' });
     expect(result.PHP).toBeUndefined();
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
   it('omits a fiat with a non-positive or non-numeric rate instead of failing the whole call', async () => {
@@ -102,6 +105,21 @@ describe('CoinbaseAdapter.fetchPrices', () => {
     const result = await adapter.fetchPrices(['IDR']);
 
     expect(result.IDR).toBeUndefined();
+  });
+
+  it('logs a malformed present rate instead of failing silently, so a format change is distinguishable from an outage', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    fetchMock.mockResolvedValue(
+      jsonResponse({ data: { currency: 'USDC', rates: { IDR: '1e4' } } }),
+    );
+
+    const result = await adapter.fetchPrices(['IDR']);
+
+    expect(result.IDR).toBeUndefined();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('IDR'));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('1e4'));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('string'));
+    errorSpy.mockRestore();
   });
 
   it('rejects a non-decimal wire value even when Number() would coerce it to a plausible rate', async () => {
