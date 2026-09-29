@@ -15,7 +15,7 @@ export const fakeKit = {
 
 export function TestProviders({
   children,
-  kit = fakeKit as any,
+  kit = fakeKit,
 }: {
   children: React.ReactNode
   kit?: typeof fakeKit
