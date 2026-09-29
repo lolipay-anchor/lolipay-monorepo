@@ -223,6 +223,34 @@ describe('CoinGeckoAdapter.fetchPrices', () => {
     await expect(adapter.fetchPrices(['IDR'])).rejects.toThrow('coingecko 403 fetch error');
   });
 
+  it('sanitizes a hostile message on the body-read path too, not only on the fetch-rejection path', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: () => Promise.reject(new Error('boom\x1b[2Jforged'.repeat(50))),
+    } as unknown as Response);
+
+    const message = await adapter.fetchPrices(['IDR']).catch((e: Error) => e.message);
+
+    expect(message).not.toMatch(/[\x00-\x1f\x7f]/);
+  });
+
+  it('caps e.cause at exactly 120 characters on the body-read path too', async () => {
+    const err = new Error('terminated');
+    (err as any).cause = new Error('Z'.repeat(500));
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: () => Promise.reject(err),
+    } as unknown as Response);
+
+    const message = await adapter.fetchPrices(['IDR']).catch((e: Error) => e.message);
+
+    expect(message).toBe(`coingecko 200 fetch error: terminated (cause: ${'Z'.repeat(120)})`);
+  });
+
   it('sanitizes a hostile fetch-rejection message before it reaches the thrown message', async () => {
     fetchMock.mockRejectedValue(new Error('boom\x1b[2Jforged'.repeat(50)));
 
