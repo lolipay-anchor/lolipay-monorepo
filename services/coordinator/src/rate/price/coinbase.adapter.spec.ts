@@ -104,6 +104,21 @@ describe('CoinbaseAdapter.fetchPrices', () => {
     expect(result.IDR).toBeUndefined();
   });
 
+  it('rejects a non-decimal wire value even when Number() would coerce it to a plausible rate', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        data: {
+          currency: 'USDC',
+          rates: { IDR: '0x4E20', PHP: '16234.5', VND: '0o47540', THB: '0b100111000100000' },
+        },
+      }),
+    );
+
+    const result = await adapter.fetchPrices(['IDR', 'PHP', 'VND', 'THB']);
+
+    expect(result).toEqual({ PHP: '16234.500000' });
+  });
+
   it('throws when the base currency is not USDC', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ data: { currency: 'USD', rates: { IDR: '16234.5' } } }),
