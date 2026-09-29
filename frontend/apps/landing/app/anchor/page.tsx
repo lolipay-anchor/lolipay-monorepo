@@ -262,7 +262,7 @@ export default async function AnchorPage() {
         </P>
         <P>
           {
-            "The refunded status on this anchor does not say the rupiah never arrived, and there is more than one way it gets there. A deposit whose rupiah was sent but never recorded on the chain can end with the USDC back with the liquidity provider through the refund, which takes no signature at all, so the caller can be anyone, the person and the provider included. A deposit whose rupiah was recorded can end the same way through a dispute at FiatPaid resolved as a refund, and one lolipay key can do that alone. Tell your user to keep their transfer receipt: on both of those routes the person can have sent the rupiah and received no USDC, and a dispute they raise from their order on lolipay's own app accepts a file they attach."
+            "The refunded status on this anchor does not say the rupiah never arrived, and there is more than one way it gets there. A deposit whose rupiah was sent but never recorded on the chain can end with the USDC back with the liquidity provider through the refund, which takes no signature at all, so the caller can be anyone, the person and the provider included. A deposit whose rupiah was recorded can end the same way through a dispute at FiatPaid resolved as a refund, and one lolipay key can do that alone. On both of those routes the person can have sent the rupiah and received no USDC. Do not compose your own copy for this status: render message, in full."
           }
         </P>
         <H3>{"FiatPaid: one signature, or a dispute, and no clock on either"}</H3>
