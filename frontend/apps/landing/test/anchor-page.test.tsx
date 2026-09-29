@@ -72,6 +72,8 @@ const WITHDRAWN = [
   'the only place a lolipay key moves an escrow alone',
   'neither party holds the key that ends it',
   'nothing for your wallet to read on the SEP-24 record',
+  'can and cannot reach is below',
+  'change where the money goes.',
 ]
 
 const TRADE_STATE_HEADINGS = [
@@ -125,14 +127,14 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
       text: readFileSync(resolve(process.cwd(), path), 'utf8'),
     }))
 
-    expect(read).toHaveLength(SOURCES.length)
+    expect(SOURCES).toHaveLength(3)
     expect(read.map((file) => file.path)).toContain('app/anchor/page.tsx')
     for (const file of read) {
       expect(file.text.length, `${file.path} was read as empty`).toBeGreaterThan(0)
     }
 
     for (const file of read) {
-      expect(file.path + ': ' + (file.text.match(DATING_WORD)?.[0] ?? '')).toBe(file.path + ': ')
+      expect.soft(file.path + ': ' + (file.text.match(DATING_WORD)?.[0] ?? '')).toBe(file.path + ': ')
     }
   })
 
@@ -155,14 +157,14 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
 })
 
 describe('the custody and withdrawal prose carries only the clauses the ruling left standing', () => {
-  it('carries none of the thirty-five withdrawn clauses, and none of them is degenerate', () => {
+  it('carries none of the thirty-seven withdrawn clauses, and none of them is degenerate', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
 
     expect(page.length).toBeGreaterThan(0)
-    expect(WITHDRAWN).toHaveLength(35)
+    expect(WITHDRAWN).toHaveLength(37)
     expect(WITHDRAWN.every((clause) => clause.length > 0)).toBe(true)
     for (const clause of WITHDRAWN) {
-      expect(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 0`)
+      expect.soft(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 0`)
     }
   })
 })
@@ -171,6 +173,7 @@ describe('the anchor page a wallet developer lands on', () => {
   it('carries the six sections, and points at the one document that is the authority', async () => {
     render(await AnchorPage())
 
+    expect(SECTIONS).toHaveLength(6)
     for (const name of SECTIONS) {
       expect(screen.getByRole('heading', { name })).toBeInTheDocument()
     }
