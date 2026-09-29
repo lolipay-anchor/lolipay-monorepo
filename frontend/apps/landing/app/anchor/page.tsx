@@ -150,7 +150,7 @@ export default async function AnchorPage() {
         <H2>The anchor, and the one document that describes it</H2>
         <P>
           {
-            "lolipay is a peer-to-peer on and off ramp between Indonesian rupiah and USDC on Stellar. A person sends rupiah and receives USDC, or sends USDC and receives rupiah. The counterparty on the rupiah side is another person, a liquidity provider with their own collateral at stake, rather than a house account. There is no pooled anchor balance: each trade locks USDC in its own Soroban escrow, and that escrow's payout destinations are fixed when the trade is created. lolipay does hold keys that can act on a trade already in flight; what they can and cannot reach is below."
+            "lolipay is a peer-to-peer on and off ramp between Indonesian rupiah and USDC on Stellar. A person sends rupiah and receives USDC, or sends USDC and receives rupiah. The counterparty on the rupiah side is another person, a liquidity provider with their own collateral at stake, rather than a house account. There is no pooled anchor balance: each trade locks USDC in its own Soroban escrow, and that escrow's payout destinations are fixed when the trade is created. lolipay does hold keys that can act on a trade already in flight; what they can and cannot reach in that escrow is below."
           }
         </P>
         <P>Four SEPs carry the integration.</P>
@@ -233,10 +233,10 @@ export default async function AnchorPage() {
       </Plain>
 
       <Plain>
-        <H2>What lolipay holds a key for, and what no key can reach</H2>
+        <H2>{"What lolipay holds a key for in a trade's escrow, and what no key can reach there"}</H2>
         <P>
           {
-            "lolipay holds three keys that can act on a trade already running, and the contract forces them to be three different accounts: an administrator, a dispute resolver, and a fiat attestor. What none of them can do is change where the money goes. Every payout an escrow can make names one of four accounts fixed when the trade was created - the account receiving the USDC, the account that provided it, the provider's fee wallet and the platform's fee wallet - and the contract never writes those four again. It also refuses, after it is initialised, to change the USDC asset, the platform fee wallet, or the attestor itself. A key can decide which of a trade's own outcomes happens; none can add a destination to it."
+            "lolipay holds three keys that can act on a trade already running, and the contract forces them to be three different accounts: an administrator, a dispute resolver, and a fiat attestor. What none of them can do is change where the money goes in it. Every payout an escrow can make names one of four accounts fixed when the trade was created - the account receiving the USDC, the account that provided it, the provider's fee wallet and the platform's fee wallet - and the contract never writes those four again. It also refuses, after it is initialised, to change the USDC asset, the platform fee wallet, or the attestor itself. A key can decide which of a trade's own outcomes happens; none can add a destination to it."
           }
         </P>
         <P>

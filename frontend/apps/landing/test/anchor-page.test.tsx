@@ -83,7 +83,7 @@ const TRADE_STATE_HEADINGS = [
 
 const SECTIONS = [
   'The anchor, and the one document that describes it',
-  'What lolipay holds a key for, and what no key can reach',
+  "What lolipay holds a key for in a trade's escrow, and what no key can reach there",
   'What your wallet must be able to do, and where your token goes',
   'Identity',
   'The transaction record',
