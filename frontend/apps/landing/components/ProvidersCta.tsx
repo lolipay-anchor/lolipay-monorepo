@@ -16,7 +16,7 @@ export function ProvidersCta() {
             </h2>
             <p className="mt-4 text-base leading-[1.6] opacity-75">
               Stake USDC as collateral, go online, and get matched with orders automatically. You choose the
-              rails — bank, QRIS, UPI, PIX and more.
+              rails — bank, QRIS and e-wallet.
             </p>
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <a

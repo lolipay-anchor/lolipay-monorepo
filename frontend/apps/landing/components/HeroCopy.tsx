@@ -49,11 +49,6 @@ export function HeroCopy() {
         </div>
         <div className="h-8 w-px bg-lp-line" />
         <div>
-          <div className="font-geist text-[26px] font-bold text-lp-ink">~5s</div>
-          <div className="mt-0.5 text-[12.5px] text-lp-muted">on-chain settlement</div>
-        </div>
-        <div className="h-8 w-px bg-lp-line" />
-        <div>
           <div className="font-geist text-[26px] font-bold text-lp-ink">0</div>
           <div className="mt-0.5 text-[12.5px] text-lp-muted">funds we custody</div>
         </div>

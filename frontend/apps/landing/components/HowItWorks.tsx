@@ -63,8 +63,7 @@ export function HowItWorks() {
             </div>
             <div className="mt-[18px] font-geist text-[19px] font-bold">Settled on-chain</div>
             <p className="mt-2 text-sm leading-[1.55] text-lp-ink-soft">
-              Once payment is confirmed, escrow releases on-chain. Fully pseudonymous — no name, no bank details
-              shared.
+              Once payment is confirmed, escrow releases on-chain.
             </p>
           </div>
         </div>

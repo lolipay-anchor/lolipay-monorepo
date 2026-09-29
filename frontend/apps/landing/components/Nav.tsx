@@ -23,6 +23,9 @@ export function Nav() {
           <Link href="/#providers" className="text-[14.5px] font-medium text-lp-ink-soft no-underline">
             Providers
           </Link>
+          <Link href="/anchor" className="text-[14.5px] font-medium text-lp-ink-soft no-underline">
+            Wallet developers
+          </Link>
         </div>
         {}
         <a

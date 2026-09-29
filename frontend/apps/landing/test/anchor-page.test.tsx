@@ -260,7 +260,7 @@ describe('the anchor page a wallet developer lands on', () => {
 })
 
 describe('the chrome that carries a reader between the two pages', () => {
-  it('sends every named nav and footer jump to the home page rather than to a fragment that resolves nowhere off it, and offers the anchor page once — the bare hash on the unwritten legal pages is out of scope and left alone', () => {
+  it('sends every named nav and footer jump to the home page rather than to a fragment that resolves nowhere off it, and each chrome surface offers the anchor page exactly once — the unwritten legal items are plain text now, not dead links, so there is no bare hash left to exempt', () => {
     render(
       <>
         <Nav />
@@ -273,7 +273,9 @@ describe('the chrome that carries a reader between the two pages', () => {
 
     const hrefs = links.map((link) => link.getAttribute('href') ?? '')
     expect(hrefs.filter((href) => /^#./.test(href))).toEqual([])
-    expect(hrefs.filter((href) => href === '/anchor')).toHaveLength(1)
+    for (const surface of [screen.getByRole('navigation'), screen.getByRole('contentinfo')]) {
+      expect(surface.querySelectorAll('a[href="/anchor"]')).toHaveLength(1)
+    }
     expect(hrefs.filter((href) => href.startsWith('/#'))).toHaveLength(7)
   })
 })

@@ -28,7 +28,7 @@ export function TrustStrip() {
               strokeLinecap="round"
             />
           </svg>
-          QRIS · UPI · PIX &amp; more
+          QRIS · bank · e-wallet
         </span>
         <span className="flex items-center gap-2">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none">

@@ -50,15 +50,9 @@ export function Footer() {
           <div>
             <div className="mb-3 font-geist-mono text-xs uppercase tracking-[.08em] text-lp-muted">Legal</div>
             <div className="flex flex-col gap-[9px] text-sm">
-              <a href="#" className="text-lp-ink-soft no-underline">
-                Terms
-              </a>
-              <a href="#" className="text-lp-ink-soft no-underline">
-                Privacy
-              </a>
-              <a href="#" className="text-lp-ink-soft no-underline">
-                Risk notice
-              </a>
+              <span className="text-lp-ink-soft">Terms</span>
+              <span className="text-lp-ink-soft">Privacy</span>
+              <span className="text-lp-ink-soft">Risk notice</span>
             </div>
           </div>
         </div>

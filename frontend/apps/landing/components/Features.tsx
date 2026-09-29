@@ -36,7 +36,7 @@ export function Features() {
             </svg>
             <div className="font-geist text-[17px] font-bold">Buy &amp; sell USDC</div>
             <p className="mt-[7px] text-[13.5px] leading-[1.5] text-lp-ink-soft">
-              Top up from local currency or cash out to your bank at a transparent, live mid-market rate.
+              Top up from local currency or cash out to your bank at a rate you see before you commit.
             </p>
           </div>
           <div className="rounded-[18px] border border-lp-line bg-lp-surface p-[22px]">
@@ -48,7 +48,7 @@ export function Features() {
             </svg>
             <div className="font-geist text-[17px] font-bold">Rated providers</div>
             <p className="mt-[7px] text-[13.5px] leading-[1.5] text-lp-ink-soft">
-              Every counterparty is staked and rated. See their track record before you trade.
+              Every counterparty is staked and rated. See their track record on every order.
             </p>
           </div>
           <div className="rounded-[18px] border border-lp-line bg-lp-surface p-[22px]">
@@ -73,7 +73,7 @@ export function Features() {
             </svg>
             <div className="font-geist text-[17px] font-bold">Live rates</div>
             <p className="mt-[7px] text-[13.5px] leading-[1.5] text-lp-ink-soft">
-              Rates refresh every few seconds and lock for five minutes at checkout — no surprises.
+              Rates refresh every twelve seconds and lock for five minutes at checkout — no surprises.
             </p>
           </div>
           <div className="rounded-[18px] border border-lp-line bg-lp-surface p-[22px]">
@@ -88,7 +88,7 @@ export function Features() {
             </svg>
             <div className="font-geist text-[17px] font-bold">You hold the keys</div>
             <p className="mt-[7px] text-[13.5px] leading-[1.5] text-lp-ink-soft">
-              No KYC to browse, no custody of your coins. Connect a wallet and go.
+              No KYC to browse, and no custody of your coins — ever.
             </p>
           </div>
         </div>
