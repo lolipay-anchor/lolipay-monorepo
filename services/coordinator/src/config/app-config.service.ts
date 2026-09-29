@@ -1,15 +1,23 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-export function parseCorsOrigins(raw: string | undefined | null): string[] {
-  return (raw ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+const LOLIPAY_ORIGINS = [
+  'https://app.lolipay.app',
+  'https://lp.lolipay.app',
+  'https://admin.lolipay.app',
+  'https://lolipay.app',
+];
+
+export function corsAllowlist(raw: string | undefined | null): string[] {
+  const fromEnv = (raw ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  return [...new Set([...fromEnv, ...LOLIPAY_ORIGINS])];
 }
 
 @Injectable()
 export class AppConfigService {
   constructor(private c: ConfigService) {}
 
-  get corsOrigins(): string[] { return parseCorsOrigins(this.c.get<string>('CORS_ORIGINS')); }
+  get corsOrigins(): string[] { return corsAllowlist(this.c.get<string>('CORS_ORIGINS')); }
   get jwtSecret() {
     const s = this.req('JWT_SECRET');
 

@@ -1,4 +1,102 @@
-import { AppConfigService } from './app-config.service';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { AppConfigService, corsAllowlist } from './app-config.service';
+
+const OUR_ORIGINS = [
+  'https://app.lolipay.app',
+  'https://lp.lolipay.app',
+  'https://admin.lolipay.app',
+  'https://lolipay.app',
+];
+
+describe('the allowlist carries the origins we own, whatever the environment says', () => {
+  it.each([undefined, null, '', '   ', ','])(
+    'serves every origin we own when the env var is %p',
+    (raw) => {
+      expect(corsAllowlist(raw)).toEqual(OUR_ORIGINS);
+    },
+  );
+
+  it('includes the apex, which is where the landing page rate widget calls from', () => {
+    expect(corsAllowlist(undefined)).toContain('https://lolipay.app');
+  });
+
+  it('keeps an env-supplied origin, and keeps it FIRST so corsOrigins[0] stays the env subject', () => {
+    const list = corsAllowlist('https://staging.example');
+
+    expect(list[0]).toBe('https://staging.example');
+    expect(list.indexOf('https://app.lolipay.app')).toBeGreaterThan(0);
+  });
+
+  it('appends rather than prepends for every origin we own, not merely the first', () => {
+    const list = corsAllowlist('https://staging.example');
+
+    for (const ours of OUR_ORIGINS) {
+      expect(list.indexOf(ours)).toBeGreaterThan(list.indexOf('https://staging.example'));
+    }
+  });
+
+  it('trims and drops blanks around an env-supplied origin', () => {
+    expect(corsAllowlist(' https://staging.example ,, ')).toEqual([
+      'https://staging.example',
+      ...OUR_ORIGINS,
+    ]);
+  });
+
+  it('collapses an env value that repeats one we own, so cors never sees a duplicate', () => {
+    const list = corsAllowlist('https://app.lolipay.app');
+
+    expect(list.filter((o) => o === 'https://app.lolipay.app')).toHaveLength(1);
+    expect(list).toEqual(OUR_ORIGINS);
+  });
+
+  it('never ships localhost, which belongs in a developer env file', () => {
+    const list = corsAllowlist(undefined);
+
+    expect(list).toHaveLength(OUR_ORIGINS.length);
+    expect(list.join(' ')).not.toMatch(/localhost|127\.0\.0\.1/);
+  });
+
+  it('serves the apex but not www, which answers 301 and so never becomes a document origin', () => {
+    const list = corsAllowlist(undefined);
+
+    expect(list).toContain('https://lolipay.app');
+    expect(list).not.toContain('https://www.lolipay.app');
+  });
+
+  it('adds to what the env supplies and subtracts nothing from it', () => {
+    expect(corsAllowlist('https://staging.example,https://other.example')).toEqual([
+      'https://staging.example',
+      'https://other.example',
+      ...OUR_ORIGINS,
+    ]);
+  });
+});
+
+describe('the http layer serves the same allowlist, through AppConfigService', () => {
+  const withEnv = (env: Record<string, string | undefined>) =>
+    new AppConfigService({ get: (k: string) => env[k] } as any);
+
+  it('serves every origin we own when nothing is set, because this getter feeds applyCors', () => {
+    expect(withEnv({}).corsOrigins).toEqual(OUR_ORIGINS);
+  });
+
+  it('keeps an env-supplied origin at index 0, which is what corsOrigins[0] is read for', () => {
+    const list = withEnv({ CORS_ORIGINS: 'https://staging.example' }).corsOrigins;
+
+    expect(list[0]).toBe('https://staging.example');
+    expect(list.indexOf('https://lolipay.app')).toBeGreaterThan(0);
+  });
+});
+
+describe('the socket handshake derives its allowlist from the same function', () => {
+  const gateway = readFileSync(join(__dirname, '../realtime/realtime.gateway.ts'), 'utf8');
+
+  it('calls the shared function rather than splitting the env var itself', () => {
+    expect(gateway).toMatch(/=\s*corsAllowlist\(process\.env\.CORS_ORIGINS\)/);
+    expect(gateway).not.toMatch(/process\.env\.CORS_ORIGINS[^)]*\.split/);
+  });
+});
 
 describe('AppConfigService.escrowContractIdsExtra', () => {
   function makeCfg(value: string | undefined) {

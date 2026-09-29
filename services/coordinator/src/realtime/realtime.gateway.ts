@@ -10,7 +10,7 @@ import {
 import { Logger, OnModuleDestroy, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { Server, Socket } from 'socket.io';
-import { AppConfigService, parseCorsOrigins } from '../config/app-config.service';
+import { AppConfigService, corsAllowlist } from '../config/app-config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   resolveRole,
@@ -21,7 +21,7 @@ import {
 } from '../auth/role.util';
 import { jwtVerifyOptions } from '../auth/jwt-options';
 
-const CORS_ORIGINS = parseCorsOrigins(process.env.CORS_ORIGINS);
+const CORS_ORIGINS = corsAllowlist(process.env.CORS_ORIGINS);
 
 const PRESENCE_BUMP_INTERVAL_MS = 60_000;
 
