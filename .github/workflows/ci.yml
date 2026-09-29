@@ -58,7 +58,7 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - name: types, specs included
-        run: npx tsc --noEmit
+        run: npx tsc -p tsconfig.spec.json
       - run: npm test
       - name: the migrations must reproduce the schema
         run: |
