@@ -14,13 +14,19 @@ describe('CoinGeckoAdapter.fetchPrices', () => {
     jest.restoreAllMocks();
   });
 
-  function jsonResponse(body: unknown, ok = true, status = 200) {
+  function jsonResponse(
+    body: unknown,
+    ok = true,
+    status = 200,
+    headers: Record<string, string> = {},
+  ) {
     return {
       ok,
       status,
+      headers: { get: (k: string) => headers[k.toLowerCase()] ?? null },
       text: async () => JSON.stringify(body),
       json: async () => body,
-    } as Response;
+    } as unknown as Response;
   }
 
   it('parses a multi-fiat response into an uppercase-keyed record of decimal strings', async () => {
@@ -158,5 +164,29 @@ describe('CoinGeckoAdapter.fetchPrices', () => {
 
     expect((err as Error).message).not.toContain('FORGED_LEAK_DATA_THAT_SHOULD_NEVER_APPEAR');
     expect((err as Error).message).not.toMatch(/[\r\n]/);
+  });
+
+  it('includes Retry-After in the thrown message when the response carries the header', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}, false, 429, { 'retry-after': '29' }));
+
+    await expect(adapter.fetchPrices(['IDR'])).rejects.toThrow('coingecko 429 (retry-after: 29)');
+  });
+
+  it('omits the retry-after suffix when the response carries no such header', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}, false, 403));
+
+    const message = await adapter.fetchPrices(['IDR']).catch((e: Error) => e.message);
+
+    expect(message).toBe('coingecko 403');
+  });
+
+  it('includes a bounded e.cause in the thrown fetch-error message when present', async () => {
+    const err = new Error('terminated');
+    (err as any).cause = new Error('Body Timeout Error');
+    fetchMock.mockRejectedValue(err);
+
+    await expect(adapter.fetchPrices(['IDR'])).rejects.toThrow(
+      'coingecko fetch error: terminated (cause: Body Timeout Error)',
+    );
   });
 });

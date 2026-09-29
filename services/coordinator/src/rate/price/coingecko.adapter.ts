@@ -20,11 +20,18 @@ export class CoinGeckoAdapter implements PriceAdapter {
       );
       bodyText = await r.text();
     } catch (e: any) {
-      throw new Error(`coingecko fetch error: ${e?.message ?? e}`);
+      const cause = e?.cause?.message ?? e?.cause;
+      const causeSuffix = cause ? ` (cause: ${String(cause).slice(0, 120)})` : '';
+      throw new Error(`coingecko fetch error: ${e?.message ?? e}${causeSuffix}`);
     } finally {
       clearTimeout(timer);
     }
-    if (!r.ok) throw new Error(`coingecko ${r.status}`);
+    if (!r.ok) {
+      const retryAfter = r.headers.get('retry-after');
+      throw new Error(
+        retryAfter ? `coingecko ${r.status} (retry-after: ${retryAfter})` : `coingecko ${r.status}`,
+      );
+    }
 
     let j: { 'usd-coin'?: Record<string, number> };
     try {
