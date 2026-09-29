@@ -58,6 +58,7 @@ export class DiditKycProvider implements KycProvider, OnModuleInit, OnModuleDest
     try {
       const res = await this.fetcher(DIDIT_WORKFLOWS_URL, {
         headers: { 'x-api-key': this.cfg.diditApiKey },
+        redirect: 'error',
         signal: AbortSignal.timeout(DIDIT_BOOT_PROBE_MS),
       });
       if (res.ok) {
@@ -142,6 +143,7 @@ export class DiditKycProvider implements KycProvider, OnModuleInit, OnModuleDest
           last_name: fields.last_name.trim(),
         },
       }),
+      redirect: 'error',
       signal: AbortSignal.timeout(DIDIT_TIMEOUT_MS),
     });
 

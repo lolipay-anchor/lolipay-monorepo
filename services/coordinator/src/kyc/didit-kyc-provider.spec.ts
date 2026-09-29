@@ -1,6 +1,6 @@
 import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import { DiditRefusalsService } from '../monitoring/didit-refusals.service';
-import { DIDIT_SESSION_URL, DiditKycProvider } from './didit-kyc-provider';
+import { DIDIT_SESSION_URL, DIDIT_WORKFLOWS_URL, DiditKycProvider } from './didit-kyc-provider';
 
 const REF = 'GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ';
 const fields = {
@@ -99,6 +99,7 @@ describe('opening a verification a customer can actually complete', () => {
         headers: { 'x-api-key': 'example-api-key-not-a-real-one', 'content-type': 'application/json' },
         body: expect.any(String),
         signal: expect.anything(),
+        redirect: 'error',
       },
     ]]);
   });
@@ -268,5 +269,33 @@ describe('what boot says about a workflow with no AML step depends on whether AM
       log.mockRestore();
       warn.mockRestore();
     }
+  });
+});
+
+describe('the vendor key cannot be carried to another host by a followed redirect', () => {
+  const withAml = {
+    status: 200,
+    body: [{ workflow_id: 'wf-1', features: 'OCR + LIVENESS + FACE_MATCH + AML + IP_ANALYSIS' }],
+  };
+
+  it('refuses a redirect on the session request, which carries the key in a header no runtime strips', async () => {
+    const { p, fetcher } = provider({ status: 201, body: created });
+    await p.start(REF, fields);
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe(DIDIT_SESSION_URL);
+    expect(init.redirect).toBe('error');
+  });
+
+  it('refuses a redirect on the boot probe, which carries the same key', async () => {
+    const { p, fetcher } = provider(withAml);
+    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    try {
+      await p.onModuleInit();
+    } finally {
+      log.mockRestore();
+    }
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe(DIDIT_WORKFLOWS_URL);
+    expect(init.redirect).toBe('error');
   });
 });
