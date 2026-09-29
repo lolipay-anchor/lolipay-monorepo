@@ -96,7 +96,7 @@ describe('CoinbaseAdapter.fetchPrices', () => {
 
   it('omits a fiat whose rate string parses to a non-finite number', async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ data: { currency: 'USDC', rates: { IDR: 'Infinity' } } }),
+      jsonResponse({ data: { currency: 'USDC', rates: { IDR: '9'.repeat(400) } } }),
     );
 
     const result = await adapter.fetchPrices(['IDR']);
