@@ -59,11 +59,21 @@ const WITHDRAWN = [
   "Which of the trade's two accounts receives the USDC follows the outcome",
   'chooses between the two destinations the trade already holds',
   'the outcome still names one of the two accounts the trade already holds',
+  'and the paragraphs below call it the provider',
+  'each status after this one behaves the same',
+  'The refund returns the USDC to the provider',
+  'A cancel returns the USDC to the provider',
+  "the provider's release",
+  "on the provider's signature",
+  'A trade whose provider never releases',
+  'The person and the provider may each raise one',
+  'those two outcomes move the USDC the same way',
+  'back with the provider through the refund',
 ]
 
 const TRADE_STATE_HEADINGS = [
   'Funded: what moves a trade, and what a pause refuses',
-  "FiatPaid: the provider's signature or a dispute, and no clock on either",
+  'FiatPaid: one signature, or a dispute, and no clock on either',
   'Released or Refunded: only a dispute still reaches a settled trade',
   'Disputed: who resolves it, and how many signatures that takes',
 ]
@@ -142,11 +152,11 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
 })
 
 describe('the custody and withdrawal prose carries only the clauses the ruling left standing', () => {
-  it('carries none of the twenty-two withdrawn clauses, and none of them is degenerate', () => {
+  it('carries none of the thirty-two withdrawn clauses, and none of them is degenerate', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
 
     expect(page.length).toBeGreaterThan(0)
-    expect(WITHDRAWN).toHaveLength(22)
+    expect(WITHDRAWN).toHaveLength(32)
     expect(WITHDRAWN.every((clause) => clause.length > 0)).toBe(true)
     for (const clause of WITHDRAWN) {
       expect(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 0`)
