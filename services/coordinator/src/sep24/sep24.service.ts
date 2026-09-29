@@ -394,6 +394,7 @@ export class Sep24Service {
     if (screen === 'sign_funding' || screen === 'sign_release') {
       const funding = screen === 'sign_funding';
       const o = row.order as any;
+      const idrPerUsdc = effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount);
       const signBy = funding ? new Date(signingCutoffSecs(Number(o.payDeadline)) * 1000) : null;
       const config = funding ? await this.prisma.config.findUnique({ where: { id: 1 } }) : null;
       const anchorRefunds = Boolean(config?.autoRefund) && this.refundSigner.isConfigured;
@@ -409,7 +410,9 @@ export class Sep24Service {
           funding
             ? [
                 `<p>Your wallet will ask you to approve moving <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC into escrow. The provider then pays <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)} to your bank account, and the escrow releases to them when you confirm it arrived. Nothing leaves your wallet until you approve it.</p>`,
-                `<p>Rate: 1 USDC ≈ <strong>${escapeHtml(formatFiat(effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount)))}</strong> ${escapeHtml(o.fiatCurrency)}, fixed for this order.</p>`,
+                idrPerUsdc > 0n
+                  ? `<p>Rate: 1 USDC ≈ <strong>${escapeHtml(formatFiat(idrPerUsdc))}</strong> ${escapeHtml(o.fiatCurrency)}, fixed for this order.</p>`
+                  : '<p>Both amounts above are fixed for this order.</p>',
                 `<p>If the provider never marks the rupiah sent, anyone, including you, can take the USDC back out of the escrow after <strong>${timeTag(refundOpensAt(o))}</strong>${anchorRefunds ? ', and this anchor\'s refund service does it for you' : '; this anchor will not do it for you, so the route is open on chain to anyone, including you'}. Once they do mark it sent, only your confirmation or a dispute can move it, decided by the resolver, or by the platform if the resolver does not act within ${RESOLVER_WINDOW_SECS / 3600} hours.</p>`,
                 `<p>Sign before <strong>${timeTag(signBy!.getTime() / 1000)}</strong>. After that the escrow refuses the signature and this withdrawal expires.</p>`,
               ].join('')
@@ -493,11 +496,14 @@ export class Sep24Service {
         );
       }
       const { platformFee, lpFee, net } = splitFees(o.usdcAmount, o.platformFeeBps, o.lpFeeBps);
+      const idrPerUsdc = effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount);
       return page(
         'Send your rupiah',
         [
           payment,
-          `<p>You receive <strong>${escapeHtml(formatUsdc(net))}</strong> USDC for it: 1 USDC ≈ <strong>${escapeHtml(formatFiat(effectiveIdrPerUsdc(o.fiatAmount, o.usdcAmount)))}</strong> ${escapeHtml(o.fiatCurrency)} on the <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC escrowed, minus a fee of <strong>${escapeHtml(formatUsdc(platformFee + lpFee))}</strong> USDC (${(o.platformFeeBps + o.lpFeeBps) / 100}%), all fixed for this order.</p>`,
+          idrPerUsdc > 0n
+            ? `<p>You receive <strong>${escapeHtml(formatUsdc(net))}</strong> USDC for it: 1 USDC ≈ <strong>${escapeHtml(formatFiat(idrPerUsdc))}</strong> ${escapeHtml(o.fiatCurrency)} on the <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC escrowed, minus a fee of <strong>${escapeHtml(formatUsdc(platformFee + lpFee))}</strong> USDC (${(o.platformFeeBps + o.lpFeeBps) / 100}%), all fixed for this order.</p>`
+            : `<p>You receive <strong>${escapeHtml(formatUsdc(net))}</strong> USDC for it, out of the <strong>${escapeHtml(formatUsdc(o.usdcAmount))}</strong> USDC escrowed, minus a fee of <strong>${escapeHtml(formatUsdc(platformFee + lpFee))}</strong> USDC (${(o.platformFeeBps + o.lpFeeBps) / 100}%), all fixed for this order.</p>`,
           `<p>After that a new transfer cannot be matched; one already sent can still be confirmed until <strong>${timeTag(refundOpensAt(o))}</strong>, after which the escrow can be returned to the provider.</p>`,
           this.claimControl(id, true),
         ].join(''),
