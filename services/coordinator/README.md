@@ -37,7 +37,7 @@ Copy `.env.example` to `.env` and fill in:
 | `JWT_TTL_SECONDS` | optional | JWT lifetime (default: 900) |
 | `AUTH_CHALLENGE_TTL_SECONDS` | optional | Nonce TTL (default: 120) |
 | `PRICE_STALE_SECONDS` | optional | CoinGecko cache TTL (default: 120) |
-| `PRICE_DEVIATION_MAX_BPS` | optional | Max rate deviation guard (default: 500 = 5%) |
+| `PRICE_DEVIATION_MAX_BPS` | optional | Max rate deviation guard (default: 100 = 1%) |
 | `COINGECKO_API_KEY` | optional | CoinGecko Pro API key |
 | `PORT` | optional | HTTP port (default: 3000) |
 
