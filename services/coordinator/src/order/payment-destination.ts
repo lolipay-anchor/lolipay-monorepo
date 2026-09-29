@@ -32,7 +32,19 @@ export function normalizePaymentMethodLabel(value: unknown): unknown {
   return boundToCostCeiling(value.replace(LABEL_EDGE_WHITESPACE_RE, '').normalize('NFC'));
 }
 
-export type PaymentDestinationProblem = 'missing' | 'too_long' | 'bad_chars' | 'too_short';
+const STELLAR_SECRET_SEED_SHAPE_RE = /S[A-Z2-7]{55}/;
+
+export const PAYMENT_DESTINATION_SECRET_KEY_SENTENCE =
+  'Those details contain what looks like a Stellar secret key, so this anchor has not stored them and will not pass them on. ' +
+  'Anyone holding that key controls the wallet, so treat it as compromised: create a new wallet and move your funds to it. ' +
+  'Then enter the bank account the rupiah should go to, and nothing else.';
+
+export type PaymentDestinationProblem =
+  | 'missing'
+  | 'too_long'
+  | 'bad_chars'
+  | 'secret_key'
+  | 'too_short';
 
 export type PaymentDestinationCheck =
   | { ok: true; value: string }
@@ -48,6 +60,9 @@ export function checkPaymentDestination(raw: unknown): PaymentDestinationCheck {
   }
   if (PAYMENT_DESTINATION_BAD_CHARS_RE.test(trimmed)) {
     return { ok: false, problem: 'bad_chars' };
+  }
+  if (STELLAR_SECRET_SEED_SHAPE_RE.test(trimmed)) {
+    return { ok: false, problem: 'secret_key' };
   }
   const wordChars = trimmed.match(/[\p{L}\p{N}]/gu)?.length ?? 0;
   if (wordChars < PAYMENT_DESTINATION_MIN_WORD_CHARS) {

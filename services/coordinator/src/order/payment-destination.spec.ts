@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import {
   PAYMENT_DESTINATION_BAD_CHARS_SENTENCE,
   PAYMENT_DESTINATION_MISSING_SENTENCE,
@@ -9,6 +10,7 @@ import {
   checkPaymentDestination,
   NO_CONTROL_OR_FORMAT_CHARS_RE,
   normalizePaymentMethodLabel,
+  PAYMENT_DESTINATION_MAX_LEN,
   PAYMENT_METHOD_LABEL_BAD_CHARS_RE,
   PAYMENT_METHOD_LABEL_COST_CEILING,
   PAYMENT_METHOD_LABEL_DIGIT_RE,
@@ -280,4 +282,67 @@ describe('PAYMENT_METHOD_LABEL_BAD_CHARS_RE refuses sentence-terminating punctua
       expect(PAYMENT_METHOD_LABEL_BAD_CHARS_RE.test(`BCA${codePoint}`)).toBe(false);
     },
   );
+});
+
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+const seedShape = (body = 'A') =>
+  `S${body.repeat(Math.ceil(55 / body.length)).slice(0, 55)}`;
+
+describe('checkPaymentDestination refuses a Stellar secret seed pasted into a payment destination, wherever in the string it sits', () => {
+  it('the fixtures really are the 56-character shape a wallet export produces', () => {
+    expect(seedShape()).toHaveLength(56);
+    expect(seedShape(BASE32_ALPHABET)).toHaveLength(56);
+  });
+
+  it.each<[string, string]>([
+    ['the seed on its own', seedShape()],
+    ['a word before it', `BCA ${seedShape()}`],
+    ['a word after it, which isValidEd25519SecretSeed on the whole string would have admitted', `${seedShape()} MILIK SAYA`],
+    ['a word on each side, which isValidEd25519SecretSeed on the whole string would have admitted', `BCA ${seedShape()} MILIK SAYA`],
+    ['no separator at all, which a whitespace-token split would have admitted', `BCA123${seedShape()}`],
+    ['the full base32 alphabet rather than a run of one letter', `Bank Mandiri ${seedShape(BASE32_ALPHABET)} a/n SIGIT`],
+  ])('refuses a destination carrying %s', (_label, raw) => {
+    expect(checkPaymentDestination(raw)).toEqual({ ok: false, problem: 'secret_key' });
+  });
+
+  it('cannot be bypassed by padding the seed past the length ceiling', () => {
+    const padded = `${seedShape()} ${'B'.repeat(PAYMENT_DESTINATION_MAX_LEN)}`;
+    expect(padded.length).toBeGreaterThan(PAYMENT_DESTINATION_MAX_LEN);
+    expect(checkPaymentDestination(padded).ok).toBe(false);
+  });
+});
+
+describe('the seed guard is specific: real bank details, and every near-miss of the seed shape, are still ACCEPTED', () => {
+  it.each<[string, string]>([
+    ['a real bank string containing the letter S', 'BCA 1234567890 SIGIT PRAYOGO'],
+    ['an existing e2e fixture containing the letter S', 'BNI 111222333 THE USER'],
+    ['a bank name whose every character is in the base32 alphabet', 'BANK CENTRAL ASIA 2345677'],
+    ['one character short of the seed length', `S${'A'.repeat(54)}`],
+    ['the seed length but starting with G, a public key rather than a secret', `G${'A'.repeat(55)}`],
+    ['the seed length starting with S but carrying a digit outside the base32 alphabet', `S${'A'.repeat(54)}0`],
+  ])('accepts %s', (_label, raw) => {
+    expect(checkPaymentDestination(raw)).toEqual({ ok: true, value: raw });
+  });
+});
+
+describe('the price of refusing a seed with no separator around it: a longer base32 run that merely CONTAINS the shape is refused too', () => {
+  const muxedShape = `MA${'A'.repeat(6)}${seedShape()}AAJLK`;
+
+  it('the fixture is the 69-character shape of a Stellar muxed address, five of which already sit in this suite as public fixtures', () => {
+    expect(muxedShape).toHaveLength(69);
+  });
+
+  it('refuses it, and a narrower pattern that spared it would have to demand a non-base32 character before the seed, which is exactly what reopens the no-separator bypass above', () => {
+    expect(checkPaymentDestination(muxedShape)).toEqual({ ok: false, problem: 'secret_key' });
+  });
+});
+
+describe('a Stellar secret seed is refused at the depositor surface, not only by the predicate', () => {
+  it('validatePaymentDestination throws instead of returning the seed it was handed', () => {
+    expect(() => validatePaymentDestination(seedShape())).toThrow(BadRequestException);
+  });
+
+  it('validatePaymentDestination still returns a real bank destination containing the letter S', () => {
+    expect(validatePaymentDestination('BCA 1234567890 SIGIT PRAYOGO')).toBe('BCA 1234567890 SIGIT PRAYOGO');
+  });
 });
