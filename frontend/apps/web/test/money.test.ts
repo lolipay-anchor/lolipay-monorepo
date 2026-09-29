@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatIDR, formatUSDC, parseIDRInput, idrInputAccepted, usdcBaseUnitsFor, effectiveIdrPerUsdc } from '../lib/money'
+import { formatIDR, formatUSDC, parseIDRInput, idrInputAccepted, usdcBaseUnitsFor, effectiveIdrPerUsdc, effectiveRateLabel } from '../lib/money'
 describe('money', () => {
   it('formats IDR with thousands separators', () => {
     expect(formatIDR(1624000)).toBe('Rp 1.624.000')
@@ -51,21 +51,36 @@ describe('usdcBaseUnitsFor turns a rupiah amount into USDC base units without ev
   })
 })
 
-describe('effectiveIdrPerUsdc derives the rate that actually governs the two amounts on screen, never the mid reference', () => {
-  it('divides fiat by usdc (base units, 7dp) rather than trusting a separately-carried mid rate', () => {
-    expect(effectiveIdrPerUsdc(359722, '200000000')).toBeCloseTo(17986.1, 1)
+describe('effectiveIdrPerUsdc derives the rate that actually governs the two amounts on screen, never the mid reference, and rounds it to whole rupiah itself', () => {
+  it('divides fiat by usdc (base units, 7dp) and rounds the result, rather than trusting a separately-carried mid rate', () => {
+    expect(effectiveIdrPerUsdc(359722, '200000000')).toBe(17986)
   })
 
-  it('is unaffected by how many significant digits the mid price carried, because it never reads it', () => {
-    expect(effectiveIdrPerUsdc(1624000, '1000000000')).toBeCloseTo(16240, 6)
+  it('divides cleanly when the amounts are an exact multiple, no rounding needed', () => {
+    expect(effectiveIdrPerUsdc(1624000, '1000000000')).toBe(16240)
   })
 
-  it('answers 0 rather than dividing by a zero or negative usdc amount', () => {
-    expect(effectiveIdrPerUsdc(1624000, '0')).toBe(0)
-    expect(effectiveIdrPerUsdc(1624000, '-100')).toBe(0)
+  it('rounds half up, agreeing with the coordinator\'s own bigint half-up rounding at the same boundary', () => {
+    expect(effectiveIdrPerUsdc(15, '100000000')).toBe(2)
   })
 
-  it('answers 0 for a non-finite fiat amount', () => {
-    expect(effectiveIdrPerUsdc(Number.NaN, '200000000')).toBe(0)
+  it('answers null rather than dividing by a zero or negative usdc amount, so a caller can render blank instead of a confident Rp 0', () => {
+    expect(effectiveIdrPerUsdc(1624000, '0')).toBeNull()
+    expect(effectiveIdrPerUsdc(1624000, '-100')).toBeNull()
+  })
+
+  it('answers null for a non-finite fiat amount, including Infinity', () => {
+    expect(effectiveIdrPerUsdc(Number.NaN, '200000000')).toBeNull()
+    expect(effectiveIdrPerUsdc(Number.POSITIVE_INFINITY, '200000000')).toBeNull()
+  })
+})
+
+describe('effectiveRateLabel is the one place that builds the "1 USDC = X" string, so BuyForm and SellForm cannot say it two different ways', () => {
+  it('formats the effective rate with the label prefix', () => {
+    expect(effectiveRateLabel(359722, '200000000')).toBe('1 USDC = Rp 17.986')
+  })
+
+  it('renders blank, never "1 USDC = Rp 0", when the usdc amount is unusable', () => {
+    expect(effectiveRateLabel(1624000, '0')).toBe('')
   })
 })

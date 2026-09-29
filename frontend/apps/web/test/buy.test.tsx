@@ -95,6 +95,7 @@ describe('BuyForm', () => {
     await typeAmount('1624000')
 
     expect(screen.getAllByText(/USDC/).length).toBeGreaterThan(0)
+    expect(screen.getByText('1 USDC = Rp 16.000')).toBeTruthy()
   })
 
   it('refuses an amount with a comma or a fraction, says why beside the field, and asks for no quote', async () => {

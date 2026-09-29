@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { Lock, ShieldCheck } from 'lucide-react'
 import type { Quote } from '@lolipay/api-client'
-import { formatIDR, formatUSDC, parseIDRInput, idrInputAccepted, IDR_INPUT_REFUSAL } from '@/lib/money'
+import { formatIDR, formatUSDC, parseIDRInput, idrInputAccepted, IDR_INPUT_REFUSAL, effectiveRateLabel } from '@/lib/money'
 import { QuoteBreakdown } from '@/components/QuoteBreakdown'
 import { ReviewSheet, formatMMSS } from '@/components/ReviewSheet'
 import { TrustlineNotice } from '@/components/TrustlineNotice'
@@ -23,10 +23,7 @@ function computeBreakdown(quote: Quote | undefined, usdcAmount: string) {
   const fees =
     gross > 0n ? (gross * BigInt(quote!.platform_fee_bps + quote!.lp_fee_bps)) / 10000n : 0n
   const net = gross - fees
-  const rateText =
-    quote && gross > 0n
-      ? '1 USDC = ' + formatIDR(Math.round(parseInt(quote.fiat_amount) / (Number(gross) / 1e7)))
-      : ''
+  const rateText = quote && gross > 0n ? effectiveRateLabel(parseInt(quote.fiat_amount, 10), usdcAmount) : ''
   return { gross, fees, net, rateText }
 }
 

@@ -29,10 +29,15 @@ export function usdcBaseUnitsFor(idr: number, ratePerUsdc: number): string {
   return String(units)
 }
 
-export function effectiveIdrPerUsdc(fiatAmount: number, usdcBaseUnits: string): number {
+export function effectiveIdrPerUsdc(fiatAmount: number, usdcBaseUnits: string): number | null {
   const usdc = Number(usdcBaseUnits)
-  if (!(usdc > 0) || !Number.isFinite(fiatAmount)) return 0
-  return (fiatAmount * 1e7) / usdc
+  if (!(usdc > 0) || !Number.isFinite(fiatAmount)) return null
+  return Math.round((fiatAmount * 1e7) / usdc)
+}
+
+export function effectiveRateLabel(fiatAmount: number, usdcBaseUnits: string): string {
+  const rate = effectiveIdrPerUsdc(fiatAmount, usdcBaseUnits)
+  return rate == null ? '' : `1 USDC = ${formatIDR(rate)}`
 }
 
 export { usdcToBaseUnits } from '@lolipay/api-client'

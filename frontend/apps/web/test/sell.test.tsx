@@ -314,6 +314,29 @@ describe('SellForm — the locked rate is the rate that governs the amounts on s
     expect(screen.queryByText('1 USDC = Rp 18.260')).toBeNull()
   })
 
+  it('divides by the USDC amount the user typed, not a separately-echoed server value, so the sheet cannot disagree with itself', async () => {
+    mockCreateQuote.mockResolvedValue({
+      quote_id: 'q-echo-mismatch',
+      fiat_amount: '359722',
+      usdc_amount: '100000000',
+      rate: '18260',
+      platform_fee_bps: 30,
+      lp_fee_bps: 120,
+      expires_at: new Date(Date.now() + 60000).toISOString(),
+    })
+    render(
+      <TestProviders>
+        <SellForm />
+      </TestProviders>,
+    )
+    fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('1 USDC = Rp 17.986')).toBeTruthy()
+    })
+    expect(screen.queryByText('1 USDC = Rp 35.972')).toBeNull()
+  })
+
   it('shows the SAME spread-adjusted rate in the review sheet the order is confirmed from', async () => {
     render(
       <TestProviders>

@@ -159,6 +159,7 @@ export function OrderStatus({ id, submitFn }: Props) {
 
   const usdcAmount = formatUSDC(BigInt(order.usdc_amount))
   const fiatAmount = parseInt(order.fiat_amount, 10)
+  const effectiveRate = effectiveIdrPerUsdc(fiatAmount, order.usdc_amount)
 
   const lpPaysFiat = order.flow !== 'TOP_UP'
   const steps = stepsFor(order.status, order.flow)
@@ -184,7 +185,7 @@ export function OrderStatus({ id, submitFn }: Props) {
               </p>
               <p className="mt-[3px] text-[13px] opacity-60">
                 {lpPaysFiat ? 'You receive' : 'You pay'}{' '}
-                {formatIDR(fiatAmount)} · rate {formatIDR(Math.round(effectiveIdrPerUsdc(fiatAmount, order.usdc_amount)))}
+                {formatIDR(fiatAmount)} · rate {effectiveRate == null ? '' : formatIDR(effectiveRate)}
               </p>
             </div>
             <StatusPill tone={pill.tone} className="shrink-0">
