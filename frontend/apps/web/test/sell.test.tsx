@@ -40,7 +40,7 @@ describe('SellForm (WITHDRAW)', () => {
     vi.clearAllMocks()
     mockCreateQuote.mockResolvedValue({
       quote_id: 'q-sell',
-      fiat_amount: '3652000',
+      fiat_amount: '359722',
       usdc_amount: '200000000',
       rate: '18260',
       platform_fee_bps: 30,
@@ -64,7 +64,7 @@ describe('SellForm (WITHDRAW)', () => {
         rail: 'BANK',
         usdcAmount: '200000000',
       })
-      expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy()
+      expect(screen.getByText(/Rp\s?359\.722/)).toBeTruthy()
     })
   })
 
@@ -77,7 +77,7 @@ describe('SellForm (WITHDRAW)', () => {
     fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
 
     await waitFor(() => {
-      expect(screen.getByTestId('quote-net').textContent).toBe('Rp 3.652.000')
+      expect(screen.getByTestId('quote-net').textContent).toBe('Rp 359.722')
     })
 
     expect(screen.queryByText(/fee/i)).toBeNull()
@@ -94,7 +94,7 @@ describe('SellForm (WITHDRAW)', () => {
       target: { value: 'BCA 123 a/n Me' },
     })
 
-    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Rp\s?359\.722/)).toBeTruthy())
     await clickLockCta()
     expect(screen.getByText('Review order')).toBeTruthy()
     expect(mockCreateOrder).not.toHaveBeenCalled()
@@ -122,7 +122,7 @@ describe('SellForm (WITHDRAW)', () => {
       target: { value: '  BCA 123 a/n Me  ' },
     })
 
-    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Rp\s?359\.722/)).toBeTruthy())
     await clickLockCta()
     fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
 
@@ -143,7 +143,7 @@ describe('SellForm (WITHDRAW)', () => {
     )
     fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
     fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA 123 a/n Me' } })
-    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Rp\s?359\.722/)).toBeTruthy())
     await clickLockCta()
     expect(screen.getByText('Review order')).toBeTruthy()
 
@@ -175,7 +175,7 @@ describe('SellForm (WITHDRAW)', () => {
       </TestProviders>,
     )
     fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
-    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Rp\s?359\.722/)).toBeTruthy())
     await clickLockCta()
     await waitFor(() => expect(screen.getByText(/bank account details/i)).toBeTruthy())
     expect(screen.queryByText('Review order')).toBeNull()
@@ -190,7 +190,7 @@ describe('SellForm (WITHDRAW)', () => {
     )
     fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
     fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA' } })
-    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Rp\s?359\.722/)).toBeTruthy())
     await clickLockCta()
 
     await waitFor(() => {
@@ -228,7 +228,7 @@ describe('SellForm (WITHDRAW)', () => {
     const amount = screen.getByLabelText(/You sell/i)
     fireEvent.change(amount, { target: { value: '20' } })
     fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA 123 a/n Me' } })
-    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Rp\s?359\.722/)).toBeTruthy())
     await clickLockCta()
     expect(screen.getByText('Review order')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
@@ -249,7 +249,7 @@ describe('SellForm (WITHDRAW)', () => {
     const amount = screen.getByLabelText(/You sell/i)
     fireEvent.change(amount, { target: { value: '20' } })
     fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA 123 a/n Me' } })
-    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Rp\s?359\.722/)).toBeTruthy())
     await clickLockCta()
     expect(screen.getByText('Review order')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
@@ -268,7 +268,7 @@ describe('SellForm (WITHDRAW)', () => {
     )
     fireEvent.change(screen.getByLabelText(/You sell/i), { target: { value: '20' } })
     fireEvent.change(screen.getByLabelText(/bank account/i), { target: { value: 'BCA 123 a/n Me' } })
-    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Rp\s?359\.722/)).toBeTruthy())
     const cta = screen.getByRole('button', { name: /Lock USDC & sell/i }) as HTMLButtonElement
     await waitFor(() => expect(cta).toBeEnabled())
 
@@ -363,7 +363,7 @@ describe('SellForm — balance and exceeds-balance', () => {
     vi.clearAllMocks()
     mockCreateQuote.mockResolvedValue({
       quote_id: 'q-sell2',
-      fiat_amount: '3652000',
+      fiat_amount: '359722',
       usdc_amount: '200000000',
       rate: '18260',
       platform_fee_bps: 30,
@@ -402,7 +402,7 @@ describe('SellForm — quote expires while the review sheet is open', () => {
     try {
       mockCreateQuote.mockImplementation(async () => ({
         quote_id: 'q-short',
-        fiat_amount: '3652000',
+        fiat_amount: '359722',
         usdc_amount: '200000000',
         rate: '18260',
         platform_fee_bps: 30,
@@ -419,7 +419,7 @@ describe('SellForm — quote expires while the review sheet is open', () => {
       fireEvent.change(screen.getByLabelText(/bank account/i), {
         target: { value: 'BCA 123 a/n Me' },
       })
-      await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+      await waitFor(() => expect(screen.getByText(/Rp\s?359\.722/)).toBeTruthy())
       await clickLockCta()
       expect(screen.getByText('Review order')).toBeTruthy()
 
@@ -456,7 +456,7 @@ describe('SellForm — the review sheet is immune to a background quote refetch'
       return calls === 1
         ? {
             quote_id: 'q-first',
-            fiat_amount: '3652000',
+            fiat_amount: '359722',
             usdc_amount: '200000000',
             rate: '18260',
             platform_fee_bps: 30,
@@ -465,7 +465,7 @@ describe('SellForm — the review sheet is immune to a background quote refetch'
           }
         : {
             quote_id: 'q-second',
-            fiat_amount: '3900000',
+            fiat_amount: '384150',
             usdc_amount: '200000000',
             rate: '19500',
             platform_fee_bps: 40,
@@ -483,13 +483,13 @@ describe('SellForm — the review sheet is immune to a background quote refetch'
     fireEvent.change(screen.getByLabelText(/bank account/i), {
       target: { value: 'BCA 123 a/n Me' },
     })
-    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Rp\s?359\.722/)).toBeTruthy())
     await clickLockCta()
     expect(screen.getByText('Review order')).toBeTruthy()
 
     const sheet = () =>
       within(screen.getByText('Review order').closest('div.flex.flex-col') as HTMLElement)
-    expect(sheet().getByText(/Rp\s?3\.652\.000/)).toBeTruthy()
+    expect(sheet().getByText(/Rp\s?359\.722/)).toBeTruthy()
 
     await act(async () => {
       await queryClient.refetchQueries({ queryKey: ['sellQuote'] })
@@ -497,11 +497,11 @@ describe('SellForm — the review sheet is immune to a background quote refetch'
 
     await waitFor(() => expect(calls).toBeGreaterThanOrEqual(2))
 
-    await waitFor(() => expect(screen.getByText(/Rp\s?3\.900\.000/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Rp\s?384\.150/)).toBeTruthy())
 
     expect(screen.getByText('Review order')).toBeTruthy()
-    expect(sheet().getByText(/Rp\s?3\.652\.000/)).toBeTruthy()
-    expect(sheet().queryByText(/Rp\s?3\.900\.000/)).toBeNull()
+    expect(sheet().getByText(/Rp\s?359\.722/)).toBeTruthy()
+    expect(sheet().queryByText(/Rp\s?384\.150/)).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: /confirm — sign/i }))
     await waitFor(() => {
@@ -540,7 +540,7 @@ describe('SellForm — exceeds-balance BigInt logic (authenticated, positive pat
     sessionStorage.setItem('lp_addr', ADDR)
     mockCreateQuote.mockResolvedValue({
       quote_id: 'q-sell-bal',
-      fiat_amount: '3652000',
+      fiat_amount: '359722',
       usdc_amount: '200000000',
       rate: '18260',
       platform_fee_bps: 30,
@@ -568,7 +568,7 @@ describe('SellForm — exceeds-balance BigInt logic (authenticated, positive pat
     fireEvent.change(screen.getByLabelText(/bank account/i), {
       target: { value: 'BCA 123 a/n Me' },
     })
-    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Rp\s?359\.722/)).toBeTruthy())
 
     expect(screen.queryByText(/exceeds balance/i)).toBeNull()
 
@@ -616,7 +616,7 @@ describe('SellForm — exceeds-balance BigInt logic (authenticated, positive pat
     fireEvent.change(screen.getByLabelText(/bank account/i), {
       target: { value: 'BCA 123 a/n Me' },
     })
-    await waitFor(() => expect(screen.getByText(/Rp\s?3\.652\.000/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Rp\s?359\.722/)).toBeTruthy())
 
     expect(screen.queryByText(/exceeds balance/i)).toBeNull()
     await clickLockCta()
