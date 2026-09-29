@@ -113,4 +113,12 @@ describe('CoinGeckoAdapter.fetchPrices', () => {
 
     jest.useRealTimers();
   });
+
+  it('never embeds a URL fragment in the fetch-error message (the throw site that will carry a future API key)', async () => {
+    fetchMock.mockRejectedValue(new Error('boom'));
+
+    const message = await adapter.fetchPrices(['IDR']).catch((e: Error) => e.message);
+
+    expect(message).not.toMatch(/http/i);
+  });
 });

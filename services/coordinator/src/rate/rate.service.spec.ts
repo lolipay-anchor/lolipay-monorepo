@@ -315,9 +315,14 @@ describe('RateService.getReferencePrice', () => {
     const err = jest.spyOn(console, 'error').mockImplementation(() => {});
     const staleFetchedAt = new Date(Date.now() - 200_000);
     const prisma = makePrisma({
+      market: {
+        findMany: jest.fn().mockResolvedValue([
+          makeMarketRow({ code: 'VND', priceMinPerUsdc: '15000', priceMaxPerUsdc: '40000' }),
+        ]),
+      },
       fiatPriceCache: {
         findUnique: jest.fn().mockResolvedValue({
-          fiat: 'IDR', source: 'coingecko', pricePerUsdc: '16000', fetchedAt: staleFetchedAt,
+          fiat: 'VND', source: 'coingecko', pricePerUsdc: '16000', fetchedAt: staleFetchedAt,
         }),
         upsert: jest.fn(),
       },
@@ -328,13 +333,36 @@ describe('RateService.getReferencePrice', () => {
     };
     const svc = makeSvc(prisma, adapter);
 
-    await expect(svc.getReferencePrice('IDR')).rejects.toThrow('price source unavailable');
+    await expect(svc.getReferencePrice('VND')).rejects.toThrow('price source unavailable');
 
     expect(err).toHaveBeenCalledTimes(1);
     expect(err.mock.calls[0]).toHaveLength(1);
     expect(typeof err.mock.calls[0][0]).toBe('string');
     expect(err).toHaveBeenCalledWith(expect.stringContaining('coingecko 403'));
-    expect(err).toHaveBeenCalledWith(expect.stringContaining('IDR'));
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('VND'));
+    err.mockRestore();
+  });
+
+  it('stringifies a non-Error throw (String(e) arm) before logging it', async () => {
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const staleFetchedAt = new Date(Date.now() - 200_000);
+    const prisma = makePrisma({
+      fiatPriceCache: {
+        findUnique: jest.fn().mockResolvedValue({
+          fiat: 'IDR', source: 'coingecko', pricePerUsdc: '16000', fetchedAt: staleFetchedAt,
+        }),
+        upsert: jest.fn(),
+      },
+    });
+    const adapter = {
+      name: 'mock',
+      fetchPrices: jest.fn().mockRejectedValue('raw-string-rejection'),
+    };
+    const svc = makeSvc(prisma, adapter);
+
+    await expect(svc.getReferencePrice('IDR')).rejects.toThrow('price source unavailable');
+
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('raw-string-rejection'));
     err.mockRestore();
   });
 
