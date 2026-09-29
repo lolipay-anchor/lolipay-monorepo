@@ -123,7 +123,9 @@ describe('CoinGeckoAdapter.fetchPrices', () => {
   });
 
   it('never embeds a URL fragment in the fetch-error message (the throw site that will carry a future API key)', async () => {
-    fetchMock.mockRejectedValue(new Error('boom'));
+    const err = new Error('boom');
+    (err as any).cause = new Error('connect ECONNREFUSED 104.18.0.1:443');
+    fetchMock.mockRejectedValue(err);
 
     const message = await adapter.fetchPrices(['IDR']).catch((e: Error) => e.message);
 
@@ -218,5 +220,15 @@ describe('CoinGeckoAdapter.fetchPrices', () => {
     await expect(adapter.fetchPrices(['IDR'])).rejects.toThrow(
       'coingecko fetch error: terminated (cause: Body Timeout Error)',
     );
+  });
+
+  it('caps e.cause at exactly 120 characters, not merely somewhere beyond it', async () => {
+    const err = new Error('terminated');
+    (err as any).cause = new Error('Z'.repeat(500));
+    fetchMock.mockRejectedValue(err);
+
+    const message = await adapter.fetchPrices(['IDR']).catch((e: Error) => e.message);
+
+    expect(message).toBe(`coingecko fetch error: terminated (cause: ${'Z'.repeat(120)})`);
   });
 });

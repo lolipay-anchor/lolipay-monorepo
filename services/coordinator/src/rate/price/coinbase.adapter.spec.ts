@@ -94,6 +94,16 @@ describe('CoinbaseAdapter.fetchPrices', () => {
     expect(result).toEqual({ IDR: '16234.500000' });
   });
 
+  it('omits a fiat whose rate string parses to a non-finite number', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ data: { currency: 'USDC', rates: { IDR: 'Infinity' } } }),
+    );
+
+    const result = await adapter.fetchPrices(['IDR']);
+
+    expect(result.IDR).toBeUndefined();
+  });
+
   it('throws when the base currency is not USDC', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ data: { currency: 'USD', rates: { IDR: '16234.5' } } }),
@@ -138,7 +148,7 @@ describe('CoinbaseAdapter.fetchPrices', () => {
   });
 
   it('wraps a malformed JSON body as a fetch error, capped and newline-stripped', async () => {
-    const longBody = 'not json\nwith a newline'.repeat(20);
+    const longBody = 'not json\nwith a newline'.repeat(20) + 'FORGED_LEAK_MARKER_MUST_NOT_APPEAR';
     fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
@@ -159,6 +169,7 @@ describe('CoinbaseAdapter.fetchPrices', () => {
     expect(error!.message.startsWith('coinbase fetch error:')).toBe(true);
     expect(error!.message).not.toMatch(/[\r\n]/);
     expect(error!.message.length).toBeLessThanOrEqual('coinbase fetch error: '.length + 200);
+    expect(error!.message).not.toContain('FORGED_LEAK_MARKER_MUST_NOT_APPEAR');
   });
 
   it('aborts the request via AbortController when the timeout elapses', async () => {
