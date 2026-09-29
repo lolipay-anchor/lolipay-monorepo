@@ -262,7 +262,7 @@ export default async function AnchorPage() {
         </P>
         <P>
           {
-            "The refunded status on this anchor does not say the rupiah never arrived, and there is more than one way it gets there. A deposit whose rupiah was sent but never recorded on the chain can end with the USDC back with the liquidity provider through the refund, which takes no signature at all, so the caller can be anyone, the person and the provider included. A deposit whose rupiah was recorded can end the same way through a dispute at FiatPaid resolved as a refund, and one lolipay key can do that alone. Tell your user to keep their transfer receipt."
+            "The refunded status on this anchor does not say the rupiah never arrived, and there is more than one way it gets there. A deposit whose rupiah was sent but never recorded on the chain can end with the USDC back with the liquidity provider through the refund, which takes no signature at all, so the caller can be anyone, the person and the provider included. A deposit whose rupiah was recorded can end the same way through a dispute at FiatPaid resolved as a refund, and one lolipay key can do that alone. Tell your user to keep their transfer receipt: on both of those routes the person can have sent the rupiah and received no USDC, and a dispute they raise from their order on lolipay's own app accepts a file they attach."
           }
         </P>
         <H3>{"FiatPaid: one signature, or a dispute, and no clock on either"}</H3>
@@ -408,7 +408,7 @@ export default async function AnchorPage() {
             {
               term: 'refunded',
               detail:
-                'The trade closed without completing, and no USDC was sent to the person. It does not tell you whether the person sent the rupiah: the escrow can return to the provider either because the rupiah never arrived or because the provider did not confirm one that did. Render message, which tells the person to keep their transfer receipt. lolipay emits no refunds object and no amount_refunded, so there is no refund figure here to show anyone.',
+                'The trade closed without completing, and no USDC was sent to the person. It does not tell you whether the person sent the rupiah: the escrow can return to the provider either because the rupiah never arrived or because the provider did not confirm one that did. Render message. It covers the transfer receipt and does not end there: it goes on to name a page the person can sign in to with the same wallet, and what to look for there. A wallet that shows only the receipt clause drops that. lolipay emits no refunds object and no amount_refunded, so there is no refund figure here to show anyone.',
             },
             {
               term: 'expired',
