@@ -139,6 +139,16 @@ describe('BuySellWidget', () => {
     expect(valueBeside('Per trade')).toBe('—')
   })
 
+  it('renders the published per-trade interval and the 24-hour account limit disclosure, so the interval is not the only bound on screen', async () => {
+    render(<BuySellWidget fees={{ ...FEES, minAmount: 5, maxAmount: 1000 }} />)
+    await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
+
+    expect(valueBeside('Per trade')).toBe('5–1000 USDC')
+    expect(
+      screen.getByText('Non-custodial · price held for 5 min at checkout · a 24-hour account limit also applies'),
+    ).toBeInTheDocument()
+  })
+
   it('tells the seller why the rupiah figure is a dash, on the sell tab only, and keeps the dash', async () => {
     render(<BuySellWidget fees={{ depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: null, minAmount: null, maxAmount: null }} />)
     await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())

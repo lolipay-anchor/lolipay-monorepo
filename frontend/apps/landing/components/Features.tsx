@@ -88,7 +88,7 @@ export function Features() {
             </svg>
             <div className="font-geist text-[17px] font-bold">You hold the keys</div>
             <p className="mt-[7px] text-[13.5px] leading-[1.5] text-lp-ink-soft">
-              No KYC to browse, and no custody of your coins — ever.
+              No KYC to browse. Verification before your first trade, and lolipay never holds your keys.
             </p>
           </div>
         </div>

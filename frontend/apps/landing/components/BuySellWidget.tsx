@@ -219,7 +219,9 @@ export function BuySellWidget({ fees }: { fees: AnchorFees }) {
         >
           Connect wallet to continue
         </a>
-        <p className="mt-[11px] text-center text-[11.5px] text-lp-muted">Non-custodial · price held for 5 min at checkout</p>
+        <p className="mt-[11px] text-balance text-center text-[11.5px] text-lp-muted">
+          Non-custodial · price held for 5 min at checkout · a 24-hour account limit also applies
+        </p>
       </div>
     </div>
   )

@@ -55,19 +55,19 @@ describe('landing sections', () => {
     }
     expect(screen.queryByText('admin.lolipay.app')).toBeNull()
   })
-  it('names Terms, Privacy and Risk notice as plain text, never as a link that goes nowhere', () => {
+  it('carries no Legal column, because a column headed Legal listing three document names represents that three documents exist while /terms, /privacy and /risk all 404 — the one true legal line stays', () => {
     render(<Footer />)
-    for (const t of ['Terms', 'Privacy', 'Risk notice']) {
-      expect(screen.getByText(t)).toBeInTheDocument()
-      expect(screen.queryByRole('link', { name: t })).toBeNull()
+    for (const t of ['Legal', 'Terms', 'Privacy', 'Risk notice']) {
+      expect(screen.queryByText(t)).toBeNull()
     }
+    expect(screen.getByText('© 2026 lolipay. Not a bank. USDC ⇄ IDR is provided peer-to-peer.')).toBeInTheDocument()
     for (const link of screen.getAllByRole('link')) {
       expect(link.getAttribute('href')).not.toBe('#')
     }
   })
 })
 
-describe('the seven copy fixes leave no withdrawn phrase standing anywhere else on the page (a rewording of the same claim would still pass this)', () => {
+describe('no withdrawn phrase stands anywhere else on the page (a rewording of the same claim would still pass this)', () => {
   it('renders none of the withdrawn phrases across HowItWorks, Features, TrustStrip and ProvidersCta', () => {
     render(
       <>
@@ -90,12 +90,16 @@ describe('the seven copy fixes leave no withdrawn phrase standing anywhere else 
       /and more/i,
       /& more/i,
       /on every order/i,
+      /No KYC to browse, and no custody/i,
+      /no custody of your coins/i,
     ]
     for (const pattern of WITHDRAWN_PATTERNS) {
       expect(screen.queryByText(pattern)).toBeNull()
     }
 
-    expect(screen.getByText('No KYC to browse, and no custody of your coins — ever.')).toBeInTheDocument()
+    expect(
+      screen.getByText('No KYC to browse. Verification before your first trade, and lolipay never holds your keys.'),
+    ).toBeInTheDocument()
     expect(screen.getByText(/Top up from local currency or cash out to your bank at a live rate you see before you commit\./)).toBeInTheDocument()
     expect(screen.getByText(/Every counterparty is staked and rated\. See their track record once a provider takes your order\./)).toBeInTheDocument()
     expect(screen.getByText(/Rates refresh every twelve seconds and lock for five minutes at checkout/)).toBeInTheDocument()

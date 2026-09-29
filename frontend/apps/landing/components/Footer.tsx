@@ -4,7 +4,7 @@ export function Footer() {
   return (
     <footer className="border-t border-lp-line bg-lp-raise">
       <div className="mx-auto max-w-[1200px] px-7 pb-10 pt-14">
-        <div className="grid grid-cols-2 gap-7 min-[900px]:grid-cols-[1.4fr_1fr_1fr_1fr] min-[900px]:gap-8">
+        <div className="grid grid-cols-2 gap-7 min-[900px]:grid-cols-[1.4fr_1fr_1fr] min-[900px]:gap-8">
           <div>
             <div className="flex items-center gap-[9px]">
               <span className="flex h-7 w-7 items-center justify-center rounded-[9px] bg-lp-accent">
@@ -45,14 +45,6 @@ export function Footer() {
               <Link href="/anchor" className="text-lp-ink-soft no-underline">
                 For wallet developers
               </Link>
-            </div>
-          </div>
-          <div>
-            <div className="mb-3 font-geist-mono text-xs uppercase tracking-[.08em] text-lp-muted">Legal</div>
-            <div className="flex flex-col gap-[9px] text-sm">
-              <span className="text-lp-ink-soft">Terms</span>
-              <span className="text-lp-ink-soft">Privacy</span>
-              <span className="text-lp-ink-soft">Risk notice</span>
             </div>
           </div>
         </div>
