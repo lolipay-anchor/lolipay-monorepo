@@ -185,7 +185,8 @@ export function OrderStatus({ id, submitFn }: Props) {
               </p>
               <p className="mt-[3px] text-[13px] opacity-60">
                 {lpPaysFiat ? 'You receive' : 'You pay'}{' '}
-                {formatIDR(fiatAmount)} · rate {effectiveRate == null ? '' : formatIDR(effectiveRate)}
+                {formatIDR(fiatAmount)}
+                {effectiveRate != null && ` · rate ${formatIDR(effectiveRate)}`}
               </p>
             </div>
             <StatusPill tone={pill.tone} className="shrink-0">

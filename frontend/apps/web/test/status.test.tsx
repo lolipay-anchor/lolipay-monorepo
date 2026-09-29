@@ -233,6 +233,26 @@ describe('OrderStatus component', () => {
     expect(screen.queryByText(/17976\.497988795364408085265/)).toBeNull()
   })
 
+  it('drops the whole rate clause, rather than leaving a dangling "· rate", when the order carries no USDC to divide by', async () => {
+    const order: Order = {
+      ...BASE_ORDER,
+      id: 'ord-rate-zero',
+      payment_instructions: undefined,
+      usdc_amount: '0',
+      fiat_amount: '1600000',
+    }
+    mockGetOrder.mockResolvedValue(order)
+
+    render(
+      <TestProviders>
+        <OrderStatusComponent id="ord-rate-zero" />
+      </TestProviders>,
+    )
+
+    const line = await waitFor(() => screen.getByText(/You pay Rp 1\.600\.000/))
+    expect(line.textContent).toBe('You pay Rp 1.600.000')
+  })
+
   it('shows USDC amount and fiat amount in summary card', async () => {
     const order = { ...BASE_ORDER, id: 'ord-c5', payment_instructions: undefined }
     mockGetOrder.mockResolvedValue(order)

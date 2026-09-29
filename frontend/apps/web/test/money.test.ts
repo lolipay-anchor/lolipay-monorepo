@@ -80,7 +80,7 @@ describe('effectiveRateLabel is the one place that builds the "1 USDC = X" strin
     expect(effectiveRateLabel(359722, '200000000')).toBe('1 USDC = Rp 17.986')
   })
 
-  it('renders blank, never "1 USDC = Rp 0", when the usdc amount is unusable', () => {
-    expect(effectiveRateLabel(1624000, '0')).toBe('')
+  it('renders the em-dash this app already uses for a number it does not know, never "1 USDC = Rp 0" and never a bare "1 USDC ="', () => {
+    expect(effectiveRateLabel(1624000, '0')).toBe('—')
   })
 })

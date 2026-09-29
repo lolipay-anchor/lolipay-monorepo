@@ -37,7 +37,7 @@ export function effectiveIdrPerUsdc(fiatAmount: number, usdcBaseUnits: string): 
 
 export function effectiveRateLabel(fiatAmount: number, usdcBaseUnits: string): string {
   const rate = effectiveIdrPerUsdc(fiatAmount, usdcBaseUnits)
-  return rate == null ? '' : `1 USDC = ${formatIDR(rate)}`
+  return rate == null ? '—' : `1 USDC = ${formatIDR(rate)}`
 }
 
 export { usdcToBaseUnits } from '@lolipay/api-client'
