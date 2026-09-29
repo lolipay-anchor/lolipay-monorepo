@@ -146,7 +146,8 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
     expect(page.split(FINALITY_PROMISE).length - 1).toBe(0)
   })
 
-  it('fires on the words it bans and stays silent on the words that merely contain them', () => {
+  it('fires on the words it bans and stays silent on the words that merely contain them, and keeps all eighteen banned words', () => {
+    expect(BANNED).toHaveLength(18)
     for (const hit of ['Coming soon', 'currently unavailable', 'TODO: fix this', 'in beta', 'for now']) {
       expect(hit).toMatch(DATING_WORD)
     }
@@ -157,7 +158,7 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
 })
 
 describe('the custody and withdrawal prose carries only the clauses the ruling left standing', () => {
-  it('carries none of the thirty-seven withdrawn clauses, and none of them is degenerate', () => {
+  it('carries none of the thirty-seven withdrawn clauses, and none of them is degenerate, and does carry the two narrowed replacements', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
 
     expect(page.length).toBeGreaterThan(0)
@@ -166,6 +167,8 @@ describe('the custody and withdrawal prose carries only the clauses the ruling l
     for (const clause of WITHDRAWN) {
       expect.soft(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 0`)
     }
+    expect(page).toContain('can and cannot reach in that escrow is below')
+    expect(page).toContain('change where the money goes in it.')
   })
 })
 
