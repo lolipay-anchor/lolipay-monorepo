@@ -87,6 +87,19 @@ describe('CoinGeckoAdapter.fetchPrices', () => {
     expect(result).toEqual({ PHP: '58.4' });
   });
 
+  it('omits a fiat whose rate parses to a non-finite number (a JSON number can still overflow)', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: async () => '{"usd-coin":{"idr":1e999,"php":58.4}}',
+    } as unknown as Response);
+
+    const result = await adapter.fetchPrices(['IDR', 'PHP']);
+
+    expect(result).toEqual({ PHP: '58.4' });
+  });
+
   it('returns an empty record when the whole "usd-coin" key is missing', async () => {
     fetchMock.mockResolvedValue(jsonResponse({}));
 
