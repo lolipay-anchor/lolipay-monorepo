@@ -51,6 +51,14 @@ const WITHDRAWN = [
   'every call that could still complete the deposit is one a pause stops',
   'the deposit cannot complete while it is in force',
   'The refund opens on its own clock',
+  'every paragraph after this one',
+  'that is where a single privileged lolipay key',
+  'the only route on which a single privileged lolipay key',
+  'records who was liable',
+  'nothing moves and the verdict records liability',
+  "Which of the trade's two accounts receives the USDC follows the outcome",
+  'chooses between the two destinations the trade already holds',
+  'the outcome still names one of the two accounts the trade already holds',
 ]
 
 const TRADE_STATE_HEADINGS = [
@@ -134,11 +142,11 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
 })
 
 describe('the custody and withdrawal prose carries only the clauses the ruling left standing', () => {
-  it('carries none of the fourteen withdrawn clauses, and none of them is degenerate', () => {
+  it('carries none of the twenty-two withdrawn clauses, and none of them is degenerate', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
 
     expect(page.length).toBeGreaterThan(0)
-    expect(WITHDRAWN).toHaveLength(14)
+    expect(WITHDRAWN).toHaveLength(22)
     expect(WITHDRAWN.every((clause) => clause.length > 0)).toBe(true)
     for (const clause of WITHDRAWN) {
       expect(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 0`)
@@ -156,9 +164,10 @@ describe('the anchor page a wallet developer lands on', () => {
     expect(screen.getByRole('link', { name: TOML_URL })).toHaveAttribute('href', TOML_URL)
   })
 
-  it('names each of the four trade states as its own heading, matched case-sensitively so a lower-cased mention in body text cannot satisfy it', async () => {
+  it("names each of the four trade states as its own heading, and pins that heading's own accessible name to exactly this string, case included", async () => {
     render(await AnchorPage())
 
+    expect(TRADE_STATE_HEADINGS).toHaveLength(4)
     for (const name of TRADE_STATE_HEADINGS) {
       expect(screen.getByRole('heading', { name })).toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: name.toLowerCase() })).toBeNull()
