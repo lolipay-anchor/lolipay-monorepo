@@ -320,7 +320,7 @@ export function AssignmentCard({
       <p className="mb-1 text-sm text-lp-muted">
         {lpIsFiatPayer ? 'You pay' : 'You receive'} {fiatDisplay} via {order.rail}
       </p>
-      <p className="mb-1 text-xs text-lp-muted">Rate: {order.rate_snapshot}</p>
+      <p className="mb-1 text-xs text-lp-muted">Rate: {formatIDR(Number(order.rate_snapshot))}</p>
       {}
       {order.user_address && (
         <p className="mb-3 text-xs text-lp-muted">

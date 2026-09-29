@@ -88,6 +88,25 @@ describe('AssignmentCard — Lock USDC (MATCHED)', () => {
     expect(screen.getByText(/MATCHED/)).toBeTruthy()
   })
 
+  it('rounds a long-precision wire rate to whole rupiah, never printing the raw string', () => {
+    render(
+      <TestProviders kit={fakeKit}>
+        <AssignmentCard
+          assignment={{
+            order: makeOrder({
+              status: 'MATCHED',
+              rate_snapshot: '17976.497988795364408085265',
+            }),
+          }}
+          onRefetch={vi.fn()}
+        />
+      </TestProviders>,
+    )
+
+    expect(screen.getByText('Rate: Rp 17.976')).toBeTruthy()
+    expect(screen.queryByText(/17976\.497988795364408085265/)).toBeNull()
+  })
+
   it('renders Lock USDC button for AWAITING_ONCHAIN status too', () => {
     render(
       <TestProviders kit={fakeKit}>
