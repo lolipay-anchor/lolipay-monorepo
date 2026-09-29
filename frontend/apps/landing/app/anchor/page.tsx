@@ -241,22 +241,51 @@ export default async function AnchorPage() {
         </P>
         <P>
           {
-            "The attestor records that the rupiah arrived on a deposit. That is a step that moves a deposit past FUNDED on the attestor's signature alone, and it is also a required second signature when a dispute raised on a funded deposit is resolved. The resolver decides a dispute, and the decision is one of two values, release or refund, so it chooses between the two destinations the trade already holds and cannot name a third. The administrator sets the fee and the dispute window, pauses the contract, and can appoint a different resolver. It also has one money-moving path: once the resolver's own window has passed, the administrator can resolve a funded-trade dispute as a refund, and that is the only route on which a single privileged lolipay key unwinds an escrow without a second signature. It still returns the USDC to the account that provided it."
+            "The attestor records that the rupiah arrived on a deposit. That is a step that moves a deposit past Funded on the attestor's signature alone, and it is also a required second signature when a dispute raised on a funded deposit is resolved. The resolver decides a dispute, and the decision is one of two values, release or refund, so it chooses between the two destinations the trade already holds and cannot name a third. The administrator sets the fee and the dispute window, pauses the contract, and can appoint a different resolver. It also reaches the money once the resolver's own window has passed, by resolving a dispute. On a trade disputed while it was Funded it can refund alone; a release there needs the attestor's signature too, from whoever calls it. On a trade disputed at FiatPaid it can do either, and so can the resolver, with no window to wait for and the standing to raise that dispute itself - that is where a single privileged lolipay key moves an escrow with no other signature on it. What neither of them gains by it is a destination: the outcome still names one of the two accounts the trade already holds."
           }
         </P>
         <P>
           {
-            "A pause is not a freeze, and the difference matters if you are holding a deposit open. It stops new trades, stops the attestor recording a transfer, stops an early release, and stops a dispute being raised on a funded trade. Those four are the only calls it stops. A pause stops no call that returns the USDC to the provider, and it does not stop the account receiving the USDC marking the transfer, nor the account that provided it releasing on that record. So what a pause costs a funded deposit depends on the deadline for that account's own record of the transfer, which on every trade the contract accepts falls earlier than the attestor's. Before that deadline a pause does not stop the deposit completing: that account marks the transfer, the account that provided the USDC releases on that record, and a pause stops neither. Between that deadline and the refund opening, every call that could still complete the deposit is one a pause stops, so the deposit cannot complete while it is in force. The attestor's own deadline is the same instant the refund opens, so a pause lifted before that instant leaves the attestor able to record the transfer after all, and a pause still in force at that instant has consumed the attestor's window, which no later lifting reopens. The refund opens on its own clock whether the pause is lifted or not."
+            "Two separate switches are called a pause here, and neither one reads the other. One is a row in lolipay's own database: while it is set the coordinator refuses to quote a rate and refuses to open an order, and the interactive page tells the person so in words. The other is a flag inside the escrow contract, set by the administrator's key on the chain, and it is the one every paragraph below describes. Read that one from get_config rather than inferring it from what the interactive page said. It refuses create_trade, so while it is set no new escrow opens; what it does to a trade already running belongs to each call, and every call below says whether a pause refuses it. One identity to carry into those lists: the contract refuses to create a trade whose confirmer is not the account that provided the USDC, so on every trade that exists those two are one address, and the paragraphs below call it the provider."
+          }
+        </P>
+        <H3>Funded: what moves a trade, and what a pause refuses</H3>
+        <P>
+          {
+            "At Funded the escrow accepts the calls in this paragraph and refuses every other call it has that acts on a trade. The contract reads a trade's direction only at this status, so every paragraph after this one describes a deposit and a withdrawal alike. The account receiving the USDC may record the transfer, no later than the pay deadline on a deposit and the confirm deadline on a withdrawal, and a pause does not stop it; that is what the contract accepts from them, not something a lolipay screen offers a depositor. The attestor may record the same transfer on a deposit and on no withdrawal, and its last valid moment is the confirm deadline or an hour past the pay deadline, whichever falls first; a pause refuses it. An early release sends the USDC to the account receiving it, on a deposit and on no withdrawal, no later than that same moment, on the attestor's signature and the provider's together; a pause refuses it, and it also refuses any provider the administrator has not named on an allowlist that get_config returns, so read that list before you treat the route as open. The refund returns the USDC to the provider, takes no signature from anyone, and its first valid moment is the one after that same moment on a deposit, or the one after the confirm deadline on a withdrawal; a pause does not stop it. A cancel returns the USDC to the provider with no deadline on it and both parties' signatures on it; a pause does not stop it. A dispute may be raised only by the resolver, no later than the dispute deadline, and on a withdrawal by nobody at all, the resolver included; a pause refuses it."
           }
         </P>
         <P>
           {
-            "One route needs no key at all. When the window to record a deposit's rupiah has closed, the refund that returns the USDC to the provider checks only the clock: anyone may call it, the person and the provider included. A deposit whose rupiah was sent but never recorded can therefore end with the USDC back with the provider, which is why the refunded status on this anchor does not claim the rupiah never arrived. Tell your user to keep their transfer receipt."
+            "The attestor's deadline, the early release's, and the refund's opening are one expression read in three places, so the boundary between them is exact rather than approximate: the attestor and the early release may still act at that moment, and the refund may not act until the one after it. No moment has the attestor's route and the refund both open. On a withdrawal there is no attestor's route at all; there the account receiving the USDC may record the transfer through the confirm deadline, and the refund's first valid moment is the one after it."
           }
         </P>
         <P>
           {
-            "Who may raise a dispute is narrower than any of the routes above. While a trade is funded the escrow admits only the resolver to raise one, and on a funded withdrawal it admits nobody at all, the resolver included. Once it has closed, released or refunded, the person and the provider may each raise a dispute of their own within the post-settlement window. That is why the transfer receipt matters, and why this page tells you to have them keep it."
+            "The refund taking no signature has a consequence worth designing for. A deposit whose rupiah was sent but never recorded on the chain can end with the USDC back with the provider, and the caller can be anyone, the person and the provider included. So the refunded status on this anchor does not claim the rupiah never arrived. Tell your user to keep their transfer receipt."
+          }
+        </P>
+        <H3>{"FiatPaid: the provider's signature or a dispute, and no clock on either"}</H3>
+        <P>
+          {
+            "At FiatPaid the escrow accepts the provider's release and a dispute, and refuses every other call it has that acts on a trade. The provider releases, and the USDC goes to the account receiving it, less the two fee amounts the trade already names, on the provider's signature, with no deadline on the call and no pause stopping it. A dispute may be raised by the resolver or by either party, also with no deadline and no pause on it."
+          }
+        </P>
+        <P>
+          {
+            "What is absent here is the part to design around. The refund and the cancel both refuse every status but Funded, so at FiatPaid no clock moves the money and no call moves it without a key. A trade whose provider never releases and which nobody disputes stays at FiatPaid with no deadline working on it either way, none that pays it out and none that gives it back. And the key that ends it is not the depositor's: resolve refuses both parties, so a person can open a dispute at FiatPaid and cannot close one."
+          }
+        </P>
+        <H3>Released or Refunded: only a dispute still reaches a settled trade</H3>
+        <P>
+          {
+            "At Released and at Refunded the only call that still reaches the trade is a dispute. The person and the provider may each raise one of their own inside the post-settlement window, and the resolver may raise one too, each of them once and no more, and no pause stops any of them. The window is the one the trade was created under, not the one the administrator has set since, and widening it does not reopen a trade that has already settled. A dispute raised at either status moves no USDC when it is resolved: the verdict records who was liable and leaves the payout where it landed."
+          }
+        </P>
+        <H3>Disputed: who resolves it, and how many signatures that takes</H3>
+        <P>
+          {
+            "At Disputed the only call that acts is resolve. The resolver may call it with no deadline on them; the administrator may call it once the resolver's own window has passed; it refuses both parties whatever title they hold; and no pause stops it. Which of the trade's two accounts receives the USDC follows the outcome, and how many signatures it takes follows the status the dispute was raised from. Raised while the trade was Funded, the attestor must sign as well, and that is the only place at resolution where the contract asks the attestor for anything; the administrator's refund after the resolver's window is the one exception to it. Raised at FiatPaid, the caller's own signature is the only one. Raised at Released or at Refunded, nothing moves and the verdict records liability."
           }
         </P>
       </Plain>

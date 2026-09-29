@@ -47,14 +47,17 @@ const WITHDRAWN = [
   'has no on-chain move of their own',
   "ends that deposit's chance of completing",
   'Those four are the only calls that read it',
+  'checks only the clock',
+  'every call that could still complete the deposit is one a pause stops',
+  'the deposit cannot complete while it is in force',
+  'The refund opens on its own clock',
 ]
 
-const RULED = [
-  'a single privileged lolipay key',
-  'A pause stops no call that returns the USDC to the provider',
-  'Between that deadline and the refund opening',
-  'While a trade is funded',
-  'Once it has closed',
+const TRADE_STATE_HEADINGS = [
+  'Funded: what moves a trade, and what a pause refuses',
+  "FiatPaid: the provider's signature or a dispute, and no clock on either",
+  'Released or Refunded: only a dispute still reaches a settled trade',
+  'Disputed: who resolves it, and how many signatures that takes',
 ]
 
 const SECTIONS = [
@@ -131,24 +134,14 @@ describe('the anchor page promises a wallet developer nothing that can go stale'
 })
 
 describe('the custody and withdrawal prose carries only the clauses the ruling left standing', () => {
-  it('carries none of the ten withdrawn clauses, and none of them is degenerate', () => {
+  it('carries none of the fourteen withdrawn clauses, and none of them is degenerate', () => {
     const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
 
     expect(page.length).toBeGreaterThan(0)
-    expect(WITHDRAWN).toHaveLength(10)
+    expect(WITHDRAWN).toHaveLength(14)
     expect(WITHDRAWN.every((clause) => clause.length > 0)).toBe(true)
     for (const clause of WITHDRAWN) {
       expect(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 0`)
-    }
-  })
-
-  it('carries each of the five specified clauses exactly once, so that dropping a load-bearing scope qualifier or restating one at a second site goes red', () => {
-    const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
-
-    expect(page.length).toBeGreaterThan(0)
-    expect(RULED).toHaveLength(5)
-    for (const clause of RULED) {
-      expect(`${clause}: ${page.split(clause).length - 1}`).toBe(`${clause}: 1`)
     }
   })
 })
@@ -161,6 +154,15 @@ describe('the anchor page a wallet developer lands on', () => {
       expect(screen.getByRole('heading', { name })).toBeInTheDocument()
     }
     expect(screen.getByRole('link', { name: TOML_URL })).toHaveAttribute('href', TOML_URL)
+  })
+
+  it('names each of the four trade states as its own heading, matched case-sensitively so a lower-cased mention in body text cannot satisfy it', async () => {
+    render(await AnchorPage())
+
+    for (const name of TRADE_STATE_HEADINGS) {
+      expect(screen.getByRole('heading', { name })).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: name.toLowerCase() })).toBeNull()
+    }
   })
 
   it('reads the values it states out of the toml this anchor actually serves, rather than transcribing them', async () => {
