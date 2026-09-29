@@ -67,7 +67,7 @@ describe('landing sections', () => {
   })
 })
 
-describe('the seven copy fixes leave no withdrawn phrase standing, elsewhere on the page they cannot be seen from (a rewording of the same claim would still pass this)', () => {
+describe('the seven copy fixes leave no withdrawn phrase standing anywhere else on the page (a rewording of the same claim would still pass this)', () => {
   it('renders none of the withdrawn phrases across HowItWorks, Features, TrustStrip and ProvidersCta', () => {
     render(
       <>
@@ -89,14 +89,15 @@ describe('the seven copy fixes leave no withdrawn phrase standing, elsewhere on 
       /\bPIX\b/i,
       /and more/i,
       /& more/i,
+      /on every order/i,
     ]
     for (const pattern of WITHDRAWN_PATTERNS) {
       expect(screen.queryByText(pattern)).toBeNull()
     }
 
     expect(screen.getByText('No KYC to browse, and no custody of your coins — ever.')).toBeInTheDocument()
-    expect(screen.getByText(/Top up from local currency or cash out to your bank at a rate you see before you commit\./)).toBeInTheDocument()
-    expect(screen.getByText(/Every counterparty is staked and rated\. See their track record on every order\./)).toBeInTheDocument()
+    expect(screen.getByText(/Top up from local currency or cash out to your bank at a live rate you see before you commit\./)).toBeInTheDocument()
+    expect(screen.getByText(/Every counterparty is staked and rated\. See their track record once a provider takes your order\./)).toBeInTheDocument()
     expect(screen.getByText(/Rates refresh every twelve seconds and lock for five minutes at checkout/)).toBeInTheDocument()
     expect(screen.getByText('QRIS · bank · e-wallet')).toBeInTheDocument()
     expect(screen.getByText(/You choose the\s*rails — bank, QRIS and e-wallet\./)).toBeInTheDocument()

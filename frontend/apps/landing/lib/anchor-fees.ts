@@ -4,8 +4,8 @@ const TIMEOUT_MS = 5_000
 export interface AnchorFees {
   depositPercent: number | null
   withdrawPercent: number | null
-  minAmount?: number | null
-  maxAmount?: number | null
+  minAmount: number | null
+  maxAmount: number | null
 }
 
 export const NO_ANCHOR_FEES: AnchorFees = { depositPercent: null, withdrawPercent: null, minAmount: null, maxAmount: null }

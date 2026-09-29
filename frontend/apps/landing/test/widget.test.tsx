@@ -10,7 +10,7 @@ import { BuySellWidget } from '../components/BuySellWidget'
 import { NO_ANCHOR_FEES, type AnchorFees } from '../lib/anchor-fees'
 
 const ANCHOR_DEPOSIT_FEE_PERCENT = 1.5
-const FEES: AnchorFees = { depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: 2 }
+const FEES: AnchorFees = { depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: 2, minAmount: null, maxAmount: null }
 
 const valueBeside = (label: string) => screen.getByText(label).nextSibling?.textContent
 const SELL_HELPER = 'A sell is quoted when you start one. Connect your wallet to see how much rupiah you get.'
@@ -40,7 +40,7 @@ describe('BuySellWidget', () => {
   })
 
   it('a different published fee moves the quote', async () => {
-    render(<BuySellWidget fees={{ depositPercent: 3, withdrawPercent: 2 }} />)
+    render(<BuySellWidget fees={{ depositPercent: 3, withdrawPercent: 2, minAmount: null, maxAmount: null }} />)
     await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Buy' }))
 
@@ -50,7 +50,7 @@ describe('BuySellWidget', () => {
   })
 
   it('shows no rupiah figure on the sell tab even when the anchor publishes a withdraw fee, because the only rate it has is the buy side of the spread', async () => {
-    render(<BuySellWidget fees={{ depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: 2 }} />)
+    render(<BuySellWidget fees={{ depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: 2, minAmount: null, maxAmount: null }} />)
     await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Sell' }))
 
@@ -77,7 +77,7 @@ describe('BuySellWidget', () => {
   })
 
   it('withholds only the direction the anchor has not published: buy quotes, sell shows no figure it cannot derive', async () => {
-    render(<BuySellWidget fees={{ depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: null }} />)
+    render(<BuySellWidget fees={{ depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: null, minAmount: null, maxAmount: null }} />)
     await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
 
     fireEvent.click(screen.getByRole('button', { name: 'Buy' }))
@@ -94,7 +94,7 @@ describe('BuySellWidget', () => {
   })
 
   it('never reaches for the deposit fee to quote a withdrawal', async () => {
-    render(<BuySellWidget fees={{ depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: null }} />)
+    render(<BuySellWidget fees={{ depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: null, minAmount: null, maxAmount: null }} />)
     await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Sell' }))
 
@@ -124,22 +124,23 @@ describe('BuySellWidget', () => {
     expect(screen.getByText(/connect wallet to continue/i)).toBeInTheDocument()
   })
 
-  it('shows the published per-trade limits from the anchor, not a number invented client-side', async () => {
+  it('shows the published per-trade limit from the anchor, labelled "Per trade" rather than a bare "Limits" that could be read as a daily cap', async () => {
     render(<BuySellWidget fees={{ ...FEES, minAmount: 5, maxAmount: 1000 }} />)
     await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
 
-    expect(valueBeside('Limits')).toBe('5–1000 USDC')
+    expect(valueBeside('Per trade')).toBe('5–1000 USDC')
+    expect(screen.queryByText('Limits')).not.toBeInTheDocument()
   })
 
-  it('shows a dash for limits when the anchor published no bound', async () => {
+  it('shows a dash for the per-trade limit when the anchor published no bound', async () => {
     render(<BuySellWidget fees={NO_ANCHOR_FEES} />)
     await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
 
-    expect(valueBeside('Limits')).toBe('—')
+    expect(valueBeside('Per trade')).toBe('—')
   })
 
   it('tells the seller why the rupiah figure is a dash, on the sell tab only, and keeps the dash', async () => {
-    render(<BuySellWidget fees={{ depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: null }} />)
+    render(<BuySellWidget fees={{ depositPercent: ANCHOR_DEPOSIT_FEE_PERCENT, withdrawPercent: null, minAmount: null, maxAmount: null }} />)
     await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
 
     fireEvent.click(screen.getByRole('button', { name: 'Buy' }))

@@ -206,7 +206,7 @@ export function BuySellWidget({ fees }: { fees: AnchorFees }) {
           </span>
         </div>
         <div className="mt-1.5 flex justify-between text-[12.5px] text-lp-muted">
-          <span>Limits</span>
+          <span>Per trade</span>
           <span className="font-geist-mono tabular-nums text-lp-ink">
             {fees.minAmount != null && fees.maxAmount != null ? `${fees.minAmount}–${fees.maxAmount} USDC` : '—'}
           </span>

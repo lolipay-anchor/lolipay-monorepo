@@ -36,7 +36,7 @@ export function Features() {
             </svg>
             <div className="font-geist text-[17px] font-bold">Buy &amp; sell USDC</div>
             <p className="mt-[7px] text-[13.5px] leading-[1.5] text-lp-ink-soft">
-              Top up from local currency or cash out to your bank at a rate you see before you commit.
+              Top up from local currency or cash out to your bank at a live rate you see before you commit.
             </p>
           </div>
           <div className="rounded-[18px] border border-lp-line bg-lp-surface p-[22px]">
@@ -48,7 +48,7 @@ export function Features() {
             </svg>
             <div className="font-geist text-[17px] font-bold">Rated providers</div>
             <p className="mt-[7px] text-[13.5px] leading-[1.5] text-lp-ink-soft">
-              Every counterparty is staked and rated. See their track record on every order.
+              Every counterparty is staked and rated. See their track record once a provider takes your order.
             </p>
           </div>
           <div className="rounded-[18px] border border-lp-line bg-lp-surface p-[22px]">

@@ -274,7 +274,7 @@ describe('the chrome that carries a reader between the two pages', () => {
     const hrefs = links.map((link) => link.getAttribute('href') ?? '')
     expect(hrefs.filter((href) => /^#./.test(href))).toEqual([])
     for (const surface of [screen.getByRole('navigation'), screen.getByRole('contentinfo')]) {
-      expect(surface.querySelectorAll('a[href="/anchor"]')).toHaveLength(1)
+      expect(surface.querySelectorAll('a[href="/anchor"]'), surface.tagName).toHaveLength(1)
     }
     expect(hrefs.filter((href) => href.startsWith('/#'))).toHaveLength(7)
   })

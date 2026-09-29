@@ -36,7 +36,7 @@ describe('landing smoke', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(await Home())
-    await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('live rate')).toBeInTheDocument())
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(String(fetchMock.mock.calls[0][0])).toContain('/sep24/info')
@@ -56,7 +56,7 @@ describe('landing smoke', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')))
 
     render(await Home())
-    await waitFor(() => expect(screen.getByText(/live rate/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('live rate')).toBeInTheDocument())
 
     expect(screen.getByText('Fee').nextSibling?.textContent).toBe('—')
     expect(screen.getByText('You receive').nextSibling?.textContent).toContain('—')
