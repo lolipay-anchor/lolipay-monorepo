@@ -61,9 +61,11 @@ const MAX_PROOF_BYTES = 5 * 1024 * 1024
 const ACCEPTED_PROOF_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 
 const DID_NOT_SIGN = 'Your wallet did not sign the statement, so nothing was recorded.'
+const DID_NOT_SIGN_RELEASE = 'Your wallet did not sign the release, so nothing was sent.'
+const MARKED_DID_NOT_SIGN_RELEASE = 'This order is now marked as paid on chain, but your wallet did not sign the release, so nothing was sent. Press Release USDC — sign to try again.'
 
 function markedButNotReleased(reason: string) {
-  return `This order is now marked as paid on chain, but the release did not complete here: ${reason}. Press Release USDC — sign to try again.`
+  return `This order is now marked as paid on chain, but the release did not complete here: ${reason.replace(/\.$/, '')}. Press Release USDC — sign to try again.`
 }
 
 interface ConfirmReleaseSheetProps {
@@ -123,7 +125,14 @@ export function ConfirmReleaseSheet({
         onReceiptRecorded()
       }
       const { xdr, networkPassphrase } = await getConfirmReleaseTx(client, order.id)
-      const signedXdr = await wallet.signTransaction(xdr, networkPassphrase)
+      let signedXdr: string
+      try {
+        signedXdr = await wallet.signTransaction(xdr, networkPassphrase)
+      } catch (err) {
+        if (err instanceof Error) throw err
+        setError(recorded ? MARKED_DID_NOT_SIGN_RELEASE : DID_NOT_SIGN_RELEASE)
+        return
+      }
       await submitFn(signedXdr, networkPassphrase)
       onConfirmed()
     } catch (err) {
@@ -157,6 +166,12 @@ export function ConfirmReleaseSheet({
           <span className="text-lp-muted">Via</span>
           <span className="font-semibold text-lp-ink">{order.rail}</span>
         </div>
+        {order.ref && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-lp-muted">Reference</span>
+            <span className="font-semibold text-lp-ink">{order.ref}</span>
+          </div>
+        )}
       </div>
 
       {recordsReceiptFirst && (

@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { TestProviders, fakeKit } from './helpers'
 import { queryClient } from '@/app/providers'
@@ -408,6 +408,10 @@ const CLAUSE_STATEMENT =
   'A statement that you received the full payment. Declining it records nothing. Signing it lets lolipay mark this order as paid on chain, and once it is marked that cannot be undone, even if you decline the second request: the USDC can then only be released, or settled through a dispute.'
 const CLAUSE_RELEASE = 'The release, which sends the USDC to the buyer.'
 const DID_NOT_SIGN = 'Your wallet did not sign the statement, so nothing was recorded.'
+const RELEASE_NOT_SIGNED = 'Your wallet did not sign the release, so nothing was sent.'
+const MARKED_RELEASE_NOT_SIGNED = 'This order is now marked as paid on chain, but your wallet did not sign the release, so nothing was sent. Press Release USDC — sign to try again.'
+const KIT_DECLINE = { code: -4, message: 'User declined access' }
+const MARKUP_REF = 'LP-9Z7Q<i>x</i>'
 
 const openWindowSentence = (end: number) =>
   `Check that Rp 1.500.000 has arrived in your BANK account. If it has, press Confirm receipt & release and approve both requests in your wallet: that records the payment on chain and releases the USDC to the buyer. Do it before ${when(end)}; after that it can no longer be confirmed, and the USDC can be returned to you.`
@@ -468,10 +472,10 @@ describe('AssignmentCard — TOP_UP FUNDED: the card and its window (F1, F2)', (
   })
 })
 
-function mountTopUp(status: 'FUNDED' | 'FIAT_PAID') {
+function mountTopUp(status: 'FUNDED' | 'FIAT_PAID', overrides: Partial<Order> = {}) {
   const onRefetch = vi.fn()
   const submit = vi.fn().mockResolvedValue({ status: 'PENDING' })
-  const order = makeOrder({ status, refund_opens_at: nowSecs() + 3600, ref: 'LP-AB12' })
+  const order = makeOrder({ status, refund_opens_at: nowSecs() + 3600, ref: 'LP-AB12', ...overrides })
   const element = (o: Order) => (
     <TestProviders kit={fakeKit}>
       <AssignmentCard assignment={{ order: o }} onRefetch={onRefetch} submitFn={submit} />
@@ -500,11 +504,11 @@ const queueReleaseTx = () =>
     networkPassphrase: NP,
   })
 
-async function recordThenFailTheRelease() {
+async function recordThenFailTheRelease(rejection: unknown = new Error('User rejected transaction')) {
   queueStatement()
   queueReceiptRecorded()
   queueReleaseTx()
-  vi.mocked(fakeKit.signTransaction).mockRejectedValueOnce(new Error('User rejected transaction'))
+  vi.mocked(fakeKit.signTransaction).mockRejectedValueOnce(rejection)
   const mounted = mountTopUp('FUNDED')
   openSheetAndTick()
   fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
@@ -540,6 +544,26 @@ describe('ConfirmReleaseSheet — records the receipt, then releases (F3–F6, F
     expect(screen.getByRole('button', { name: SIGN_TWICE_LABEL })).toBeTruthy()
     expect(screen.queryByRole('button', { name: RELEASE_LABEL })).toBeNull()
     expect(screen.getByText(/Releasing without receiving funds loses your USDC/)).toBeTruthy()
+  })
+
+  it('at FUNDED the sheet shows order.ref exactly, as plain text, in a Reference row beside Via', () => {
+    mountTopUp('FUNDED', { ref: MARKUP_REF })
+    fireEvent.click(screen.getByRole('button', { name: CARD_BUTTON }))
+
+    const dialog = within(screen.getByRole('dialog'))
+    const row = dialog.getByText('Reference').parentElement
+    expect(row?.textContent).toBe(`Reference${MARKUP_REF}`)
+    expect(row?.parentElement).toBe(dialog.getByText('Via').parentElement?.parentElement)
+  })
+
+  it('with no ref the sheet shows no Reference row, and still shows Amount to receive and Via', () => {
+    mountTopUp('FUNDED', { ref: null })
+    fireEvent.click(screen.getByRole('button', { name: CARD_BUTTON }))
+
+    const dialog = within(screen.getByRole('dialog'))
+    expect(dialog.getByText('Amount to receive')).toBeTruthy()
+    expect(dialog.getByText('Via')).toBeTruthy()
+    expect(dialog.queryByText('Reference')).toBeNull()
   })
 
   it('F3: signs the server statement as the logged-in account, posts a fresh { at, signature }, then releases — in that order', async () => {
@@ -728,6 +752,60 @@ describe('ConfirmReleaseSheet — records the receipt, then releases (F3–F6, F
     fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
 
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('User rejected transaction'))
+  })
+
+  it('S1: at FIAT_PAID a wallet that declines the release with a plain { code, message } object reads that the release was not signed and nothing was sent', async () => {
+    queueReleaseTx()
+    vi.mocked(fakeKit.signTransaction).mockRejectedValueOnce(KIT_DECLINE)
+    const { submit } = mountTopUp('FIAT_PAID')
+    openSheetAndTick()
+
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(RELEASE_NOT_SIGNED))
+    expect(submit).not.toHaveBeenCalled()
+  })
+
+  it('S1: after the receipt is recorded, a wallet that declines the release with a plain { code, message } object reads that the order is marked as paid and the release was not signed', async () => {
+    await recordThenFailTheRelease(KIT_DECLINE)
+
+    expect(screen.getByRole('alert').textContent).toBe(MARKED_RELEASE_NOT_SIGNED)
+    expect(screen.getByRole('button', { name: RELEASE_LABEL })).toBeTruthy()
+  })
+
+  it('a plain object rejected by the release transaction request reads Release failed, never a declined signature', async () => {
+    vi.mocked(apiClient.getConfirmReleaseTx).mockRejectedValueOnce({ code: 500, message: 'request refused' })
+    mountTopUp('FIAT_PAID')
+    openSheetAndTick()
+
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Release failed'))
+    expect(fakeKit.signTransaction).not.toHaveBeenCalled()
+  })
+
+  it('a plain object rejected by the submission reads Release failed, never a declined signature', async () => {
+    queueReleaseTx()
+    const { submit } = mountTopUp('FIAT_PAID')
+    submit.mockRejectedValueOnce({ code: 500, message: 'submission refused' })
+    openSheetAndTick()
+
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Release failed'))
+    expect(fakeKit.signTransaction).toHaveBeenCalledTimes(1)
+  })
+
+  it('after the receipt is recorded, a reason that already ends in a period reads exactly one period before Press', async () => {
+    await recordThenFailTheRelease(new Error('Your wallet session expired — please reconnect your wallet.'))
+
+    expect(screen.getByRole('alert').textContent).toBe('This order is now marked as paid on chain, but the release did not complete here: Your wallet session expired — please reconnect your wallet. Press Release USDC — sign to try again.')
+  })
+
+  it('after the receipt is recorded, only one trailing period is stripped, so a reason ending in an ellipsis keeps two of its three', async () => {
+    await recordThenFailTheRelease(new Error('Waiting for the network...'))
+
+    expect(screen.getByRole('alert').textContent).toBe('This order is now marked as paid on chain, but the release did not complete here: Waiting for the network... Press Release USDC — sign to try again.')
   })
 
   it('F8: the sheet stays open across the FUNDED to FIAT_PAID refetch and shows the release error', async () => {
@@ -1105,11 +1183,11 @@ describe('AssignmentCard — TOP_UP transfer ref (FUNDED)', () => {
     vi.clearAllMocks()
   })
 
-  it('shows the ref chip with the "Buyer must include this reference" copy when present', () => {
+  it('keeps the ref chip with the "Buyer must include this reference" copy in the past-window state when the order carries a ref', () => {
     render(
       <TestProviders kit={fakeKit}>
         <AssignmentCard
-          assignment={{ order: makeOrder({ status: 'FUNDED', flow: 'TOP_UP', ref: 'LP-AB12' }) }}
+          assignment={{ order: makeOrder({ status: 'FUNDED', flow: 'TOP_UP', ref: 'LP-AB12', refund_opens_at: 1_000 }) }}
           onRefetch={vi.fn()}
         />
       </TestProviders>,
