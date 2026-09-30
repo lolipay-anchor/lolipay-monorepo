@@ -448,7 +448,7 @@ export class Sep24Service {
         [
           `<p>You told us at <strong>${timeTag(claimedSecs)}</strong> that you sent <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)}. That is recorded on this deposit.</p>`,
           ...middle,
-          '<p>This page keeps itself up to date. You may close it — your wallet will show the deposit if it settles.</p>',
+          '<p>Keep this window open: it updates itself until the deposit completes or closes. If it is closed, your wallet may stop following this deposit. That changes nothing about the deposit itself. To check on it later, sign in with this same wallet at <a href="https://app.lolipay.app">app.lolipay.app</a>: the order appears there with its evidence.</p>',
         ].join(''),
         30,
       );
@@ -723,7 +723,7 @@ export class Sep24Service {
         '<p>Tell us, and we will ask the provider to check their account. This does not move any USDC and it does not finish your deposit — it only records that you say the transfer is on its way.</p>',
         form,
         '<p class="hint">Send the money first. Pressing this before you have sent it will not make the deposit arrive any sooner.</p>',
-        '<p>You may close this window. Your wallet will show the deposit if it settles.</p>',
+        '<p>Keep this window open: it updates itself until the deposit completes or closes. If it is closed, your wallet may stop following this deposit. The deposit itself carries on either way.</p>',
       ].join('');
     }
     return [
