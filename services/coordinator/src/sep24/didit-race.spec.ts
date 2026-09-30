@@ -55,6 +55,13 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
     return { warned, errored };
   }
 
+  function unhandledRejections() {
+    const seen: unknown[] = [];
+    const capture = (e: unknown) => seen.push(e);
+    process.on('unhandledRejection', capture);
+    return { seen, stop: () => process.off('unhandledRejection', capture) };
+  }
+
   afterEach(() => jest.restoreAllMocks());
 
   it('cancels the loser only while it is exactly as createFromQuote left it, so a row anything else has touched is left alone', async () => {
@@ -139,6 +146,7 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
 
     it('the second press sees the refusal the first press got, and the refusal was computed once', async () => {
       const { svc, quotes, token, orders } = build(1);
+      const rejections = unhandledRejections();
       const refused = new ServiceUnavailableException('no eligible LP available');
       let reject!: (e: unknown) => void;
       orders.createFromQuote.mockImplementation(() => new Promise<never>((_, r) => (reject = r)));
@@ -150,15 +158,22 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
 
       await expect(first).rejects.toBe(refused);
       await expect(second).rejects.toBe(refused);
+      await new Promise((r) => setImmediate(r));
+      rejections.stop();
+      expect(rejections.seen).toEqual([]);
       expect(orders.createFromQuote).toHaveBeenCalledTimes(1);
       expect(quotes).toHaveLength(1);
     });
 
     it('a press after a refusal is a fresh attempt, not a replay of the refusal', async () => {
       const { svc, token, orders } = build(1);
+      const rejections = unhandledRejections();
       orders.createFromQuote.mockRejectedValueOnce(new ServiceUnavailableException('no eligible LP available'));
       await expect(svc.submitAmount('tx-1', token, '400000')).rejects.toThrow();
       await expect(svc.submitAmount('tx-1', token, '400000')).resolves.toBeUndefined();
+      await new Promise((r) => setImmediate(r));
+      rejections.stop();
+      expect(rejections.seen).toEqual([]);
       expect(orders.createFromQuote).toHaveBeenCalledTimes(2);
     });
 
@@ -170,9 +185,62 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
       );
       const first = svc.submitAmount('tx-1', token, '400000');
       await new Promise((r) => setImmediate(r));
-      await expect(svc.submitAmount('tx-1', 'not-a-token', '400000')).rejects.toBeInstanceOf(UnauthorizedException);
+      const second = svc.submitAmount('tx-1', 'not-a-token', '400000');
+      release();
+      await expect(second).rejects.toBeInstanceOf(UnauthorizedException);
+      await first;
+      expect(orders.createFromQuote).toHaveBeenCalledTimes(1);
+    });
+
+    it('a press whose state read was still in flight when the winner finished acts on a fresh read, not the stale one', async () => {
+      const { svc, quotes, token, orders, prisma } = build(1);
+      let linkedTo: string | null = null;
+      const row = () => ({
+        id: 'tx-1',
+        stellarAccount: 'GABC',
+        personId: 'person-1',
+        orderId: linkedTo,
+        startedAt: new Date(),
+        flow: 'TOP_UP',
+        order: linkedTo ? { status: 'CREATED' } : null,
+      });
+      prisma.sep24Transaction.updateMany.mockImplementation(async (args: any) => {
+        linkedTo = args.data.orderId;
+        return { count: 1 };
+      });
+      prisma.sep24Transaction.findUnique.mockImplementation(async () => row());
+      let release!: () => void;
+      orders.createFromQuote.mockImplementationOnce(
+        () => new Promise((r) => (release = () => r({ order: { id: 'order-2' } }))),
+      );
+      const first = svc.submitAmount('tx-1', token, '400000');
+      await new Promise((r) => setImmediate(r));
+
+      const stale = row();
+      let land!: () => void;
+      prisma.sep24Transaction.findUnique.mockImplementationOnce(() => new Promise((r) => (land = () => r(stale))));
+      const second = svc.submitAmount('tx-1', token, '400000');
+      await new Promise((r) => setImmediate(r));
+
       release();
       await first;
+      land();
+      await second;
+
+      expect(linkedTo).toBe('order-2');
+      expect(orders.createFromQuote).toHaveBeenCalledTimes(1);
+      expect(quotes).toHaveLength(1);
+    });
+
+    it('a first press with a dead link is refused before the transaction is read, and holds no slot against the live press that follows', async () => {
+      const { svc, orders, token, prisma } = build(1);
+      const map = (svc as any).amountInFlight as Map<string, Promise<void>>;
+      const attacker = svc.submitAmount('tx-1', 'not-a-token', '400000');
+      await expect(attacker).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(map.size).toBe(0);
+      expect(prisma.sep24Transaction.findUnique).toHaveBeenCalledTimes(0);
+      await new Promise((r) => setImmediate(r));
+      await expect(svc.submitAmount('tx-1', token, '400000')).resolves.toBeUndefined();
       expect(orders.createFromQuote).toHaveBeenCalledTimes(1);
     });
   });
