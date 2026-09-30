@@ -403,14 +403,14 @@ describe('the claim reaches the provider IN THE APP, not only in their inbox —
     expect(tx.order.findUnique.mock.calls[0][0].select.rail).toBe(true);
   });
 
-  it('promises the provider no refund, because the automatic escrow return is gated on Config.autoRefund and on REFUND_SIGNER_SECRET, names the act and the absolute instant it stays open until, never asserts that the money has arrived, and never tells the provider to mark anything', async () => {
+  it('promises the provider no refund, because the automatic escrow return is gated on Config.autoRefund and on REFUND_SIGNER_SECRET, names the act and the absolute instant it stays open until, never asserts that the money has arrived, and never tells the provider to mark anything or to confirm it or the transfer', async () => {
     const { service, tx, token } = setup('order-1');
     provider(tx);
     await service.claimPaid('tx-1', token);
     const body = tx.notification.createMany.mock.calls[0][0].data[0].body as string;
     expect(body).not.toMatch(/refund|returned|escrow/i);
     expect(body).not.toMatch(/\bhours?\b|\bminutes?\b/i);
-    expect(body).not.toMatch(/has (arrived|been received)|mark/i);
+    expect(body).not.toMatch(/has (arrived|been received)|confirm (it|the transfer)|mark/i);
     expect(body).toContain(`press Confirm receipt & release before ${REFUND_OPENS_ISO}.`);
   });
 
