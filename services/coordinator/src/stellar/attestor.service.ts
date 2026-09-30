@@ -1,4 +1,4 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Keypair, Transaction } from '@stellar/stellar-sdk';
 import { Server } from '@stellar/stellar-sdk/rpc';
 import { AppConfigService } from '../config/app-config.service';
@@ -15,6 +15,7 @@ export class AttestorService {
   private keypairResolved = false;
   private cachedKeypair: Keypair | null = null;
   private confirmedContracts = new Set<string>();
+  private lastSubmission: Promise<unknown> = Promise.resolve();
 
   protected pollIntervalMs = 2000;
   protected pollTimeoutMs = 30_000;
@@ -66,6 +67,23 @@ export class AttestorService {
       );
     }
     await this.assertIsTheChainsAttestor(contractId, kp.publicKey());
+
+    const submission = this.lastSubmission.then(() => this.submitInTurn(kp, contractId, tradeIdHex, notAfterSecs));
+    this.lastSubmission = submission.catch(() => undefined);
+    return submission;
+  }
+
+  private async submitInTurn(
+    kp: Keypair,
+    contractId: string,
+    tradeIdHex: string,
+    notAfterSecs: number,
+  ): Promise<{ status: string; hash: string }> {
+    if (Math.floor(Date.now() / 1000) > notAfterSecs) {
+      throw new ConflictException(
+        'The time to confirm this payment has passed, so it can no longer be confirmed, and nothing was sent to the network.',
+      );
+    }
 
     const { xdr, networkPassphrase } = await this.stellarRead.buildMarkFiatPaidTx(
       contractId,

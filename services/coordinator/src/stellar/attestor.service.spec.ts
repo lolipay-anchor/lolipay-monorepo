@@ -10,7 +10,7 @@ import {
   xdr,
 } from '@stellar/stellar-sdk';
 import { Api } from '@stellar/stellar-sdk/rpc';
-import { Logger, ServiceUnavailableException } from '@nestjs/common';
+import { ConflictException, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { AttestorService } from './attestor.service';
 
 const CONTRACT = 'CDKJ5OX2WY424DXPMYRGI2TCMTI5LFGLSLHSBKA5AODIGTS4R2TIDK3Z';
@@ -239,5 +239,115 @@ describe('the attestor refuses before it signs, not after', () => {
     await expect(svc.attest(CONTRACT, TRADE, Math.floor(Date.now() / 1000) + 3600)).rejects.toThrow('stop here');
 
     expect(read.buildMarkFiatPaidTx).toHaveBeenCalledWith(CONTRACT, kp.publicKey(), TRADE, expect.any(Number));
+  });
+
+  function heldAtFirstPoll() {
+    let reachedPoll!: () => void;
+    const firstPolled = new Promise<void>((resolve) => (reachedPoll = resolve));
+    let settleFirst!: () => void;
+    const held = new Promise<{ status: Api.GetTransactionStatus }>(
+      (resolve) => (settleFirst = () => resolve({ status: Api.GetTransactionStatus.SUCCESS })),
+    );
+    const sendTransaction = jest
+      .fn()
+      .mockResolvedValueOnce({ status: 'PENDING', hash: 'first' })
+      .mockResolvedValueOnce({ status: 'PENDING', hash: 'second' });
+    const getTransaction = jest
+      .fn()
+      .mockImplementationOnce(() => {
+        reachedPoll();
+        return held;
+      })
+      .mockResolvedValue({ status: Api.GetTransactionStatus.SUCCESS });
+    return { server: { sendTransaction, getTransaction }, firstPolled, settleFirst, sendTransaction };
+  }
+
+  function readyToSubmit(kp: Keypair, server: unknown) {
+    const { svc, read } = makeSvc(kp.secret(), kp.publicKey());
+    read.buildMarkFiatPaidTx.mockResolvedValue(envelopeFor({ caller: kp.publicKey(), withAuth: true }));
+    (svc as any).pollIntervalMs = 1;
+    (svc as any).pollTimeoutMs = 200;
+    (svc as any).createRpcServer = () => server;
+    return { svc, read };
+  }
+
+  it('builds the next attestation only after the previous one has settled on chain, so two never load the same sequence number', async () => {
+    const kp = Keypair.random();
+    const { server, firstPolled, settleFirst } = heldAtFirstPoll();
+    const { svc, read } = readyToSubmit(kp, server);
+    const notAfter = Math.floor(Date.now() / 1000) + 3600;
+
+    const first = svc.attest(CONTRACT, TRADE, notAfter);
+    const second = svc.attest(CONTRACT, TRADE, notAfter);
+    await firstPolled;
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(read.buildMarkFiatPaidTx).toHaveBeenCalledTimes(1);
+
+    settleFirst();
+    await expect(first).resolves.toEqual({ status: 'SUCCESS', hash: 'first' });
+    await expect(second).resolves.toEqual({ status: 'SUCCESS', hash: 'second' });
+    expect(read.buildMarkFiatPaidTx).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs the next attestation after the previous one was refused, so one failure cannot wedge the key', async () => {
+    const kp = Keypair.random();
+    const { svc, read } = readyToSubmit(kp, {
+      sendTransaction: jest.fn(async () => ({ status: 'PENDING', hash: 'second' })),
+      getTransaction: jest.fn(async () => ({ status: Api.GetTransactionStatus.SUCCESS })),
+    });
+    read.buildMarkFiatPaidTx.mockRejectedValueOnce(new Error('first build failed'));
+    const notAfter = Math.floor(Date.now() / 1000) + 3600;
+
+    const first = svc.attest(CONTRACT, TRADE, notAfter);
+    const second = svc.attest(CONTRACT, TRADE, notAfter);
+
+    await expect(first).rejects.toThrow('first build failed');
+    await expect(second).resolves.toEqual({ status: 'SUCCESS', hash: 'second' });
+  });
+
+  it('refuses without building or sending when its deadline passes while it waits for the key, so a queued confirmation never becomes a late transaction', async () => {
+    const kp = Keypair.random();
+    const { server, firstPolled, settleFirst, sendTransaction } = heldAtFirstPoll();
+    const { svc, read } = readyToSubmit(kp, server);
+    const deadline = 2_000_000_000;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(deadline * 1000);
+
+    try {
+      const first = svc.attest(CONTRACT, TRADE, deadline + 3600);
+      const second = svc.attest(CONTRACT, TRADE, deadline);
+      await firstPolled;
+
+      clock.mockReturnValue((deadline + 1) * 1000);
+      settleFirst();
+
+      await expect(first).resolves.toEqual({ status: 'SUCCESS', hash: 'first' });
+      await expect(second).rejects.toBeInstanceOf(ConflictException);
+      await expect(second).rejects.toThrow(
+        'The time to confirm this payment has passed, so it can no longer be confirmed, and nothing was sent to the network.',
+      );
+      expect(read.buildMarkFiatPaidTx).toHaveBeenCalledTimes(1);
+      expect(read.buildMarkFiatPaidTx).not.toHaveBeenCalledWith(CONTRACT, kp.publicKey(), TRADE, deadline);
+      expect(sendTransaction).toHaveBeenCalledTimes(1);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('still attests within the deadline second itself, because the contract admits the deadline and no margin is taken', async () => {
+    const kp = Keypair.random();
+    const { svc, read } = readyToSubmit(kp, {
+      sendTransaction: jest.fn(async () => ({ status: 'PENDING', hash: 'edge' })),
+      getTransaction: jest.fn(async () => ({ status: Api.GetTransactionStatus.SUCCESS })),
+    });
+    const deadline = 2_000_000_000;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(deadline * 1000 + 999);
+
+    try {
+      await expect(svc.attest(CONTRACT, TRADE, deadline)).resolves.toEqual({ status: 'SUCCESS', hash: 'edge' });
+      expect(read.buildMarkFiatPaidTx).toHaveBeenCalledWith(CONTRACT, kp.publicKey(), TRADE, deadline);
+    } finally {
+      clock.mockRestore();
+    }
   });
 });
