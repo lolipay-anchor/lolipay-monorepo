@@ -14,6 +14,7 @@ const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015'
 let initialised = false
 
 function ensureInitialised() {
+  if (typeof window === 'undefined') return
   if (initialised) return
   initialised = true
 
