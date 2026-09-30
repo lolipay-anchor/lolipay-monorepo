@@ -676,3 +676,32 @@ describe('both Horizon reads are fetched once, never followed elsewhere', () => 
     );
   });
 });
+
+describe('StellarReadService — evictTradeStatus', () => {
+  it('drops the cached entry so the next getTradeStatus simulates get_trade again', async () => {
+    const svc = makeSvc();
+    const simulateCall = jest.fn(async () => ({ status: 1 }));
+    (svc as any).simulateCall = simulateCall;
+
+    await svc.getTradeStatus(FAKE_CONTRACT_ID, 'aabbccdd');
+    await svc.getTradeStatus(FAKE_CONTRACT_ID, 'aabbccdd');
+    expect(simulateCall).toHaveBeenCalledTimes(1);
+
+    svc.evictTradeStatus(FAKE_CONTRACT_ID, 'aabbccdd');
+
+    await svc.getTradeStatus(FAKE_CONTRACT_ID, 'aabbccdd');
+    expect(simulateCall).toHaveBeenCalledTimes(2);
+  });
+
+  it('evicting another trade on the same contract leaves this one cached', async () => {
+    const svc = makeSvc();
+    const simulateCall = jest.fn(async () => ({ status: 1 }));
+    (svc as any).simulateCall = simulateCall;
+
+    await svc.getTradeStatus(FAKE_CONTRACT_ID, 'aabbccdd');
+    svc.evictTradeStatus(FAKE_CONTRACT_ID, 'eeff0011');
+
+    await svc.getTradeStatus(FAKE_CONTRACT_ID, 'aabbccdd');
+    expect(simulateCall).toHaveBeenCalledTimes(1);
+  });
+});

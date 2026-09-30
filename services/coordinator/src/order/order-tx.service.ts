@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
   ForbiddenException,
@@ -17,15 +18,36 @@ import { describeContractError, describeStakingError } from './contract-error';
 import { canDispute } from './dispute.util';
 
 const CLOCK_SKEW_MARGIN_SECS = 900n;
+const ESCROW_INVALID_STATE_RE = /Error\(Contract,\s*#9\)/i;
 
 @Injectable()
 export class OrderTxService {
+  private readonly log = new Logger('OrderTxService');
+
   constructor(
     private prisma: PrismaService,
     private stellar: StellarReadService,
     private cfg: AppConfigService,
     private status: OrderStatusService,
   ) {}
+
+  private escrowBuildFailure(
+    fn: string,
+    order: { id: string; tradeId: string; contractId?: string | null },
+    err: unknown,
+  ): ConflictException | ServiceUnavailableException {
+    const raw = err instanceof Error ? err.message : String(err);
+    const contractProblem = describeContractError(err);
+    if (!contractProblem) {
+      console.error(`${fn} error:`, raw);
+      return new ServiceUnavailableException('Stellar RPC unavailable, retry later');
+    }
+    if (ESCROW_INVALID_STATE_RE.test(raw)) {
+      this.stellar.evictTradeStatus(this.status.contractIdFor(order), order.tradeId);
+    }
+    this.log.warn(`${fn} refused by the escrow for order ${order.id}: ${contractProblem} — ${raw}`);
+    return new ConflictException(contractProblem);
+  }
 
   async buildMarkFiatPaidTx(
     orderId: string,
@@ -64,12 +86,7 @@ export class OrderTxService {
         Number(currentOrder.flow === 'TOP_UP' ? currentOrder.payDeadline : currentOrder.confirmDeadline),
       );
     } catch (err) {
-      console.error('buildMarkFiatPaidTx error:', err instanceof Error ? err.message : String(err));
-      const contractProblem = describeContractError(err);
-      if (contractProblem) {
-        throw new ConflictException(contractProblem);
-      }
-      throw new ServiceUnavailableException('Stellar RPC unavailable, retry later');
+      throw this.escrowBuildFailure('buildMarkFiatPaidTx', currentOrder, err);
     }
   }
 
@@ -124,12 +141,7 @@ export class OrderTxService {
         disputeDeadline: currentOrder.disputeDeadline,
       });
     } catch (err) {
-      console.error('buildCreateTradeTx error:', err instanceof Error ? err.message : String(err));
-      const contractProblem = describeContractError(err);
-      if (contractProblem) {
-        throw new ConflictException(contractProblem);
-      }
-      throw new ServiceUnavailableException('Stellar RPC unavailable, retry later');
+      throw this.escrowBuildFailure('buildCreateTradeTx', currentOrder, err);
     }
   }
 
@@ -164,12 +176,7 @@ export class OrderTxService {
         currentOrder.tradeId,
       );
     } catch (err) {
-      console.error('buildConfirmReleaseTx error:', err instanceof Error ? err.message : String(err));
-      const contractProblem = describeContractError(err);
-      if (contractProblem) {
-        throw new ConflictException(contractProblem);
-      }
-      throw new ServiceUnavailableException('Stellar RPC unavailable, retry later');
+      throw this.escrowBuildFailure('buildConfirmReleaseTx', currentOrder, err);
     }
   }
 
@@ -210,12 +217,7 @@ export class OrderTxService {
         currentOrder.tradeId,
       );
     } catch (err) {
-      console.error('buildRaiseDisputeTx error:', err instanceof Error ? err.message : String(err));
-      const contractProblem = describeContractError(err);
-      if (contractProblem) {
-        throw new ConflictException(contractProblem);
-      }
-      throw new ServiceUnavailableException('Stellar RPC unavailable, retry later');
+      throw this.escrowBuildFailure('buildRaiseDisputeTx', currentOrder, err);
     }
   }
 
@@ -262,12 +264,7 @@ export class OrderTxService {
         outcome,
       );
     } catch (err) {
-      console.error('buildResolveTx error:', err instanceof Error ? err.message : String(err));
-      const contractProblem = describeContractError(err);
-      if (contractProblem) {
-        throw new ConflictException(contractProblem);
-      }
-      throw new ServiceUnavailableException('Stellar RPC unavailable, retry later');
+      throw this.escrowBuildFailure('buildResolveTx', currentOrder, err);
     }
   }
 
@@ -363,11 +360,15 @@ export class OrderTxService {
         amount,
       );
     } catch (err) {
-      console.error('buildSlashTx error:', err instanceof Error ? err.message : String(err));
+      const raw = err instanceof Error ? err.message : String(err);
       const contractProblem = describeStakingError(err);
       if (contractProblem) {
+        this.log.warn(
+          `buildSlashTx refused by the staking contract for order ${orderId}: ${contractProblem} — ${raw}`,
+        );
         throw new ConflictException(contractProblem);
       }
+      console.error('buildSlashTx error:', raw);
       throw new ServiceUnavailableException('Stellar RPC unavailable, retry later');
     }
   }

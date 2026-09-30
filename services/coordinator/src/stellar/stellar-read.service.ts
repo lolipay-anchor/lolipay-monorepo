@@ -193,6 +193,10 @@ export class StellarReadService {
     return val;
   }
 
+  evictTradeStatus(contractId: string, tradeIdHex: string): void {
+    this.statusCache.delete(`${contractId}:${tradeIdHex}`);
+  }
+
   async getTradeStatusStrict(contractId: string, tradeIdHex: string): Promise<TradeOnChain | null> {
     return this.decodeTradeStatus(contractId, tradeIdHex);
   }
