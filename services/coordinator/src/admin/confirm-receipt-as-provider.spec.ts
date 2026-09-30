@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import {
+  ConflictException,
   ExecutionContext,
   Logger,
   RequestMethod,
@@ -55,6 +56,11 @@ const SERVER_ERROR = 'Confirming this payment ran into an error. Try again: a pa
 const notSignedBy = (caller: string) =>
   `This signed statement could not be verified as signed by ${caller.slice(0, 4)}…${caller.slice(-4)}, the account you are logged in with, so nothing was recorded. Make sure your wallet is using that account, then try again.`;
 const alreadyOnChain = (status: string) => `On the network this order is already ${status}, so there is nothing to confirm. Refresh the order.`;
+const BEING_CONFIRMED = 'This order is already being confirmed. Wait a moment, then refresh it.';
+const ONLY_A_DEPOSIT = 'Only a deposit\'s payment can be confirmed this way. On a withdrawal, the provider sends the rupiah and marks it paid from their own wallet.';
+const notFundedInLolipayRecords = (status: string) =>
+  `This order is ${status} in lolipay's records, and only a FUNDED deposit can be confirmed as paid. Refresh it: the records can lag behind the network.`;
+const ATTESTOR_WINDOW_REFUSAL = 'The time to confirm this payment has passed, so it can no longer be confirmed, and nothing was sent to the network.';
 const forbidden = (message: string) => ({ statusCode: 403, error: 'Forbidden', message });
 const notFound = (message: string) => ({ statusCode: 404, error: 'Not Found', message });
 const conflict = (message: string) => ({ statusCode: 409, error: 'Conflict', message });
@@ -812,12 +818,13 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       expect(stage.attestor.attest).not.toHaveBeenCalled();
     });
 
-    it('T4c — refuses 400 an order the database records as a withdrawal even when the caller is both its database provider and its provider on chain, attesting nothing', async () => {
+    it('T4c — refuses with a 400 carrying the provider\'s withdrawal sentence an order the database records as a withdrawal, even when the caller is both its database provider and its provider on chain, attesting nothing', async () => {
       const row = orderRow({ flow: 'WITHDRAW', ref: null });
       stage.put(row, topUpOnChain(row));
 
-      await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(400);
+      const res = await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(400);
 
+      expect(res.body).toMatchObject({ statusCode: 400, message: ONLY_A_DEPOSIT });
       expect(stage.attestor.attest).not.toHaveBeenCalled();
     });
 
@@ -934,13 +941,13 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       ]);
     });
 
-    it('T10 — refuses a valid proof with a ConflictException while an operator attestation holds the order, before any chain read, and the proof is spent', async () => {
+    it('T10 — refuses a valid proof with the step-6 ConflictException while an operator attestation holds the order, before any chain read, and the proof is spent', async () => {
       const row = stage.fundedTopUp();
       const finish = await operatorAttestationInFlight(stage, row);
 
       const res = await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(409);
 
-      expect(res.body).toMatchObject({ statusCode: 409, error: 'Conflict' });
+      expect(res.body).toEqual(conflict(BEING_CONFIRMED));
       expect(stage.stellar.getTradeStatusStrict).not.toHaveBeenCalled();
       expect(stage.consumed.consume.mock.calls).toEqual([
         [`confirm-receipt:${row.id}:${NOW}`, new Date((NOW + TTL + 1) * 1000)],
@@ -979,7 +986,7 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
   });
 
   describe('POST — what a provider reads when the attestation itself fails', () => {
-    it('gives the provider the one 5xx sentence for every 5xx the core raises, carrying none of the raw error and no transaction hash, while the audit row keeps the raw error', async () => {
+    it('gives the provider the one 5xx sentence with the core\'s own status — 500 for an attestor error, 502 for a chain refusal, 503 for a missing key — carrying none of the raw error and no transaction hash, while the audit row keeps the raw error', async () => {
       const marker = 'rpc-internal-detail-7f3a9c';
       const failedHash = 'c'.repeat(64);
       const thrown = stage.fundedTopUp();
@@ -996,17 +1003,18 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       }
 
       for (const reply of replies) {
-        expect(reply.status).toBeGreaterThanOrEqual(500);
-        expect(reply.status).toBeLessThan(600);
         expect(JSON.stringify(reply.body)).not.toContain(marker);
         expect(JSON.stringify(reply.body)).not.toContain(failedHash);
       }
-      expect(replies.map((reply) => reply.body.message)).toEqual([SERVER_ERROR, SERVER_ERROR, SERVER_ERROR]);
+      expect(replies.map((reply) => reply.status)).toEqual([500, 502, 503]);
+      expect(replies[0].body).toMatchObject({ statusCode: 500, message: SERVER_ERROR });
+      expect(replies[1].body).toMatchObject({ statusCode: 502, message: SERVER_ERROR });
+      expect(replies[2].body).toMatchObject({ statusCode: 503, message: SERVER_ERROR });
       const attempt = stage.auditRows('order.attestFiatPaid').find((data) => data.targetId === thrown.id);
       expect(attempt?.after.error).toContain(marker);
     });
 
-    it('gives the provider a 4xx the core raises with its own status and a sentence of its own: never the operator\'s words and never the 5xx sentence', async () => {
+    it('gives the provider a 4xx the core raises with its own status and its own provider sentence — the withdrawal 400, and the 409 naming the status in lolipay\'s records — never the operator\'s words and never the 5xx sentence', async () => {
       const withdrawal = orderRow({ flow: 'WITHDRAW', ref: null });
       stage.put(withdrawal, topUpOnChain(withdrawal));
       const lagging = orderRow({ status: 'EXPIRED' });
@@ -1020,13 +1028,25 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       const providerOnWithdrawal = await stage.post(withdrawal, signedBy(PROVIDER, withdrawal, NOW)).expect(400);
       const providerOnLagging = await stage.post(lagging, signedBy(PROVIDER, lagging, NOW)).expect(409);
 
-      expect(serverError.status).toBeGreaterThanOrEqual(500);
-      expect(providerOnLagging.body).toMatchObject({ statusCode: 409, error: 'Conflict' });
+      expect(serverError.status).toBe(500);
+      expect(providerOnWithdrawal.body).toMatchObject({ statusCode: 400, message: ONLY_A_DEPOSIT });
+      expect(providerOnLagging.body).toEqual(conflict(notFundedInLolipayRecords('EXPIRED')));
       expect(providerOnWithdrawal.body.message).not.toBe(operatorOnWithdrawal);
       expect(providerOnWithdrawal.body.message).not.toBe(serverError.body.message);
       expect(providerOnLagging.body.message).not.toBe(operatorOnLagging);
       expect(providerOnLagging.body.message).not.toBe(serverError.body.message);
       expect(providerOnWithdrawal.body.message).not.toBe(providerOnLagging.body.message);
+    });
+
+    it('gives the provider the step-11 sentence when the attestor itself refuses because the window closed while the attestation waited its turn: one condition, one sentence, and the attestor\'s own words stay in the audit row', async () => {
+      const row = stage.fundedTopUp();
+      stage.attestor.attest.mockRejectedValueOnce(new ConflictException(ATTESTOR_WINDOW_REFUSAL));
+
+      const res = await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(409);
+
+      expect(res.body).toEqual(conflict(WINDOW_CLOSED));
+      expect(stage.attestor.attest).toHaveBeenCalledTimes(1);
+      expect(stage.auditRows('order.attestFiatPaid').map((data) => data.after.error)).toEqual([ATTESTOR_WINDOW_REFUSAL]);
     });
   });
 });
