@@ -117,7 +117,7 @@ describe('what a provider reads when the route meets something it did not antici
     expect(s.attestor.attest).not.toHaveBeenCalled();
   });
 
-  it('gives the one 5xx sentence when recording the single use fails, before the lock, the chain or the attestor are touched', async () => {
+  it('gives the one 5xx sentence when recording the single use fails, before the chain or the attestor are touched', async () => {
     const s = stage();
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     s.consumed.consume.mockRejectedValue(new Error('too many connections'));

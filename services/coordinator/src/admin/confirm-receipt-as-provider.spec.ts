@@ -631,6 +631,21 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       expect(stage.attestor.attest).toHaveBeenCalledTimes(1);
     });
 
+    it('stamps the receipt with the moment the server received the statement, never the second the provider signed it, on a statement signed exactly the configured lifetime ago', async () => {
+      const row = stage.fundedTopUp();
+      const proof = signedBy(PROVIDER, row, NOW - TTL);
+
+      await stage.post(row, proof).expect(200);
+
+      const attempts = stage.auditRows('order.attestFiatPaid');
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0].after.evidence).toEqual({
+        message: providerReceiptMessage(row, NOW - TTL),
+        signature: proof.signature,
+        receivedAt: ISO_NOW,
+      });
+    });
+
     const OUTSIDE_THE_LIFETIME: [string, number][] = [
       ['one second older than the configured lifetime', NOW - TTL - 1],
       ['dated one second in the future', NOW + 1],
@@ -1036,6 +1051,19 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       expect(providerOnLagging.body.message).not.toBe(operatorOnLagging);
       expect(providerOnLagging.body.message).not.toBe(serverError.body.message);
       expect(providerOnWithdrawal.body.message).not.toBe(providerOnLagging.body.message);
+    });
+
+    it('names the order\'s current status in the 409 the provider reads, not the status the loader read at the start: a row that moved to FIAT_PAID while the chain was being read is named FIAT_PAID', async () => {
+      const row = stage.fundedTopUp();
+      stage.stellar.getTradeStatusStrict.mockImplementationOnce(async () => {
+        stage.put({ ...row, status: 'FIAT_PAID' });
+        return topUpOnChain(row);
+      });
+
+      const res = await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(409);
+
+      expect(res.body).toEqual(conflict(notFundedInLolipayRecords('FIAT_PAID')));
+      expect(stage.attestor.attest).not.toHaveBeenCalled();
     });
 
     const ATTESTOR_WINDOW_WORDS: [string, string][] = [
