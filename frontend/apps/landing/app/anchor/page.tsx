@@ -308,7 +308,7 @@ export default async function AnchorPage() {
         </P>
         <P>
           {
-            'The consequence to design around: if your wallet opens SEP-24 interactive URLs in an embedded webview with no injected provider, a withdrawal cannot finish there. The page says so in words rather than failing silently - it tells the person to open the link in a browser where their wallet is installed. A deposit asks your wallet for no signature at all - the interactive page never puts a signing request in front of a depositor. What it does ask for comes earlier and applies to both directions: identity is settled before any amount is entered or any escrow exists, and the screen that hands the person to our verification partner is a link marked to open in a new window. If your webview does not open one, an unverified depositor stops at that screen and no order is created - so test that link in whatever context you open interactive URLs in. What a deposit waits on after that is described under pending_external below.'
+            'The consequence to design around: if your wallet opens SEP-24 interactive URLs in an embedded webview with no injected provider, a withdrawal cannot finish there. The page says so in words rather than failing silently - it tells the person to open the link in a browser where their wallet is installed. A deposit asks your wallet for no signature at all - the interactive page never puts a signing request in front of a depositor. What it does ask for comes earlier and applies to both directions: identity is settled before any amount is entered or any escrow exists, and the screen that hands the person to our verification partner is a link marked to open in a new window. If your webview does not open one, an unverified depositor stops at that screen and no order is created - so test that link in whatever context you open interactive URLs in. What a deposit waits on after that is described under pending_user_transfer_start and pending_anchor below.'
           }
         </P>
         <P>
@@ -388,17 +388,12 @@ export default async function AnchorPage() {
             {
               term: 'pending_anchor',
               detail:
-                'The anchor is working: matching a provider, or checking a rupiah transfer that has been reported. Nothing is being asked of the person.',
+                "The anchor is working, and nothing is being asked of the person: a provider is being matched, or the person has reported that the rupiah was sent and the provider has been asked to check their own account for it. Nothing on the SEP-24 surface advances that second wait: the report the person filed is unsigned and moves nothing on chain, and the provider cannot mark the transfer received - the escrow does not admit them to that call. It ends when this anchor records the transfer against the order, and the provider's own confirmation is what releases the escrow at the step after that. Render message, which tells the person not to send a second time. This anchor does not report pending_external for that wait.",
             },
             {
               term: 'pending_user_transfer_start',
               detail:
                 "A provider is matched, the USDC is locked in escrow, and the person has been asked to send the rupiah to the provider's account. The destination is on the interactive page, not in this record: render message, which tells the person where to look, and keep that page reachable. user_action_required_by carries the deadline.",
-            },
-            {
-              term: 'pending_external',
-              detail:
-                "The person has reported that the rupiah was sent, and the provider has been asked to check their own account for it. Nothing on the SEP-24 surface advances this status: the report the person filed is unsigned and moves nothing on chain, and the provider cannot mark the transfer received - the escrow does not admit them to that call. It advances when this anchor records the transfer against the order, and the provider's own confirmation is what releases the escrow at the step after that. Render message, which tells the person not to send a second time.",
             },
             {
               term: 'completed',
@@ -456,7 +451,7 @@ export default async function AnchorPage() {
         />
         <P>
           {
-            'Three statuses appear in one direction only, and that absence is information rather than a gap: pending_user_transfer_start and pending_external are deposit-only, pending_user is withdrawal-only. Your wallet will not see them in the other direction.'
+            'Two statuses appear in one direction only, and that absence is information rather than a gap: pending_user_transfer_start is deposit-only, pending_user is withdrawal-only. Your wallet will not see either in the other direction.'
           }
         </P>
         <P>

@@ -279,3 +279,13 @@ describe('the chrome that carries a reader between the two pages', () => {
     expect(hrefs.filter((href) => href.startsWith('/#'))).toHaveLength(7)
   })
 })
+
+describe('the deposit statuses the page lists are the ones the anchor reports', () => {
+  it('lists no pending_external row, and names the two statuses that appear in one direction only', () => {
+    const page = readFileSync(resolve(process.cwd(), 'app/anchor/page.tsx'), 'utf8')
+
+    expect(page.length).toBeGreaterThan(0)
+    expect(page.split("term: 'pending_external'").length - 1).toBe(0)
+    expect(page).toContain('pending_user_transfer_start is deposit-only, pending_user is withdrawal-only')
+  })
+})
