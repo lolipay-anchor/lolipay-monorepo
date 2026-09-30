@@ -43,6 +43,22 @@ const PROVIDER = Keypair.random();
 const STRANGER = Keypair.random();
 const DEPOSITOR = Keypair.random();
 
+const NOT_FOUND = 'This order was not found.';
+const NOT_THE_PROVIDER = 'Only the provider assigned to this order can confirm its payment.';
+const STALE = 'Your signed statement reached lolipay outside the time allowed for it, so nothing was recorded. Try again, and approve the new request in your wallet straight away.';
+const ALREADY_USED = 'This signed statement was already used once, so this attempt recorded nothing. Try again to sign a new one.';
+const CHAIN_UNREACHABLE = 'The network could not be reached to check this order, so the payment was not recorded. Try again in a moment.';
+const ESCROW_NOT_FOUND = 'This order\'s escrow was not found on the network, so the payment was not recorded.';
+const NOT_FUNDED_BY_CALLER = 'The escrow for this order was not funded from your wallet, so you cannot confirm its payment.';
+const WINDOW_CLOSED = 'The time to confirm this payment has passed, so it can no longer be confirmed, and the USDC can be returned to you.';
+const SERVER_ERROR = 'Confirming this payment ran into an error. Try again: a payment is never recorded on chain twice, so if the first attempt did go through, the release continues from there.';
+const notSignedBy = (caller: string) =>
+  `This signed statement could not be verified as signed by ${caller.slice(0, 4)}…${caller.slice(-4)}, the account you are logged in with, so nothing was recorded. Make sure your wallet is using that account, then try again.`;
+const alreadyOnChain = (status: string) => `On the network this order is already ${status}, so there is nothing to confirm. Refresh the order.`;
+const forbidden = (message: string) => ({ statusCode: 403, error: 'Forbidden', message });
+const notFound = (message: string) => ({ statusCode: 404, error: 'Not Found', message });
+const conflict = (message: string) => ({ statusCode: 409, error: 'Conflict', message });
+
 type Selection = Record<string, unknown>;
 
 interface OrderRow {
@@ -401,6 +417,24 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
     expect(TTL).not.toBe(120);
   });
 
+  it('stands in for the order table with a store that honours select, so a loader that leaves out a field the signed message prints goes red here and not in production', async () => {
+    const row = stage.fundedTopUp({ ref: 'LP-7K2Q' });
+
+    const narrow = await stage.prisma.order.findUnique({
+      where: { id: row.id },
+      select: { id: true, tradeId: true, fiatAmount: true, fiatCurrency: true, lp: { select: { stellarAddress: true } } },
+    });
+
+    expect(narrow).toEqual({
+      id: row.id,
+      tradeId: row.tradeId,
+      fiatAmount: row.fiatAmount,
+      fiatCurrency: 'IDR',
+      lp: { stellarAddress: PROVIDER.publicKey() },
+    });
+    expect(narrow).not.toHaveProperty('ref');
+  });
+
   describe('the two routes and their guards', () => {
     it('declares exactly GET and POST on /orders/:id/confirm-receipt, each open to user, lp and admin and opted in to no extra token class', () => {
       const routes = Object.getOwnPropertyNames(ProviderReceiptController.prototype)
@@ -483,7 +517,7 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
 
   describe('GET — the server builds the bytes, the client only signs them', () => {
     it('G1 — gives the order\'s provider the exact bytes to sign and the Unix second they were issued, and locks, reads from the chain, spends and writes nothing', async () => {
-      const row = stage.fundedTopUp();
+      const row = stage.fundedTopUp({ ref: 'LP-7K2Q' });
 
       const res = await stage.get(row).expect(200);
 
@@ -512,24 +546,22 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       expect(res.body).toEqual({ message: providerReceiptMessage(row, NOW), at: NOW });
     });
 
-    it('G2 — refuses a caller who is not the order\'s provider 403 even while an operator attestation holds the order, and shows them neither the amount nor the reference', async () => {
+    it('G2 — refuses a caller who is not the order\'s provider with a ForbiddenException carrying the step-2 sentence and nothing of the order, even while an operator attestation holds the order', async () => {
       const row = stage.fundedTopUp();
       const finish = await operatorAttestationInFlight(stage, row);
 
       const res = await stage.get(row, STRANGER).expect(403);
       await finish();
 
-      const shown = JSON.stringify(res.body);
-      expect(shown).not.toContain(row.ref as string);
-      expect(shown).not.toContain(String(row.fiatAmount));
-      expect(shown).not.toContain('lolipay-confirm-receipt');
+      expect(res.body).toEqual(forbidden(NOT_THE_PROVIDER));
       expect(stage.stellar.getTradeStatusStrict).not.toHaveBeenCalled();
       expect(stage.consumed.consume).not.toHaveBeenCalled();
     });
 
-    it('G2 — refuses an order that does not exist 404, reading nothing from the chain and spending nothing', async () => {
-      await stage.get(orderRow()).expect(404);
+    it('G2 — refuses an order that does not exist with a NotFoundException carrying the step-1 sentence, reading nothing from the chain and spending nothing', async () => {
+      const res = await stage.get(orderRow()).expect(404);
 
+      expect(res.body).toEqual(notFound(NOT_FOUND));
       expect(stage.stellar.getTradeStatusStrict).not.toHaveBeenCalled();
       expect(stage.consumed.consume).not.toHaveBeenCalled();
       expect(stage.prisma.adminAudit.create).not.toHaveBeenCalled();
@@ -538,8 +570,9 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
 
   describe('POST — the signature, its freshness and its single use', () => {
     it('S1 — admits the provider who signs exactly what the GET served: the attestation row names the provider and carries the served message, the signature and when it was received, and it verifies against the provider\'s key', async () => {
-      const row = stage.fundedTopUp();
+      const row = stage.fundedTopUp({ ref: 'LP-7K2Q' });
       const served = (await stage.get(row).expect(200)).body as { message: string; at: number };
+      expect(served.message).toBe(providerReceiptMessage(row, served.at));
       const signature = sep53Signature(PROVIDER, served.message);
 
       await stage.post(row, { at: served.at, signature }).expect(200);
@@ -553,13 +586,14 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       ).toBe(true);
     });
 
-    it('S2 — refuses a signature by any other key over the right message 403, before the single-use record, the lock and the chain, even while an operator attestation holds the order', async () => {
+    it('S2 — refuses a signature by any other key over the right message with a ForbiddenException carrying the step-4 sentence and the caller\'s short address, before the single-use record, the lock and the chain, even while an operator attestation holds the order', async () => {
       const row = stage.fundedTopUp();
       const finish = await operatorAttestationInFlight(stage, row);
 
-      await stage.post(row, signedBy(STRANGER, row, NOW)).expect(403);
+      const res = await stage.post(row, signedBy(STRANGER, row, NOW)).expect(403);
       await finish();
 
+      expect(res.body).toEqual(forbidden(notSignedBy(PROVIDER.publicKey())));
       expect(stage.consumed.consume).not.toHaveBeenCalled();
       expect(stage.stellar.getTradeStatusStrict).not.toHaveBeenCalled();
     });
@@ -571,12 +605,13 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
     ];
 
     it.each(S3_VARIANTS)(
-      '%s — refuses 403 the provider\'s own signature over this order\'s message with %s, because the POST rebuilds the message from its own row',
+      '%s — refuses the provider\'s own signature over this order\'s message with %s with a ForbiddenException carrying the step-4 sentence, because the POST rebuilds the message from its own row',
       async (_id, _label, variant) => {
         const row = stage.fundedTopUp();
 
-        await stage.post(row, signedBy(PROVIDER, { ...row, ...variant }, NOW)).expect(403);
+        const res = await stage.post(row, signedBy(PROVIDER, { ...row, ...variant }, NOW)).expect(403);
 
+        expect(res.body).toEqual(forbidden(notSignedBy(PROVIDER.publicKey())));
         expect(stage.consumed.consume).not.toHaveBeenCalled();
         expect(stage.attestor.attest).not.toHaveBeenCalled();
       },
@@ -595,23 +630,25 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       ['dated one second in the future', NOW + 1],
     ];
 
-    it.each(OUTSIDE_THE_LIFETIME)('S4 — refuses a signature %s with 403, before anything is spent or read from the chain', async (_label, at) => {
+    it.each(OUTSIDE_THE_LIFETIME)('S4 — refuses a signature %s with a ForbiddenException carrying the step-3 sentence, before anything is spent or read from the chain', async (_label, at) => {
       const row = stage.fundedTopUp();
 
-      await stage.post(row, signedBy(PROVIDER, row, at)).expect(403);
+      const res = await stage.post(row, signedBy(PROVIDER, row, at)).expect(403);
 
+      expect(res.body).toEqual(forbidden(STALE));
       expect(stage.consumed.consume).not.toHaveBeenCalled();
       expect(stage.stellar.getTradeStatusStrict).not.toHaveBeenCalled();
       expect(stage.attestor.attest).not.toHaveBeenCalled();
     });
 
-    it('S5 — refuses the same proof a second time 403 with no second chain read or attestation, and the single-use key is the order and the issued second, kept one second past the last instant the proof could pass', async () => {
+    it('S5 — refuses the same proof a second time with a ForbiddenException carrying the step-5 sentence, with no second chain read or attestation, and the single-use key is the order and the issued second, kept one second past the last instant the proof could pass', async () => {
       const row = stage.fundedTopUp();
       const proof = signedBy(PROVIDER, row, NOW);
 
       await stage.post(row, proof).expect(200);
-      await stage.post(row, proof).expect(403);
+      const second = await stage.post(row, proof).expect(403);
 
+      expect(second.body).toEqual(forbidden(ALREADY_USED));
       expect(stage.stellar.getTradeStatusStrict).toHaveBeenCalledTimes(1);
       expect(stage.attestor.attest).toHaveBeenCalledTimes(1);
       expect(stage.consumed.consume.mock.calls).toEqual([
@@ -620,7 +657,7 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       ]);
     });
 
-    it('S5b — refuses 403 the same signature re-encoded from base64 to hex, which still verifies, because single use is keyed on the signed message and not on the signature string', async () => {
+    it('S5b — refuses the same signature re-encoded from base64 to hex, which still verifies, with a ForbiddenException carrying the step-5 sentence, because single use is keyed on the signed message and not on the signature string', async () => {
       const row = stage.fundedTopUp();
       const proof = signedBy(PROVIDER, row, NOW);
       const hex = Buffer.from(proof.signature, 'base64').toString('hex');
@@ -628,37 +665,44 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       expect(verifySep53(PROVIDER.publicKey(), providerReceiptMessage(row, NOW), hex)).toBe(true);
 
       await stage.post(row, proof).expect(200);
-      await stage.post(row, { at: NOW, signature: hex }).expect(403);
+      const reencoded = await stage.post(row, { at: NOW, signature: hex }).expect(403);
 
+      expect(reencoded.body).toEqual(forbidden(ALREADY_USED));
       expect(stage.attestor.attest).toHaveBeenCalledTimes(1);
       expect(stage.stellar.getTradeStatusStrict).toHaveBeenCalledTimes(1);
     });
 
-    const REFUSED_BEFORE_THE_LOCK: [string, (row: OrderRow) => object][] = [
-      ['a signature over a different message', () => ({ at: NOW, signature: sep53Signature(PROVIDER, `lolipay-auth:${PROVIDER.publicKey()}:n:1:m`) })],
-      ['a signature issued before the configured lifetime', (row) => signedBy(PROVIDER, row, NOW - TTL - 1)],
+    const REFUSED_BEFORE_THE_LOCK: [string, (row: OrderRow) => object, string][] = [
+      [
+        'a signature over a different message',
+        () => ({ at: NOW, signature: sep53Signature(PROVIDER, `lolipay-auth:${PROVIDER.publicKey()}:n:1:m`) }),
+        notSignedBy(PROVIDER.publicKey()),
+      ],
+      ['a signature issued before the configured lifetime', (row) => signedBy(PROVIDER, row, NOW - TTL - 1), STALE],
     ];
 
     it.each(REFUSED_BEFORE_THE_LOCK)(
-      'S6 — refuses %s 403, not 409, while an operator attestation holds the order, because it is refused before the lock and spends nothing',
-      async (_label, proofFor) => {
+      'S6 — refuses %s with a ForbiddenException, not a 409, while an operator attestation holds the order, because it is refused before the lock and spends nothing',
+      async (_label, proofFor, sentence) => {
         const row = stage.fundedTopUp();
         const finish = await operatorAttestationInFlight(stage, row);
 
-        await stage.post(row, proofFor(row)).expect(403);
+        const res = await stage.post(row, proofFor(row)).expect(403);
         await finish();
 
+        expect(res.body).toEqual(forbidden(sentence));
         expect(stage.consumed.consume).not.toHaveBeenCalled();
         expect(stage.stellar.getTradeStatusStrict).not.toHaveBeenCalled();
       },
     );
 
-    it('S8 — refuses 403 a body whose second differs from the second that was signed, even when both are inside the lifetime, and spends nothing', async () => {
+    it('S8 — refuses a body whose second differs from the second that was signed, even when both are inside the lifetime, with a ForbiddenException carrying the step-4 sentence, and spends nothing', async () => {
       const row = stage.fundedTopUp();
       const signed = signedBy(PROVIDER, row, NOW);
 
-      await stage.post(row, { at: NOW - 1, signature: signed.signature }).expect(403);
+      const res = await stage.post(row, { at: NOW - 1, signature: signed.signature }).expect(403);
 
+      expect(res.body).toEqual(forbidden(notSignedBy(PROVIDER.publicKey())));
       expect(stage.consumed.consume).not.toHaveBeenCalled();
       expect(stage.attestor.attest).not.toHaveBeenCalled();
     });
@@ -696,67 +740,73 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       ]);
     });
 
-    it('T2 — refuses a caller who is not the order\'s provider 403 before the lock, the chain and the single-use record, even while an operator attestation holds the order', async () => {
+    it('T2 — refuses a caller who is not the order\'s provider with a ForbiddenException carrying the step-2 sentence, before the lock, the chain and the single-use record, even while an operator attestation holds the order', async () => {
       const row = stage.fundedTopUp();
       const finish = await operatorAttestationInFlight(stage, row);
 
-      await stage.post(row, signedBy(STRANGER, row, NOW), STRANGER).expect(403);
+      const res = await stage.post(row, signedBy(STRANGER, row, NOW), STRANGER).expect(403);
       await finish();
 
+      expect(res.body).toEqual(forbidden(NOT_THE_PROVIDER));
       expect(stage.consumed.consume).not.toHaveBeenCalled();
       expect(stage.stellar.getTradeStatusStrict).not.toHaveBeenCalled();
       expect(stage.attestor.attest).toHaveBeenCalledTimes(1);
       expect(stage.auditRows().filter((data) => data.actorAddress === STRANGER.publicKey())).toEqual([]);
     });
 
-    it('refuses an order that does not exist 404, having spent nothing and read nothing from the chain', async () => {
+    it('refuses an order that does not exist with a NotFoundException carrying the step-1 sentence, having spent nothing and read nothing from the chain', async () => {
       const absent = orderRow();
 
-      await stage.post(absent, signedBy(PROVIDER, absent, NOW)).expect(404);
+      const res = await stage.post(absent, signedBy(PROVIDER, absent, NOW)).expect(404);
 
+      expect(res.body).toEqual(notFound(NOT_FOUND));
       expect(stage.consumed.consume).not.toHaveBeenCalled();
       expect(stage.stellar.getTradeStatusStrict).not.toHaveBeenCalled();
     });
 
-    it('T3 — refuses 403 the database provider who is not the provider on chain, after one chain read, attesting and recording nothing', async () => {
+    it('T3 — refuses the database provider who is not the provider on chain with a ForbiddenException carrying the step-8 sentence, after one chain read, attesting and recording nothing', async () => {
       const row = orderRow();
       stage.put(row, topUpOnChain(row, { usdcProvider: STRANGER.publicKey(), confirmer: STRANGER.publicKey() }));
 
-      await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(403);
+      const res = await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(403);
 
+      expect(res.body).toEqual(forbidden(NOT_FUNDED_BY_CALLER));
       expect(stage.stellar.getTradeStatusStrict).toHaveBeenCalledTimes(1);
       expect(stage.attestor.attest).not.toHaveBeenCalled();
       expect(stage.auditRows()).toEqual([]);
     });
 
-    it('checks the chain\'s provider before the already-recorded branch: on a trade the chain records as FiatPaid, a caller who is not its provider on chain is refused 403 and no receipt row is written', async () => {
+    it('checks the chain\'s provider before the already-recorded branch: on a trade the chain records as FiatPaid, a caller who is not its provider on chain gets the step-8 ForbiddenException and no receipt row is written', async () => {
       const row = orderRow();
       stage.put(
         row,
         topUpOnChain(row, { status: 'FIAT_PAID', usdcProvider: STRANGER.publicKey(), confirmer: STRANGER.publicKey() }),
       );
 
-      await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(403);
+      const res = await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(403);
 
+      expect(res.body).toEqual(forbidden(NOT_FUNDED_BY_CALLER));
       expect(stage.auditRows()).toEqual([]);
     });
 
-    it('T4a — refuses 403 the provider on a withdrawal, where the chain records them as the one who receives the USDC, after exactly one chain read and with nothing attested', async () => {
+    it('T4a — refuses the provider on a withdrawal, where the chain records them as the one who receives the USDC, with the step-8 ForbiddenException, after exactly one chain read and with nothing attested', async () => {
       const row = orderRow({ flow: 'WITHDRAW', ref: null });
       stage.put(row, withdrawalOnChain());
 
-      await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(403);
+      const res = await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(403);
 
+      expect(res.body).toEqual(forbidden(NOT_FUNDED_BY_CALLER));
       expect(stage.stellar.getTradeStatusStrict).toHaveBeenCalledTimes(1);
       expect(stage.attestor.attest).not.toHaveBeenCalled();
     });
 
-    it('T4b — refuses 403 the withdrawing user, who funded that escrow on chain but is not the order\'s provider, without reading the chain or spending anything', async () => {
+    it('T4b — refuses the withdrawing user, who funded that escrow on chain but is not the order\'s provider, with the step-2 ForbiddenException, without reading the chain or spending anything', async () => {
       const row = orderRow({ flow: 'WITHDRAW', ref: null });
       stage.put(row, withdrawalOnChain());
 
-      await stage.post(row, signedBy(DEPOSITOR, row, NOW), DEPOSITOR, { role: 'user' }).expect(403);
+      const res = await stage.post(row, signedBy(DEPOSITOR, row, NOW), DEPOSITOR, { role: 'user' }).expect(403);
 
+      expect(res.body).toEqual(forbidden(NOT_THE_PROVIDER));
       expect(stage.stellar.getTradeStatusStrict).not.toHaveBeenCalled();
       expect(stage.consumed.consume).not.toHaveBeenCalled();
       expect(stage.attestor.attest).not.toHaveBeenCalled();
@@ -819,13 +869,14 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
     });
 
     it.each(['RELEASED', 'REFUNDED', 'DISPUTED'] as const)(
-      'T6 — refuses 409 a trade the chain records as %s while the database row still reads FUNDED, attesting nothing and leaving the row alone',
+      'T6 — refuses a trade the chain records as %s, while the database row still reads FUNDED, with the step-10 ConflictException naming that status, attesting nothing and leaving the row alone',
       async (onChain) => {
         const row = orderRow();
         stage.put(row, topUpOnChain(row, { status: onChain }));
 
-        await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(409);
+        const res = await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(409);
 
+        expect(res.body).toEqual(conflict(alreadyOnChain(onChain)));
         expect(stage.attestor.attest).not.toHaveBeenCalled();
         expect(stage.prisma.order.updateMany).not.toHaveBeenCalled();
       },
@@ -841,17 +892,18 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       expect(stage.attestor.attest).toHaveBeenCalledTimes(1);
     });
 
-    it('T7 — refuses a confirmation one second past the refund instant 409 and attests nothing', async () => {
+    it('T7 — refuses a confirmation one second past the refund instant with the step-11 ConflictException and attests nothing', async () => {
       const row = stage.fundedTopUp();
       const late = Number(refundOpensAt(row)) + 1;
       jest.setSystemTime(late * 1000);
 
-      await stage.post(row, signedBy(PROVIDER, row, late)).expect(409);
+      const res = await stage.post(row, signedBy(PROVIDER, row, late)).expect(409);
 
+      expect(res.body).toEqual(conflict(WINDOW_CLOSED));
       expect(stage.attestor.attest).not.toHaveBeenCalled();
     });
 
-    it('T8 — answers a chain read that throws with a 409 that says to try again, attesting and writing nothing, and worded differently from a chain that has no such trade', async () => {
+    it('T8 — answers a chain read that throws with the step-7 ConflictException that says to try again, attesting and writing nothing, and a chain that has no such trade with the other step-7 sentence', async () => {
       const unreachable = orderRow();
       stage.put(unreachable, new Error('rpc unreachable'));
       const unknown = orderRow();
@@ -860,8 +912,8 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       const threw = await stage.post(unreachable, signedBy(PROVIDER, unreachable, NOW)).expect(409);
       const missing = await stage.post(unknown, signedBy(PROVIDER, unknown, NOW)).expect(409);
 
-      expect(threw.body.message).toMatch(/try again/i);
-      expect(missing.body.message).not.toBe(threw.body.message);
+      expect(threw.body).toEqual(conflict(CHAIN_UNREACHABLE));
+      expect(missing.body).toEqual(conflict(ESCROW_NOT_FOUND));
       expect(stage.attestor.attest).not.toHaveBeenCalled();
       expect(stage.prisma.order.updateMany).not.toHaveBeenCalled();
       expect(stage.auditRows()).toEqual([]);
@@ -882,12 +934,13 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       ]);
     });
 
-    it('T10 — refuses a valid proof 409 while an operator attestation holds the order, before any chain read, and the proof is spent', async () => {
+    it('T10 — refuses a valid proof with a ConflictException while an operator attestation holds the order, before any chain read, and the proof is spent', async () => {
       const row = stage.fundedTopUp();
       const finish = await operatorAttestationInFlight(stage, row);
 
-      await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(409);
+      const res = await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(409);
 
+      expect(res.body).toMatchObject({ statusCode: 409, error: 'Conflict' });
       expect(stage.stellar.getTradeStatusStrict).not.toHaveBeenCalled();
       expect(stage.consumed.consume.mock.calls).toEqual([
         [`confirm-receipt:${row.id}:${NOW}`, new Date((NOW + TTL + 1) * 1000)],
@@ -896,22 +949,27 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       await finish();
     });
 
-    const REFUSED_AFTER_THE_LOCK: [string, (row: OrderRow) => TradeOnChain | Error, number][] = [
+    const REFUSED_AFTER_THE_LOCK: [
+      string,
+      (row: OrderRow) => TradeOnChain | Error,
+      { statusCode: number; error: string; message: string },
+    ][] = [
       [
         'refused at the chain-provider step',
         (row) => topUpOnChain(row, { usdcProvider: STRANGER.publicKey(), confirmer: STRANGER.publicKey() }),
-        403,
+        forbidden(NOT_FUNDED_BY_CALLER),
       ],
-      ['refused because the chain read threw', () => new Error('rpc unreachable'), 409],
+      ['refused because the chain read threw', () => new Error('rpc unreachable'), conflict(CHAIN_UNREACHABLE)],
     ];
 
     it.each(REFUSED_AFTER_THE_LOCK)(
       'T11 — releases the order after the provider is %s, so the operator\'s attestation right after is not refused as in flight',
-      async (_label, onChain, status) => {
+      async (_label, onChain, refusal) => {
         const row = orderRow();
         stage.put(row, onChain(row));
 
-        await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(status);
+        const res = await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(refusal.statusCode);
+        expect(res.body).toEqual(refusal);
 
         await expect(stage.admin.attestFiatPaid(row.id, OPERATOR, 'BCA 12345')).resolves.toMatchObject({
           submission: 'SUCCESS',
@@ -921,7 +979,7 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
   });
 
   describe('POST — what a provider reads when the attestation itself fails', () => {
-    it('gives the provider one sentence for every 5xx the core raises, carrying none of the raw error and no transaction hash, while the audit row keeps the raw error', async () => {
+    it('gives the provider the one 5xx sentence for every 5xx the core raises, carrying none of the raw error and no transaction hash, while the audit row keeps the raw error', async () => {
       const marker = 'rpc-internal-detail-7f3a9c';
       const failedHash = 'c'.repeat(64);
       const thrown = stage.fundedTopUp();
@@ -943,8 +1001,7 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
         expect(JSON.stringify(reply.body)).not.toContain(marker);
         expect(JSON.stringify(reply.body)).not.toContain(failedHash);
       }
-      expect(typeof replies[0].body.message).toBe('string');
-      expect(new Set(replies.map((reply) => reply.body.message)).size).toBe(1);
+      expect(replies.map((reply) => reply.body.message)).toEqual([SERVER_ERROR, SERVER_ERROR, SERVER_ERROR]);
       const attempt = stage.auditRows('order.attestFiatPaid').find((data) => data.targetId === thrown.id);
       expect(attempt?.after.error).toContain(marker);
     });
@@ -964,6 +1021,7 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       const providerOnLagging = await stage.post(lagging, signedBy(PROVIDER, lagging, NOW)).expect(409);
 
       expect(serverError.status).toBeGreaterThanOrEqual(500);
+      expect(providerOnLagging.body).toMatchObject({ statusCode: 409, error: 'Conflict' });
       expect(providerOnWithdrawal.body.message).not.toBe(operatorOnWithdrawal);
       expect(providerOnWithdrawal.body.message).not.toBe(serverError.body.message);
       expect(providerOnLagging.body.message).not.toBe(operatorOnLagging);
