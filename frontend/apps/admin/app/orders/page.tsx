@@ -617,9 +617,11 @@ function AttestAction({ order, onAttested }: { order: Order; onAttested: () => v
     <div className="mt-3 border-t border-lp-line pt-3 space-y-2" data-testid="attest-panel">
       <p className="text-xs font-semibold text-lp-amber">Rupiah received?</p>
       <p className="text-[11px] leading-relaxed text-lp-muted">
-        Attesting signs the escrow&apos;s mark-fiat-paid with the anchor&apos;s attestor key and
-        permanently closes the provider&apos;s automatic refund. Press it only once the transfer is in
-        the provider&apos;s account, and record the bank reference you checked.
+        Use this only for a deposit the provider has not confirmed themselves. It signs the
+        escrow&apos;s mark-fiat-paid with the anchor&apos;s attestor key and permanently closes the
+        provider&apos;s refund. It does not release the USDC: the provider still has to release it,
+        or a dispute has to settle it. You cannot see the provider&apos;s account, so record what
+        you are relying on.
       </p>
       <p className="text-xs text-lp-ink">
         Expect <strong>{formatIDR(parseInt(order.fiat_amount, 10))}</strong> carrying reference{' '}
@@ -637,8 +639,8 @@ function AttestAction({ order, onAttested }: { order: Order; onAttested: () => v
         value={evidence}
         onChange={(e) => setEvidence(e.target.value)}
         maxLength={200}
-        placeholder="Bank reference you verified"
-        aria-label="Bank reference"
+        placeholder="What you are relying on"
+        aria-label="Evidence for this attestation"
         data-testid="attest-evidence"
         className="w-full border border-lp-line rounded-xl p-2.5 bg-lp-surface text-lp-ink text-sm outline-none"
       />

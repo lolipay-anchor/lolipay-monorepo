@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TestProviders, fakeKit } from './helpers'
 
@@ -85,6 +85,8 @@ const DEFAULT_RISK = {
     online: true,
   },
 }
+
+const ATTEST_GUIDANCE = "Use this only for a deposit the provider has not confirmed themselves. It signs the escrow's mark-fiat-paid with the anchor's attestor key and permanently closes the provider's refund. It does not release the USDC: the provider still has to release it, or a dispute has to settle it. You cannot see the provider's account, so record what you are relying on."
 
 function mount() {
   return render(
@@ -173,7 +175,7 @@ describe('the operator can attest that rupiah arrived, from the orders page', ()
     expect(screen.queryByTestId('attest-fiat-paid')).toBeNull()
   })
 
-  it('refuses to submit without a bank reference, so an attestation always carries what was checked', async () => {
+  it('refuses to submit without evidence, so an attestation always carries what the operator relied on', async () => {
     vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
     mount()
     const button = await waitFor(() => screen.getByTestId('attest-fiat-paid'))
@@ -204,5 +206,26 @@ describe('the operator can attest that rupiah arrived, from the orders page', ()
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toMatch(/not FUNDED/)
     })
+  })
+
+  it('tells the operator the attestation is only for a deposit the provider has not confirmed, and that it does not release the USDC', async () => {
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
+    mount()
+    const panel = await waitFor(() => screen.getByTestId('attest-panel'))
+    expect(within(panel).getByText(ATTEST_GUIDANCE)).toBeTruthy()
+  })
+
+  it('asks the operator what they are relying on, not for a bank reference', async () => {
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
+    mount()
+    const panel = await waitFor(() => screen.getByTestId('attest-panel'))
+    expect(within(panel).getByPlaceholderText('What you are relying on')).toBeTruthy()
+  })
+
+  it('labels the evidence field for assistive technology as evidence for this attestation', async () => {
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
+    mount()
+    const panel = await waitFor(() => screen.getByTestId('attest-panel'))
+    expect(within(panel).getByLabelText('Evidence for this attestation')).toBeTruthy()
   })
 })
