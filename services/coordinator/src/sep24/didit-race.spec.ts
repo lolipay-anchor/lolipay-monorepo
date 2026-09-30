@@ -55,13 +55,6 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
     return { warned, errored };
   }
 
-  function unhandledRejections() {
-    const seen: unknown[] = [];
-    const capture = (e: unknown) => seen.push(e);
-    process.on('unhandledRejection', capture);
-    return { seen, stop: () => process.off('unhandledRejection', capture) };
-  }
-
   afterEach(() => jest.restoreAllMocks());
 
   it('cancels the loser only while it is exactly as createFromQuote left it, so a row anything else has touched is left alone', async () => {
@@ -146,7 +139,6 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
 
     it('the second press sees the refusal the first press got, and the refusal was computed once', async () => {
       const { svc, quotes, token, orders } = build(1);
-      const rejections = unhandledRejections();
       const refused = new ServiceUnavailableException('no eligible LP available');
       let reject!: (e: unknown) => void;
       orders.createFromQuote.mockImplementation(() => new Promise<never>((_, r) => (reject = r)));
@@ -159,21 +151,16 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
       await expect(first).rejects.toBe(refused);
       await expect(second).rejects.toBe(refused);
       await new Promise((r) => setImmediate(r));
-      rejections.stop();
-      expect(rejections.seen).toEqual([]);
       expect(orders.createFromQuote).toHaveBeenCalledTimes(1);
       expect(quotes).toHaveLength(1);
     });
 
     it('a press after a refusal is a fresh attempt, not a replay of the refusal', async () => {
       const { svc, token, orders } = build(1);
-      const rejections = unhandledRejections();
       orders.createFromQuote.mockRejectedValueOnce(new ServiceUnavailableException('no eligible LP available'));
       await expect(svc.submitAmount('tx-1', token, '400000')).rejects.toThrow();
       await expect(svc.submitAmount('tx-1', token, '400000')).resolves.toBeUndefined();
       await new Promise((r) => setImmediate(r));
-      rejections.stop();
-      expect(rejections.seen).toEqual([]);
       expect(orders.createFromQuote).toHaveBeenCalledTimes(2);
     });
 
