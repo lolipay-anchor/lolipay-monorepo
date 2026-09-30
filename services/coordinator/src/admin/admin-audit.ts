@@ -4,6 +4,7 @@ export type AuditAction =
   | 'config.update'
   | 'market.update'
   | 'order.attestFiatPaid'
+  | 'order.providerConfirmedReceipt'
   | 'order.disputeRoundClosed';
 
 export interface AuditEntry {

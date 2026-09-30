@@ -2,8 +2,10 @@ import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   HttpException,
   InternalServerErrorException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -31,10 +33,33 @@ import { MetricsRange } from './dto/metrics-overview-query.dto';
 import { dailyLimitBelowMinOrderMessage, CONFIG_WRITE_CONFLICT_SENTENCE } from './config-sentence';
 import { NotificationService } from '../notification/notification.service';
 import { AttestorService } from '../stellar/attestor.service';
+import { TradeOnChain } from '../stellar/stellar-read.types';
 import { contractIdFor } from '../order/order.params';
+import { ConsumedChallengeService } from '../auth/consumed-challenge.service';
+import { verifySep53 } from '../auth/sep53';
+import { ConfirmReceiptDto } from './dto/confirm-receipt.dto';
+import { PROVIDER_SERVER_ERROR, providerReceiptMessage, ReceiptFields, SignedReceipt } from './provider-receipt-message';
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+const NOT_FOUND = 'This order was not found.';
+
+const WINDOW_CLOSED =
+  'The time to confirm this payment has passed, so it can no longer be confirmed, and the USDC can be returned to you.';
+
+const nowSecs = (): number => Math.floor(Date.now() / 1000);
+
+const windowClosed = (order: { flow: string; payDeadline: bigint; confirmDeadline: bigint }): boolean =>
+  nowSecs() > Number(refundOpensAt(order));
+
+interface ProviderReceiptOrder extends ReceiptFields {
+  contractId: string | null;
+  flow: string;
+  status: string;
+  payDeadline: bigint;
+  confirmDeadline: bigint;
+}
 
 function withReachable<T extends { alertEmail: string | null }>(
   lp: T,
@@ -82,6 +107,8 @@ export interface OrderRisk {
 @Injectable()
 export class AdminService {
   private readonly log = new Logger('Admin');
+
+  @Inject(ConsumedChallengeService) private readonly consumed!: ConsumedChallengeService;
 
   constructor(
     private prisma: PrismaService,
@@ -577,7 +604,7 @@ export class AdminService {
     return this.whileAttesting(orderId, () => this.attestFiatPaidOnce(orderId, actorAddress, evidence));
   }
 
-  private async attestFiatPaidOnce(orderId: string, actorAddress: string, evidence: string) {
+  private async attestFiatPaidOnce(orderId: string, actorAddress: string, evidence: string | SignedReceipt) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       select: { id: true, flow: true, status: true, tradeId: true, contractId: true, userAddress: true, lpWallet: true, lpId: true, settledAt: true, payDeadline: true, confirmDeadline: true },
@@ -655,5 +682,168 @@ export class AdminService {
     }
 
     return { orderId: order.id, submission: outcome.submission, txHash: outcome.txHash };
+  }
+
+  private async providerReceiptOrder(orderId: string, caller: string): Promise<ProviderReceiptOrder> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        tradeId: true,
+        contractId: true,
+        flow: true,
+        status: true,
+        fiatAmount: true,
+        fiatCurrency: true,
+        ref: true,
+        payDeadline: true,
+        confirmDeadline: true,
+        lp: { select: { stellarAddress: true } },
+      },
+    });
+    if (!order) {
+      throw new NotFoundException(NOT_FOUND);
+    }
+    if (order.lp?.stellarAddress !== caller) {
+      throw new ForbiddenException('Only the provider assigned to this order can confirm its payment.');
+    }
+    return order;
+  }
+
+  private async forProvider<T>(orderId: string, work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (err) {
+      if (err instanceof HttpException) {
+        throw err;
+      }
+      this.log.error(
+        `confirm-receipt for order ${orderId} failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      throw new InternalServerErrorException(PROVIDER_SERVER_ERROR);
+    }
+  }
+
+  async receiptToSign(orderId: string, caller: string) {
+    return this.forProvider(orderId, async () => {
+      const order = await this.providerReceiptOrder(orderId, caller);
+      const at = nowSecs();
+      return { message: providerReceiptMessage(order, at), at };
+    });
+  }
+
+  async confirmReceiptAsProvider(orderId: string, caller: string, proof: ConfirmReceiptDto) {
+    return this.forProvider(orderId, async () => {
+      const order = await this.providerReceiptOrder(orderId, caller);
+      const now = nowSecs();
+      if (proof.at < now - this.cfg.challengeTtl || proof.at > now) {
+        throw new ForbiddenException(
+          'Your signed statement reached lolipay outside the time allowed for it, so nothing was recorded. Try again, and approve the new request in your wallet straight away.',
+        );
+      }
+      const message = providerReceiptMessage(order, proof.at);
+      if (!verifySep53(caller, message, proof.signature)) {
+        throw new ForbiddenException(
+          `This signed statement could not be verified as signed by ${caller.slice(0, 4)}…${caller.slice(-4)}, the account you are logged in with, so nothing was recorded. Make sure your wallet is using that account, then try again.`,
+        );
+      }
+      const receipt: SignedReceipt = { message, signature: proof.signature, receivedAt: new Date() };
+      const unspent = await this.consumed.consume(
+        `confirm-receipt:${order.id}:${proof.at}`,
+        new Date((proof.at + this.cfg.challengeTtl + 1) * 1000),
+      );
+      if (!unspent) {
+        throw new ForbiddenException(
+          'This signed statement was already used once, so this attempt recorded nothing. Try again to sign a new one.',
+        );
+      }
+      let entered = false;
+      try {
+        return await this.whileAttesting(orderId, async () => {
+          entered = true;
+          return this.confirmOnChain(order, caller, receipt);
+        });
+      } catch (err) {
+        if (!entered) {
+          throw new ConflictException('This order is already being confirmed. Wait a moment, then refresh it.');
+        }
+        throw err;
+      }
+    });
+  }
+
+  private async confirmOnChain(order: ProviderReceiptOrder, caller: string, receipt: SignedReceipt) {
+    const contractId = contractIdFor(order, this.cfg);
+    let onChain: TradeOnChain | null;
+    try {
+      onChain = await this.stellar.getTradeStatusStrict(contractId, order.tradeId);
+    } catch (err) {
+      this.log.warn(
+        `confirm-receipt for order ${order.id}: the chain read failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      throw new ConflictException(
+        'The network could not be reached to check this order, so the payment was not recorded. Try again in a moment.',
+      );
+    }
+    if (!onChain) {
+      throw new ConflictException("This order's escrow was not found on the network, so the payment was not recorded.");
+    }
+    if (onChain.usdcProvider !== caller) {
+      throw new ForbiddenException(
+        'The escrow for this order was not funded from your wallet, so you cannot confirm its payment.',
+      );
+    }
+    if (onChain.status === 'FIAT_PAID') {
+      try {
+        await recordAudit(this.prisma as any, {
+          actorAddress: caller,
+          action: 'order.providerConfirmedReceipt',
+          targetType: 'Order',
+          targetId: order.id,
+          before: { status: order.status, contractId, tradeId: order.tradeId },
+          after: { evidence: receipt, alreadyRecorded: true },
+        });
+      } catch (err) {
+        this.log.error(
+          `order.providerConfirmedReceipt could not be recorded for order ${order.id} — trade=${order.tradeId} contract=${contractId} actor=${caller} evidence=${JSON.stringify(receipt)}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      return { orderId: order.id, alreadyRecorded: true };
+    }
+    if (onChain.status !== 'FUNDED') {
+      throw new ConflictException(
+        `On the network this order is already ${onChain.status}, so there is nothing to confirm. Refresh the order.`,
+      );
+    }
+    if (windowClosed(order)) {
+      throw new ConflictException(WINDOW_CLOSED);
+    }
+    try {
+      return await this.attestFiatPaidOnce(order.id, caller, receipt);
+    } catch (err) {
+      throw err instanceof HttpException ? await this.asProviderRefusal(err, order) : err;
+    }
+  }
+
+  private async asProviderRefusal(err: HttpException, order: ProviderReceiptOrder): Promise<HttpException> {
+    const status = err.getStatus();
+    if (status === 400) {
+      return new BadRequestException(
+        "Only a deposit's payment can be confirmed this way. On a withdrawal, the provider sends the rupiah and marks it paid from their own wallet.",
+      );
+    }
+    if (status === 404) {
+      return new NotFoundException(NOT_FOUND);
+    }
+    if (status === 409) {
+      if (windowClosed(order)) {
+        return new ConflictException(WINDOW_CLOSED);
+      }
+      const row = await this.prisma.order.findUnique({ where: { id: order.id }, select: { status: true } });
+      return new ConflictException(
+        `This order is ${row?.status ?? order.status} in lolipay's records, and only a FUNDED deposit can be confirmed as paid. Refresh it: the records can lag behind the network.`,
+      );
+    }
+    return new HttpException(PROVIDER_SERVER_ERROR, Math.max(status, 500));
   }
 }
