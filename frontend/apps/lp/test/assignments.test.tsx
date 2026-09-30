@@ -7,6 +7,15 @@ import type { Order } from '@lolipay/api-client'
 
 vi.mock('@/lib/wallet-kit', () => ({ getDefaultKit: vi.fn(() => ({})) }))
 
+vi.mock('@stellar/stellar-sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@stellar/stellar-sdk')>()
+  return {
+    ...actual,
+    rpc: { ...actual.rpc, Server: vi.fn() },
+    TransactionBuilder: { ...actual.TransactionBuilder, fromXDR: vi.fn() },
+  }
+})
+
 vi.mock('next/link', () => ({
   default: ({
     href,
@@ -42,6 +51,15 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
 const { AssignmentCard, ConfirmReleaseSheet } = await import('@/app/assignments/page')
 const AssignmentsPage = (await import('@/app/assignments/page')).default
 const apiClient = await import('@lolipay/api-client')
+const sdk = await import('@stellar/stellar-sdk')
+
+function createDeferred<T>() {
+  let resolve!: (v: T) => void
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
 
 function makeOrder(overrides: Partial<Order> = {}): Order {
   return {
@@ -1274,5 +1292,116 @@ describe('AssignmentsPage — full page', () => {
       expect(screen.getByRole('alert')).toBeTruthy()
       expect(screen.getByText(/Failed to load assignments/i)).toBeTruthy()
     })
+  })
+})
+
+const STILL_CONFIRMING_AFTER_MARKING =
+  'This order is now marked as paid on chain, but the release did not complete here: Still confirming on the network. This may already have gone through — refresh before trying again. Press Release USDC — sign to try again.'
+
+function mockNetwork(poll: () => Promise<unknown>) {
+  const sendTransactionMock = vi.fn().mockResolvedValue({ status: 'PENDING', hash: 'deadbeef' })
+  const pollTransactionMock = vi.fn(poll)
+  vi.mocked(sdk.rpc.Server).mockImplementation(function () {
+    return { sendTransaction: sendTransactionMock, pollTransaction: pollTransactionMock } as never
+  } as unknown as typeof sdk.rpc.Server)
+  vi.mocked(sdk.TransactionBuilder.fromXDR).mockReturnValue({} as never)
+  return { sendTransactionMock, pollTransactionMock }
+}
+
+function mountCard(
+  status: 'FUNDED' | 'FIAT_PAID',
+  submitFn?: (signedXdr: string, networkPassphrase: string) => Promise<unknown>,
+) {
+  const onRefetch = vi.fn()
+  const order = makeOrder({ status, refund_opens_at: nowSecs() + 3600, ref: 'LP-AB12' })
+  const element = (o: Order) => (
+    <TestProviders kit={fakeKit}>
+      <AssignmentCard assignment={{ order: o }} onRefetch={onRefetch} submitFn={submitFn} />
+    </TestProviders>
+  )
+  const view = render(element(order))
+  return { view, element, order, onRefetch }
+}
+
+describe('AssignmentCard — the release waits for the ledger, and is not offered again once it landed', () => {
+  beforeEach(() => {
+    queryClient.clear()
+    vi.clearAllMocks()
+  })
+  afterEach(drainMocks)
+
+  it('keeps the sheet open and does not refetch until the release is on the ledger, not when the network merely accepted it', async () => {
+    queueReleaseTx()
+    const deferred = createDeferred<{ status: string }>()
+    const { pollTransactionMock } = mockNetwork(() => deferred.promise)
+    const { onRefetch } = mountCard('FIAT_PAID')
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() => expect(pollTransactionMock).toHaveBeenCalledWith('deadbeef'))
+    expect(onRefetch).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+
+    deferred.resolve({ status: 'SUCCESS' })
+
+    await waitFor(() => expect(onRefetch).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('once the release is on the ledger, stops offering Confirm receipt & release while the list still reads FIAT_PAID, until the status changes', async () => {
+    queueReleaseTx()
+    const submit = vi.fn().mockResolvedValue({ status: 'SUCCESS', hash: 'deadbeef' })
+    const { view, element, order, onRefetch } = mountCard('FIAT_PAID', submit)
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() => expect(onRefetch).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('button', { name: CARD_BUTTON })).toBeNull()
+
+    view.rerender(element({ ...order }))
+    expect(screen.queryByRole('button', { name: CARD_BUTTON })).toBeNull()
+
+    view.rerender(element({ ...order, status: 'RELEASED' }))
+    expect(screen.getByText('Completed')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: CARD_BUTTON })).toBeNull()
+  })
+
+  it('when the network reports the release FAILED, shows the refusal, keeps the sheet open and still offers the release', async () => {
+    queueReleaseTx()
+    mockNetwork(async () => ({
+      status: 'FAILED',
+      resultXdr: { result: () => ({ switch: () => ({ name: 'txFailed' }) }) },
+    }))
+    const { onRefetch } = mountCard('FIAT_PAID')
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe('Submission failed (FAILED, txFailed)'),
+    )
+    expect(onRefetch).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByRole('button', { name: RELEASE_LABEL })).toBeTruthy()
+  })
+
+  it('after the receipt is recorded, a release the network has not found yet is reported inside the marked-but-not-released sentence', async () => {
+    queueStatement()
+    queueReceiptRecorded()
+    queueReleaseTx()
+    mockNetwork(async () => ({ status: 'NOT_FOUND' }))
+    const { onRefetch } = mountCard('FUNDED')
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe(STILL_CONFIRMING_AFTER_MARKING),
+    )
+    expect(onRefetch).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('dialog')).toBeTruthy()
   })
 })

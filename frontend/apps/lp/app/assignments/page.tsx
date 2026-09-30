@@ -31,8 +31,19 @@ async function defaultSubmit(signedXdr: string, networkPassphrase: string) {
   )
   const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase)
   const res = await server.sendTransaction(tx)
+
   if (res.status !== 'PENDING') throw new Error(submissionFailure(res))
-  return res
+
+  const final = await server.pollTransaction(res.hash)
+  if (final.status === 'NOT_FOUND') {
+    throw new Error(
+      'Still confirming on the network. This may already have gone through — refresh before trying again.',
+    )
+  }
+  if (final.status !== 'SUCCESS') {
+    throw new Error(submissionFailure({ status: final.status, errorResult: final.resultXdr }))
+  }
+  return final
 }
 
 const LOCK_STATUSES: Order['status'][] = ['MATCHED', 'AWAITING_ONCHAIN']
@@ -236,6 +247,7 @@ export function AssignmentCard({
   const [lockBusy, setLockBusy] = React.useState(false)
   const [lockError, setLockError] = React.useState<string | null>(null)
   const [releaseOpen, setReleaseOpen] = React.useState(false)
+  const [releaseSubmitted, setReleaseSubmitted] = React.useState(false)
   const [paidBusy, setPaidBusy] = React.useState(false)
   const [paidError, setPaidError] = React.useState<string | null>(null)
   const [paidChecked, setPaidChecked] = React.useState(false)
@@ -428,7 +440,7 @@ export function AssignmentCard({
               </button>
             </div>
           )}
-          {windowOpen && (
+          {windowOpen && !releaseSubmitted && (
             <Button onClick={() => setReleaseOpen(true)}>
               Confirm receipt &amp; release
             </Button>
@@ -438,9 +450,11 @@ export function AssignmentCard({
 
       {!lpIsFiatPayer && order.status === 'FIAT_PAID' && (
         <>
-          <Button onClick={() => setReleaseOpen(true)}>
-            Confirm receipt &amp; release
-          </Button>
+          {!releaseSubmitted && (
+            <Button onClick={() => setReleaseOpen(true)}>
+              Confirm receipt &amp; release
+            </Button>
+          )}
           {DisputeLink}
         </>
       )}
@@ -452,6 +466,7 @@ export function AssignmentCard({
           onClose={() => setReleaseOpen(false)}
           onConfirmed={() => {
             setReleaseOpen(false)
+            setReleaseSubmitted(true)
             onRefetch()
           }}
           onReceiptRecorded={onRefetch}
