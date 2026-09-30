@@ -260,13 +260,14 @@ describe('a SEP-24 transaction as third-party wallet software reads it', () => {
       expect(out).not.toHaveProperty('user_action_required_by');
     });
 
-    it('is absent once the depositor has claimed they paid, ADR 0059, because there is nothing further to wait on them for', () => {
+    it('is absent once the depositor has claimed they paid, ADR 0059, and the claim is told apart from ordinary pending_anchor by message alone', () => {
       const out = serializeSep24(
         tx({ flow: 'TOP_UP', order: order({ status: 'FUNDED', userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z'), ...deadlines }) }),
         BASE,
       );
-      expect(out.status).toBe('pending_external');
+      expect(out.status).toBe('pending_anchor');
       expect(out).not.toHaveProperty('user_action_required_by');
+      expect(out.message).toMatch(/told this anchor you sent the rupiah/);
     });
   });
 

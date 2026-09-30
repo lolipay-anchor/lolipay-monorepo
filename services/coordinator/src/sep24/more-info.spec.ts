@@ -130,7 +130,7 @@ describe('the more-info page of a deposit', () => {
     expect(unclaimed).not.toContain('/paid');
 
     const claimed = await service({ ...funded, userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z') }).moreInfo('tx-1');
-    expect(claimed).toContain('Status: <strong>pending_external</strong>');
+    expect(claimed).toContain('Status: <strong>pending_anchor</strong>');
     expect(claimed).not.toContain('How to pay');
     expect(claimed).not.toContain('BCA 1234567890');
     expect(claimed).not.toContain('Send it before');

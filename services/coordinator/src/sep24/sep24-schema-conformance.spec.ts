@@ -121,7 +121,7 @@ describe('what we serialise satisfies the acceptance suite own schemas, not our 
 
   it('a funded deposit whose depositor says they paid satisfies that same pending_ required set, asked of the suite rather than transcribed from it', () => {
     const json = serializeSep24(record({ order: { ...order, userClaimedPaidAt: new Date('2026-09-25T00:00:00.000Z') } }), ASSETS);
-    expect(json.status).toBe('pending_external');
+    expect(json.status).toBe('pending_anchor');
     expect(json).not.toHaveProperty('user_action_required_by');
     expect(typeof json.message).toBe('string');
     const r = conforms(json, 'deposit', 'pending_');

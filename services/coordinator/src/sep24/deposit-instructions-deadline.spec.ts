@@ -66,7 +66,7 @@ describe('once the depositor has claimed they sent the rupiah, ADR 0059', () => 
     });
     expect(html).not.toContain('Send your rupiah');
     expect(html).not.toContain('How to pay');
-    expect(html).not.toMatch(/Status: <strong>pending_external<\/strong>/);
+    expect(html).not.toMatch(/<p>Status: <strong>/);
     expect(html).not.toContain('The time to pay has passed');
   });
 

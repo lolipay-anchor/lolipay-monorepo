@@ -1,3 +1,4 @@
+import { OrderStatus } from '../generated/prisma/client';
 import { sep24Status, SEP24_EMITTED_STATUSES } from './sep24-status';
 
 const at = (status: string) => sep24Status({ status } as any);
@@ -103,8 +104,8 @@ describe('what an escrow trade looks like to a wallet that only speaks SEP-24', 
   describe('once the depositor tells lolipay they sent the rupiah, ADR 0059', () => {
     const claimedAt = new Date('2026-09-25T00:00:00.000Z');
 
-    it('reports pending_external only for a TOP_UP order that is FUNDED and carries a claim, leaving every other state exactly as before', () => {
-      expect(sep24Status({ status: 'FUNDED', userClaimedPaidAt: claimedAt } as any, 'TOP_UP')).toBe('pending_external');
+    it('reports a TOP_UP order that is FUNDED and carries a claim as pending_anchor, never pending_external, leaving every other state exactly as before', () => {
+      expect(sep24Status({ status: 'FUNDED', userClaimedPaidAt: claimedAt } as any, 'TOP_UP')).toBe('pending_anchor');
       for (const [status, expected] of [
         ['CREATED', 'pending_anchor'],
         ['MATCHED', 'pending_anchor'],
@@ -120,8 +121,28 @@ describe('what an escrow trade looks like to a wallet that only speaks SEP-24', 
       }
     });
 
-    it('lists pending_external among the statuses this anchor actually emits, or the acceptance-suite membership check stops covering it', () => {
-      expect(SEP24_EMITTED_STATUSES).toContain('pending_external');
+    it('never lists the status the reference wallet stops polling on among the statuses this anchor emits', () => {
+      expect(SEP24_EMITTED_STATUSES).not.toContain('pending_external');
+    });
+  });
+
+  describe('the reference wallet ends its deposit poll at pending_external, completed or error, the endStatuses of stellar-demo-wallet pollDepositUntilComplete.ts at commit 55d4532d', () => {
+    const walletEndStatuses = ['pending_external', 'completed', 'error'];
+    const everyStatusButReleased = Object.values(OrderStatus).filter((status) => status !== 'RELEASED');
+    const claimedAt = new Date('2026-09-25T00:00:00.000Z');
+
+    it('takes its population from the schema enum, so a state added later is covered or must be classified', () => {
+      expect(everyStatusButReleased).toEqual(['CREATED', 'MATCHED', 'AWAITING_ONCHAIN', 'FUNDED', 'FIAT_PAID', 'REFUNDED', 'DISPUTED', 'EXPIRED', 'CANCELLED']);
+    });
+
+    it.each(everyStatusButReleased)('never maps a %s deposit, claimed or not, into a status the wallet stops polling at', (status) => {
+      for (const userClaimedPaidAt of [null, claimedAt]) {
+        expect(walletEndStatuses).not.toContain(sep24Status({ status, userClaimedPaidAt }, 'TOP_UP'));
+      }
+    });
+
+    it('does let the wallet stop once the escrow released, so the property above is not met by never reaching an end status', () => {
+      expect(walletEndStatuses).toContain(at('RELEASED'));
     });
   });
 });
