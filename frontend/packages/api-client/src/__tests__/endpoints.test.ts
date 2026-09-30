@@ -8,7 +8,7 @@ import { getRate, getMarkets, createQuote, createOrder, getOrders, getOrder, can
   getCreateTradeTx, getConfirmReleaseTx,
   uploadProof, uploadDisputeEvidence, postDispute,
   downloadOrderProof, downloadDisputeEvidence, getMyProfile, getAdminOrderRisk,
-  getMetricsOverview, attestFiatPaid } from '../endpoints'
+  getMetricsOverview, attestFiatPaid, getConfirmReceiptMessage, confirmReceipt } from '../endpoints'
 import type { Rate, Market, Quote, Order, CreateOrderResponse, TxEnvelope,
   Lp, LpMe, LpEarnings, AdminConfig, Assignment, Eligibility, PostDisputeResponse,
   UserProfile, OrderRisk, MetricsOverview } from '../types'
@@ -33,6 +33,50 @@ describe('endpoints', () => {
     expect(url).toBe('https://api.test/admin/orders/a%2Fb%23c/attest')
     expect(opts.method).toBe('POST')
     expect(JSON.parse(opts.body)).toEqual({ evidence: 'BCA 12345' })
+  })
+
+  it('getConfirmReceiptMessage: GETs /orders/:id/confirm-receipt with no body and returns the message and at exactly as served', async () => {
+    const { client, fetchMock } = makeClient()
+    const orderId = '5f0c7a2e-8b1d-4e3a-9c6f-2d4b8a1e7f30'
+    const message = `lolipay-confirm-receipt:v1 I confirm I received the payment for this order. order=${orderId} trade=42 amount=150000 currency=IDR reference=INV-9 at=1790000000`
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ message, at: 1790000000 }) })
+
+    const result = await getConfirmReceiptMessage(client, orderId)
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [url, opts] = fetchMock.mock.calls[0]
+    expect(url).toBe(`https://api.test/orders/${orderId}/confirm-receipt`)
+    expect(opts.method).toBe('GET')
+    expect(opts.body).toBeUndefined()
+    expect(result).toStrictEqual({ message, at: 1790000000 })
+  })
+
+  it('confirmReceipt: POSTs to /orders/:id/confirm-receipt a body of exactly { at, signature } and no other key', async () => {
+    const { client, fetchMock } = makeClient()
+    const orderId = '5f0c7a2e-8b1d-4e3a-9c6f-2d4b8a1e7f30'
+    const signature = 'bm90IGEgcmVhbCBzaWduYXR1cmU+Li4/Lg=='
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ orderId, alreadyRecorded: true }) })
+
+    await confirmReceipt(client, orderId, { at: 1790000000, signature })
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [url, opts] = fetchMock.mock.calls[0]
+    expect(url).toBe(`https://api.test/orders/${orderId}/confirm-receipt`)
+    expect(opts.method).toBe('POST')
+    expect(JSON.parse(opts.body)).toStrictEqual({ at: 1790000000, signature })
+  })
+
+  it('getConfirmReceiptMessage and confirmReceipt: encode the order id, so an id carrying / ? # cannot address another route', async () => {
+    const { client, fetchMock } = makeClient()
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ message: 'm', at: 1790000000 }) })
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ orderId: 'a/b?c#d', alreadyRecorded: true }) })
+
+    await getConfirmReceiptMessage(client, 'a/b?c#d')
+    await confirmReceipt(client, 'a/b?c#d', { at: 1790000000, signature: 'bm90IGEgcmVhbCBzaWduYXR1cmU+Li4/Lg==' })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.test/orders/a%2Fb%3Fc%23d/confirm-receipt')
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.test/orders/a%2Fb%3Fc%23d/confirm-receipt')
   })
 
   it('getRate: GETs /rate?fiat=IDR and returns Rate object', async () => {

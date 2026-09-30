@@ -112,6 +112,15 @@ export interface AttestFiatPaidResult {
 export const attestFiatPaid = (c: ApiClient, id: string, evidence: string) =>
   c.request<AttestFiatPaidResult>('POST', `/admin/orders/${encodeURIComponent(id)}/attest`, { evidence })
 
+export interface ConfirmReceiptMessage { message: string; at: number }
+export type ConfirmReceiptResult =
+  | { orderId: string; alreadyRecorded: true }
+  | { orderId: string; submission: string; txHash?: string }
+export const getConfirmReceiptMessage = (c: ApiClient, orderId: string) =>
+  c.request<ConfirmReceiptMessage>('GET', `/orders/${encodeURIComponent(orderId)}/confirm-receipt`)
+export const confirmReceipt = (c: ApiClient, orderId: string, proof: { at: number; signature: string }) =>
+  c.request<ConfirmReceiptResult>('POST', `/orders/${encodeURIComponent(orderId)}/confirm-receipt`, proof)
+
 export const getMetricsOverview = (c: ApiClient, range: MetricsRange) =>
   c.request<MetricsOverview>('GET', `/admin/metrics/overview?range=${encodeURIComponent(range)}`)
 
