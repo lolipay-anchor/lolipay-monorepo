@@ -569,12 +569,32 @@ export class Sep24Service {
     return this.orderTx.buildConfirmReleaseTx(order.id, accountOf(row.stellarAccount));
   }
 
+  private readonly amountInFlight = new Map<string, Promise<void>>();
+
   async submitAmount(
     id: string,
     token: string,
     rawAmount: unknown,
     rawPaymentMethod?: unknown,
-  ) {
+  ): Promise<void> {
+    const running = this.amountInFlight.get(id);
+    if (running) {
+      await this.interactiveState(id, token);
+      return running;
+    }
+    const run = this.openOrderForAmount(id, token, rawAmount, rawPaymentMethod).finally(() => {
+      this.amountInFlight.delete(id);
+    });
+    this.amountInFlight.set(id, run);
+    return run;
+  }
+
+  private async openOrderForAmount(
+    id: string,
+    token: string,
+    rawAmount: unknown,
+    rawPaymentMethod?: unknown,
+  ): Promise<void> {
     const state = await this.interactiveState(id, token);
     const { row, kyc } = state;
     if (row.orderId) return;

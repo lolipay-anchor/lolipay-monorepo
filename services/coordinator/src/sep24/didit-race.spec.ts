@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { Sep24Service } from './sep24.service';
 import { mintInteractiveToken } from './interactive-token';
 
@@ -40,7 +40,7 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
     const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
     const svc = new Sep24Service(prisma, cfg, {} as any, rate, orders, people, {} as any, {} as any, { isConfigured: false } as any);
 
-    return { svc, updates, quotes, token: mintInteractiveToken(cfg, 'tx-1', 'GABC') };
+    return { svc, updates, quotes, orders, prisma, token: mintInteractiveToken(cfg, 'tx-1', 'GABC') };
   }
 
   function captureLogs() {
@@ -112,5 +112,68 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
     expect(errored).toHaveLength(1);
     expect(errored[0]).toMatch(/could NOT be cancelled/);
     expect(errored[0]).toContain('order-2');
+  });
+
+  describe('a second press of Continue joins the first instead of opening a second order', () => {
+    it('two presses inside the handler window mint one quote, open one order and cancel nothing', async () => {
+      const { svc, updates, quotes, token, orders, prisma } = build(1);
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      orders.createFromQuote.mockImplementation(async () => {
+        await gate;
+        return { order: { id: 'order-2' } };
+      });
+      prisma.sep24Transaction.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+
+      const first = svc.submitAmount('tx-1', token, '400000');
+      const second = svc.submitAmount('tx-1', token, '400000');
+      await new Promise((r) => setImmediate(r));
+      release();
+      await Promise.all([first, second]);
+
+      expect(quotes).toHaveLength(1);
+      expect(orders.createFromQuote).toHaveBeenCalledTimes(1);
+      expect(prisma.sep24Transaction.updateMany).toHaveBeenCalledTimes(1);
+      expect(updates).toHaveLength(0);
+    });
+
+    it('the second press sees the refusal the first press got, and the refusal was computed once', async () => {
+      const { svc, quotes, token, orders } = build(1);
+      const refused = new ServiceUnavailableException('no eligible LP available');
+      let reject!: (e: unknown) => void;
+      orders.createFromQuote.mockImplementation(() => new Promise<never>((_, r) => (reject = r)));
+
+      const first = svc.submitAmount('tx-1', token, '400000');
+      const second = svc.submitAmount('tx-1', token, '400000');
+      await new Promise((r) => setImmediate(r));
+      reject(refused);
+
+      await expect(first).rejects.toBe(refused);
+      await expect(second).rejects.toBe(refused);
+      expect(orders.createFromQuote).toHaveBeenCalledTimes(1);
+      expect(quotes).toHaveLength(1);
+    });
+
+    it('a press after a refusal is a fresh attempt, not a replay of the refusal', async () => {
+      const { svc, token, orders } = build(1);
+      orders.createFromQuote.mockRejectedValueOnce(new ServiceUnavailableException('no eligible LP available'));
+      await expect(svc.submitAmount('tx-1', token, '400000')).rejects.toThrow();
+      await expect(svc.submitAmount('tx-1', token, '400000')).resolves.toBeUndefined();
+      expect(orders.createFromQuote).toHaveBeenCalledTimes(2);
+    });
+
+    it('a second press with a dead link does not ride on the first', async () => {
+      const { svc, token, orders } = build(1);
+      let release!: () => void;
+      orders.createFromQuote.mockImplementation(
+        () => new Promise((r) => (release = () => r({ order: { id: 'order-2' } }))),
+      );
+      const first = svc.submitAmount('tx-1', token, '400000');
+      await new Promise((r) => setImmediate(r));
+      await expect(svc.submitAmount('tx-1', 'not-a-token', '400000')).rejects.toBeInstanceOf(UnauthorizedException);
+      release();
+      await first;
+      expect(orders.createFromQuote).toHaveBeenCalledTimes(1);
+    });
   });
 });
