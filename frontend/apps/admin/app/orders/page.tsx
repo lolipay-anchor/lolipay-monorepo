@@ -607,7 +607,7 @@ function AttestAction({ order, onAttested }: { order: Order; onAttested: () => v
   if (done) {
     return (
       <div className="mt-3 border-t border-lp-line pt-3 space-y-1" data-testid="attest-done">
-        <p className="text-xs font-semibold text-lp-green">Rupiah attested on chain</p>
+        <p className="text-xs font-semibold text-lp-green">Marked as paid on chain</p>
         <p className="font-geist-mono text-[11px] break-all text-lp-muted">{done}</p>
       </div>
     )
@@ -615,7 +615,7 @@ function AttestAction({ order, onAttested }: { order: Order; onAttested: () => v
 
   return (
     <div className="mt-3 border-t border-lp-line pt-3 space-y-2" data-testid="attest-panel">
-      <p className="text-xs font-semibold text-lp-amber">Rupiah received?</p>
+      <p className="text-xs font-semibold text-lp-amber">Rupiah paid?</p>
       <p className="text-[11px] leading-relaxed text-lp-muted">
         Use this only for a deposit the provider has not confirmed themselves. It signs the
         escrow&apos;s mark-fiat-paid with the anchor&apos;s attestor key and permanently closes the
@@ -652,7 +652,7 @@ function AttestAction({ order, onAttested }: { order: Order; onAttested: () => v
         onClick={attest}
         data-testid="attest-fiat-paid"
       >
-        Attest rupiah received
+        Mark as paid on chain
       </Button>
     </div>
   )

@@ -96,7 +96,7 @@ function mount() {
   )
 }
 
-describe('the operator can attest that rupiah arrived, from the orders page', () => {
+describe('the operator can mark a deposit as paid on chain, from the orders page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     sessionStorage.clear()
@@ -120,7 +120,7 @@ describe('the operator can attest that rupiah arrived, from the orders page', ()
     expect(screen.getByTestId('attest-panel').textContent).toContain('82,500')
   })
 
-  it('will not submit a reference made of whitespace', async () => {
+  it('will not submit evidence made of whitespace', async () => {
     vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
     mount()
     const button = await waitFor(() => screen.getByTestId('attest-fiat-paid'))
@@ -184,7 +184,7 @@ describe('the operator can attest that rupiah arrived, from the orders page', ()
     expect(apiClient.attestFiatPaid).not.toHaveBeenCalled()
   })
 
-  it('attests with the reference the operator typed, against this order', async () => {
+  it('attests with the evidence the operator typed, against this order', async () => {
     vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
     mount()
     const button = await waitFor(() => screen.getByTestId('attest-fiat-paid'))
@@ -219,13 +219,37 @@ describe('the operator can attest that rupiah arrived, from the orders page', ()
     vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
     mount()
     const panel = await waitFor(() => screen.getByTestId('attest-panel'))
-    expect(within(panel).getByPlaceholderText('What you are relying on')).toBeTruthy()
+    expect(within(panel).getByPlaceholderText('What you are relying on')).toBe(screen.getByTestId('attest-evidence'))
   })
 
   it('labels the evidence field for assistive technology as evidence for this attestation', async () => {
     vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
     mount()
     const panel = await waitFor(() => screen.getByTestId('attest-panel'))
-    expect(within(panel).getByLabelText('Evidence for this attestation')).toBeTruthy()
+    expect(within(panel).getByLabelText('Evidence for this attestation')).toBe(screen.getByTestId('attest-evidence'))
+  })
+
+  it('asks the operator whether the rupiah was paid', async () => {
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
+    mount()
+    const panel = await waitFor(() => screen.getByTestId('attest-panel'))
+    expect(within(panel).getByText('Rupiah paid?')).toBeTruthy()
+  })
+
+  it('labels the button as marking the deposit as paid on chain', async () => {
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
+    mount()
+    const button = await waitFor(() => screen.getByTestId('attest-fiat-paid'))
+    expect(button.textContent).toBe('Mark as paid on chain')
+  })
+
+  it('confirms the deposit was marked as paid on chain once the chain accepted', async () => {
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
+    mount()
+    const button = await waitFor(() => screen.getByTestId('attest-fiat-paid'))
+    fireEvent.change(screen.getByTestId('attest-evidence'), { target: { value: 'BCA 12345' } })
+    fireEvent.click(button)
+    const done = await waitFor(() => screen.getByTestId('attest-done'))
+    expect(within(done).getByText('Marked as paid on chain')).toBeTruthy()
   })
 })
