@@ -1,8 +1,8 @@
 import { ConflictException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { Keypair, Transaction } from '@stellar/stellar-sdk';
+import { Keypair, Transaction, xdr } from '@stellar/stellar-sdk';
 import { Server } from '@stellar/stellar-sdk/rpc';
 import { AppConfigService } from '../config/app-config.service';
-import { StellarReadService } from './stellar-read.service';
+import { StellarReadService, withRpcRetry } from './stellar-read.service';
 import { assertIsThisTradesAttestation } from './attest-guard';
 import { signSendAndPoll } from './sign-send-poll';
 
@@ -52,6 +52,19 @@ export class AttestorService {
       this.cachedKeypair = null;
     }
     return this.cachedKeypair;
+  }
+
+  async nativeBalanceStroops(): Promise<bigint | null> {
+    const kp = this.resolveKeypair();
+    if (!kp) return null;
+    const key = xdr.LedgerKey.account(new xdr.LedgerKeyAccount({ accountId: kp.xdrPublicKey() }));
+    const { entries } = await withRpcRetry(() => this.createRpcServer().getLedgerEntries(key), 'getLedgerEntries');
+    const found = entries[0]?.val;
+    if (!found) return 0n;
+    if (found.type !== 'account') {
+      throw new Error(`AttestorService: the ledger answered the attestor's account key with a ${found.type} entry`);
+    }
+    return found.value.balance;
   }
 
   async attest(contractId: string, tradeIdHex: string, notAfterSecs: number): Promise<{ status: string; hash: string }> {

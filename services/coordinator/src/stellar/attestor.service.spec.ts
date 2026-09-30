@@ -351,3 +351,112 @@ describe('the attestor refuses before it signs, not after', () => {
     }
   });
 });
+
+describe('the attestor reports the balance of the account that pays for its confirmations', () => {
+  afterEach(() => jest.useRealTimers());
+
+  function ledgerEntryFor(kp: Keypair, balance: bigint) {
+    return {
+      key: xdr.LedgerKey.account(new xdr.LedgerKeyAccount({ accountId: kp.xdrPublicKey() })),
+      val: xdr.LedgerEntryData.account(
+        new xdr.AccountEntry({
+          accountId: kp.xdrPublicKey(),
+          balance,
+          seqNum: 1n,
+          numSubEntries: 0,
+          inflationDest: null,
+          flags: 0,
+          homeDomain: '',
+          thresholds: Buffer.from([1, 0, 0, 0]),
+          signers: [],
+          ext: xdr.AccountEntryExt.v0(),
+        }),
+      ),
+    };
+  }
+
+  function serviceReading(kp: Keypair, getLedgerEntries: jest.Mock) {
+    const { svc } = makeSvc(kp.secret());
+    (svc as any).createRpcServer = () => ({ getLedgerEntries });
+    return svc;
+  }
+
+  it('returns the native balance in stroops as an exact integer, read with the ledger key of its own account', async () => {
+    const kp = Keypair.random();
+    const getLedgerEntries = jest.fn(async (..._keys: unknown[]) => ({
+      entries: [ledgerEntryFor(kp, 123_456_789n)],
+      latestLedger: 1,
+    }));
+
+    await expect(serviceReading(kp, getLedgerEntries).nativeBalanceStroops()).resolves.toBe(123_456_789n);
+
+    const ownKey = xdr.LedgerKey.account(new xdr.LedgerKeyAccount({ accountId: kp.xdrPublicKey() }));
+    expect(getLedgerEntries).toHaveBeenCalledTimes(1);
+    expect((getLedgerEntries.mock.calls[0] as any[])[0].toXdr('base64')).toBe(ownKey.toXdr('base64'));
+  });
+
+  it('keeps every stroop of a balance above the safe integer range, because money is never a float', async () => {
+    const kp = Keypair.random();
+    const huge = 9_007_199_254_740_993n;
+    const getLedgerEntries = jest.fn(async () => ({ entries: [ledgerEntryFor(kp, huge)], latestLedger: 1 }));
+
+    await expect(serviceReading(kp, getLedgerEntries).nativeBalanceStroops()).resolves.toBe(huge);
+  });
+
+  it('returns zero when the ledger holds no such account, because an account that does not exist holds no lumens and the empty answer is not a failure', async () => {
+    const kp = Keypair.random();
+    const getLedgerEntries = jest.fn(async () => ({ entries: [], latestLedger: 1 }));
+
+    await expect(serviceReading(kp, getLedgerEntries).nativeBalanceStroops()).resolves.toBe(0n);
+  });
+
+  it('throws when the read fails, rather than answering with a number it does not know', async () => {
+    const kp = Keypair.random();
+    const getLedgerEntries = jest.fn().mockRejectedValue(new Error('the rpc said no'));
+
+    await expect(serviceReading(kp, getLedgerEntries).nativeBalanceStroops()).rejects.toThrow('the rpc said no');
+    expect(getLedgerEntries).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a transient failure once, as every other read this service depends on does', async () => {
+    const kp = Keypair.random();
+    const getLedgerEntries = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('network unreachable'))
+      .mockResolvedValueOnce({ entries: [ledgerEntryFor(kp, 42n)], latestLedger: 1 });
+
+    await expect(serviceReading(kp, getLedgerEntries).nativeBalanceStroops()).resolves.toBe(42n);
+    expect(getLedgerEntries).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up on an rpc that never answers, so one stalled call cannot hold a monitoring tick open', async () => {
+    jest.useFakeTimers();
+    const kp = Keypair.random();
+    const getLedgerEntries = jest.fn(() => new Promise<never>(() => undefined));
+    const pending = serviceReading(kp, getLedgerEntries).nativeBalanceStroops();
+    const settled = expect(pending).rejects.toThrow(/timed out/);
+
+    await jest.advanceTimersByTimeAsync(60_000);
+
+    await settled;
+  });
+
+  it('refuses to read a ledger entry that is not an account as a balance', async () => {
+    const kp = Keypair.random();
+    const getLedgerEntries = jest.fn(async () => ({
+      entries: [{ key: {}, val: { type: 'ttl', value: { balance: 1n } } }],
+      latestLedger: 1,
+    }));
+
+    await expect(serviceReading(kp, getLedgerEntries).nativeBalanceStroops()).rejects.toThrow(/ttl/);
+  });
+
+  it('returns null and asks the network nothing when no key is configured', async () => {
+    const { svc } = makeSvc(undefined);
+    const createRpcServer = jest.fn();
+    (svc as any).createRpcServer = createRpcServer;
+
+    await expect(svc.nativeBalanceStroops()).resolves.toBeNull();
+    expect(createRpcServer).not.toHaveBeenCalled();
+  });
+});

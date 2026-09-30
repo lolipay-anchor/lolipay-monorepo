@@ -7,16 +7,24 @@ import { DiditRefusalsService } from './didit-refusals.service';
 import { acceptedUnscreenedSince, deliveredButUnreadable, refusedAfterDelivery, screeningDidNotRun } from '../kyc/screening-requirement';
 import { OutboxService } from '../outbox/outbox.service';
 import { StellarReadService } from '../stellar/stellar-read.service';
+import { AttestorService } from '../stellar/attestor.service';
 import { AppConfigService } from '../config/app-config.service';
 import { cooldownFloorSecs } from '../config/contract-limits';
 import { checkAnchorIdentity } from '../anchor/consistency';
 import { matchableLpWhere } from '../matching/matching.service';
 import {
   ALERT_SAMPLE_LIMIT,
+  ATTESTATION_AUDIT_ACTION,
+  ATTESTATION_FAILURE_WINDOW_MS,
+  ATTESTOR_LOW_BALANCE_STROOPS,
+  ATTESTOR_LOW_BALANCE_XLM,
   AlertHistory,
   DISPUTE_STALE_DAYS,
   SLASH_SCAN_LIMIT,
   alertAgeSentence,
+  attestationDidNotSucceed,
+  describeAttestationAttempt,
+  formatXlm,
   slashCandidatesWhere,
   fiatPaymentOverdueWhere,
   nowSeconds,
@@ -45,6 +53,8 @@ export const MONITORING_ALERT_SCOPE = [
   'didit_provider_unreachable',
   'didit_deliveries_unauthenticated',
   'didit_budget_exhausted',
+  'attestation_failed',
+  'attestor_balance_low',
   'monitoring_blind',
 ];
 
@@ -58,6 +68,7 @@ export class MonitoringService {
     private outbox: OutboxService,
     private stellar: StellarReadService,
     private cfg: AppConfigService,
+    private attestor?: AttestorService,
   ) {}
 
   async slashWindowAlerts(
@@ -314,6 +325,64 @@ export class MonitoringService {
       incomplete.add('delivery_failing');
       this.log.warn(
         `could not count the messages this service failed to deliver: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+
+    try {
+      const attempts = await this.prisma.adminAudit.findMany({
+        where: {
+          action: ATTESTATION_AUDIT_ACTION,
+          createdAt: { gte: new Date(Date.now() - ATTESTATION_FAILURE_WINDOW_MS) },
+        },
+        select: { id: true, targetId: true, createdAt: true, before: true, after: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: ALERT_SAMPLE_LIMIT,
+      });
+      if (attempts.length >= ALERT_SAMPLE_LIMIT) {
+        incomplete.add('attestation_failed');
+        alerts.push({
+          key: 'attestation_failed:overflow',
+          fingerprint: 'at-limit',
+          urgency: 'routine',
+          text: `at least ${ALERT_SAMPLE_LIMIT} attestation attempts in the last hour — the list is truncated and nothing in this family will be reported as cleared until it is not`,
+        });
+      }
+      for (const attempt of attempts) {
+        if (!attestationDidNotSucceed(attempt.after)) continue;
+        const { orderId, tradeId, outcome } = describeAttestationAttempt(attempt);
+        alerts.push({
+          key: `attestation_failed:${attempt.id}`,
+          fingerprint: outcome,
+          urgency: 'urgent',
+          text: `order ${orderId} (trade ${tradeId}) had an attestation attempt at ${attempt.createdAt.toISOString()} that did not succeed (${outcome}) — check its on-chain status before trying again`,
+        });
+      }
+    } catch (e) {
+      incomplete.add('attestation_failed');
+      this.log.warn(
+        `could not read the attestation attempts of the last hour: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+
+    try {
+      if (this.attestor) {
+        const stroops = await this.attestor.nativeBalanceStroops();
+        if (stroops === null) {
+          incomplete.add('attestor_balance_low');
+          this.log.warn('no attestor key is configured on this coordinator, so the balance of its account cannot be read');
+        } else if (stroops < ATTESTOR_LOW_BALANCE_STROOPS) {
+          alerts.push({
+            key: 'attestor_balance_low',
+            fingerprint: 'low',
+            urgency: 'routine',
+            text: `the attestor account holds ${formatXlm(stroops)} XLM, below the ${ATTESTOR_LOW_BALANCE_XLM} XLM this anchor treats as low — every confirmation a provider or the operator makes is sent from this account and its fee is paid from this balance, so once it cannot pay, none can be submitted`,
+          });
+        }
+      }
+    } catch (e) {
+      incomplete.add('attestor_balance_low');
+      this.log.warn(
+        `could not read the balance of the attestor account: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
 

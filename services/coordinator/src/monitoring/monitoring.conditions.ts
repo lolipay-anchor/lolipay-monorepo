@@ -1,9 +1,42 @@
 import { Prisma } from '../generated/prisma/client';
+import type { AuditAction } from '../admin/admin-audit';
 
 export const ALERT_SAMPLE_LIMIT = 500;
 export const ALERT_TEXT_BUDGET = 1800;
 export const DISPUTE_STALE_DAYS = 30;
 export const SLASH_SCAN_LIMIT = 100;
+export const ATTESTATION_AUDIT_ACTION: AuditAction = 'order.attestFiatPaid';
+export const ATTESTATION_FAILURE_WINDOW_MS = 60 * 60 * 1000;
+export const STROOPS_PER_XLM = 10_000_000n;
+export const ATTESTOR_LOW_BALANCE_XLM = 25n;
+export const ATTESTOR_LOW_BALANCE_STROOPS = ATTESTOR_LOW_BALANCE_XLM * STROOPS_PER_XLM;
+
+const PLAIN_TOKEN = /^[A-Za-z0-9_-]{1,80}$/;
+const OUTCOME_LABEL = /^[A-Z_]{1,32}$/;
+
+function fieldOf(json: unknown, key: string): unknown {
+  return typeof json === 'object' && json !== null ? (json as Record<string, unknown>)[key] : undefined;
+}
+
+function safe(value: unknown, pattern: RegExp, fallback: string): string {
+  return typeof value === 'string' && pattern.test(value) ? value : fallback;
+}
+
+export function attestationDidNotSucceed(after: unknown): boolean {
+  return fieldOf(after, 'submission') !== 'SUCCESS';
+}
+
+export function describeAttestationAttempt(row: { targetId: string | null; before: unknown; after: unknown }) {
+  return {
+    orderId: safe(row.targetId, PLAIN_TOKEN, 'unknown'),
+    tradeId: safe(fieldOf(row.before, 'tradeId'), PLAIN_TOKEN, 'unknown'),
+    outcome: safe(fieldOf(row.after, 'submission'), OUTCOME_LABEL, 'unrecognised'),
+  };
+}
+
+export function formatXlm(stroops: bigint): string {
+  return `${stroops / STROOPS_PER_XLM}.${(stroops % STROOPS_PER_XLM).toString().padStart(7, '0')}`;
+}
 
 export function nowSeconds(): bigint {
   return BigInt(Math.floor(Date.now() / 1000));

@@ -52,6 +52,7 @@ function make(opts: {
       ),
     },
     kycVerification: { count: jest.fn().mockResolvedValue(0) },
+    adminAudit: { findMany: jest.fn().mockResolvedValue([]) },
     lp: {
       count:
         opts.matchableLps === 'throws'
