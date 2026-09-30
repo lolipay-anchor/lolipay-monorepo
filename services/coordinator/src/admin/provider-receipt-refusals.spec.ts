@@ -104,6 +104,27 @@ describe('what a provider reads when the route meets something it did not antici
     expect(logged.mock.calls.filter(([line]) => String(line).includes('connection refused by 10.0.0.5'))).toHaveLength(2);
   });
 
+  it('logs a 500 the route itself raises, with the order id, the status and the frame that threw it, when the reference carries a character the signed message cannot print, on both routes, while the provider still reads the one 5xx sentence and nothing is spent', async () => {
+    const s = stage();
+    const logged = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    s.prisma.order.findUnique.mockResolvedValue({ ...orderRow(), ref: 'LP 7K2Q' });
+
+    const onGet = await refusal(s.svc.receiptToSign(ORDER_ID, CALLER));
+    const onPost = await refusal(s.svc.confirmReceiptAsProvider(ORDER_ID, CALLER, freshProof()));
+
+    for (const refused of [onGet, onPost]) {
+      expect(refused).toBeInstanceOf(InternalServerErrorException);
+      expect(refused.getResponse()).toEqual(SERVER_ERROR_BODY);
+    }
+    expect(
+      logged.mock.calls.filter(
+        ([line, stack]) => String(line).includes(`order ${ORDER_ID} failed with 500`) && String(stack).includes('providerReceiptMessage'),
+      ),
+    ).toHaveLength(2);
+    expect(s.consumed.consume).not.toHaveBeenCalled();
+    expect(s.attestor.attest).not.toHaveBeenCalled();
+  });
+
   it('keeps the raw text of a failed chain read in the log and out of the 409 sentence the provider reads', async () => {
     const s = stage();
     const warned = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);

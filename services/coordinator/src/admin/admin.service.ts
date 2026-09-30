@@ -48,6 +48,9 @@ const NOT_FOUND = 'This order was not found.';
 const WINDOW_CLOSED =
   'The time to confirm this payment has passed, so it can no longer be confirmed, and the USDC can be returned to you.';
 
+const WINDOW_CLOSED_WHILE_HANDLING =
+  'This attempt sent nothing to the network, and the time to confirm this payment ran out while lolipay was handling it. If this order is already marked as paid on chain, the USDC can only be released to the buyer, or settled through a dispute. Wait a moment, then refresh the order to see where it stands.';
+
 const nowSecs = (): number => Math.floor(Date.now() / 1000);
 
 const windowClosed = (order: { flow: string; payDeadline: bigint; confirmDeadline: bigint }): boolean =>
@@ -715,6 +718,9 @@ export class AdminService {
       return await work();
     } catch (err) {
       if (err instanceof HttpException) {
+        if (err.getStatus() >= 500) {
+          this.log.error(`confirm-receipt for order ${orderId} failed with ${err.getStatus()}: ${err.message}`, err.stack);
+        }
         throw err;
       }
       this.log.error(
@@ -736,7 +742,7 @@ export class AdminService {
     return this.forProvider(orderId, async () => {
       const order = await this.providerReceiptOrder(orderId, caller);
       const now = nowSecs();
-      if (proof.at < now - this.cfg.challengeTtl || proof.at > now) {
+      if (!(proof.at >= now - this.cfg.challengeTtl && proof.at <= now)) {
         throw new ForbiddenException(
           'Your signed statement reached lolipay outside the time allowed for it, so nothing was recorded. Try again, and approve the new request in your wallet straight away.',
         );
@@ -837,7 +843,7 @@ export class AdminService {
     }
     if (status === 409) {
       if (windowClosed(order)) {
-        return new ConflictException(WINDOW_CLOSED);
+        return new ConflictException(WINDOW_CLOSED_WHILE_HANDLING);
       }
       const row = await this.prisma.order.findUnique({ where: { id: order.id }, select: { status: true } });
       return new ConflictException(

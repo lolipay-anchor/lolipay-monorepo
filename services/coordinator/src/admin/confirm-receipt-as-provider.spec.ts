@@ -52,6 +52,7 @@ const CHAIN_UNREACHABLE = 'The network could not be reached to check this order,
 const ESCROW_NOT_FOUND = 'This order\'s escrow was not found on the network, so the payment was not recorded.';
 const NOT_FUNDED_BY_CALLER = 'The escrow for this order was not funded from your wallet, so you cannot confirm its payment.';
 const WINDOW_CLOSED = 'The time to confirm this payment has passed, so it can no longer be confirmed, and the USDC can be returned to you.';
+const WINDOW_CLOSED_WHILE_HANDLING = 'This attempt sent nothing to the network, and the time to confirm this payment ran out while lolipay was handling it. If this order is already marked as paid on chain, the USDC can only be released to the buyer, or settled through a dispute. Wait a moment, then refresh the order to see where it stands.';
 const SERVER_ERROR = 'Confirming this payment ran into an error. Try again: a payment is never recorded on chain twice, so if the first attempt did go through, the release continues from there.';
 const notSignedBy = (caller: string) =>
   `This signed statement could not be verified as signed by ${caller.slice(0, 4)}…${caller.slice(-4)}, the account you are logged in with, so nothing was recorded. Make sure your wallet is using that account, then try again.`;
@@ -347,6 +348,7 @@ async function boot() {
     stellar,
     attestor,
     consumed,
+    cfg,
     put,
     fundedTopUp(rowOver: Partial<OrderRow> = {}, chainOver: Partial<TradeOnChain> = {}): OrderRow {
       const row = orderRow(rowOver);
@@ -631,7 +633,7 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       expect(stage.attestor.attest).toHaveBeenCalledTimes(1);
     });
 
-    it('stamps the receipt with the moment the server received the statement, never the second the provider signed it, on a statement signed exactly the configured lifetime ago', async () => {
+    it('stamps the receipt with the server\'s clock, never the second the provider signed it, on a statement signed exactly the configured lifetime ago', async () => {
       const row = stage.fundedTopUp();
       const proof = signedBy(PROVIDER, row, NOW - TTL);
 
@@ -655,6 +657,18 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       const row = stage.fundedTopUp();
 
       const res = await stage.post(row, signedBy(PROVIDER, row, at)).expect(403);
+
+      expect(res.body).toEqual(forbidden(STALE));
+      expect(stage.consumed.consume).not.toHaveBeenCalled();
+      expect(stage.stellar.getTradeStatusStrict).not.toHaveBeenCalled();
+      expect(stage.attestor.attest).not.toHaveBeenCalled();
+    });
+
+    it('S4 — refuses a signature 100 000 s old with a ForbiddenException carrying the step-3 sentence when the configured lifetime is not a number, spending nothing and reading nothing from the chain', async () => {
+      const row = stage.fundedTopUp();
+      stage.cfg.challengeTtl = Number('abc');
+
+      const res = await stage.post(row, signedBy(PROVIDER, row, NOW - 100_000)).expect(403);
 
       expect(res.body).toEqual(forbidden(STALE));
       expect(stage.consumed.consume).not.toHaveBeenCalled();
@@ -1001,9 +1015,10 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
   });
 
   describe('POST — what a provider reads when the attestation itself fails', () => {
-    it('gives the provider the one 5xx sentence with the core\'s own status — 500 for an attestor error, 502 for a chain refusal, 503 for a missing key — carrying none of the raw error and no transaction hash, while the audit row keeps the raw error', async () => {
+    it('gives the provider the one 5xx sentence with the core\'s own status — 500 for an attestor error, 502 for a chain refusal, 503 for a missing key — carrying none of the raw error and no transaction hash, while the audit row keeps the raw error, and logs each against its order with its status and none of the raw error either', async () => {
       const marker = 'rpc-internal-detail-7f3a9c';
       const failedHash = 'c'.repeat(64);
+      const logged = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
       const thrown = stage.fundedTopUp();
       const failed = stage.fundedTopUp();
       const unconfigured = stage.fundedTopUp();
@@ -1027,6 +1042,10 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       expect(replies[2].body).toMatchObject({ statusCode: 503, message: SERVER_ERROR });
       const attempt = stage.auditRows('order.attestFiatPaid').find((data) => data.targetId === thrown.id);
       expect(attempt?.after.error).toContain(marker);
+      const loggedAgainst = (row: OrderRow, status: number) =>
+        logged.mock.calls.filter(([line]) => String(line).includes(`order ${row.id} failed with ${status}`)).length;
+      expect([loggedAgainst(thrown, 500), loggedAgainst(failed, 502), loggedAgainst(unconfigured, 503)]).toEqual([1, 1, 1]);
+      expect(logged.mock.calls.filter(([line, stack]) => `${line}${stack}`.includes(marker) || `${line}${stack}`.includes(failedHash))).toEqual([]);
     });
 
     it('gives the provider a 4xx the core raises with its own status and its own provider sentence — the withdrawal 400, and the 409 naming the status in lolipay\'s records — never the operator\'s words and never the 5xx sentence', async () => {
@@ -1075,7 +1094,7 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
     ];
 
     it.each(ATTESTOR_WINDOW_WORDS)(
-      'gives the provider the step-11 sentence when the attestor refuses %s, because the window closed while the attestation waited its turn: the clock has passed the refund instant, as the attestor requires before it raises this 409, and its own words stay in the audit row',
+      'gives the provider the step-12 sentence when the attestor refuses %s, because the window closed while the attestation waited its turn: the clock has passed the refund instant, as the attestor requires before it raises this 409, and its own words stay in the audit row',
       async (_label, attestorWords) => {
         const row = stage.fundedTopUp();
         stage.attestor.attest.mockImplementationOnce(async (_contractId, _tradeId, notAfterSecs) => {
@@ -1085,12 +1104,29 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
 
         const res = await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(409);
 
-        expect(res.body).toEqual(conflict(WINDOW_CLOSED));
+        expect(res.body).toEqual(conflict(WINDOW_CLOSED_WHILE_HANDLING));
         expect(stage.attestor.attest).toHaveBeenCalledTimes(1);
         expect(stage.attestor.attest).toHaveBeenCalledWith(ORDER_ESCROW, row.tradeId, Number(refundOpensAt(row)));
         expect(stage.auditRows('order.attestFiatPaid').map((data) => data.after.error)).toEqual([attestorWords]);
       },
     );
+
+    it('gives the provider the step-12 sentence when step 11 read the chain as FUNDED but the core found the row already FIAT_PAID with the refund instant crossed inside that read: the core attests nothing, and the sentence is chosen by the clock before the row is read again', async () => {
+      const row = stage.fundedTopUp();
+      const readRow = stage.prisma.order.findUnique.getMockImplementation()!;
+      stage.prisma.order.findUnique.mockImplementationOnce(readRow).mockImplementationOnce(async (args) => {
+        stage.put({ ...row, status: 'FIAT_PAID' });
+        jest.setSystemTime((Number(refundOpensAt(row)) + 1) * 1000);
+        return readRow(args);
+      });
+
+      const res = await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(409);
+
+      expect(res.body).toEqual(conflict(WINDOW_CLOSED_WHILE_HANDLING));
+      expect(stage.stellar.getTradeStatusStrict).toHaveBeenCalledTimes(1);
+      expect(stage.attestor.attest).not.toHaveBeenCalled();
+      expect(stage.orderReads()).toBe(2);
+    });
   });
 });
 
