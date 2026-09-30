@@ -25,6 +25,7 @@ import {
   attestationDidNotSucceed,
   describeAttestationAttempt,
   formatXlm,
+  windowWords,
   slashCandidatesWhere,
   fiatPaymentOverdueWhere,
   nowSeconds,
@@ -344,7 +345,7 @@ export class MonitoringService {
           key: 'attestation_failed:overflow',
           fingerprint: 'at-limit',
           urgency: 'routine',
-          text: `at least ${ALERT_SAMPLE_LIMIT} attestation attempts in the last hour — the list is truncated and nothing in this family will be reported as cleared until it is not`,
+          text: `at least ${ALERT_SAMPLE_LIMIT} attestation attempts in the last ${windowWords(ATTESTATION_FAILURE_WINDOW_MS)} — the list is truncated and nothing in this family will be reported as cleared until it is not`,
         });
       }
       for (const attempt of attempts) {
@@ -354,7 +355,7 @@ export class MonitoringService {
           key: `attestation_failed:${attempt.id}`,
           fingerprint: outcome,
           urgency: 'urgent',
-          text: `order ${orderId} (trade ${tradeId}) had an attestation attempt at ${attempt.createdAt.toISOString()} that did not succeed (${outcome}) — check its on-chain status before trying again`,
+          text: `order ${orderId} (trade ${tradeId}) had an attestation attempt at ${attempt.createdAt.toISOString()} that was not recorded as a success (${outcome}) — check its on-chain status before trying again`,
         });
       }
     } catch (e) {
@@ -369,7 +370,7 @@ export class MonitoringService {
         const stroops = await this.attestor.nativeBalanceStroops();
         if (stroops === null) {
           incomplete.add('attestor_balance_low');
-          this.log.warn('no attestor key is configured on this coordinator, so the balance of its account cannot be read');
+          this.log.warn('no usable attestor key is configured on this coordinator, so the balance of its account cannot be read');
         } else if (stroops < ATTESTOR_LOW_BALANCE_STROOPS) {
           alerts.push({
             key: 'attestor_balance_low',

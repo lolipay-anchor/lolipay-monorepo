@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { MonitoringService, MONITORING_ALERT_SCOPE } from './monitoring.service';
 import { AlertsService } from './alerts.service';
@@ -13,7 +14,9 @@ import {
   ATTESTATION_FAILURE_WINDOW_MS,
   ATTESTOR_LOW_BALANCE_STROOPS,
   formatXlm,
+  windowWords,
 } from './monitoring.conditions';
+import * as conditions from './monitoring.conditions';
 
 const T0 = new Date('2026-09-30T12:00:00.000Z');
 const MINUTE = 60_000;
@@ -57,7 +60,9 @@ const knownRefusals = () => {
   return r;
 };
 
-function harness(opts: { rows?: AuditRow[]; balance?: bigint | null | Error; attestor?: 'absent' } = {}) {
+function harness(
+  opts: { rows?: AuditRow[]; balance?: bigint | null | Error; attestor?: 'absent'; realAttestor?: AttestorService } = {},
+) {
   const rows = opts.rows ?? [];
   let balance: bigint | null | Error = opts.balance === undefined ? 1_000n * XLM : opts.balance;
   const stored = new Map<string, any>();
@@ -109,7 +114,7 @@ function harness(opts: { rows?: AuditRow[]; balance?: bigint | null | Error; att
   const attestor =
     opts.attestor === 'absent'
       ? undefined
-      : {
+      : opts.realAttestor ?? {
           nativeBalanceStroops: jest.fn(async () => {
             if (balance instanceof Error) throw balance;
             return balance;
@@ -156,8 +161,8 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-describe('an attestation attempt that did not succeed pages the operator', () => {
-  it('pages once, through the real alerts service and the real scope, for an attempt that was never submitted, naming the order, the trade, the time and the outcome', async () => {
+describe('an attestation attempt that was not recorded as a success pages the operator', () => {
+  it('pages once, through the real alerts service and the real scope, for an attempt recorded as NOT_SUBMITTED, naming the order, the trade, the time and the outcome', async () => {
     const h = harness({ rows: [notSubmitted('a1', 10)] });
 
     const { sent } = await h.tick(T0);
@@ -165,7 +170,7 @@ describe('an attestation attempt that did not succeed pages the operator', () =>
     expect(sent.map((a) => a.key)).toEqual(['attestation_failed:a1']);
     expect(h.enqueued).toHaveLength(1);
     expect(h.enqueued[0].payload.text).toBe(
-      `🚨 lolipay coordinator: order ${ORDER_ID} (trade ${TRADE_ID}) had an attestation attempt at ${isoAgo(10)} that did not succeed (NOT_SUBMITTED) — check its on-chain status before trying again`,
+      `🚨 lolipay coordinator: order ${ORDER_ID} (trade ${TRADE_ID}) had an attestation attempt at ${isoAgo(10)} that was not recorded as a success (NOT_SUBMITTED) — check its on-chain status before trying again`,
     );
     expect(sent[0]).toMatchObject({ urgency: 'urgent', fingerprint: 'NOT_SUBMITTED' });
   });
@@ -176,7 +181,7 @@ describe('an attestation attempt that did not succeed pages the operator', () =>
     const { sent } = await h.tick(T0);
 
     expect(sent.map((a) => a.key)).toEqual(['attestation_failed:a1']);
-    expect(sent[0].text).toContain('did not succeed (FAILED)');
+    expect(sent[0].text).toContain('was not recorded as a success (FAILED)');
   });
 
   it.each<[string, unknown]>([
@@ -193,7 +198,7 @@ describe('an attestation attempt that did not succeed pages the operator', () =>
     const { sent } = await h.tick(T0);
 
     expect(sent.map((a) => a.key)).toEqual(['attestation_failed:a1']);
-    expect(sent[0].text).toContain('did not succeed (unrecognised)');
+    expect(sent[0].text).toContain('was not recorded as a success (unrecognised)');
   });
 
   it('stays silent for an attempt that succeeded, including one whose evidence is the signed receipt object a provider sends', async () => {
@@ -304,7 +309,7 @@ describe('an attestation attempt that did not succeed pages the operator', () =>
     const { sent } = await h.tick(T0);
 
     expect(sent[0].text).toBe(
-      `order unknown (trade unknown) had an attestation attempt at ${isoAgo(5)} that did not succeed (unrecognised) — check its on-chain status before trying again`,
+      `order unknown (trade unknown) had an attestation attempt at ${isoAgo(5)} that was not recorded as a success (unrecognised) — check its on-chain status before trying again`,
     );
   });
 });
@@ -360,7 +365,7 @@ describe('an attestor account that is running low pages the operator', () => {
     expect(h.enqueued).toHaveLength(1);
   });
 
-  it('says it is blind when no attestor key is configured, rather than reading the absence as a healthy balance', async () => {
+  it('says it is blind when no usable attestor key is configured, rather than reading the absence as a healthy balance', async () => {
     const h = harness({ balance: null });
 
     const { built, incomplete } = await h.tick(T0);
@@ -437,5 +442,71 @@ describe('a balance is written in lumens without ever passing through a float', 
     [9_007_199_254_740_993n, '900719925.4740993'],
   ])('writes %s stroops as %s', (stroops, written) => {
     expect(formatXlm(stroops)).toBe(written);
+  });
+});
+
+describe('the log line for an attestor account that cannot be read is true of every way the key can be unusable', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each<[string, string | undefined]>([
+    ['unset', undefined],
+    ['malformed', 'not-a-stellar-secret'],
+    ['well-formed but failing its checksum', `S${'A'.repeat(55)}`],
+  ])('says it cannot read the balance when the key is %s, and marks the family incomplete', async (_cause, secret) => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const attestor = new AttestorService(
+      {
+        attestorSecret: secret,
+        rpcUrl: 'https://example.invalid',
+        escrowContractId: 'CESCROW',
+        escrowContractIdsExtra: [],
+      } as any,
+      {} as any,
+    );
+    const h = harness({ realAttestor: attestor });
+
+    const { built, incomplete } = await h.tick(T0);
+
+    expect(warn).toHaveBeenCalledWith(
+      'no usable attestor key is configured on this coordinator, so the balance of its account cannot be read',
+    );
+    expect(incomplete.has('attestor_balance_low')).toBe(true);
+    expect(built.map((a) => a.key)).toEqual(['monitoring_blind']);
+  });
+});
+
+describe('a window is named in exact words, never rounded', () => {
+  it.each<[number, string]>([
+    [1000, 'second'],
+    [5000, '5 seconds'],
+    [60_000, 'minute'],
+    [660_000, '11 minutes'],
+    [5_400_000, '90 minutes'],
+    [3_600_000, 'hour'],
+    [7_200_000, '2 hours'],
+    [86_400_000, 'day'],
+    [172_800_000, '2 days'],
+    [1500, '1500 milliseconds'],
+  ])('writes %s ms as %s', (ms, words) => {
+    expect(windowWords(ms)).toBe(words);
+  });
+});
+
+describe('the truncation notice names the window the check really reads', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('follows the constant: at 90 minutes the notice says 90 minutes and the query looks back 90 minutes', async () => {
+    jest.replaceProperty(conditions, 'ATTESTATION_FAILURE_WINDOW_MS', 90 * MINUTE);
+    const full = Array.from({ length: ALERT_SAMPLE_LIMIT }, (_, i) => notSubmitted(`a${String(i).padStart(4, '0')}`, 10));
+    const h = harness({ rows: full });
+
+    const { built } = await h.tick(T0);
+
+    expect(built.find((a) => a.key === 'attestation_failed:overflow')!.text).toBe(
+      `at least ${ALERT_SAMPLE_LIMIT} attestation attempts in the last 90 minutes — the list is truncated and nothing in this family will be reported as cleared until it is not`,
+    );
+    expect((h.auditFindMany.mock.calls[0] as any[])[0].where.createdAt.gte).toEqual(
+      new Date(T0.getTime() - 90 * MINUTE),
+    );
   });
 });

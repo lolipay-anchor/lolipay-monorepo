@@ -34,6 +34,20 @@ export function describeAttestationAttempt(row: { targetId: string | null; befor
   };
 }
 
+const WINDOW_UNITS = [
+  ['day', 86_400_000],
+  ['hour', 3_600_000],
+  ['minute', 60_000],
+  ['second', 1000],
+] as const;
+
+export function windowWords(ms: number): string {
+  for (const [unit, size] of WINDOW_UNITS) {
+    if (ms % size === 0) return ms === size ? unit : `${ms / size} ${unit}s`;
+  }
+  return `${ms} milliseconds`;
+}
+
 export function formatXlm(stroops: bigint): string {
   return `${stroops / STROOPS_PER_XLM}.${(stroops % STROOPS_PER_XLM).toString().padStart(7, '0')}`;
 }
