@@ -561,16 +561,20 @@ export class AdminService {
 
   private readonly attesting = new Set<string>();
 
-  async attestFiatPaid(orderId: string, actorAddress: string, evidence: string) {
+  private async whileAttesting<T>(orderId: string, work: () => Promise<T>): Promise<T> {
     if (this.attesting.has(orderId)) {
       throw new ConflictException('an attestation for this order is already in flight');
     }
     this.attesting.add(orderId);
     try {
-      return await this.attestFiatPaidOnce(orderId, actorAddress, evidence);
+      return await work();
     } finally {
       this.attesting.delete(orderId);
     }
+  }
+
+  async attestFiatPaid(orderId: string, actorAddress: string, evidence: string) {
+    return this.whileAttesting(orderId, () => this.attestFiatPaidOnce(orderId, actorAddress, evidence));
   }
 
   private async attestFiatPaidOnce(orderId: string, actorAddress: string, evidence: string) {

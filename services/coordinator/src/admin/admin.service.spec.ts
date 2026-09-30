@@ -1351,6 +1351,21 @@ describe('AdminService.attestFiatPaid — the row follows the chain, and one att
     await expect(second).rejects.toBeInstanceOf(ConflictException);
     expect(attest).toHaveBeenCalledTimes(1);
   });
+
+  it('releases the order once an attestation has finished, so the same service attests it again after a success and after a refusal', async () => {
+    const { svc, attest, release } = build();
+    release();
+
+    await expect(svc.attestFiatPaid('ord-1', 'GADMIN', 'BCA 12345')).resolves.toMatchObject({ submission: 'SUCCESS' });
+    expect(attest).toHaveBeenCalledTimes(1);
+
+    attest.mockRejectedValueOnce(new Error('rpc down'));
+    await expect(svc.attestFiatPaid('ord-1', 'GADMIN', 'BCA 12345')).rejects.not.toBeInstanceOf(ConflictException);
+    expect(attest).toHaveBeenCalledTimes(2);
+
+    await expect(svc.attestFiatPaid('ord-1', 'GADMIN', 'BCA 12345')).resolves.toMatchObject({ submission: 'SUCCESS' });
+    expect(attest).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe('AdminService.list — ADR 0054: the alert address is never served back to any role', () => {
