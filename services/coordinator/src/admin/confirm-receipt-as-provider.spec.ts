@@ -1038,16 +1038,31 @@ describe('the provider confirms the rupiah arrived: GET and POST /orders/:id/con
       expect(providerOnWithdrawal.body.message).not.toBe(providerOnLagging.body.message);
     });
 
-    it('gives the provider the step-11 sentence when the attestor itself refuses because the window closed while the attestation waited its turn: one condition, one sentence, and the attestor\'s own words stay in the audit row', async () => {
-      const row = stage.fundedTopUp();
-      stage.attestor.attest.mockRejectedValueOnce(new ConflictException(ATTESTOR_WINDOW_REFUSAL));
+    const ATTESTOR_WINDOW_WORDS: [string, string][] = [
+      ['in the words it uses today', ATTESTOR_WINDOW_REFUSAL],
+      [
+        'in any other words, so the route re-derives the condition from the clock and never matches the string',
+        'The attestor worded its closed-window refusal differently.',
+      ],
+    ];
 
-      const res = await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(409);
+    it.each(ATTESTOR_WINDOW_WORDS)(
+      'gives the provider the step-11 sentence when the attestor refuses %s, because the window closed while the attestation waited its turn: the clock has passed the refund instant, as the attestor requires before it raises this 409, and its own words stay in the audit row',
+      async (_label, attestorWords) => {
+        const row = stage.fundedTopUp();
+        stage.attestor.attest.mockImplementationOnce(async (_contractId, _tradeId, notAfterSecs) => {
+          jest.setSystemTime((notAfterSecs + 1) * 1000);
+          throw new ConflictException(attestorWords);
+        });
 
-      expect(res.body).toEqual(conflict(WINDOW_CLOSED));
-      expect(stage.attestor.attest).toHaveBeenCalledTimes(1);
-      expect(stage.auditRows('order.attestFiatPaid').map((data) => data.after.error)).toEqual([ATTESTOR_WINDOW_REFUSAL]);
-    });
+        const res = await stage.post(row, signedBy(PROVIDER, row, NOW)).expect(409);
+
+        expect(res.body).toEqual(conflict(WINDOW_CLOSED));
+        expect(stage.attestor.attest).toHaveBeenCalledTimes(1);
+        expect(stage.attestor.attest).toHaveBeenCalledWith(ORDER_ESCROW, row.tradeId, Number(refundOpensAt(row)));
+        expect(stage.auditRows('order.attestFiatPaid').map((data) => data.after.error)).toEqual([attestorWords]);
+      },
+    );
   });
 });
 
