@@ -128,7 +128,7 @@ describe('the operator can mark a deposit as paid on chain, from the orders page
     expect((button as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('replaces the form with the transaction the moment the chain accepted, before the list has caught up', async () => {
+  it('replaces the form with a link to the transaction the moment the chain accepted, before the list has caught up', async () => {
     vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
     mount()
     const button = await waitFor(() => screen.getByTestId('attest-fiat-paid'))
@@ -137,8 +137,23 @@ describe('the operator can mark a deposit as paid on chain, from the orders page
     await waitFor(() => {
       expect(screen.getByTestId('attest-done').textContent).toContain('b'.repeat(64))
     })
+    const link = within(screen.getByTestId('attest-done')).getByTestId('settlement-link')
+    expect(link.getAttribute('href')).toBe(`https://stellar.expert/explorer/testnet/tx/${'b'.repeat(64)}`)
+    expect(link.textContent).toBe('b'.repeat(64))
     expect(screen.queryByTestId('attest-fiat-paid')).toBeNull()
     expect(apiClient.getAdminOrders).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows the submission word as plain text, with no link, when the response carries no transaction hash', async () => {
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValue([makeOrder()])
+    vi.mocked(apiClient.attestFiatPaid).mockResolvedValue({ orderId: 'order-attest-1', submission: 'SUCCESS' })
+    mount()
+    const button = await waitFor(() => screen.getByTestId('attest-fiat-paid'))
+    fireEvent.change(screen.getByTestId('attest-evidence'), { target: { value: 'BCA 12345' } })
+    fireEvent.click(button)
+    const done = await waitFor(() => screen.getByTestId('attest-done'))
+    expect(done.textContent).toContain('SUCCESS')
+    expect(within(done).queryByTestId('settlement-link')).toBeNull()
   })
 
   it('leaves nothing to press once the refetched row reads FIAT_PAID, which the coordinator now writes on success', async () => {

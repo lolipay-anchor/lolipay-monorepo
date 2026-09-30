@@ -8,6 +8,13 @@ vi.mock('@/lib/wallet-kit', () => ({
   getDefaultKit: vi.fn(() => ({})),
 }))
 
+const mockTxUrl = vi.hoisted(() => vi.fn<(hash: string) => string | null>())
+vi.mock('@/lib/explorer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/explorer')>()
+  mockTxUrl.mockImplementation(actual.txUrl)
+  return { ...actual, txUrl: mockTxUrl }
+})
+
 vi.mock('next/link', () => ({
   default: ({
     href,
@@ -431,7 +438,7 @@ describe('OrderStatus component', () => {
     expect(mockPush).toHaveBeenCalledWith('/orders')
   })
 
-  it('RELEASED with a settlement hash: links the exact transaction on stellar.expert', async () => {
+  it('RELEASED with a settlement hash: links the exact transaction on stellar.expert, with the full hash as the link text in monospace', async () => {
     const hash = 'ab'.repeat(32)
     const order: Order = { ...BASE_ORDER, id: 'ord-c10b', status: 'RELEASED', settlement_tx_hash: hash }
     mockGetOrder.mockResolvedValue(order)
@@ -447,7 +454,30 @@ describe('OrderStatus component', () => {
     expect(link.getAttribute('href')).toBe(`https://stellar.expert/explorer/testnet/tx/${hash}`)
     expect(link.getAttribute('target')).toBe('_blank')
     expect(link.getAttribute('rel')).toBe('noopener noreferrer')
-    expect(link.textContent).toBe('View transaction ↗')
+    expect(link.textContent).toBe(hash)
+    expect(link.className).toContain('font-geist-mono')
+  })
+
+  it('RELEASED with a settlement hash but no explorer URL for the network: still shows the full hash in monospace, as text with no link', async () => {
+    const hash = 'ef'.repeat(32)
+    const order: Order = { ...BASE_ORDER, id: 'ord-c10g', status: 'RELEASED', settlement_tx_hash: hash }
+    mockGetOrder.mockResolvedValue(order)
+    const real = mockTxUrl.getMockImplementation()!
+    mockTxUrl.mockReturnValue(null)
+    try {
+      render(
+        <TestProviders>
+          <OrderStatusComponent id="ord-c10g" />
+        </TestProviders>,
+      )
+      await waitFor(() => {
+        expect(screen.getByTestId('settlement-hash').textContent).toBe(hash)
+      })
+      expect(screen.getByTestId('settlement-hash').className).toContain('font-geist-mono')
+      expect(screen.queryByTestId('settlement-link')).toBeNull()
+    } finally {
+      mockTxUrl.mockImplementation(real)
+    }
   })
 
   it('RELEASED without a settlement hash yet: shows the panel with no link and no "null"', async () => {

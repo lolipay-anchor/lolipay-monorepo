@@ -84,11 +84,19 @@ function DestinationNumber({ value, bold }: { value: string; bold: boolean }) {
 }
 
 function SettlementLink({ hash, className }: { hash: string | null | undefined; className: string }) {
-  const url = hash ? txUrl(hash) : null
-  if (!url) return null
+  if (!hash) return null
+  const url = txUrl(hash)
+  const mono = `${className} font-geist-mono break-all`
+  if (!url) {
+    return (
+      <span data-testid="settlement-hash" className={mono}>
+        {hash}
+      </span>
+    )
+  }
   return (
-    <a data-testid="settlement-link" href={url} target="_blank" rel="noopener noreferrer" className={className}>
-      View transaction ↗
+    <a data-testid="settlement-link" href={url} target="_blank" rel="noopener noreferrer" className={`${mono} underline`}>
+      {hash}
     </a>
   )
 }
@@ -497,7 +505,7 @@ export function OrderStatus({ id, submitFn }: Props) {
             <p className="text-[13px] font-semibold text-lp-ink">
               {lpPaysFiat ? 'Your USDC came back to you.' : 'The USDC went back to the provider.'}
             </p>
-            <SettlementLink hash={order.settlement_tx_hash} className="text-[13px] font-semibold underline" />
+            <SettlementLink hash={order.settlement_tx_hash} className="text-[13px] font-semibold" />
             {canPostSettleDispute && (
               <div className="mt-1 flex flex-col items-center gap-1">
                 <button
@@ -530,7 +538,7 @@ export function OrderStatus({ id, submitFn }: Props) {
             <CheckCircle2 size={38} strokeWidth={1.7} className="text-lp-green" aria-hidden="true" />
             <p className="font-geist text-[19px] font-bold text-lp-ink">{releasedTitle(order.flow)}</p>
             <p className="text-[13px] text-lp-ink-soft">Settled on-chain — this order is complete.</p>
-            <SettlementLink hash={order.settlement_tx_hash} className="text-[13px] font-semibold underline" />
+            <SettlementLink hash={order.settlement_tx_hash} className="text-[13px] font-semibold" />
             {canPostSettleDispute && (
               <div className="mt-1 flex flex-col items-center gap-1">
                 <button
@@ -575,7 +583,7 @@ export function OrderStatus({ id, submitFn }: Props) {
                   ? 'This order expired before it was completed. No funds were moved.'
                   : 'This order was cancelled. No funds were moved.'}
             </p>
-            <SettlementLink hash={order.settlement_tx_hash} className="text-[13px] font-semibold underline" />
+            <SettlementLink hash={order.settlement_tx_hash} className="text-[13px] font-semibold" />
           </div>
         )}
       </main>

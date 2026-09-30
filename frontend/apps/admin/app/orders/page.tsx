@@ -27,12 +27,22 @@ async function defaultSubmit(signedXdr: string, networkPassphrase: string) {
   return res
 }
 
+const TX_HASH = /^[0-9a-f]{64}$/i
+
 function SettlementLink({ hash }: { hash: string | null | undefined }) {
-  const url = hash ? txUrl(hash) : null
-  if (!url) return null
+  if (!hash) return null
+  const url = txUrl(hash)
+  const mono = 'text-xs font-semibold font-geist-mono break-all'
+  if (!url) {
+    return (
+      <span data-testid="settlement-hash" className={mono}>
+        {hash}
+      </span>
+    )
+  }
   return (
-    <a data-testid="settlement-link" href={url} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold underline">
-      View transaction ↗
+    <a data-testid="settlement-link" href={url} target="_blank" rel="noopener noreferrer" className={`${mono} underline`}>
+      {hash}
     </a>
   )
 }
@@ -608,7 +618,13 @@ function AttestAction({ order, onAttested }: { order: Order; onAttested: () => v
     return (
       <div className="mt-3 border-t border-lp-line pt-3 space-y-1" data-testid="attest-done">
         <p className="text-xs font-semibold text-lp-green">Marked as paid on chain</p>
-        <p className="font-geist-mono text-[11px] break-all text-lp-muted">{done}</p>
+        {TX_HASH.test(done) ? (
+          <p>
+            <SettlementLink hash={done} />
+          </p>
+        ) : (
+          <p className="font-geist-mono text-[11px] break-all text-lp-muted">{done}</p>
+        )}
       </div>
     )
   }

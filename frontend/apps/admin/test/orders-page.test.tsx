@@ -7,6 +7,13 @@ vi.mock('@/lib/wallet-kit', () => ({
   getDefaultKit: vi.fn(() => ({})),
 }))
 
+const mockTxUrl = vi.hoisted(() => vi.fn<(hash: string) => string | null>())
+vi.mock('@/lib/explorer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/explorer')>()
+  mockTxUrl.mockImplementation(actual.txUrl)
+  return { ...actual, txUrl: mockTxUrl }
+})
+
 vi.mock('next/link', () => ({
   default: ({
     href,
@@ -608,7 +615,7 @@ describe('a settled order links its transaction', () => {
     vi.clearAllMocks()
   })
 
-  it('renders a stellar.expert link to the settlement transaction when the order carries its hash', async () => {
+  it('renders a stellar.expert link to the settlement transaction when the order carries its hash, with the full hash as the link text in monospace', async () => {
     const hash = 'ef'.repeat(32)
     vi.mocked(apiClient.getAdminOrders).mockResolvedValueOnce([
       { ...MOCK_ORDER, id: 'order-settled', status: 'RELEASED' as const, settled_at: '2026-09-07T10:23:07.000Z', settlement_tx_hash: hash },
@@ -623,9 +630,33 @@ describe('a settled order links its transaction', () => {
     })
     const link = screen.getByTestId('settlement-link') as HTMLAnchorElement
     expect(link.getAttribute('href')).toBe(`https://stellar.expert/explorer/testnet/tx/${hash}`)
-    expect(link.textContent).toBe('View transaction ↗')
+    expect(link.textContent).toBe(hash)
+    expect(link.className).toContain('font-geist-mono')
     expect(link.getAttribute('target')).toBe('_blank')
     expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+  })
+
+  it('still shows the full hash in monospace, as text with no link, when no explorer URL can be built for the network', async () => {
+    const hash = 'ab'.repeat(32)
+    vi.mocked(apiClient.getAdminOrders).mockResolvedValueOnce([
+      { ...MOCK_ORDER, id: 'order-settled-nourl', status: 'RELEASED' as const, settled_at: '2026-09-07T10:23:07.000Z', settlement_tx_hash: hash },
+    ])
+    const real = mockTxUrl.getMockImplementation()!
+    mockTxUrl.mockReturnValue(null)
+    try {
+      render(
+        <TestProviders kit={fakeKit}>
+          <OrdersPage />
+        </TestProviders>,
+      )
+      await waitFor(() => {
+        expect(screen.getByTestId('settlement-hash').textContent).toBe(hash)
+      })
+      expect(screen.getByTestId('settlement-hash').className).toContain('font-geist-mono')
+      expect(screen.queryByTestId('settlement-link')).toBeNull()
+    } finally {
+      mockTxUrl.mockImplementation(real)
+    }
   })
 
   it('renders no link for an order that has not settled', async () => {
