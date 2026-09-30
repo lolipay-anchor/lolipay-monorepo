@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { TestProviders, fakeKit } from './helpers'
 import { queryClient } from '@/app/providers'
 import type { Order } from '@lolipay/api-client'
@@ -32,6 +32,8 @@ vi.mock('@lolipay/api-client', async (importOriginal) => {
     getConfirmReleaseTx: vi.fn(),
     getMarkPaidTx: vi.fn(),
     getRaiseDisputeTx: vi.fn(),
+    getConfirmReceiptMessage: vi.fn(),
+    confirmReceipt: vi.fn(),
 
     uploadProof: vi.fn(),
   }
@@ -183,20 +185,6 @@ describe('AssignmentCard — Lock USDC (MATCHED)', () => {
       expect(screen.getByRole('alert')).toBeTruthy()
       expect(screen.getByText(/User rejected transaction/i)).toBeTruthy()
     })
-  })
-
-  it('shows "Waiting for buyer\'s payment" with no action for FUNDED', () => {
-    render(
-      <TestProviders kit={fakeKit}>
-        <AssignmentCard
-          assignment={{ order: makeOrder({ status: 'FUNDED' }) }}
-          onRefetch={vi.fn()}
-        />
-      </TestProviders>,
-    )
-
-    expect(screen.getByText(/Waiting for buyer's payment/i)).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /Lock USDC/i })).toBeNull()
   })
 })
 
@@ -399,6 +387,391 @@ describe('AssignmentCard — Confirm receipt & release (FIAT_PAID)', () => {
     )
 
     expect(screen.queryByTestId('lp-open-dispute')).toBeNull()
+  })
+})
+
+const WINDOW_END = 1_790_000_000
+const AT = 1_790_000_123
+const NP = 'Test SDF Network ; September 2015'
+const LP_ADDR = 'GLPSENTINELADDRESSDIFFERENTFROMTHEKITADDRESS'
+const SIG = 'SIGNATURE_FROM_THE_KIT'
+const MSG = 'lolipay-confirm-receipt:v1 server-built statement order=order-1 reference=SRV-REF at=1790000123'
+
+const nowSecs = () => Math.floor(Date.now() / 1000)
+const when = (secs: number) => new Date(secs * 1000).toLocaleString().replace(/\s+/g, ' ')
+
+const CARD_BUTTON = 'Confirm receipt & release'
+const SIGN_TWICE_LABEL = 'Confirm receipt & release — sign twice'
+const RELEASE_LABEL = 'Release USDC — sign'
+const CLAUSE_INTRO = 'Your wallet will ask you to sign twice:'
+const CLAUSE_STATEMENT =
+  'A statement that you received the full payment. Declining it records nothing. Signing it lets lolipay mark this order as paid on chain, and once it is marked that cannot be undone, even if you decline the second request: the USDC can then only be released, or settled through a dispute.'
+const CLAUSE_RELEASE = 'The release, which sends the USDC to the buyer.'
+const DID_NOT_SIGN = 'Your wallet did not sign the statement, so nothing was recorded.'
+
+const openWindowSentence = (end: number) =>
+  `Check that Rp 1.500.000 has arrived in your BANK account. If it has, press Confirm receipt & release and approve both requests in your wallet: that records the payment on chain and releases the USDC to the buyer. Do it before ${when(end)}; after that it can no longer be confirmed, and the USDC can be returned to you.`
+const closedWindowSentence = (end: number) =>
+  `The time to confirm this payment ended at ${when(end)}. It can no longer be confirmed, and the USDC can be returned to you.`
+const markedButNotReleased = (reason: string) =>
+  `This order is now marked as paid on chain, but the release did not complete here: ${reason}. Press Release USDC — sign to try again.`
+
+const fundedCard = (overrides: Partial<Order> = {}) => (
+  <TestProviders kit={fakeKit}>
+    <AssignmentCard
+      assignment={{ order: makeOrder({ status: 'FUNDED', ...overrides }) }}
+      onRefetch={vi.fn()}
+    />
+  </TestProviders>
+)
+
+describe('AssignmentCard — TOP_UP FUNDED: the card and its window (F1, F2)', () => {
+  beforeEach(() => {
+    queryClient.clear()
+    vi.clearAllMocks()
+  })
+
+  it('F1: inside the window it says where to check, offers Confirm receipt & release, keeps the reference, and claims nothing about the buyer', () => {
+    const end = nowSecs() + 3600
+    render(fundedCard({ refund_opens_at: end, ref: 'LP-AB12' }))
+
+    expect(screen.getByText(openWindowSentence(end))).toBeTruthy()
+    expect(screen.getByRole('button', { name: CARD_BUTTON })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Lock USDC/i })).toBeNull()
+    expect(screen.queryByText(/Waiting for buyer's payment/i)).toBeNull()
+    expect(screen.getByTestId('lp-transfer-ref')).toHaveTextContent('LP-AB12')
+  })
+
+  it('F2: past refund_opens_at it says the time ended and offers no button', () => {
+    render(fundedCard({ refund_opens_at: 1_000 }))
+
+    expect(screen.getByText(closedWindowSentence(1_000))).toBeTruthy()
+    expect(screen.queryByRole('button', { name: CARD_BUTTON })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Lock USDC/i })).toBeNull()
+    expect(screen.queryByText(/Do it before/i)).toBeNull()
+  })
+
+  it('F2: refund_opens_at itself is still inside the window and the next second is not', () => {
+    const nowSpy = vi.spyOn(Date, 'now')
+    try {
+      nowSpy.mockReturnValue(WINDOW_END * 1000 + 999)
+      const view = render(fundedCard({ refund_opens_at: WINDOW_END }))
+      expect(screen.getByRole('button', { name: CARD_BUTTON })).toBeTruthy()
+
+      nowSpy.mockReturnValue((WINDOW_END + 1) * 1000)
+      view.rerender(fundedCard({ refund_opens_at: WINDOW_END }))
+      expect(screen.queryByRole('button', { name: CARD_BUTTON })).toBeNull()
+      expect(screen.getByText(closedWindowSentence(WINDOW_END))).toBeTruthy()
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+})
+
+function mountTopUp(status: 'FUNDED' | 'FIAT_PAID') {
+  const onRefetch = vi.fn()
+  const submit = vi.fn().mockResolvedValue({ status: 'PENDING' })
+  const order = makeOrder({ status, refund_opens_at: nowSecs() + 3600, ref: 'LP-AB12' })
+  const element = (o: Order) => (
+    <TestProviders kit={fakeKit}>
+      <AssignmentCard assignment={{ order: o }} onRefetch={onRefetch} submitFn={submit} />
+    </TestProviders>
+  )
+  const view = render(element(order))
+  return { view, element, order, onRefetch, submit }
+}
+
+function openSheetAndTick() {
+  fireEvent.click(screen.getByRole('button', { name: CARD_BUTTON }))
+  fireEvent.click(screen.getByRole('checkbox'))
+}
+
+const queueStatement = (at = AT) =>
+  vi.mocked(apiClient.getConfirmReceiptMessage).mockResolvedValueOnce({ message: MSG, at })
+const queueReceiptRecorded = () =>
+  vi.mocked(apiClient.confirmReceipt).mockResolvedValueOnce({
+    orderId: 'order-1',
+    submission: 'SUCCESS',
+    txHash: 'TXH',
+  })
+const queueReleaseTx = () =>
+  vi.mocked(apiClient.getConfirmReleaseTx).mockResolvedValueOnce({
+    xdr: 'CONFIRM_XDR',
+    networkPassphrase: NP,
+  })
+
+async function recordThenFailTheRelease() {
+  queueStatement()
+  queueReceiptRecorded()
+  queueReleaseTx()
+  vi.mocked(fakeKit.signTransaction).mockRejectedValueOnce(new Error('User rejected transaction'))
+  const mounted = mountTopUp('FUNDED')
+  openSheetAndTick()
+  fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+  await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
+  return mounted
+}
+
+function drainMocks() {
+  vi.mocked(apiClient.getConfirmReceiptMessage).mockReset()
+  vi.mocked(apiClient.confirmReceipt).mockReset()
+  vi.mocked(apiClient.getConfirmReleaseTx).mockReset()
+  vi.mocked(fakeKit.signMessage).mockReset()
+  vi.mocked(fakeKit.signTransaction).mockReset()
+  sessionStorage.clear()
+}
+
+describe('ConfirmReleaseSheet — records the receipt, then releases (F3–F6, F8)', () => {
+  beforeEach(() => {
+    queryClient.clear()
+    vi.clearAllMocks()
+    drainMocks()
+  })
+
+  afterEach(drainMocks)
+
+  it('at FUNDED the sheet says the wallet will ask twice, in the ruled words, and labels the button to match', () => {
+    mountTopUp('FUNDED')
+    fireEvent.click(screen.getByRole('button', { name: CARD_BUTTON }))
+
+    expect(screen.getByText(CLAUSE_INTRO)).toBeTruthy()
+    expect(screen.getByText(CLAUSE_STATEMENT)).toBeTruthy()
+    expect(screen.getByText(CLAUSE_RELEASE)).toBeTruthy()
+    expect(screen.getByRole('button', { name: SIGN_TWICE_LABEL })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: RELEASE_LABEL })).toBeNull()
+    expect(screen.getByText(/Releasing without receiving funds loses your USDC/)).toBeTruthy()
+  })
+
+  it('F3: signs the server statement as the logged-in account, posts a fresh { at, signature }, then releases — in that order', async () => {
+    sessionStorage.setItem('lp_addr', LP_ADDR)
+    queueStatement()
+    vi.mocked(fakeKit.signMessage).mockResolvedValueOnce({ signedMessage: SIG })
+    queueReceiptRecorded()
+    queueReleaseTx()
+    const { submit } = mountTopUp('FUNDED')
+    openSheetAndTick()
+
+    fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+    await waitFor(() => expect(submit).toHaveBeenCalled())
+
+    expect(apiClient.getConfirmReceiptMessage).toHaveBeenCalledWith(expect.anything(), 'order-1')
+    expect(fakeKit.signMessage).toHaveBeenCalledWith(MSG, { address: LP_ADDR })
+    const posted = vi.mocked(apiClient.confirmReceipt).mock.calls[0]
+    expect(posted[1]).toBe('order-1')
+    expect(posted[2]).toStrictEqual({ at: AT, signature: SIG })
+    expect(apiClient.getConfirmReleaseTx).toHaveBeenCalledWith(expect.anything(), 'order-1')
+    expect(fakeKit.signTransaction).toHaveBeenCalledWith('CONFIRM_XDR', { networkPassphrase: NP })
+    expect(submit).toHaveBeenCalledWith('SIGNED_XDR', NP)
+
+    const firstCall = (m: { mock: { invocationCallOrder: number[] } }) => m.mock.invocationCallOrder[0]
+    const order = [
+      firstCall(vi.mocked(apiClient.getConfirmReceiptMessage)),
+      firstCall(vi.mocked(fakeKit.signMessage)),
+      firstCall(vi.mocked(apiClient.confirmReceipt)),
+      firstCall(vi.mocked(apiClient.getConfirmReleaseTx)),
+      firstCall(vi.mocked(fakeKit.signTransaction)),
+      firstCall(submit),
+    ]
+    expect(order.every((n) => typeof n === 'number')).toBe(true)
+    expect(order).toEqual([...order].sort((a, b) => a - b))
+  })
+
+  it('an already-recorded answer counts as recorded: the release goes ahead', async () => {
+    queueStatement()
+    vi.mocked(apiClient.confirmReceipt).mockResolvedValueOnce({ orderId: 'order-1', alreadyRecorded: true })
+    queueReleaseTx()
+    const { submit } = mountTopUp('FUNDED')
+    openSheetAndTick()
+
+    fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+  })
+
+  it('F4: a wallet that declines with a plain { code, message } object shows the fixed sentence and calls nothing after the signature', async () => {
+    queueStatement()
+    vi.mocked(fakeKit.signMessage).mockRejectedValueOnce({ code: -4, message: 'User declined access' })
+    const { onRefetch } = mountTopUp('FUNDED')
+    openSheetAndTick()
+
+    fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(DID_NOT_SIGN))
+    expect(apiClient.confirmReceipt).not.toHaveBeenCalled()
+    expect(apiClient.getConfirmReleaseTx).not.toHaveBeenCalled()
+    expect(onRefetch).not.toHaveBeenCalled()
+  })
+
+  it('F4: a declined statement records nothing, so the label is unchanged and the next press asks for a new statement', async () => {
+    queueStatement()
+    vi.mocked(fakeKit.signMessage).mockRejectedValueOnce({ code: -4, message: 'User declined access' })
+    const { submit } = mountTopUp('FUNDED')
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(DID_NOT_SIGN))
+    expect(screen.getByRole('button', { name: SIGN_TWICE_LABEL })).toBeTruthy()
+
+    queueStatement(AT + 1)
+    queueReceiptRecorded()
+    queueReleaseTx()
+    fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    expect(apiClient.getConfirmReceiptMessage).toHaveBeenCalledTimes(2)
+    expect(fakeKit.signMessage).toHaveBeenCalledTimes(2)
+  })
+
+  it('F4: an Error from the wallet, such as its timeout, is shown as its own message, not replaced by the fixed sentence', async () => {
+    const timeout = 'Waiting for you to approve the signature in your wallet timed out — please try again'
+    queueStatement()
+    vi.mocked(fakeKit.signMessage).mockRejectedValueOnce(new Error(timeout))
+    mountTopUp('FUNDED')
+    openSheetAndTick()
+
+    fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(timeout))
+    expect(apiClient.confirmReceipt).not.toHaveBeenCalled()
+  })
+
+  it('F4: a refusal of the statement request is shown verbatim and nothing after it is called', async () => {
+    const sentence = 'Only the provider assigned to this order can confirm its payment.'
+    vi.mocked(apiClient.getConfirmReceiptMessage).mockRejectedValueOnce(new apiClient.ApiError(403, sentence))
+    mountTopUp('FUNDED')
+    openSheetAndTick()
+
+    fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(sentence))
+    expect(fakeKit.signMessage).not.toHaveBeenCalled()
+    expect(apiClient.confirmReceipt).not.toHaveBeenCalled()
+    expect(apiClient.getConfirmReleaseTx).not.toHaveBeenCalled()
+  })
+
+  it('F4: a refusal of the signed statement is shown verbatim, and the release is never requested', async () => {
+    const sentence =
+      'The time to confirm this payment has passed, so it can no longer be confirmed, and the USDC can be returned to you.'
+    queueStatement()
+    vi.mocked(apiClient.confirmReceipt).mockRejectedValueOnce(new apiClient.ApiError(409, sentence))
+    const { onRefetch } = mountTopUp('FUNDED')
+    openSheetAndTick()
+
+    fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(sentence))
+    expect(apiClient.getConfirmReleaseTx).not.toHaveBeenCalled()
+    expect(onRefetch).not.toHaveBeenCalled()
+  })
+
+  it('F5: after the receipt is recorded and the release fails, the card refetches and the second press skips the statement', async () => {
+    const { submit, onRefetch } = await recordThenFailTheRelease()
+    expect(onRefetch).toHaveBeenCalledTimes(1)
+    expect(submit).not.toHaveBeenCalled()
+
+    queueReleaseTx()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    expect(apiClient.getConfirmReceiptMessage).toHaveBeenCalledTimes(1)
+    expect(fakeKit.signMessage).toHaveBeenCalledTimes(1)
+    expect(apiClient.confirmReceipt).toHaveBeenCalledTimes(1)
+    expect(apiClient.getConfirmReleaseTx).toHaveBeenCalledTimes(2)
+  })
+
+  it('F5: closing and reopening the sheet keeps the recorded receipt, so the label and the steps stay release-only', async () => {
+    const { submit } = await recordThenFailTheRelease()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: CARD_BUTTON }))
+    fireEvent.click(screen.getByRole('checkbox'))
+
+    expect(screen.queryByText(CLAUSE_INTRO)).toBeNull()
+    queueReleaseTx()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    expect(apiClient.getConfirmReceiptMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('edge 18: with the receipt recorded and the release failed, the sheet says the order is marked as paid and offers Release USDC — sign without the sign-twice clause', async () => {
+    await recordThenFailTheRelease()
+
+    expect(screen.getByRole('alert').textContent).toBe(markedButNotReleased('User rejected transaction'))
+    expect(screen.getByRole('button', { name: RELEASE_LABEL })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: SIGN_TWICE_LABEL })).toBeNull()
+    expect(screen.queryByText(CLAUSE_INTRO)).toBeNull()
+  })
+
+  it('F6: at FIAT_PAID there is no statement — no clause, the release-only label, and none of the three step-1 calls', async () => {
+    queueReleaseTx()
+    const { submit } = mountTopUp('FIAT_PAID')
+    fireEvent.click(screen.getByRole('button', { name: CARD_BUTTON }))
+
+    expect(screen.queryByText(CLAUSE_INTRO)).toBeNull()
+    expect(screen.queryByRole('button', { name: SIGN_TWICE_LABEL })).toBeNull()
+
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    expect(apiClient.getConfirmReceiptMessage).not.toHaveBeenCalled()
+    expect(fakeKit.signMessage).not.toHaveBeenCalled()
+    expect(apiClient.confirmReceipt).not.toHaveBeenCalled()
+  })
+
+  it('F6: at FIAT_PAID a release failure shows the wallet message as it is, not the marked-as-paid sentence', async () => {
+    queueReleaseTx()
+    vi.mocked(fakeKit.signTransaction).mockRejectedValueOnce(new Error('User rejected transaction'))
+    mountTopUp('FIAT_PAID')
+    openSheetAndTick()
+
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('User rejected transaction'))
+  })
+
+  it('F8: the sheet stays open across the FUNDED to FIAT_PAID refetch and shows the release error', async () => {
+    queueStatement()
+    queueReceiptRecorded()
+    queueReleaseTx()
+    let rejectSign!: (e: unknown) => void
+    vi.mocked(fakeKit.signTransaction).mockImplementationOnce(
+      () => new Promise<{ signedTxXdr: string }>((_, reject) => { rejectSign = reject }),
+    )
+    const { view, element, order, submit } = mountTopUp('FUNDED')
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+    await waitFor(() => expect(fakeKit.signTransaction).toHaveBeenCalled())
+    const dialog = screen.getByRole('dialog')
+
+    view.rerender(element({ ...order, status: 'FIAT_PAID' }))
+    expect(screen.getByRole('dialog')).toBe(dialog)
+
+    rejectSign(new Error('User rejected transaction'))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe(markedButNotReleased('User rejected transaction')),
+    )
+    expect(screen.getByRole('dialog')).toBe(dialog)
+    expect(submit).not.toHaveBeenCalled()
+  })
+
+  it('F8: the sheet also stays open when the window closes while it is open, though the card button goes', () => {
+    const nowSpy = vi.spyOn(Date, 'now')
+    try {
+      nowSpy.mockReturnValue(WINDOW_END * 1000)
+      const { view, element, order } = mountTopUp('FUNDED')
+      fireEvent.click(screen.getByRole('button', { name: CARD_BUTTON }))
+      const dialog = screen.getByRole('dialog')
+
+      nowSpy.mockReturnValue((WINDOW_END + 3601) * 1000)
+      view.rerender(element(order))
+
+      expect(screen.getByRole('dialog')).toBe(dialog)
+      expect(screen.queryByRole('button', { name: CARD_BUTTON })).toBeNull()
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 })
 

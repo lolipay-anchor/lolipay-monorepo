@@ -9,6 +9,8 @@ import {
   getConfirmReleaseTx,
   getMarkPaidTx,
   getRaiseDisputeTx,
+  getConfirmReceiptMessage,
+  confirmReceipt,
 
   uploadProof,
 } from '@lolipay/api-client'
@@ -16,6 +18,7 @@ import type { Assignment, Order } from '@lolipay/api-client'
 import { submissionFailure, useWallet } from '@lolipay/wallet'
 import { Card, Button, StatusPill, BottomSheet, type PillTone, NAV_CLEARANCE_CLASS } from '@lolipay/ui'
 import { AppHeader } from '@/components/AppHeader'
+import { useAuth } from '@/app/providers'
 import { client } from '@/lib/client'
 import { formatUSDC, formatIDR } from '@/lib/money'
 import { useRealtimeChannel } from '@/hooks/useRealtimeChannel'
@@ -57,11 +60,18 @@ function truncate(addr: string) {
 const MAX_PROOF_BYTES = 5 * 1024 * 1024
 const ACCEPTED_PROOF_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 
+const DID_NOT_SIGN = 'Your wallet did not sign the statement, so nothing was recorded.'
+
+function markedButNotReleased(reason: string) {
+  return `This order is now marked as paid on chain, but the release did not complete here: ${reason}. Press Release USDC — sign to try again.`
+}
+
 interface ConfirmReleaseSheetProps {
   order: Order
   open: boolean
   onClose: () => void
   onConfirmed: () => void
+  onReceiptRecorded: () => void
 
   submitFn?: SubmitFn
 }
@@ -71,12 +81,15 @@ export function ConfirmReleaseSheet({
   open,
   onClose,
   onConfirmed,
+  onReceiptRecorded,
   submitFn = defaultSubmit,
 }: ConfirmReleaseSheetProps) {
   const [checked, setChecked] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [receiptRecorded, setReceiptRecorded] = React.useState(false)
   const wallet = useWallet()
+  const auth = useAuth()
 
   React.useEffect(() => {
     if (open) {
@@ -86,17 +99,36 @@ export function ConfirmReleaseSheet({
   }, [open])
 
   const fiatDisplay = formatIDR(parseInt(order.fiat_amount, 10))
+  const recordsReceiptFirst = order.status === 'FUNDED' && !receiptRecorded
+
+  async function recordReceipt() {
+    try {
+      const { message, at } = await getConfirmReceiptMessage(client, order.id)
+      const signature = await wallet.signMessage(message, auth.address ?? undefined)
+      await confirmReceipt(client, order.id, { at, signature })
+    } catch (err) {
+      throw err instanceof Error ? err : new Error(DID_NOT_SIGN)
+    }
+  }
 
   async function handleConfirm() {
     setBusy(true)
     setError(null)
+    let recorded = receiptRecorded
     try {
+      if (recordsReceiptFirst) {
+        await recordReceipt()
+        recorded = true
+        setReceiptRecorded(true)
+        onReceiptRecorded()
+      }
       const { xdr, networkPassphrase } = await getConfirmReleaseTx(client, order.id)
       const signedXdr = await wallet.signTransaction(xdr, networkPassphrase)
       await submitFn(signedXdr, networkPassphrase)
       onConfirmed()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Release failed')
+      const reason = err instanceof Error ? err.message : 'Release failed'
+      setError(recorded ? markedButNotReleased(reason) : reason)
     } finally {
       setBusy(false)
     }
@@ -127,6 +159,18 @@ export function ConfirmReleaseSheet({
         </div>
       </div>
 
+      {recordsReceiptFirst && (
+        <div className="mb-4 text-sm text-lp-ink">
+          <p>Your wallet will ask you to sign twice:</p>
+          <ol className="mt-1 list-decimal space-y-1 pl-5">
+            <li>
+              A statement that you received the full payment. Declining it records nothing. Signing it lets lolipay mark this order as paid on chain, and once it is marked that cannot be undone, even if you decline the second request: the USDC can then only be released, or settled through a dispute.
+            </li>
+            <li>The release, which sends the USDC to the buyer.</li>
+          </ol>
+        </div>
+      )}
+
       {}
       <label className="mb-5 flex cursor-pointer items-start gap-3">
         <input
@@ -149,7 +193,7 @@ export function ConfirmReleaseSheet({
 
       <div className="space-y-2">
         <Button disabled={!checked || busy} loading={busy} onClick={handleConfirm}>
-          Release USDC — sign
+          {recordsReceiptFirst ? 'Confirm receipt & release — sign twice' : 'Release USDC — sign'}
         </Button>
         <Button variant="ghost" onClick={onClose} disabled={busy}>
           Cancel
@@ -279,13 +323,16 @@ export function AssignmentCard({
       setDisputeBusy(false)
     }
   }
+  const nowMs = Date.now()
   const postSettleDeadlineMs = order.post_settle_dispute_until
     ? Date.parse(order.post_settle_dispute_until)
     : null
   const canPostSettleDispute =
     (order.status === 'RELEASED' || order.status === 'REFUNDED') &&
     postSettleDeadlineMs != null &&
-    postSettleDeadlineMs > Date.now()
+    postSettleDeadlineMs > nowMs
+  const windowOpen = Math.floor(nowMs / 1000) <= order.refund_opens_at
+  const windowEnd = new Date(order.refund_opens_at * 1000).toLocaleString()
 
   const DisputeLink = (
     <div>
@@ -345,7 +392,11 @@ export function AssignmentCard({
 
       {!lpIsFiatPayer && order.status === 'FUNDED' && (
         <div className="space-y-2">
-          <p className="text-sm italic text-lp-muted">Waiting for buyer&apos;s payment</p>
+          <p className="text-sm text-lp-ink">
+            {windowOpen
+              ? `Check that ${fiatDisplay} has arrived in your ${order.rail} account. If it has, press Confirm receipt & release and approve both requests in your wallet: that records the payment on chain and releases the USDC to the buyer. Do it before ${windowEnd}; after that it can no longer be confirmed, and the USDC can be returned to you.`
+              : `The time to confirm this payment ended at ${windowEnd}. It can no longer be confirmed, and the USDC can be returned to you.`}
+          </p>
           {order.ref && (
             <div className="rounded-xl border border-lp-accent/30 bg-lp-accent-soft p-3">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-lp-ink-soft">
@@ -362,6 +413,11 @@ export function AssignmentCard({
               </button>
             </div>
           )}
+          {windowOpen && (
+            <Button onClick={() => setReleaseOpen(true)}>
+              Confirm receipt &amp; release
+            </Button>
+          )}
         </div>
       )}
 
@@ -370,18 +426,22 @@ export function AssignmentCard({
           <Button onClick={() => setReleaseOpen(true)}>
             Confirm receipt &amp; release
           </Button>
-          <ConfirmReleaseSheet
-            order={order}
-            open={releaseOpen}
-            onClose={() => setReleaseOpen(false)}
-            onConfirmed={() => {
-              setReleaseOpen(false)
-              onRefetch()
-            }}
-            submitFn={submitFn}
-          />
           {DisputeLink}
         </>
+      )}
+
+      {!lpIsFiatPayer && (order.status === 'FUNDED' || order.status === 'FIAT_PAID') && (
+        <ConfirmReleaseSheet
+          order={order}
+          open={releaseOpen}
+          onClose={() => setReleaseOpen(false)}
+          onConfirmed={() => {
+            setReleaseOpen(false)
+            onRefetch()
+          }}
+          onReceiptRecorded={onRefetch}
+          submitFn={submitFn}
+        />
       )}
 
       {}
