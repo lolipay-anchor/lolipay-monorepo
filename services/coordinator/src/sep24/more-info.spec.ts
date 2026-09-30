@@ -80,6 +80,37 @@ describe('the more-info page of a deposit', () => {
     expect(html).toContain('<strong>Send it before <time datetime="2027-01-15T08:00:00.000Z">15 January 2027 at 15:00 WIB</time>.</strong>');
   });
 
+  it('tells a depositor to put the reference in the transfer note, on the line after the reference itself, because the provider recognises the payment by it', async () => {
+    const funded = {
+      ...baseOrder,
+      status: 'FUNDED',
+      settlementTxHash: null,
+      settledAt: null,
+      lpPaymentDetails: 'BCA 1234567890',
+      ref: 'LP-42',
+      payDeadline: 1_800_000_000n,
+    };
+    const html = await service(funded).moreInfo('tx-1');
+    expect(html).toContain('<p>Reference: <strong>LP-42</strong></p><p>Put this reference in the transfer note.</p>');
+    expect(html.indexOf('Put this reference in the transfer note.')).toBeGreaterThan(html.indexOf('Reference: <strong>LP-42</strong>'));
+  });
+
+  it('gives no instruction about a reference when the order has none, because an instruction to include a reference that is not shown would be false', async () => {
+    const funded = {
+      ...baseOrder,
+      status: 'FUNDED',
+      settlementTxHash: null,
+      settledAt: null,
+      lpPaymentDetails: 'BCA 1234567890',
+      ref: null,
+      payDeadline: 1_800_000_000n,
+    };
+    const html = await service(funded).moreInfo('tx-1');
+    expect(html).toContain('How to pay');
+    expect(html).not.toContain('Put this reference in the transfer note.');
+    expect(html).not.toContain('Reference:');
+  });
+
   it('stops telling a depositor how to pay once they have said they paid, on the one page that has no session guard, and never offers the claim control there', async () => {
     const funded = {
       ...baseOrder,

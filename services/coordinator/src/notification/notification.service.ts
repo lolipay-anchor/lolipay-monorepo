@@ -74,7 +74,10 @@ function messageFor(
       if (isBuy)
         return role === 'user'
           ? { title: 'Payment marked', body: 'Waiting for the merchant to release your USDC.' }
-          : { title: 'Buyer paid', body: 'Confirm receipt and release the USDC.' };
+          : {
+              title: 'Marked as paid on chain',
+              body: 'This order is now marked as paid on chain, so it can only be released or settled through a dispute. If the rupiah is in your account and you have not released yet, release it from Assignments. If it is not, open a dispute there.',
+            };
       return role === 'user'
         ? { title: 'Merchant paid', body: 'Confirm you received it to release the USDC.' }
         : { title: 'You marked paid', body: 'Waiting for the seller to confirm & release.' };

@@ -605,4 +605,53 @@ describe('NotificationService', () => {
       expect(enqueued.some((j) => j.payload.personId === 'person-of-GU')).toBe(true);
     });
   });
+
+  describe('FIAT_PAID on a top-up — the provider is told the order is marked as paid on chain, a sentence that is true whoever marked it', () => {
+    const TITLE = 'Marked as paid on chain';
+    const BODY =
+      'This order is now marked as paid on chain, so it can only be released or settled through a dispute. If the rupiah is in your account and you have not released yet, release it from Assignments. If it is not, open a dispute there.';
+    const order = { id: 'o1', userAddress: 'GU', lpWallet: 'GL', lpId: 'lp1', flow: 'TOP_UP' };
+
+    it('writes the provider the pinned title and body, in the in-app row addressed to the provider', async () => {
+      const { svc, prisma } = make();
+      await svc.notifyOrderStatus(order, 'FIAT_PAID');
+      const rows = prisma.notification.createMany.mock.calls[0][0].data as any[];
+      const providerRow = rows.find((r) => r.address === 'GL');
+      expect(providerRow).toMatchObject({ orderId: 'o1', event: 'FIAT_PAID', title: TITLE, body: BODY });
+    });
+
+    it('attributes the marking to nobody, because the provider confirming, the operator rescuing and the depositor signing all reach FIAT_PAID', async () => {
+      const { svc, prisma } = make();
+      await svc.notifyOrderStatus(order, 'FIAT_PAID');
+      const rows = prisma.notification.createMany.mock.calls[0][0].data as any[];
+      const providerRow = rows.find((r) => r.address === 'GL');
+      const said = `${providerRow.title} ${providerRow.body}`;
+      expect(said).not.toMatch(/\b(buyer|depositor|operator|admin|merchant)\b|\byou (marked|confirmed|paid)\b/i);
+      expect(said).not.toContain('Buyer paid');
+    });
+
+    it('carries the same title and body into the provider\'s email, so the inbox and the app do not describe one event in two voices', async () => {
+      const { svc, enqueued } = make(false, { lp1: { stellarAddress: 'GL', alertEmail: 'ops@example.com' } });
+      await svc.notifyOrderStatus(order, 'FIAT_PAID');
+      const job = enqueued.find((j) => j.payload.lpId === 'lp1');
+      expect(job!.payload.subject).toBe(TITLE);
+      expect(job!.payload.text).toBe(BODY);
+    });
+
+    it('leaves the depositor\'s own message and the withdrawal messages as they were', async () => {
+      const { svc, prisma } = make();
+      await svc.notifyOrderStatus(order, 'FIAT_PAID');
+      const topUpRows = prisma.notification.createMany.mock.calls[0][0].data as any[];
+      expect(topUpRows.find((r) => r.address === 'GU')).toMatchObject({
+        title: 'Payment marked',
+        body: 'Waiting for the merchant to release your USDC.',
+      });
+
+      const withdraw = make();
+      await withdraw.svc.notifyOrderStatus({ ...order, flow: 'WITHDRAW' }, 'FIAT_PAID');
+      const withdrawRows = withdraw.prisma.notification.createMany.mock.calls[0][0].data as any[];
+      expect(withdrawRows.find((r) => r.address === 'GL')).toMatchObject({ title: 'You marked paid' });
+      expect(withdrawRows.find((r) => r.address === 'GU')).toMatchObject({ title: 'Merchant paid' });
+    });
+  });
 });

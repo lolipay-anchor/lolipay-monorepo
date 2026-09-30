@@ -662,11 +662,12 @@ export class Sep24Service {
         payDeadline: claimed.payDeadline,
         confirmDeadline: claimed.confirmDeadline,
       });
+      const refundAtIso = new Date(Number(refundAtSecs) * 1000).toISOString();
       const refPart = claimed.ref ? `, reference ${claimed.ref}` : '';
       const subject = 'A depositor says they have sent your rupiah';
       const text =
         `A depositor on order ${orderId} says they have sent ${formatFiat(claimed.fiatAmount)} ${claimed.fiatCurrency} to your account${refPart}. That is their claim, not proof — check your own account.\n\n` +
-        `Nothing has moved on chain, and there is no control for you on this order yet. If the transfer is not confirmed before ${new Date(Number(refundAtSecs) * 1000).toISOString()}, the escrow can be returned to you from that time — the route is open on chain to anyone, including you — and the order closes.`;
+        `Nothing has moved on chain. If the money is in your account, open lp.lolipay.app/assignments and press Confirm receipt & release before ${refundAtIso} and approve both requests in your wallet: that records the payment on chain and releases the USDC to the depositor. If it is not there, do not press it. After that time it can no longer be confirmed; the escrow can be returned to you — the route is open on chain to anyone, including you — and the order closes.`;
       if (lp.alertEmail) {
         await tx.outboxMessage.createMany({
           data: [
@@ -686,7 +687,7 @@ export class Sep24Service {
             orderId,
             event: 'USER_CLAIMED_PAID',
             title: subject,
-            body: `Check your ${RAIL_WORDS[claimed.rail]} for ${formatFiat(claimed.fiatAmount)} ${claimed.fiatCurrency}. That is their claim, not proof. Your release control appears on the order once the transfer is confirmed.`,
+            body: `Check your ${RAIL_WORDS[claimed.rail]} for ${formatFiat(claimed.fiatAmount)} ${claimed.fiatCurrency}. That is their claim, not proof. If it is there, open Assignments and press Confirm receipt & release before ${refundAtIso}. If it is not, do not press it.`,
           },
         ],
         skipDuplicates: true,
@@ -742,7 +743,9 @@ export class Sep24Service {
     const destination = o.lpPaymentLabel
       ? ` to the <span dir="ltr">${escapeHtml(o.lpPaymentLabel)}</span> ${escapeHtml(RAIL_WORDS[o.rail])} below`
       : ' to';
-    const reference = o.ref ? `<p>Reference: <strong>${escapeHtml(o.ref)}</strong></p>` : '';
+    const reference = o.ref
+      ? `<p>Reference: <strong>${escapeHtml(o.ref)}</strong></p><p>Put this reference in the transfer note.</p>`
+      : '';
     return [
       '<h2>How to pay</h2>',
       `<p dir="ltr">Send <strong>${escapeHtml(formatFiat(o.fiatAmount))}</strong> ${escapeHtml(o.fiatCurrency)}${destination}:</p>`,

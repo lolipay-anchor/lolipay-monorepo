@@ -228,7 +228,7 @@ export class MonitoringService {
     };
     noteOverflow('open_dispute', disputes, 'open disputes');
     noteOverflow('release_overdue', releaseOverdue, 'orders past their confirm deadline');
-    noteOverflow('fiat_payment_overdue', fiatOverdue, 'funded orders with unpaid fiat');
+    noteOverflow('fiat_payment_overdue', fiatOverdue, 'orders still FUNDED past their deadline');
 
     const alerts: Alert[] = [
       ...overflow,
@@ -255,7 +255,7 @@ export class MonitoringService {
         key: `fiat_payment_overdue:${o.id}`,
         fingerprint: o.id,
         urgency: 'routine' as Urgency,
-        text: `order ${o.id} (trade ${o.tradeId}) is funded but the fiat is unpaid past its deadline`,
+        text: `order ${o.id} (trade ${o.tradeId}) is still FUNDED past its deadline — the fiat has not been marked as paid`,
       })),
     ];
 

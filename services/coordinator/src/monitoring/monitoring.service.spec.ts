@@ -1,6 +1,7 @@
 import { MonitoringService, MONITORING_ALERT_SCOPE } from './monitoring.service';
 import { DiditRefusalsService } from './didit-refusals.service';
 import { byUrgencyFirst } from './alerts.service';
+import { ALERT_SAMPLE_LIMIT } from './monitoring.conditions';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -688,5 +689,32 @@ describe('a check that cannot read its input says so out loud in the same tick',
     await svc.checkAndAlert();
     expect(raised[0].incomplete.size).toBe(0);
     expect(raised[0].list).toEqual([]);
+  });
+});
+
+describe('a funded order past its deadline is described without claiming the fiat is unpaid, because the same alert fires for a depositor who paid and a provider who has not yet confirmed', () => {
+  const quiet = { disputes: 0, releaseOverdue: 0, indexerAgeMs: 1000 };
+
+  it('says the order is still FUNDED and the fiat has not been marked as paid, exactly', async () => {
+    const { svc, raised } = make({ ...quiet, fiatOverdue: 1 });
+    await svc.checkAndAlert();
+    const alert = raised[0].list.find((a: any) => a.key === 'fiat_payment_overdue:f0');
+    expect(alert).toMatchObject({ fingerprint: 'f0', urgency: 'routine' });
+    expect(alert.text).toBe(
+      'order f0 (trade tf0) is still FUNDED past its deadline — the fiat has not been marked as paid',
+    );
+  });
+
+  it('never calls the fiat unpaid, in the per-order alert or in the truncation notice', async () => {
+    const { svc, raised } = make({ ...quiet, fiatOverdue: 1 });
+    await svc.checkAndAlert();
+    expect(raised[0].list.map((a: any) => a.text).join(' ')).not.toMatch(/unpaid/i);
+
+    const full = make({ ...quiet, fiatOverdue: ALERT_SAMPLE_LIMIT });
+    await full.svc.checkAndAlert();
+    const notice = full.raised[0].list.find((a: any) => a.key === 'fiat_payment_overdue:overflow');
+    expect(notice.text).toBe(
+      `at least ${ALERT_SAMPLE_LIMIT} orders still FUNDED past their deadline — the list is truncated and nothing in this family will be reported as cleared until it is not`,
+    );
   });
 });

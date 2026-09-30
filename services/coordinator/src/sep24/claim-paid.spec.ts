@@ -15,6 +15,7 @@ const cfg = {
 } as any;
 
 const NOW_SECS = Math.floor(Date.now() / 1000);
+const REFUND_OPENS_ISO = new Date((NOW_SECS + 2400) * 1000).toISOString();
 
 function setup(orderId: string | null = 'order-1', overrides: Record<string, unknown> = {}) {
   const order = orderId
@@ -116,13 +117,17 @@ describe('claimPaid writes the conditional claim and asks the provider, ADR 0059
     expect(job.dedupeKey).toBe('email:order-1:USER_CLAIMED_PAID:lp-typed');
   });
 
-  it('tells the provider the escrow route can open rather than that it will run, and names no act as required of them, because an email is read hours after it is rendered and cannot re-render', async () => {
+  it('tells the provider what to do and by when — check their own account, then press Confirm receipt & release before the instant the escrow refund opens and approve both wallet requests — and that the escrow route is open on chain to anyone after it, because an email is read hours after it is rendered and cannot re-render', async () => {
     const { service, tx, token } = setup('order-1');
     provider(tx);
     await service.claimPaid('tx-1', token);
     const text = tx.outboxMessage.createMany.mock.calls[0][0].data[0].payload.text as string;
-    expect(text).toContain('Nothing has moved on chain, and there is no control for you on this order yet.');
-    expect(text).toContain('the escrow can be returned to you from that time — the route is open on chain to anyone, including you — and the order closes.');
+    const paragraphs = text.split('\n\n');
+    expect(paragraphs).toHaveLength(2);
+    expect(paragraphs[1]).toBe(
+      `Nothing has moved on chain. If the money is in your account, open lp.lolipay.app/assignments and press Confirm receipt & release before ${REFUND_OPENS_ISO} and approve both requests in your wallet: that records the payment on chain and releases the USDC to the depositor. If it is not there, do not press it. After that time it can no longer be confirmed; the escrow can be returned to you — the route is open on chain to anyone, including you — and the order closes.`,
+    );
+    expect(text).not.toMatch(/no control for you/i);
     expect(text).not.toMatch(/escrow returns/i);
     expect(text).not.toMatch(/nothing is required from you yet/i);
     expect(text).not.toMatch(/confirm it on your dashboard/i);
@@ -379,7 +384,7 @@ describe('the claim reaches the provider IN THE APP, not only in their inbox —
       tx.outboxMessage.createMany.mock.calls[0][0].data[0].payload.subject,
     );
     expect(rows[0].body).toBe(
-      'Check your bank account for 4.000.000 IDR. That is their claim, not proof. Your release control appears on the order once the transfer is confirmed.',
+      `Check your bank account for 4.000.000 IDR. That is their claim, not proof. If it is there, open Assignments and press Confirm receipt & release before ${REFUND_OPENS_ISO}. If it is not, do not press it.`,
     );
   });
 
@@ -393,19 +398,20 @@ describe('the claim reaches the provider IN THE APP, not only in their inbox —
     await service.claimPaid('tx-1', token);
     const body = tx.notification.createMany.mock.calls[0][0].data[0].body as string;
     expect(body).toBe(
-      'Check your e-wallet for 250.000 IDR. That is their claim, not proof. Your release control appears on the order once the transfer is confirmed.',
+      `Check your e-wallet for 250.000 IDR. That is their claim, not proof. If it is there, open Assignments and press Confirm receipt & release before ${REFUND_OPENS_ISO}. If it is not, do not press it.`,
     );
     expect(tx.order.findUnique.mock.calls[0][0].select.rail).toBe(true);
   });
 
-  it('promises the provider no refund, no deadline and no act of their own, because the automatic escrow return is gated on Config.autoRefund and on REFUND_SIGNER_SECRET and the provider is not the fiat attestor', async () => {
+  it('promises the provider no refund, because the automatic escrow return is gated on Config.autoRefund and on REFUND_SIGNER_SECRET, names the act and the absolute instant it stays open until, and never asserts that the money has arrived', async () => {
     const { service, tx, token } = setup('order-1');
     provider(tx);
     await service.claimPaid('tx-1', token);
     const body = tx.notification.createMany.mock.calls[0][0].data[0].body as string;
     expect(body).not.toMatch(/refund|returned|escrow/i);
-    expect(body).not.toMatch(/\bhours?\b|\bminutes?\b|deadline|before \d/i);
-    expect(body).not.toMatch(/has (arrived|been received)|confirm (it|receipt|the transfer)|mark/i);
+    expect(body).not.toMatch(/\bhours?\b|\bminutes?\b/i);
+    expect(body).not.toMatch(/has (arrived|been received)/i);
+    expect(body).toContain(`press Confirm receipt & release before ${REFUND_OPENS_ISO}.`);
   });
 
   it('takes an event that no order STATUS can equal, because the unique key is (address, orderId, event) and the provider already holds a FUNDED row on this order that skipDuplicates would silently keep instead', async () => {

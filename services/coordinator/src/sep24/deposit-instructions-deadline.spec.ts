@@ -114,3 +114,17 @@ describe('a refund promise on the deposit screens says the route can open, never
     expect(behind).not.toMatch(/until then/i);
   });
 });
+
+describe('the deposit instructions screen tells the depositor to put the reference in the transfer note', () => {
+  it('names the reference and says where to put it, on the popup a third-party wallet renders', async () => {
+    const html = await depositAt(4_000_000_000n, 4_000_010_000n);
+    expect(html).toContain('<p>Reference: <strong>LP-42</strong></p><p>Put this reference in the transfer note.</p>');
+  });
+
+  it('says nothing about a reference when the order carries none', async () => {
+    const html = await depositAt(4_000_000_000n, 4_000_010_000n, { ref: null });
+    expect(html).toContain('How to pay');
+    expect(html).not.toContain('Put this reference in the transfer note.');
+    expect(html).not.toContain('Reference:');
+  });
+});
