@@ -7,8 +7,13 @@ it, and — the part most specifications leave out — what it cannot.
 corridor on Stellar, currently on **testnet**. Deposit and withdrawal directions only.
 
 **Versions this maps to.** SEP-24 **v3.8.0** and the transaction schema of
-`@stellar/anchor-tests`. Both matter: §7 shows one place where the protocol's vocabulary and the
+`@stellar/anchor-tests` 0.6.22. Both matter: §7 shows one place where the protocol's vocabulary and the
 acceptance suite's enum have diverged, and the mapping follows the suite.
+
+**Verified against.** The source at `main` commit `495f408`, the commit deployed on 2026-09-30, and
+the deployed contracts' own configuration, read on 2026-09-30. Where a paragraph below was corrected
+on or after that date it says so in place, so a reader who saw the earlier sentence can see what
+replaced it.
 
 ---
 
@@ -54,10 +59,12 @@ forces `confirmer == usdc_provider`, and the `usdc_provider` is by construction 
 USDC and is owed money. On a deposit the liquidity provider confirms that the user's rupiah arrived;
 on a withdrawal the user confirms that the provider's rupiah arrived.
 
-**`release_from_funded` is closed by configuration, not by the code.** `early_release_providers` is
-`[]` on the deployed instance, and the function refuses every provider while that is true. It is a
-configuration value the admin can change, so this document reports it as configuration rather than as
-a property of the contract.
+**`release_from_funded` is closed by the code on a withdrawal and by configuration on a deposit**
+(corrected 2026-10-01; this paragraph used to say it was closed by configuration and not by the code).
+On a withdrawal the function refuses before it reads the allowlist, so no configuration can open it. On a
+deposit it refuses every provider while `early_release_providers` is `[]`, as it is on the deployed
+instance (re-read 2026-09-30). That list is a configuration value the admin can change, so this
+document reports the deposit case as configuration rather than as a property of the contract.
 
 **The coordinator's `CANCELLED` order state is unrelated to the contract's `cancel`.** On-chain
 `cancel` produces `Refunded`. The coordinator's `CANCELLED` is a pre-escrow state — see §7.
@@ -83,6 +90,21 @@ deadline:
   all**: the only caller is the recipient, who is the liquidity provider — so on that side the
   provider asserts on chain that it sent the rupiah, about itself.
 
+**What makes the attestor sign, on a deposit.** Added 2026-09-30, because a specification that names
+the key and not its trigger leaves the reader to guess. The attestor observes no bank. It signs on
+either of two triggers, and only for a deposit that is still `Funded` on a fresh chain read:
+
+- the liquidity provider's **wallet-signed receipt**, `POST /orders/:id/confirm-receipt` — a SEP-53
+  message over the order, trade id, amount, currency, reference and time, single-use, fresh, and
+  matched against the trade's `usdc_provider` on chain. The provider's console sends it with one
+  button and then has the provider sign `confirm_and_release` in the same gesture, so a deposit
+  completes with no operator action;
+- an administrator's attestation, `POST /admin/orders/:id/attest`, which needs an administrator
+  session and no wallet signature. It is the rescue path.
+
+The depositor's own "I have paid", `POST /sep24/interactive/:id/paid`, touches no key: it records a
+claim on the coordinator's order and changes the SEP-24 status served for it (§6), nothing on chain.
+
 The attestor is also a required co-signature on two other paths, and a specification that omitted them
 would be misleading:
 
@@ -94,16 +116,22 @@ would be misleading:
 **What the attestor can and cannot do, precisely.** It **acts alone on exactly one transition** —
 `Funded → FiatPaid`, on a deposit — and `mark_fiat_paid` requires that single signature and no other.
 On **both paths where USDC actually moves**, a second and different key must also sign. It cannot
-choose a destination: every address a release pays is fixed when the trade is created.
+choose a destination: every address a release pays is fixed when the trade is created. That is the
+reach of the *key*; how the operator's keys are held on this deployment is stated in
+[SECURITY.md](SECURITY.md) under *One keystore holds every operator role today*.
 
 **The attestor key cannot be replaced after construction.** `set_config` refuses any change to
 `fiat_attestor`, and refuses any change to the platform fee destination. Rotating either means
 redeploying the contract, not editing configuration — which bounds the `early_release_providers`
 caveat above: that list is admin-changeable, these two are not.
 
-**The contract enforces separation between the three operator keys.** Both the constructor and
-`set_config` refuse a configuration where `admin`, `resolver` and `fiat_attestor` are not three
-distinct addresses, and `create_trade` refuses to create a trade whose parties include any of them.
+**The contract enforces that the three operator roles are three distinct addresses, and nothing more**
+(corrected 2026-10-01; this sentence used to say the contract enforces separation between the three
+operator keys). Both the constructor and `set_config` refuse a configuration where `admin`, `resolver`
+and `fiat_attestor` are not three distinct addresses, and `create_trade` refuses to create a trade whose
+parties include any of them. The contract cannot enforce that the three are held separately, and on
+this deployment they are not: all three are identities in one keystore on one host, which is the first
+known limitation in [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -121,8 +149,9 @@ resolver who is a party to the trade is refused, and such a trade cannot be crea
 place.
 
 **The windows, with the numbers.** These are the **contract's bounds**; the coordinator chooses each
-trade's actual deadlines inside them, and its defaults are tighter (a 1,800 s pay window and a
-1,800 s confirm window on the deployed configuration).
+trade's actual deadlines inside them, and its defaults are tighter. On the deployed configuration
+(read from the coordinator's `Config` row on 2026-09-30) a trade gets a 1,800 s pay window, a 1,800 s
+confirm window, and a pre-settlement dispute deadline of the confirm deadline plus 7,200 s.
 
 | Window | Value |
 |---|---|
@@ -153,6 +182,15 @@ differs as described in §3. What else differs is **who parts with value first**
 waiting. On a withdrawal that is the user. A wallet offering both
 directions should not present them as equivalent.
 
+**A withdrawal through SEP-24 is not the standard SEP-24 withdrawal.** Added 2026-09-30. A conventional
+anchor tells the wallet an account to pay, and the wallet sends a classic payment there. This anchor
+has no such account: the transaction record serves `withdraw_anchor_account`, `withdraw_memo` and
+`withdraw_memo_type` as null, and the user instead signs `create_trade` into the escrow from the
+interactive page, which needs the Freighter browser extension on that page: the page speaks Freighter's
+message protocol and no other. A wallet that implements only the standard mechanism cannot complete a
+withdrawal here, although `/sep24/info` advertises the direction as enabled. Every SEP-24 withdrawal
+completed so far was signed on the user's side by lolipay's own account.
+
 ---
 
 ## 6. The status mapping
@@ -168,13 +206,19 @@ An order's SEP-24 status is derived, never stored twice. The function is
 | `CREATED` | `pending_anchor` | a quote exists; no provider is committed |
 | `MATCHED` | `pending_anchor` | a provider is committed; the escrow is not funded |
 | `AWAITING_ONCHAIN` | `pending_anchor` | the funding transaction is in flight |
-| `FUNDED` | `pending_user_transfer_start` | the USDC is locked; the user must now send rupiah |
-| `FIAT_PAID` | `pending_anchor` | the rupiah is attested; release is pending |
+| `FUNDED`, no claim yet | `pending_user_transfer_start` | the USDC is locked; the user must now send rupiah |
+| `FUNDED`, transfer reported by the depositor | `pending_anchor` | the user said the rupiah was sent and the provider has been asked to check their account; the status word is the same as every other row mapped to `pending_anchor`; only `message` tells it apart from `FIAT_PAID` — this row carries one, a `FIAT_PAID` deposit carries none |
+| `FIAT_PAID` | `pending_anchor` | the deposit is marked paid on chain — by the attestor on the provider's signed receipt, or by the recipient — and release is pending |
 | `RELEASED` | `completed` | the USDC has been released on chain |
 | `REFUNDED` | `refunded` | the escrow returned the USDC to the `usdc_provider` |
 | `DISPUTED` | `pending_anchor` | a dispute is open |
-| `EXPIRED` | `expired` | a deadline passed before the escrow was funded |
-| `CANCELLED` | `expired` | the order was cancelled before the escrow was funded |
+| `EXPIRED` | `expired` | a deadline passed before this anchor saw the escrow funded; not terminal (§7, gap 2) |
+| `CANCELLED` | `expired` | the order was cancelled before this anchor saw the escrow funded; not terminal (§7, gap 2) |
+
+This anchor does not report `pending_external` for that wait, because the reference wallet stops
+polling on it: the Stellar Demo Wallet's deposit poller
+(`packages/demo-wallet-shared/methods/sep24/pollDepositUntilComplete.ts`) treats `pending_external`,
+`completed` and `error` as end statuses and returns on the first of them it sees.
 
 ### Withdrawal — where it differs
 
@@ -199,11 +243,13 @@ outside the enum. There is no default and nothing is guessed.
 
 ---
 
-## 7. The four states SEP-24 cannot express
+## 7. The four states this anchor does not report distinctly in SEP-24 today
 
-This is the section this document exists for. Each gap below names whether it is a limit of the
-**protocol**, of the **acceptance suite**, or of **this implementation** — because conflating those
-three is how specifications become misleading.
+This is the section this document exists for (corrected 2026-10-01; its heading used to say
+*the four states SEP-24 cannot express*, which gap 3 below contradicts, since SEP-24 has a status for
+one of them; it now names what this anchor does not report). Each gap below names
+whether it is a limit of the **protocol**, of the **acceptance suite**, or of **this
+implementation** — because conflating those three is how specifications become misleading.
 
 **1. Not yet matched — a protocol gap.** `CREATED`, `MATCHED` and `AWAITING_ONCHAIN` all serve
 `pending_anchor`. A wallet cannot distinguish *"we are still looking for a provider"* from *"a
@@ -212,10 +258,17 @@ because a conventional anchor has none.
 
 **2. Provider failure versus user abandonment — a protocol gap, confined to the pre-escrow window.**
 `EXPIRED` and `CANCELLED` both serve `expired`, and both are written **only** from pre-escrow states.
-So the two cases that collapse are *the escrow was never funded* and *the order was abandoned* — not,
-as one might assume, a provider who failed to pay after funding. That case ends `Refunded` on chain
-and serves `refunded`. Worth noting: SEP-24 defines `expired` as funds never received and the
-transaction abandoned **by the user**, so serving it for a funding failure is a mild semantic stretch.
+So the two cases that collapse are *the escrow was not funded in time* and *the order was abandoned* —
+not, as one might assume, a provider who failed to pay after funding. That case ends `Refunded` on
+chain and serves `refunded`. **Neither case proves the escrow was never funded, and `expired` is not
+terminal** (corrected 2026-10-01; this paragraph used to name the first case *the escrow was never
+funded*). An escrow can still be funded after this anchor stopped the order, and the transaction can
+then report any status this anchor reports for a live trade, up to `completed` or `refunded`; if
+nothing settles it first, the permissionless refund returns the USDC to whoever funded it, and this
+anchor submits that refund itself when automatic refunds are on. A wallet should not present `expired`
+as final, should not stop polling on it, and should not tell the person their USDC is untouched. Worth
+noting: SEP-24 defines `expired` as funds never received and the transaction abandoned **by the
+user**, so serving it for a funding failure is a mild semantic stretch.
 
 **3. A dispute before settlement — an acceptance-suite gap, not a protocol gap.** `DISPUTED` serves
 `pending_anchor`, the same status as ordinary processing, so a user in a dispute and a user waiting on
@@ -225,22 +278,37 @@ a routine confirmation are told the same thing. **SEP-24 does have the right sta
 more accurate status would fail the acceptance suite deterministically. This anchor pins that decision with a test.
 
 **4. A dispute *after* settlement — partly a protocol gap, and the sharpest of the four.** The escrow
-permits a settled trade to be reopened inside its dispute window. When that happens the order leaves
-`completed` and serves `pending_anchor`. SEP-24 is not entirely without vocabulary here — `on_hold`
-exists, and the `refunds` object can describe money returned after completion — but **there is no
-field meaning *this settled, and is now contested***. The practical consequence for a wallet is
+permits a settled trade to be reopened inside its dispute window. When that happens **today**, the
+order leaves `completed` and serves `pending_anchor`. SEP-24 is not entirely without vocabulary here —
+`on_hold` exists, and the `refunds` object can describe money returned after completion — but **there
+is no field meaning *this settled, and is now contested***. The practical consequence for a wallet is
 concrete: the transaction returns to `pending_anchor` **and loses its `stellar_transaction_id` and
 `completed_at`**, both of which are emitted only for `completed` and `refunded`.
 
+**What is accepted and not yet built, stated as such (2026-09-30).** The change accepted for this gap
+is to hold the settled wire status — `completed` or `refunded`, with its `stellar_transaction_id` and
+`completed_at` — while the dispute is open, and to carry the dispute in `message`. At `495f408` none of
+it is built: the status function does not read the settled status, so the regression above is the
+current behaviour. This paragraph will be replaced, not deleted, when that ships.
+
 **What this implementation does about it, stated as implementation rather than protocol.** SEP-24's
-`message` field exists precisely to carry a human explanation alongside a status, and **this anchor
-emits it in only four situations** — none of them the four above. Closing that is implementation work,
+`message` field exists precisely to carry a human explanation alongside a status, and this anchor
+emits it for a few states — a withdrawal waiting for the user's funding signature or the
+user's confirmation, and a deposit that is funded, with or without the user's claim, or refunded — and
+**for none of the four gaps above** (corrected 2026-09-30; this sentence used to give a count, which
+had already aged). Closing that is implementation work,
 not a protocol limitation, and naming it here is more useful than claiming the protocol is at fault.
 `more_info_url` is served on every transaction and is where the full situation can be described.
-`on_change_callback` is defined by SEP-24 for exactly this purpose and is **not implemented**.
+Neither `on_change_callback` nor the one-shot `callback`, both defined by SEP-24 for exactly this
+purpose, is implemented: a wallet learns of a change by polling `GET /sep24/transaction`.
 
-**A limit of the acceptance suite worth knowing:** it drives one transaction forward and never
-observes a status **regression**, so gap 4 is untested by it in either direction.
+**A limit of the acceptance suite worth knowing** (corrected 2026-09-30; this paragraph used to say
+gap 4 was untested by the suite in either direction). The suite never *drives* a dispute, but its
+completed-deposit tests compare the configured completed fixture against the `completed` schema and
+status, so a fixture that regressed under gap 4 would fail deterministically. That has not fired only
+because no trade has ever been disputed after settlement and the configured fixtures' dispute windows
+have closed. A re-run also needs a newly configured pending deposit, because the one configured has
+since been refunded and no longer carries the status the suite expects of it.
 
 ---
 
@@ -252,6 +320,12 @@ Stated plainly, because a specification that only lists strengths is not one.
   the challenge to carry an invalid sequence number (0) so that it *cannot* be executed. Its hash
   therefore resolves on no block explorer, and any request for a "SEP-10 transaction hash" rests on a
   misunderstanding of the protocol.
+- **Wallet-signed transactions bound for the ledger never pass through the anchor.** The interactive
+  page submits the wallet-signed XDR from the browser straight to the Soroban RPC endpoint. The only
+  transaction the coordinator ever accepts is the SEP-10 challenge on `POST /auth`, which it verifies
+  and adds no signature to; it signed that challenge when it issued it. The anchor does sign and
+  submit two kinds of transaction of its own: the attestor's `mark_fiat_paid` (§3) and the refund
+  fee-payer's `refund` ([SECURITY.md](SECURITY.md)).
 - **The escrow has no concept of identity.** It knows addresses, amounts and deadlines. Every identity
   rule lives in the coordinator; the contract will settle a trade between two addresses it knows
   nothing about.
@@ -269,12 +343,18 @@ Stated plainly, because a specification that only lists strengths is not one.
 - **Two fees exist, not one.** Every release splits out a **platform fee** and a **liquidity-provider
   fee**, paid to two separate addresses fixed when the trade was created. On the deployed
   configuration the platform fee is **30 basis points** and the provider fee is **120** — the larger of
-  the two goes to the provider, not to the operator. Both are capped at 500 basis points by the
+  the two goes to the provider, not to the operator — and `/sep24/info` reports their sum as a deposit
+  `fee_percent` of 1.5. Both are capped at 500 basis points by the
   contract. **Fees are taken only on release**: a refunded trade returns the full amount and is
   fee-free. The platform address is a fee destination, not a settlement reserve, and it holds no user
   funds; the contract refuses to change it after construction.
 - **Recourse is bounded in time and in count**, per §4. After those bounds a settled trade is final on
   chain regardless of the merits.
+- **Running the SEP-10, SEP-12 and SEP-24 acceptance suites against this anchor writes to it.** The
+  SEP-10 run records the challenge nonces it redeems and creates an empty person record and a
+  wallet-link record for each throwaway keypair it signs in with, which nothing prunes today; the
+  SEP-12 run opens verification sessions with the outside provider; and the SEP-24 run creates
+  transaction records. None of them is a read-only check.
 
 ---
 
