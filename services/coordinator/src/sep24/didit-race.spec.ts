@@ -40,7 +40,7 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
     const people = { lookupPerson: jest.fn(async () => ({ id: 'person-1' })) } as any;
     const svc = new Sep24Service(prisma, cfg, {} as any, rate, orders, people, {} as any, {} as any, { isConfigured: false } as any);
 
-    return { svc, updates, quotes, orders, prisma, token: mintInteractiveToken(cfg, 'tx-1', 'GABC') };
+    return { svc, updates, quotes, orders, prisma, people, token: mintInteractiveToken(cfg, 'tx-1', 'GABC') };
   }
 
   function captureLogs() {
@@ -206,9 +206,11 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
       const stale = row();
       let land!: () => void;
       prisma.sep24Transaction.findUnique.mockImplementationOnce(() => new Promise((r) => (land = () => r(stale))));
+      const readsBeforeSecond = prisma.sep24Transaction.findUnique.mock.calls.length;
       const second = svc.submitAmount('tx-1', token, '400000');
       await new Promise((r) => setImmediate(r));
 
+      expect(prisma.sep24Transaction.findUnique).toHaveBeenCalledTimes(readsBeforeSecond + 1);
       release();
       await first;
       land();
@@ -220,15 +222,32 @@ describe('a deposit that loses the race is cancelled, not abandoned', () => {
     });
 
     it('a first press with a dead link is refused before the transaction is read, and holds no slot against the live press that follows', async () => {
-      const { svc, orders, token, prisma } = build(1);
+      const { svc, orders, token, prisma, people } = build(1);
       const map = (svc as any).amountInFlight as Map<string, Promise<void>>;
       const attacker = svc.submitAmount('tx-1', 'not-a-token', '400000');
       await expect(attacker).rejects.toBeInstanceOf(UnauthorizedException);
       expect(map.size).toBe(0);
       expect(prisma.sep24Transaction.findUnique).toHaveBeenCalledTimes(0);
+      expect(people.lookupPerson).not.toHaveBeenCalled();
+      expect(prisma.kycVerification.findUnique).not.toHaveBeenCalled();
+      expect(prisma.kycVerification.findFirst).not.toHaveBeenCalled();
       await new Promise((r) => setImmediate(r));
       await expect(svc.submitAmount('tx-1', token, '400000')).resolves.toBeUndefined();
       expect(orders.createFromQuote).toHaveBeenCalledTimes(1);
+    });
+
+    it('a dead-link press during a refused first press gets its own 401, never the first press refusal', async () => {
+      const { svc, token, orders } = build(1);
+      const refused = new ServiceUnavailableException('no eligible LP available');
+      let reject!: (e: unknown) => void;
+      orders.createFromQuote.mockImplementation(() => new Promise<never>((_, r) => (reject = r)));
+      const first = svc.submitAmount('tx-1', token, '400000');
+      await new Promise((r) => setImmediate(r));
+      const second = svc.submitAmount('tx-1', 'not-a-token', '400000');
+      reject(refused);
+      await expect(first).rejects.toBe(refused);
+      await expect(second).rejects.toBeInstanceOf(UnauthorizedException);
+      await new Promise((r) => setImmediate(r));
     });
   });
 });
