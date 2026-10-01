@@ -22,21 +22,37 @@ export type SubmitFn = (signedXdr: string, networkPassphrase: string) => Promise
 export const CONFIRMING_MESSAGE =
   'Submitted. Your stake updates once the network confirms it — this can take a few seconds.'
 
+function retryAfter(maxTime: number) {
+  return new Date(Math.ceil((maxTime + 15) / 60) * 60 * 1000).toLocaleString()
+}
+
+class OutcomeUnknown extends Error {}
+
+function unanswered(err: unknown) {
+  if (!(err instanceof Error)) {
+    return typeof err === 'object' && err !== null && 'code' in err && ![-32700, -32600, -32601, -32602].includes((err as { code: number }).code)
+  }
+  const { response } = err as Error & { response?: { status: number } }
+  return !response || response.status >= 500
+}
+
 async function defaultSubmit(signedXdr: string, networkPassphrase: string) {
   const server = new rpc.Server(
     process.env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org',
   )
   const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase)
-  const res = await server.sendTransaction(tx)
+  const maxTime = ('timeBounds' in tx && Number(tx.timeBounds?.maxTime)) || undefined
+  const notConfirmed = `This has not been confirmed yet, and it may already have gone through. Reload this page${maxTime ? ` after ${retryAfter(maxTime)}` : ''} and check your stake before you try again.`
+  const res = await server.sendTransaction(tx).catch((err: unknown) => {
+    if (unanswered(err)) throw new OutcomeUnknown(notConfirmed)
+    throw err
+  })
 
+  if (res.status === 'DUPLICATE') throw new OutcomeUnknown(notConfirmed)
   if (res.status !== 'PENDING') throw new Error(submissionFailure(res))
 
-  const final = await server.pollTransaction(res.hash)
-  if (final.status === 'NOT_FOUND') {
-    throw new Error(
-      'Still confirming on the network. This may already have gone through — refresh before trying again.',
-    )
-  }
+  const final = await server.pollTransaction(res.hash).catch(() => null)
+  if (!final || final.status === 'NOT_FOUND') throw new OutcomeUnknown(notConfirmed)
   if (final.status !== 'SUCCESS') {
     throw new Error(submissionFailure({ status: final.status, errorResult: final.resultXdr }))
   }
@@ -61,16 +77,19 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
   const [busy, setBusy] = React.useState(false)
   const [confirming, setConfirming] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [errorUnknown, setErrorUnknown] = React.useState(false)
   const [success, setSuccess] = React.useState(false)
 
   const [unstakeAmount, setUnstakeAmount] = React.useState('')
   const [unstakeBusy, setUnstakeBusy] = React.useState(false)
   const [unstakeConfirming, setUnstakeConfirming] = React.useState(false)
   const [unstakeError, setUnstakeError] = React.useState<string | null>(null)
+  const [unstakeUnknown, setUnstakeUnknown] = React.useState(false)
   const [unstakeSuccess, setUnstakeSuccess] = React.useState(false)
   const [claimBusy, setClaimBusy] = React.useState(false)
   const [claimConfirming, setClaimConfirming] = React.useState(false)
   const [claimError, setClaimError] = React.useState<string | null>(null)
+  const [claimUnknown, setClaimUnknown] = React.useState(false)
 
   const {
     data: eligibility,
@@ -88,6 +107,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
       baseUnits = usdcToBaseUnits(amount)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Enter a valid USDC amount')
+      setErrorUnknown(false)
       return
     }
     setBusy(true)
@@ -102,6 +122,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
       setAmount('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Stake failed')
+      setErrorUnknown(err instanceof OutcomeUnknown)
     } finally {
       setBusy(false)
       setConfirming(false)
@@ -116,6 +137,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
       baseUnits = usdcToBaseUnits(unstakeAmount)
     } catch (err) {
       setUnstakeError(err instanceof Error ? err.message : 'Enter a valid USDC amount')
+      setUnstakeUnknown(false)
       return
     }
     setUnstakeBusy(true)
@@ -130,6 +152,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
       setUnstakeAmount('')
     } catch (err) {
       setUnstakeError(err instanceof Error ? err.message : 'Unstake request failed')
+      setUnstakeUnknown(err instanceof OutcomeUnknown)
     } finally {
       setUnstakeBusy(false)
       setUnstakeConfirming(false)
@@ -147,6 +170,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
       await submitFn(signedXdr, networkPassphrase)
     } catch (err) {
       setClaimError(err instanceof Error ? err.message : 'Claim failed')
+      setClaimUnknown(err instanceof OutcomeUnknown)
     } finally {
       setClaimBusy(false)
       setClaimConfirming(false)
@@ -158,7 +182,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
     return <p className="py-8 text-center text-sm text-lp-muted">Loading eligibility…</p>
   }
 
-  if (isError || !eligibility) {
+  if (!eligibility) {
     return <p className="py-8 text-center text-sm text-lp-danger">Failed to load eligibility</p>
   }
 
@@ -234,7 +258,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
             />
           </div>
           {error && (
-            <p className="text-xs text-lp-danger" role="alert">
+            <p className={`text-xs ${errorUnknown ? 'text-lp-ink' : 'text-lp-danger'}`} role="alert">
               {error}
             </p>
           )}
@@ -248,7 +272,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
               Stake submitted successfully.
             </p>
           )}
-          <Button loading={busy} type="submit">
+          <Button loading={busy} type="submit" disabled={isError}>
             Stake
           </Button>
         </form>
@@ -280,7 +304,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
             />
           </div>
           {unstakeError && (
-            <p className="text-xs text-lp-danger" role="alert">
+            <p className={`text-xs ${unstakeUnknown ? 'text-lp-ink' : 'text-lp-danger'}`} role="alert">
               {unstakeError}
             </p>
           )}
@@ -294,7 +318,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
               Unstake requested — cooldown started.
             </p>
           )}
-          <Button variant="ghost" loading={unstakeBusy} type="submit" disabled={!hasStaked}>
+          <Button variant="ghost" loading={unstakeBusy} type="submit" disabled={!hasStaked || isError}>
             Request Unstake
           </Button>
         </form>
@@ -307,7 +331,7 @@ export function StakeForm({ submitFn = defaultSubmit }: { submitFn?: SubmitFn })
                 : `${formatUSDC(BigInt(eligibility.unbonding))} USDC unbonding — claimable ${new Date(eligibility.unbond_available_at * 1000).toLocaleString()}, about ${timeUntilLabel(eligibility.unbond_available_at)} from now. Claiming returns it to your wallet, not to your stake.`}
             </p>
             {claimError && (
-              <p className="mb-2 text-xs text-lp-danger" role="alert">
+              <p className={`mb-2 text-xs ${claimUnknown ? 'text-lp-ink' : 'text-lp-danger'}`} role="alert">
                 {claimError}
               </p>
             )}

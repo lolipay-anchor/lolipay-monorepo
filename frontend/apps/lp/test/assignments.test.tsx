@@ -203,6 +203,7 @@ describe('AssignmentCard — Lock USDC (MATCHED)', () => {
       expect(screen.getByRole('alert')).toBeTruthy()
       expect(screen.getByText(/User rejected transaction/i)).toBeTruthy()
     })
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-danger')
   })
 })
 
@@ -1019,6 +1020,7 @@ describe('AssignmentCard — Open dispute (WITHDRAW FIAT_PAID)', () => {
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toMatch(/disputes are closed on this order/)
     })
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-danger')
     expect((screen.getByTestId('lp-open-dispute') as HTMLButtonElement).disabled).toBe(false)
   })
 
@@ -1295,16 +1297,39 @@ describe('AssignmentsPage — full page', () => {
   })
 })
 
-const STILL_CONFIRMING_AFTER_MARKING =
-  'This order is now marked as paid on chain, but the release did not complete here: Still confirming on the network. This may already have gone through — refresh before trying again. Press Release USDC — sign to try again.'
+const MAX_TIME = 1_790_000_150
+const RETRY_AT = 1_790_000_220
+const TIMED_TX = { timeBounds: { minTime: '0', maxTime: String(MAX_TIME) } }
+const local = (secs: number) => new Date(secs * 1000).toLocaleString()
 
-function mockNetwork(poll: () => Promise<unknown>) {
-  const sendTransactionMock = vi.fn().mockResolvedValue({ status: 'PENDING', hash: 'deadbeef' })
+const RELEASE_NOT_CONFIRMED = `Your release has not been confirmed yet. It may already have gone through, or may still: if so, this card changes to RELEASED by itself. If it still shows FIAT_PAID after ${local(RETRY_AT)}, press Release USDC — sign again. The USDC cannot be sent twice.`
+const MARKED_RELEASE_NOT_CONFIRMED = `This order is now marked as paid on chain. ${RELEASE_NOT_CONFIRMED}`
+const RELEASE_NOT_CONFIRMED_NO_TIME =
+  'Your release has not been confirmed yet. It may already have gone through, or may still: if so, this card changes to RELEASED by itself. Pressing Release USDC — sign again cannot send the USDC twice.'
+const CARD_NOT_CONFIRMED = `Your release has not been confirmed yet. It may already have gone through, or may still: if so, this card changes to RELEASED by itself. If it still shows FIAT_PAID after ${local(RETRY_AT)}, press Confirm receipt & release again. The USDC cannot be sent twice.`
+const CARD_NOT_CONFIRMED_NO_TIME =
+  'Your release has not been confirmed yet. It may already have gone through, or may still: if so, this card changes to RELEASED by itself. Pressing Confirm receipt & release again cannot send the USDC twice.'
+const RELEASE_CONFIRMED =
+  'Release confirmed on the network: the USDC has been sent to the buyer. This card changes to RELEASED by itself.'
+const NOT_CONFIRMED =
+  'This has not been confirmed yet. It may already have gone through, or may still: if so, this card updates by itself. If nothing has changed, try again now. It cannot happen twice.'
+const CAPPED_MAX_TIME = 1_790_000_030
+
+const exactText = (text: string) => (_: string, el: Element | null) => el?.textContent === text
+
+function mockNetwork(
+  poll: () => Promise<unknown>,
+  {
+    send = () => Promise.resolve({ status: 'PENDING', hash: 'deadbeef' }),
+    tx = TIMED_TX,
+  }: { send?: () => Promise<unknown>; tx?: object } = {},
+) {
+  const sendTransactionMock = vi.fn(send)
   const pollTransactionMock = vi.fn(poll)
   vi.mocked(sdk.rpc.Server).mockImplementation(function () {
     return { sendTransaction: sendTransactionMock, pollTransaction: pollTransactionMock } as never
   } as unknown as typeof sdk.rpc.Server)
-  vi.mocked(sdk.TransactionBuilder.fromXDR).mockReturnValue({} as never)
+  vi.mocked(sdk.TransactionBuilder.fromXDR).mockReturnValue(tx as never)
   return { sendTransactionMock, pollTransactionMock }
 }
 
@@ -1349,7 +1374,7 @@ describe('AssignmentCard — the release waits for the ledger, and is not offere
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('once the release is on the ledger, stops offering Confirm receipt & release while the list still reads FIAT_PAID, until the status changes', async () => {
+  it('once the release is on the ledger, says so in a status line where the button was, keeps Open dispute, and stops offering Confirm receipt & release for the life of this card', async () => {
     queueReleaseTx()
     const submit = vi.fn().mockResolvedValue({ status: 'SUCCESS', hash: 'deadbeef' })
     const { view, element, order, onRefetch } = mountCard('FIAT_PAID', submit)
@@ -1359,14 +1384,58 @@ describe('AssignmentCard — the release waits for the ledger, and is not offere
 
     await waitFor(() => expect(onRefetch).toHaveBeenCalledTimes(1))
     expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('status').textContent).toBe(RELEASE_CONFIRMED)
+    expect(screen.getByRole('status')).toHaveClass('mb-2')
+    expect(screen.getByTestId('lp-open-dispute')).toBeTruthy()
     expect(screen.queryByRole('button', { name: CARD_BUTTON })).toBeNull()
 
     view.rerender(element({ ...order }))
+    expect(screen.getByRole('status').textContent).toBe(RELEASE_CONFIRMED)
     expect(screen.queryByRole('button', { name: CARD_BUTTON })).toBeNull()
 
     view.rerender(element({ ...order, status: 'RELEASED' }))
     expect(screen.getByText('Completed')).toBeTruthy()
+    expect(screen.queryByRole('status')).toBeNull()
     expect(screen.queryByRole('button', { name: CARD_BUTTON })).toBeNull()
+  })
+
+  it('on a card still reading FUNDED after the release landed, the status line replaces the check-your-account paragraph and the button', async () => {
+    queueStatement()
+    queueReceiptRecorded()
+    queueReleaseTx()
+    const submit = vi.fn().mockResolvedValue({ status: 'SUCCESS', hash: 'deadbeef' })
+    const { order } = mountCard('FUNDED', submit)
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.getByRole('status').textContent).toBe(RELEASE_CONFIRMED)
+    expect(screen.getByRole('status')).not.toHaveClass('mb-2')
+    expect(screen.queryByText(openWindowSentence(order.refund_opens_at))).toBeNull()
+    expect(screen.queryByRole('button', { name: CARD_BUTTON })).toBeNull()
+  })
+
+  it('moves focus to the status line once a release is confirmed, on FIAT_PAID and on FUNDED, instead of leaving it on the page body', async () => {
+    queueReleaseTx()
+    const { view } = mountCard('FIAT_PAID', vi.fn().mockResolvedValue({ status: 'SUCCESS' }))
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('status')))
+    view.unmount()
+
+    queueStatement()
+    queueReceiptRecorded()
+    queueReleaseTx()
+    mountCard('FUNDED', vi.fn().mockResolvedValue({ status: 'SUCCESS' }))
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('status')))
+    expect(document.activeElement).not.toBe(document.body)
   })
 
   it('when the network reports the release FAILED, shows the refusal, keeps the sheet open and still offers the release', async () => {
@@ -1383,12 +1452,13 @@ describe('AssignmentCard — the release waits for the ledger, and is not offere
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toBe('Submission failed (FAILED, txFailed)'),
     )
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-danger')
     expect(onRefetch).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog')).toBeTruthy()
     expect(screen.getByRole('button', { name: RELEASE_LABEL })).toBeTruthy()
   })
 
-  it('after the receipt is recorded, a release the network has not found yet is reported inside the marked-but-not-released sentence', async () => {
+  it('after the receipt is recorded, a release the network has not found yet reads the not-confirmed sentence after the marked-as-paid prefix, outside the did-not-complete wrapper', async () => {
     queueStatement()
     queueReceiptRecorded()
     queueReleaseTx()
@@ -1399,9 +1469,451 @@ describe('AssignmentCard — the release waits for the ledger, and is not offere
     fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
 
     await waitFor(() =>
-      expect(screen.getByRole('alert').textContent).toBe(STILL_CONFIRMING_AFTER_MARKING),
+      expect(screen.getByRole('alert').textContent).toBe(MARKED_RELEASE_NOT_CONFIRMED),
     )
     expect(onRefetch).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('dialog')).toBeTruthy()
   })
+
+  it('when asking the network about an accepted release throws, says the release is not confirmed yet and when to press again instead of the raw error, does not refetch, and still offers the release after Cancel', async () => {
+    queueReleaseTx()
+    mockNetwork(() => Promise.reject(new Error('Network Error')))
+    const { onRefetch } = mountCard('FIAT_PAID')
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(RELEASE_NOT_CONFIRMED))
+    expect(screen.getByRole('alert')).not.toHaveClass('text-lp-danger')
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-ink')
+    expect(onRefetch).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('button', { name: CARD_BUTTON })).toBeTruthy()
+  })
+
+  it('after the receipt is recorded, a throwing poll reads the not-confirmed sentence after the marked-as-paid prefix and refetches only for the receipt; after Cancel the release is still offered, and once the card reads FIAT_PAID it carries the line without the prefix', async () => {
+    queueStatement()
+    queueReceiptRecorded()
+    queueReleaseTx()
+    mockNetwork(() => Promise.reject(new Error('Network Error')))
+    const { view, element, order, onRefetch } = mountCard('FUNDED')
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe(MARKED_RELEASE_NOT_CONFIRMED),
+    )
+    expect(onRefetch).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('button', { name: CARD_BUTTON })).toBeTruthy()
+
+    view.rerender(element({ ...order, status: 'FIAT_PAID' }))
+    expect(screen.getByText(exactText(CARD_NOT_CONFIRMED))).toBeTruthy()
+    expect(screen.getByRole('button', { name: CARD_BUTTON })).toBeTruthy()
+  })
+
+  it('after Cancel, a release whose outcome is unknown leaves a line on the card naming Confirm receipt & release, and the button stays offered', async () => {
+    queueReleaseTx()
+    mockNetwork(async () => ({ status: 'NOT_FOUND' }))
+    mountCard('FIAT_PAID')
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(RELEASE_NOT_CONFIRMED))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByText(exactText(CARD_NOT_CONFIRMED))).toBeTruthy()
+    expect(screen.getByRole('button', { name: CARD_BUTTON })).toBeTruthy()
+    expect(screen.getByRole('button', { name: CARD_BUTTON })).toHaveAccessibleDescription(CARD_NOT_CONFIRMED)
+  })
+
+  it('keeps the card line after a later attempt fails definitely, because the earlier release can still land, and shows that later failure in red', async () => {
+    queueReleaseTx()
+    queueReleaseTx()
+    mockNetwork(async () => ({ status: 'NOT_FOUND' }))
+    mountCard('FIAT_PAID')
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(RELEASE_NOT_CONFIRMED))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    vi.mocked(fakeKit.signTransaction).mockRejectedValueOnce(new Error('User rejected transaction'))
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('User rejected transaction'))
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-danger')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.getByText(exactText(CARD_NOT_CONFIRMED))).toBeTruthy()
+    expect(screen.getByRole('button', { name: CARD_BUTTON })).toBeTruthy()
+  })
+
+  it('with no time limit on the release transaction, the card line after Cancel names Confirm receipt & release and says pressing it again cannot send the USDC twice', async () => {
+    queueReleaseTx()
+    mockNetwork(async () => ({ status: 'NOT_FOUND' }), { tx: { timeBounds: { minTime: '0', maxTime: '0' } } })
+    mountCard('FIAT_PAID')
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe(RELEASE_NOT_CONFIRMED_NO_TIME),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.getByText(exactText(CARD_NOT_CONFIRMED_NO_TIME))).toBeTruthy()
+  })
+
+  it('with no time limit on the release transaction, the sheet drops the timed clause and says pressing again cannot send the USDC twice', async () => {
+    queueReleaseTx()
+    mockNetwork(async () => ({ status: 'NOT_FOUND' }), { tx: { timeBounds: { minTime: '0', maxTime: '0' } } })
+    mountCard('FIAT_PAID')
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe(RELEASE_NOT_CONFIRMED_NO_TIME),
+    )
+  })
+
+  it('after the receipt is recorded, a release the network reports FAILED is a definite failure: it stays inside the did-not-complete wrapper and leaves no not-confirmed line on the card', async () => {
+    queueStatement()
+    queueReceiptRecorded()
+    queueReleaseTx()
+    mockNetwork(async () => ({
+      status: 'FAILED',
+      resultXdr: { result: () => ({ switch: () => ({ name: 'txFailed' }) }) },
+    }))
+    const { view, element, order } = mountCard('FUNDED')
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: SIGN_TWICE_LABEL }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe(
+        'This order is now marked as paid on chain, but the release did not complete here: Submission failed (FAILED, txFailed). Press Release USDC — sign to try again.',
+      ),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    view.rerender(element({ ...order, status: 'FIAT_PAID' }))
+    expect(screen.queryByText(/has not been confirmed yet/)).toBeNull()
+  })
+
+  it('a submission that got no response at all is an unknown outcome, not a failure', async () => {
+    queueReleaseTx()
+    mockNetwork(vi.fn(), {
+      send: () => Promise.reject(Object.assign(new Error('Failed to fetch'), { response: undefined })),
+    })
+    mountCard('FIAT_PAID')
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(RELEASE_NOT_CONFIRMED))
+  })
+
+  it('a -32602 error body the network returns for the submission is a definite failure: nothing was sent, and it stays red', async () => {
+    queueReleaseTx()
+    mockNetwork(vi.fn(), {
+      send: () => Promise.reject({ code: -32602, message: 'invalid transaction' }),
+    })
+    mountCard('FIAT_PAID')
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Release failed'))
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-danger')
+  })
+
+  it.each([500, 503])(
+    'a %i answer to the submission is an unknown outcome, because a gateway may have forwarded the transaction',
+    async (status) => {
+      queueReleaseTx()
+      mockNetwork(vi.fn(), {
+        send: () =>
+          Promise.reject(
+            Object.assign(new Error(`Request failed with status code ${status}`), {
+              code: 'ERR_BAD_RESPONSE',
+              response: { status },
+            }),
+          ),
+      })
+      mountCard('FIAT_PAID')
+
+      openSheetAndTick()
+      fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+      await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(RELEASE_NOT_CONFIRMED))
+    },
+  )
+
+  it('a 4xx answer to the submission is a definite failure and is shown as it is', async () => {
+    queueReleaseTx()
+    mockNetwork(vi.fn(), {
+      send: () =>
+        Promise.reject(
+          Object.assign(new Error('Request failed with status code 400'), {
+            code: 'ERR_BAD_REQUEST',
+            response: { status: 400 },
+          }),
+        ),
+    })
+    mountCard('FIAT_PAID')
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe('Request failed with status code 400'),
+    )
+  })
+
+  it('a submission the network reports as DUPLICATE is an unknown outcome: the same transaction is already in flight', async () => {
+    queueReleaseTx()
+    mockNetwork(vi.fn(), { send: () => Promise.resolve({ status: 'DUPLICATE', hash: 'deadbeef' }) })
+    mountCard('FIAT_PAID')
+
+    openSheetAndTick()
+    fireEvent.click(screen.getByRole('button', { name: RELEASE_LABEL }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(RELEASE_NOT_CONFIRMED))
+  })
+})
+
+describe('AssignmentCard — Lock USDC, Mark fiat paid and Open dispute whose outcome the network cannot confirm yet', () => {
+  beforeEach(() => {
+    queryClient.clear()
+    vi.clearAllMocks()
+  })
+  afterEach(drainMocks)
+
+  const card = (order: Order) => (
+    <TestProviders kit={fakeKit}>
+      <AssignmentCard assignment={{ order }} onRefetch={vi.fn()} />
+    </TestProviders>
+  )
+  const withdrawalToPay = () =>
+    makeOrder({ status: 'FUNDED', flow: 'WITHDRAW', payment_instructions: 'BCA 999 a/n Seller' })
+
+  async function lockAndReadAlert(tx: object) {
+    vi.mocked(apiClient.getCreateTradeTx).mockResolvedValueOnce({ xdr: 'XDR', networkPassphrase: NP })
+    mockNetwork(async () => ({ status: 'NOT_FOUND' }), { tx })
+    const view = render(card(makeOrder({ status: 'MATCHED' })))
+    fireEvent.click(screen.getByRole('button', { name: /Lock USDC/i }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/has not been confirmed yet/))
+    const text = screen.getByRole('alert').textContent
+    view.unmount()
+    return text
+  }
+
+  it('Lock USDC whose outcome is unknown says it has not been confirmed, to try again now if nothing has changed, and that it cannot happen twice, in ink rather than red', async () => {
+    vi.mocked(apiClient.getCreateTradeTx).mockResolvedValueOnce({ xdr: 'XDR', networkPassphrase: NP })
+    mockNetwork(async () => ({ status: 'NOT_FOUND' }))
+    render(card(makeOrder({ status: 'MATCHED' })))
+
+    fireEvent.click(screen.getByRole('button', { name: /Lock USDC/i }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+    expect(screen.getByRole('alert')).not.toHaveClass('text-lp-danger')
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-ink')
+  })
+
+  it('Lock USDC whose outcome is unknown, on a transaction with no time limit, says the same sentence', async () => {
+    vi.mocked(apiClient.getCreateTradeTx).mockResolvedValueOnce({ xdr: 'XDR', networkPassphrase: NP })
+    mockNetwork(async () => ({ status: 'NOT_FOUND' }), { tx: {} })
+    render(card(makeOrder({ status: 'MATCHED' })))
+
+    fireEvent.click(screen.getByRole('button', { name: /Lock USDC/i }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+  })
+
+  it('the Lock USDC sentence is byte-identical whether the transaction expiry was capped at a deadline or not, so it can never name a time past that deadline', async () => {
+    const capped = await lockAndReadAlert({ timeBounds: { minTime: '0', maxTime: String(CAPPED_MAX_TIME) } })
+    const uncapped = await lockAndReadAlert(TIMED_TX)
+
+    expect(capped).toBe(uncapped)
+    expect(uncapped).toBe(NOT_CONFIRMED)
+  })
+
+  it('Mark fiat paid whose outcome is unknown says the same sentence, in ink rather than red', async () => {
+    vi.mocked(apiClient.getMarkPaidTx).mockResolvedValueOnce({ xdr: 'XDR', networkPassphrase: NP })
+    mockNetwork(async () => ({ status: 'NOT_FOUND' }))
+    render(card(withdrawalToPay()))
+
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark fiat paid — sign' }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+    expect(screen.getByRole('alert')).not.toHaveClass('text-lp-danger')
+  })
+
+  it('a Mark fiat paid the coordinator refuses is a definite failure and stays red', async () => {
+    vi.mocked(apiClient.getMarkPaidTx).mockRejectedValueOnce(
+      new Error('order must be in FUNDED status to mark fiat paid'),
+    )
+    render(card(withdrawalToPay()))
+
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark fiat paid — sign' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe('order must be in FUNDED status to mark fiat paid'),
+    )
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-danger')
+  })
+
+  it('Open dispute whose outcome is unknown says the same sentence, in ink rather than red', async () => {
+    vi.mocked(apiClient.getRaiseDisputeTx).mockResolvedValueOnce({ xdr: 'XDR', networkPassphrase: NP })
+    mockNetwork(async () => ({ status: 'NOT_FOUND' }))
+    render(card(makeOrder({ flow: 'WITHDRAW', status: 'FIAT_PAID' })))
+
+    fireEvent.click(screen.getByTestId('lp-open-dispute'))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+    expect(screen.getByRole('alert')).not.toHaveClass('text-lp-danger')
+  })
+
+  it('an Open dispute error raised at FIAT_PAID is gone once the card renders RELEASED, so it never sits under the post-settlement dispute link', async () => {
+    vi.mocked(apiClient.getRaiseDisputeTx).mockResolvedValueOnce({ xdr: 'XDR', networkPassphrase: NP })
+    mockNetwork(async () => ({ status: 'NOT_FOUND' }))
+    const order = makeOrder({
+      flow: 'WITHDRAW',
+      status: 'FIAT_PAID',
+      post_settle_dispute_until: new Date(Date.now() + 3600_000).toISOString(),
+    })
+    const view = render(card(order))
+
+    fireEvent.click(screen.getByTestId('lp-open-dispute'))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+
+    view.rerender(card({ ...order, status: 'RELEASED' }))
+    expect(screen.getByTestId('lp-open-dispute')).toBeTruthy()
+    expect(screen.queryByText(NOT_CONFIRMED)).toBeNull()
+  })
+
+  it('an Open dispute pressed at FIAT_PAID whose outcome arrives after the card reads RELEASED leaves nothing under the post-settlement link', async () => {
+    vi.mocked(apiClient.getRaiseDisputeTx).mockResolvedValueOnce({ xdr: 'XDR', networkPassphrase: NP })
+    const poll = createDeferred<unknown>()
+    const { pollTransactionMock } = mockNetwork(() => poll.promise)
+    const order = makeOrder({
+      flow: 'WITHDRAW',
+      status: 'FIAT_PAID',
+      post_settle_dispute_until: new Date(Date.now() + 3600_000).toISOString(),
+    })
+    const view = render(card(order))
+
+    fireEvent.click(screen.getByTestId('lp-open-dispute'))
+    await waitFor(() => expect(pollTransactionMock).toHaveBeenCalled())
+    view.rerender(card({ ...order, status: 'RELEASED' }))
+    poll.resolve({ status: 'NOT_FOUND' })
+
+    await waitFor(() => expect(screen.getByTestId('lp-open-dispute').textContent).toBe('Open dispute'))
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('a post-settlement Open dispute error raised on the RELEASED card is shown, even when the card was first rendered at FIAT_PAID', async () => {
+    vi.mocked(apiClient.getRaiseDisputeTx).mockRejectedValueOnce(new Error('disputes are closed on this order'))
+    const order = makeOrder({
+      flow: 'WITHDRAW',
+      status: 'FIAT_PAID',
+      post_settle_dispute_until: new Date(Date.now() + 3600_000).toISOString(),
+    })
+    const view = render(card(order))
+    view.rerender(card({ ...order, status: 'RELEASED' }))
+
+    fireEvent.click(screen.getByTestId('lp-open-dispute'))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe('disputes are closed on this order'),
+    )
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-danger')
+  })
+
+  it('an Open dispute error raised on the RELEASED card does not come back after the card passes through DISPUTED and returns to RELEASED', async () => {
+    vi.mocked(apiClient.getRaiseDisputeTx).mockRejectedValueOnce(new Error('disputes are closed on this order'))
+    const order = makeOrder({
+      flow: 'WITHDRAW',
+      status: 'RELEASED',
+      post_settle_dispute_until: new Date(Date.now() + 3600_000).toISOString(),
+    })
+    const view = render(card(order))
+
+    fireEvent.click(screen.getByTestId('lp-open-dispute'))
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe('disputes are closed on this order'),
+    )
+
+    view.rerender(card({ ...order, status: 'DISPUTED' }))
+    view.rerender(card({ ...order, status: 'RELEASED' }))
+    expect(screen.getByTestId('lp-open-dispute')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it.each([-32001, -32603])(
+    'Lock USDC whose submission gets a %i error body, which the network returns when it cannot rule out that the transaction was queued, says the not-confirmed sentence',
+    async (code) => {
+      vi.mocked(apiClient.getCreateTradeTx).mockResolvedValueOnce({ xdr: 'XDR', networkPassphrase: NP })
+      mockNetwork(vi.fn(), { send: () => Promise.reject({ code, message: 'could not submit transaction' }) })
+      render(card(makeOrder({ status: 'MATCHED' })))
+
+      fireEvent.click(screen.getByRole('button', { name: /Lock USDC/i }))
+
+      await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+      expect(screen.getByRole('alert')).not.toHaveClass('text-lp-danger')
+    },
+  )
+
+  const slots = [
+    {
+      slot: 'Lock USDC',
+      order: () => makeOrder({ status: 'MATCHED' }),
+      queueTx: () => vi.mocked(apiClient.getCreateTradeTx).mockResolvedValueOnce({ xdr: 'XDR', networkPassphrase: NP }),
+      press: () => fireEvent.click(screen.getByRole('button', { name: 'Lock USDC' })),
+    },
+    {
+      slot: 'Mark fiat paid',
+      order: withdrawalToPay,
+      queueTx: () => vi.mocked(apiClient.getMarkPaidTx).mockResolvedValueOnce({ xdr: 'XDR', networkPassphrase: NP }),
+      press: () => {
+        const tick = screen.getByRole('checkbox') as HTMLInputElement
+        if (!tick.checked) fireEvent.click(tick)
+        fireEvent.click(screen.getByRole('button', { name: 'Mark fiat paid — sign' }))
+      },
+    },
+    {
+      slot: 'Open dispute',
+      order: () => makeOrder({ flow: 'WITHDRAW', status: 'FIAT_PAID' }),
+      queueTx: () => vi.mocked(apiClient.getRaiseDisputeTx).mockResolvedValueOnce({ xdr: 'XDR', networkPassphrase: NP }),
+      press: () => fireEvent.click(screen.getByTestId('lp-open-dispute')),
+    },
+  ]
+
+  it.each(slots)(
+    'after an unknown $slot outcome, a definite failure on the next press shows in red',
+    async ({ order, queueTx, press }) => {
+      queueTx()
+      queueTx()
+      mockNetwork(async () => ({ status: 'NOT_FOUND' }))
+      render(card(order()))
+
+      press()
+      await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+
+      vi.mocked(fakeKit.signTransaction).mockRejectedValueOnce(new Error('User rejected transaction'))
+      press()
+      expect(screen.queryByRole('alert')).toBeNull()
+      await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('User rejected transaction'))
+      expect(screen.getByRole('alert')).toHaveClass('text-lp-danger')
+    },
+  )
 })

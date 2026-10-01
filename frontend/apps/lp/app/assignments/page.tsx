@@ -25,21 +25,45 @@ import { useRealtimeChannel } from '@/hooks/useRealtimeChannel'
 
 export type SubmitFn = (signedXdr: string, networkPassphrase: string) => Promise<unknown>
 
+function retryAfter(maxTime: number) {
+  return new Date(Math.ceil((maxTime + 15) / 60) * 60 * 1000).toLocaleString()
+}
+
+class OutcomeUnknown extends Error {
+  maxTime: number | undefined
+
+  constructor(maxTime: number | undefined) {
+    super(
+      'This has not been confirmed yet. It may already have gone through, or may still: if so, this card updates by itself. If nothing has changed, try again now. It cannot happen twice.',
+    )
+    this.maxTime = maxTime
+  }
+}
+
+function unanswered(err: unknown) {
+  if (!(err instanceof Error)) {
+    return typeof err === 'object' && err !== null && 'code' in err && ![-32700, -32600, -32601, -32602].includes((err as { code: number }).code)
+  }
+  const { response } = err as Error & { response?: { status: number } }
+  return !response || response.status >= 500
+}
+
 async function defaultSubmit(signedXdr: string, networkPassphrase: string) {
   const server = new rpc.Server(
     process.env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org',
   )
   const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase)
-  const res = await server.sendTransaction(tx)
+  const maxTime = ('timeBounds' in tx && Number(tx.timeBounds?.maxTime)) || undefined
+  const res = await server.sendTransaction(tx).catch((err: unknown) => {
+    if (unanswered(err)) throw new OutcomeUnknown(maxTime)
+    throw err
+  })
 
+  if (res.status === 'DUPLICATE') throw new OutcomeUnknown(maxTime)
   if (res.status !== 'PENDING') throw new Error(submissionFailure(res))
 
-  const final = await server.pollTransaction(res.hash)
-  if (final.status === 'NOT_FOUND') {
-    throw new Error(
-      'Still confirming on the network. This may already have gone through — refresh before trying again.',
-    )
-  }
+  const final = await server.pollTransaction(res.hash).catch(() => null)
+  if (!final || final.status === 'NOT_FOUND') throw new OutcomeUnknown(maxTime)
   if (final.status !== 'SUCCESS') {
     throw new Error(submissionFailure({ status: final.status, errorResult: final.resultXdr }))
   }
@@ -79,12 +103,21 @@ function markedButNotReleased(reason: string) {
   return `This order is now marked as paid on chain, but the release did not complete here: ${reason.replace(/\.$/, '')}. Press Release USDC — sign to try again.`
 }
 
+function releaseNotConfirmed(button: string, maxTime: number | undefined) {
+  const head =
+    'Your release has not been confirmed yet. It may already have gone through, or may still: if so, this card changes to RELEASED by itself.'
+  return maxTime
+    ? `${head} If it still shows FIAT_PAID after ${retryAfter(maxTime)}, press ${button} again. The USDC cannot be sent twice.`
+    : `${head} Pressing ${button} again cannot send the USDC twice.`
+}
+
 interface ConfirmReleaseSheetProps {
   order: Order
   open: boolean
   onClose: () => void
   onConfirmed: () => void
   onReceiptRecorded: () => void
+  onOutcomeUnknown: (maxTime: number | undefined) => void
 
   submitFn?: SubmitFn
 }
@@ -95,11 +128,13 @@ export function ConfirmReleaseSheet({
   onClose,
   onConfirmed,
   onReceiptRecorded,
+  onOutcomeUnknown,
   submitFn = defaultSubmit,
 }: ConfirmReleaseSheetProps) {
   const [checked, setChecked] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [errorUnknown, setErrorUnknown] = React.useState(false)
   const [receiptRecorded, setReceiptRecorded] = React.useState(false)
   const wallet = useWallet()
   const auth = useAuth()
@@ -127,6 +162,7 @@ export function ConfirmReleaseSheet({
   async function handleConfirm() {
     setBusy(true)
     setError(null)
+    setErrorUnknown(false)
     let recorded = receiptRecorded
     try {
       if (recordsReceiptFirst) {
@@ -147,8 +183,16 @@ export function ConfirmReleaseSheet({
       await submitFn(signedXdr, networkPassphrase)
       onConfirmed()
     } catch (err) {
-      const reason = err instanceof Error ? err.message : 'Release failed'
-      setError(recorded ? markedButNotReleased(reason) : reason)
+      if (err instanceof OutcomeUnknown) {
+        setError(
+          `${recorded ? 'This order is now marked as paid on chain. ' : ''}${releaseNotConfirmed('Release USDC — sign', err.maxTime)}`,
+        )
+        setErrorUnknown(true)
+        onOutcomeUnknown(err.maxTime)
+      } else {
+        const reason = err instanceof Error ? err.message : 'Release failed'
+        setError(recorded ? markedButNotReleased(reason) : reason)
+      }
     } finally {
       setBusy(false)
     }
@@ -212,7 +256,7 @@ export function ConfirmReleaseSheet({
       </label>
 
       {error && (
-        <p className="mb-3 text-sm text-lp-danger" role="alert">
+        <p className={`mb-3 text-sm ${errorUnknown ? 'text-lp-ink' : 'text-lp-danger'}`} role="alert">
           {error}
         </p>
       )}
@@ -246,11 +290,19 @@ export function AssignmentCard({
 
   const [lockBusy, setLockBusy] = React.useState(false)
   const [lockError, setLockError] = React.useState<string | null>(null)
+  const [lockUnknown, setLockUnknown] = React.useState(false)
   const [releaseOpen, setReleaseOpen] = React.useState(false)
   const [releaseSubmitted, setReleaseSubmitted] = React.useState(false)
+  const [releaseUnconfirmed, setReleaseUnconfirmed] = React.useState<string | null>(null)
+  const releaseConfirmedRef = React.useRef<HTMLParagraphElement>(null)
   const [paidBusy, setPaidBusy] = React.useState(false)
   const [paidError, setPaidError] = React.useState<string | null>(null)
+  const [paidUnknown, setPaidUnknown] = React.useState(false)
   const [paidChecked, setPaidChecked] = React.useState(false)
+
+  React.useEffect(() => {
+    if (releaseSubmitted) releaseConfirmedRef.current?.focus()
+  }, [releaseSubmitted])
 
   const [proofBusy, setProofBusy] = React.useState(false)
   const [proofError, setProofError] = React.useState<string | null>(null)
@@ -314,6 +366,7 @@ export function AssignmentCard({
       onRefetch()
     } catch (err) {
       setLockError(err instanceof Error ? err.message : 'Lock failed')
+      setLockUnknown(err instanceof OutcomeUnknown)
     } finally {
       setLockBusy(false)
     }
@@ -329,14 +382,21 @@ export function AssignmentCard({
       onRefetch()
     } catch (err) {
       setPaidError(err instanceof Error ? err.message : 'Mark-paid failed')
+      setPaidUnknown(err instanceof OutcomeUnknown)
     } finally {
       setPaidBusy(false)
     }
   }
 
   const [disputeBusy, setDisputeBusy] = React.useState(false)
-  const [disputeError, setDisputeError] = React.useState<string | null>(null)
+  const [disputeError, setDisputeError] = React.useState<{
+    status: Order['status']
+    text: string
+    unknown: boolean
+  } | null>(null)
+  React.useEffect(() => setDisputeError(null), [order.status])
   async function handleDispute() {
+    const pressedAt = order.status
     setDisputeBusy(true)
     setDisputeError(null)
     try {
@@ -345,7 +405,11 @@ export function AssignmentCard({
       await submitFn(signedXdr, networkPassphrase)
       onRefetch()
     } catch (err) {
-      setDisputeError(err instanceof Error ? err.message : 'Opening the dispute failed')
+      setDisputeError({
+        status: pressedAt,
+        text: err instanceof Error ? err.message : 'Opening the dispute failed',
+        unknown: err instanceof OutcomeUnknown,
+      })
     } finally {
       setDisputeBusy(false)
     }
@@ -372,13 +436,20 @@ export function AssignmentCard({
       >
         {disputeBusy ? 'Opening dispute…' : 'Open dispute'}
       </button>
-      {disputeError && (
-        <p className="mt-1 text-xs text-lp-danger" role="alert">
-          {disputeError}
+      {disputeError?.status === order.status && (
+        <p className={`mt-1 text-xs ${disputeError.unknown ? 'text-lp-ink' : 'text-lp-danger'}`} role="alert">
+          {disputeError.text}
         </p>
       )}
     </div>
   )
+
+  const releaseConfirmed = (className: string) => (
+    <p ref={releaseConfirmedRef} tabIndex={-1} className={className} role="status">
+      Release confirmed on the network: the USDC has been sent to the buyer. This card changes to RELEASED by itself.
+    </p>
+  )
+  const releaseUnconfirmedId = `release-unconfirmed-${order.id}`
 
   return (
     <Card>
@@ -410,7 +481,7 @@ export function AssignmentCard({
             Lock USDC
           </Button>
           {lockError && (
-            <p className="mt-2 text-xs text-lp-danger" role="alert">
+            <p className={`mt-2 text-xs ${lockUnknown ? 'text-lp-ink' : 'text-lp-danger'}`} role="alert">
               {lockError}
             </p>
           )}
@@ -419,11 +490,15 @@ export function AssignmentCard({
 
       {!lpIsFiatPayer && order.status === 'FUNDED' && (
         <div className="space-y-2">
-          <p className="text-sm text-lp-ink">
-            {windowOpen
-              ? `Check that ${fiatDisplay} has arrived in your ${order.rail} account. If it has, press Confirm receipt & release and approve both requests in your wallet: that records the payment on chain and releases the USDC to the buyer. Do it before ${windowEnd}; after that it can no longer be confirmed, and the USDC can be returned to you.`
-              : `The time to confirm this payment ended at ${windowEnd}. It can no longer be confirmed, and the USDC can be returned to you.`}
-          </p>
+          {releaseSubmitted ? (
+            releaseConfirmed('text-sm text-lp-ink')
+          ) : (
+            <p className="text-sm text-lp-ink">
+              {windowOpen
+                ? `Check that ${fiatDisplay} has arrived in your ${order.rail} account. If it has, press Confirm receipt & release and approve both requests in your wallet: that records the payment on chain and releases the USDC to the buyer. Do it before ${windowEnd}; after that it can no longer be confirmed, and the USDC can be returned to you.`
+                : `The time to confirm this payment ended at ${windowEnd}. It can no longer be confirmed, and the USDC can be returned to you.`}
+            </p>
+          )}
           {order.ref && (
             <div className="rounded-xl border border-lp-accent/30 bg-lp-accent-soft p-3">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-lp-ink-soft">
@@ -450,10 +525,22 @@ export function AssignmentCard({
 
       {!lpIsFiatPayer && order.status === 'FIAT_PAID' && (
         <>
-          {!releaseSubmitted && (
-            <Button onClick={() => setReleaseOpen(true)}>
-              Confirm receipt &amp; release
-            </Button>
+          {releaseSubmitted ? (
+            releaseConfirmed('mb-2 text-sm text-lp-ink')
+          ) : (
+            <>
+              {releaseUnconfirmed && (
+                <p id={releaseUnconfirmedId} className="mb-2 text-sm text-lp-ink">
+                  {releaseUnconfirmed}
+                </p>
+              )}
+              <Button
+                aria-describedby={releaseUnconfirmed ? releaseUnconfirmedId : undefined}
+                onClick={() => setReleaseOpen(true)}
+              >
+                Confirm receipt &amp; release
+              </Button>
+            </>
           )}
           {DisputeLink}
         </>
@@ -470,6 +557,9 @@ export function AssignmentCard({
             onRefetch()
           }}
           onReceiptRecorded={onRefetch}
+          onOutcomeUnknown={(maxTime) =>
+            setReleaseUnconfirmed(releaseNotConfirmed('Confirm receipt & release', maxTime))
+          }
           submitFn={submitFn}
         />
       )}
@@ -601,7 +691,7 @@ export function AssignmentCard({
           )}
 
           {paidError && (
-            <p className="text-xs text-lp-danger" role="alert">
+            <p className={`text-xs ${paidUnknown ? 'text-lp-ink' : 'text-lp-danger'}`} role="alert">
               {paidError}
             </p>
           )}

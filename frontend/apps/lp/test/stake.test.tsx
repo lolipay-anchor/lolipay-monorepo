@@ -63,6 +63,60 @@ const mockEligibility = {
   unbond_available_at: 0,
 }
 
+const MAX_TIME = 1_790_000_150
+const RETRY_AT = 1_790_000_220
+const TIMED_TX = { timeBounds: { minTime: '0', maxTime: String(MAX_TIME) } }
+const NOT_CONFIRMED = `This has not been confirmed yet, and it may already have gone through. Reload this page after ${new Date(RETRY_AT * 1000).toLocaleString()} and check your stake before you try again.`
+const NOT_CONFIRMED_NO_TIME =
+  'This has not been confirmed yet, and it may already have gone through. Reload this page and check your stake before you try again.'
+
+function mockStakeNetwork(send: () => Promise<unknown>) {
+  vi.mocked(sdk.rpc.Server).mockImplementation(function () {
+    return { sendTransaction: vi.fn(send), pollTransaction: vi.fn() } as never
+  } as unknown as typeof sdk.rpc.Server)
+  vi.mocked(sdk.TransactionBuilder.fromXDR).mockReturnValue(TIMED_TX as never)
+}
+
+async function submitStake() {
+  vi.mocked(apiClient.getStakeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+  render(
+    <TestProviders kit={fakeKit}>
+      <StakeForm />
+    </TestProviders>,
+  )
+  await waitFor(() => screen.getByTestId('stake-amount'))
+  fireEvent.change(screen.getByTestId('stake-amount'), { target: { value: '50' } })
+  fireEvent.click(screen.getByRole('button', { name: /^Stake$/i }))
+}
+
+async function submitUnstake() {
+  vi.mocked(apiClient.getRequestUnstakeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+  render(
+    <TestProviders kit={fakeKit}>
+      <StakeForm />
+    </TestProviders>,
+  )
+  await waitFor(() => screen.getByTestId('unstake-amount'))
+  fireEvent.change(screen.getByTestId('unstake-amount'), { target: { value: '30' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Request Unstake' }))
+}
+
+async function submitClaim() {
+  vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
+    ...mockEligibility,
+    unbonding: '700000000',
+    unbond_available_at: Math.floor(Date.now() / 1000) - 10,
+  })
+  vi.mocked(apiClient.getClaimUnstakeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+  render(
+    <TestProviders kit={fakeKit}>
+      <StakeForm />
+    </TestProviders>,
+  )
+  await waitFor(() => screen.getByTestId('claim-unstake'))
+  fireEvent.click(screen.getByTestId('claim-unstake'))
+}
+
 describe('StakePage — StakeForm', () => {
   beforeEach(() => {
     queryClient.clear()
@@ -304,7 +358,205 @@ describe('StakePage — StakeForm', () => {
     ).toBeTruthy()
   })
 
-  it('tells a provider their action may already have gone through when the network has not indexed the transaction yet', async () => {
+  it('when the network has not indexed the transaction yet, tells a provider it may already have gone through and to reload after its time limit and check their stake before trying again', async () => {
+    const sendTransactionMock = vi.fn().mockResolvedValue({ status: 'PENDING', hash: 'deadbeef' })
+    const pollTransactionMock = vi.fn().mockResolvedValue({ status: 'NOT_FOUND' })
+
+    vi.mocked(sdk.rpc.Server).mockImplementation(function () {
+      return { sendTransaction: sendTransactionMock, pollTransaction: pollTransactionMock } as never
+    } as unknown as typeof sdk.rpc.Server)
+    vi.mocked(sdk.TransactionBuilder.fromXDR).mockReturnValue(TIMED_TX as never)
+    vi.mocked(apiClient.getStakeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('stake-amount'))
+    fireEvent.change(screen.getByTestId('stake-amount'), { target: { value: '50' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Stake$/i }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+    expect(screen.getByRole('alert')).not.toHaveClass('text-lp-danger')
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-ink')
+  })
+
+  it('a stake submission that got no response at all shows the not-confirmed sentence, never the raw "Failed to fetch"', async () => {
+    mockStakeNetwork(() => Promise.reject(Object.assign(new Error('Failed to fetch'), { response: undefined })))
+    await submitStake()
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+  })
+
+  it.each([500, 504])(
+    'a %i answer to a stake submission shows the not-confirmed sentence, because a gateway may have forwarded it',
+    async (status) => {
+      mockStakeNetwork(() =>
+        Promise.reject(
+          Object.assign(new Error(`Request failed with status code ${status}`), {
+            code: 'ERR_BAD_RESPONSE',
+            response: { status },
+          }),
+        ),
+      )
+      await submitStake()
+
+      await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+    },
+  )
+
+  it.each([-32001, -32603])(
+    'a stake submission that gets a %i error body, which the network returns when it cannot rule out that the transaction was queued, shows the not-confirmed sentence',
+    async (code) => {
+      mockStakeNetwork(() => Promise.reject({ code, message: 'could not submit transaction' }))
+      await submitStake()
+
+      await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+      expect(screen.getByRole('alert')).not.toHaveClass('text-lp-danger')
+    },
+  )
+
+  it('an unstake request the network reports as DUPLICATE shows the not-confirmed sentence, in ink rather than red', async () => {
+    mockStakeNetwork(() => Promise.resolve({ status: 'DUPLICATE', hash: 'deadbeef' }))
+    await submitUnstake()
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+    expect(screen.getByRole('alert')).not.toHaveClass('text-lp-danger')
+  })
+
+  it('a 4xx answer to an unstake request is a definite failure, shown as it is and in red', async () => {
+    mockStakeNetwork(() =>
+      Promise.reject(
+        Object.assign(new Error('Request failed with status code 400'), {
+          code: 'ERR_BAD_REQUEST',
+          response: { status: 400 },
+        }),
+      ),
+    )
+    await submitUnstake()
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe('Request failed with status code 400'),
+    )
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-danger')
+  })
+
+  it('after an unknown stake outcome, an amount the form rejects is a definite failure and shows in red', async () => {
+    mockStakeNetwork(() => Promise.reject(Object.assign(new Error('Failed to fetch'), { response: undefined })))
+    await submitStake()
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+
+    fireEvent.change(screen.getByTestId('stake-amount'), { target: { value: '12.123456789' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Stake$/i }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Max 7 decimal places'))
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-danger')
+  })
+
+  it('after an unknown unstake outcome, an amount the form rejects is a definite failure and shows in red', async () => {
+    mockStakeNetwork(() => Promise.resolve({ status: 'DUPLICATE', hash: 'deadbeef' }))
+    await submitUnstake()
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+
+    fireEvent.change(screen.getByTestId('unstake-amount'), { target: { value: '1.123456789' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Request Unstake' }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Max 7 decimal places'))
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-danger')
+  })
+
+  it('a -32602 error body the network returns for a claim is a definite failure: nothing was sent, and it stays red', async () => {
+    mockStakeNetwork(() => Promise.reject({ code: -32602, message: 'invalid transaction' }))
+    await submitClaim()
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Claim failed'))
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-danger')
+  })
+
+  it.each([
+    { slot: 'stake', submit: submitStake, again: () => fireEvent.click(screen.getByRole('button', { name: /^Stake$/i })) },
+    { slot: 'unstake', submit: submitUnstake, again: () => fireEvent.click(screen.getByRole('button', { name: 'Request Unstake' })) },
+    { slot: 'claim', submit: submitClaim, again: () => fireEvent.click(screen.getByTestId('claim-unstake')) },
+  ])('after an unknown $slot outcome, a definite failure on the next press shows in red', async ({ submit, again }) => {
+    mockStakeNetwork(() => Promise.reject(Object.assign(new Error('Failed to fetch'), { response: undefined })))
+    await submit()
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+
+    vi.mocked(fakeKit.signTransaction).mockRejectedValueOnce(new Error('User rejected transaction'))
+    again()
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('User rejected transaction'))
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-danger')
+  })
+
+  it('keeps the form and the not-confirmed sentence when the refresh after an unknown outcome fails, instead of replacing the page with a load error', async () => {
+    vi.mocked(apiClient.getLpEligibility)
+      .mockResolvedValueOnce(mockEligibility)
+      .mockRejectedValueOnce(new Error('eligibility unavailable'))
+    mockStakeNetwork(() => Promise.reject(Object.assign(new Error('Failed to fetch'), { response: undefined })))
+    await submitStake()
+
+    await waitFor(() => expect(queryClient.getQueryState(['lpEligibility'])?.status).toBe('error'))
+    expect(screen.queryByText('Failed to load eligibility')).toBeNull()
+    expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED)
+    expect(screen.getByTestId('stake-amount')).toBeTruthy()
+  })
+
+  it('Stake and Request Unstake are disabled while the last refresh failed', async () => {
+    vi.mocked(apiClient.getLpEligibility)
+      .mockResolvedValueOnce(mockEligibility)
+      .mockRejectedValueOnce(new Error('eligibility unavailable'))
+    mockStakeNetwork(() => Promise.reject(Object.assign(new Error('Failed to fetch'), { response: undefined })))
+    await submitStake()
+
+    await waitFor(() => expect(queryClient.getQueryState(['lpEligibility'])?.status).toBe('error'))
+    expect(screen.getByRole('button', { name: /^Stake$/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Request Unstake' })).toBeDisabled()
+  })
+
+  it('Claim stays available while the last refresh failed, because a repeated claim cannot pay out twice', async () => {
+    const claimable = {
+      ...mockEligibility,
+      unbonding: '700000000',
+      unbond_available_at: Math.floor(Date.now() / 1000) - 10,
+    }
+    vi.mocked(apiClient.getLpEligibility)
+      .mockResolvedValueOnce(claimable)
+      .mockRejectedValueOnce(new Error('eligibility unavailable'))
+    mockStakeNetwork(() => Promise.reject(Object.assign(new Error('Failed to fetch'), { response: undefined })))
+    await submitStake()
+
+    await waitFor(() => expect(queryClient.getQueryState(['lpEligibility'])?.status).toBe('error'))
+    expect(screen.getByTestId('claim-unstake')).toBeEnabled()
+  })
+
+  it('tells a provider their action may already have gone through when asking the network about it throws, instead of showing the raw error', async () => {
+    const sendTransactionMock = vi.fn().mockResolvedValue({ status: 'PENDING', hash: 'deadbeef' })
+    const pollTransactionMock = vi.fn().mockRejectedValue(new Error('Network Error'))
+
+    vi.mocked(sdk.rpc.Server).mockImplementation(function () {
+      return { sendTransaction: sendTransactionMock, pollTransaction: pollTransactionMock } as never
+    } as unknown as typeof sdk.rpc.Server)
+    vi.mocked(sdk.TransactionBuilder.fromXDR).mockReturnValue(TIMED_TX as never)
+    vi.mocked(apiClient.getStakeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
+
+    render(
+      <TestProviders kit={fakeKit}>
+        <StakeForm />
+      </TestProviders>,
+    )
+
+    await waitFor(() => screen.getByTestId('stake-amount'))
+    fireEvent.change(screen.getByTestId('stake-amount'), { target: { value: '50' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Stake$/i }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+  })
+
+  it('on a transaction with no time limit, tells a provider only to reload and check their stake before trying again, naming no time', async () => {
     const sendTransactionMock = vi.fn().mockResolvedValue({ status: 'PENDING', hash: 'deadbeef' })
     const pollTransactionMock = vi.fn().mockResolvedValue({ status: 'NOT_FOUND' })
 
@@ -324,16 +576,10 @@ describe('StakePage — StakeForm', () => {
     fireEvent.change(screen.getByTestId('stake-amount'), { target: { value: '50' } })
     fireEvent.click(screen.getByRole('button', { name: /^Stake$/i }))
 
-    await waitFor(() => {
-      expect(
-        screen.getByText(
-          /Still confirming on the network\. This may already have gone through — refresh before trying again\./,
-        ),
-      ).toBeTruthy()
-    })
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED_NO_TIME))
   })
 
-  it('shows the same still-confirming sentence for a claim as for a stake, because defaultSubmit serves every action', async () => {
+  it('shows the same not-confirmed sentence for a claim as for a stake, because defaultSubmit serves every action', async () => {
     vi.mocked(apiClient.getLpEligibility).mockResolvedValue({
       ...mockEligibility,
       unbonding: '700000000',
@@ -345,7 +591,7 @@ describe('StakePage — StakeForm', () => {
     vi.mocked(sdk.rpc.Server).mockImplementation(function () {
       return { sendTransaction: sendTransactionMock, pollTransaction: pollTransactionMock } as never
     } as unknown as typeof sdk.rpc.Server)
-    vi.mocked(sdk.TransactionBuilder.fromXDR).mockReturnValue({} as never)
+    vi.mocked(sdk.TransactionBuilder.fromXDR).mockReturnValue(TIMED_TX as never)
     vi.mocked(apiClient.getClaimUnstakeTx).mockResolvedValue({ xdr: 'XDR', networkPassphrase: 'np' })
 
     render(
@@ -357,13 +603,8 @@ describe('StakePage — StakeForm', () => {
     await waitFor(() => screen.getByTestId('claim-unstake'))
     fireEvent.click(screen.getByTestId('claim-unstake'))
 
-    await waitFor(() => {
-      expect(
-        screen.getByText(
-          /Still confirming on the network\. This may already have gone through — refresh before trying again\./,
-        ),
-      ).toBeTruthy()
-    })
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(NOT_CONFIRMED))
+    expect(screen.getByRole('alert')).not.toHaveClass('text-lp-danger')
   })
 
   it('shows the real refusal sentence for a code the network reports on the FIRST submit response, before any poll', async () => {
@@ -421,6 +662,7 @@ describe('StakePage — StakeForm', () => {
     await waitFor(() => {
       expect(screen.getByText('Submission failed (FAILED, txFailed)')).toBeTruthy()
     })
+    expect(screen.getByRole('alert')).toHaveClass('text-lp-danger')
   })
 
   it('shows the plain stake-more line alongside an unrelated unbonding balance, since the two refusals no longer share one sentence', async () => {
