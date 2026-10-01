@@ -10,7 +10,11 @@ Environment=PATH=/home/lolipay/.local/node-v22.23.1-linux-x64/bin:/usr/bin:/bin
 Environment=NODE_ENV=production
 Environment="STELLAR_NETWORK_PASSPHRASE=Test SDF Network ; September 2015"
 Environment=WEB_AUTH_ENDPOINT=https://api.lolipay.app/auth
+Environment=KYC_SERVER=https://api.lolipay.app
 Environment=TRANSFER_SERVER_SEP0024=https://api.lolipay.app/sep24
+Environment=SEP10_SIGNING_PUBLIC=GBS7GJRD4NXT6GNEP7ODBMK63P72NRML6NQMJSG7ZNHIUYJW2XJCM64C
+Environment=USDC_ASSET_CODE=USDC
+Environment=USDC_ASSET_ISSUER=GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5
 ExecStart=/home/lolipay/lolipay-monorepo/frontend/apps/landing/node_modules/.bin/next start -p 3004
 Restart=on-failure
 RestartSec=5

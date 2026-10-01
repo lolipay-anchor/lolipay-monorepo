@@ -1,0 +1,26 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name www.lolipay.app;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://lolipay.app$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name www.lolipay.app;
+
+    ssl_certificate /etc/letsencrypt/live/www.lolipay.app/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/www.lolipay.app/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    return 301 https://lolipay.app$request_uri;
+}
