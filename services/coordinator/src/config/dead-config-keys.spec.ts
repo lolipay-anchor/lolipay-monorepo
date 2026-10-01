@@ -30,4 +30,12 @@ describe('the environment template only names variables something reads', () => 
       expect(env).toMatch(new RegExp(`^${key}=`, 'm'));
     }
   });
+
+  it('puts no comment after an empty value, because Compose hands that comment to the service as the value', () => {
+    const offending = env
+      .split('\n')
+      .filter((line) => /^[\w.-]+=[ \t]*#/.test(line))
+      .map((line) => line.split('=')[0]);
+    expect(offending).toEqual([]);
+  });
 });
