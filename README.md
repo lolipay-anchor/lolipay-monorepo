@@ -417,9 +417,10 @@ beside it, not because a reader can run it:
 SELECT count(*) FILTER (WHERE environment = 'live'), count(*) FILTER (WHERE environment = 'sandbox') FROM "KycVerification";
 ```
 
-Screening real identities needs a live application with the provider. A recorded
-verification session, redacted of personal data, has **not yet
-been recorded**.
+Screening real identities needs a live application with the provider. The
+founder has recorded the identity check, run in the provider's sandbox, as part
+of a demo video included in the SOW final report; the founder confirms no
+personal data is shown.
 
 This page reports what the code enforces and what the SDF conformance suite
 measured on the dates given. It does not claim that lolipay satisfies any KYC or
@@ -430,8 +431,8 @@ AML regulation, or holds any licence.
 | Deliverable | Present today | Partial or bounded | Not yet |
 |---|---|---|---|
 | D1 — SEP-1 and SEP-10 | live `stellar.toml`; 21 of 21 on 2026-09-10; the challenge in step 2 | the count does not show where a refusal puts its details (see *Status*) | an on-chain SEP-10 transaction is impossible by protocol design (sequence 0), explained in step 2 |
-| D2 — SEP-12 and the identity gate | 14 of 14 on 2026-09-10 (ten SEP-12 checks, four SEP-1 and SEP-10); the gate and its test | every screening is a vendor-sandbox decision; the count does not show where a refusal puts its details (see *Status*) | a recorded verification session, redacted of personal data |
-| D3 — SEP-24 deposit | the 2026-09-30 chain above, from the Stellar Demo Wallet | operated by lolipay's founder on both sides; testnet; sandbox identity | a screen recording of that deposit — **not yet recorded** |
+| D2 — SEP-12 and the identity gate | 14 of 14 on 2026-09-10 (ten SEP-12 checks, four SEP-1 and SEP-10); the gate and its test; a recorded verification session in the founder's demo video (included in the SOW final report), run in the provider's sandbox; the founder confirms no personal data is shown | every screening is a vendor-sandbox decision; the count does not show where a refusal puts its details (see *Status*) | — |
+| D3 — SEP-24 deposit | the 2026-09-30 chain above, from the Stellar Demo Wallet; separately, the founder's screen recording of a deposit from the Stellar Demo Wallet, end to end, identity check included (included in the SOW final report) | operated by lolipay's founder on both sides; testnet; sandbox identity | — |
 | D4 — status mapping | [ANCHOR-STATUS-MAPPING.md](ANCHOR-STATUS-MAPPING.md) in this public repository | — | — |
 
 ## Status
@@ -482,7 +483,8 @@ suite checks the transactions named in its configuration against the statuses it
 expects, and the pending deposit it names has since been refunded, so a re-run
 needs a newly configured pending deposit before the check that reads it means
 anything. A deposit from an external wallet client has settled, as shown above;
-the screen recording of it has not yet been recorded.
+the founder's screen recording of a deposit from the Stellar Demo Wallet, end
+to end, identity check included, is included in the SOW final report.
 
 **Withdrawal** is advertised in `/sep24/info` and live through lolipay's own
 application, with the limits stated under *The other flows* above. Making that
