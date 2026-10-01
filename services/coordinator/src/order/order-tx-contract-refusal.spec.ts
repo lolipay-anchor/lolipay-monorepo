@@ -127,6 +127,18 @@ describe('OrderTxService — a contract refusal is a warn carrying the order id,
     },
   );
 
+  it('a #9 on an order whose contractId is null evicts the status cache entry keyed by the configured escrow contract id and the trade id', async () => {
+    const stellar = makeMockStellar({
+      buildConfirmReleaseTx: jest.fn().mockRejectedValue(invalidState()),
+    });
+    const svc = orderTxFor(makePrisma(makeOrder({ contractId: null })), stellar, CFG);
+
+    await expect(svc.buildConfirmReleaseTx('order-1', LP_ADDR)).rejects.toThrow(INVALID_STATE_SENTENCE);
+
+    expect(stellar.evictTradeStatus).toHaveBeenCalledTimes(1);
+    expect(stellar.evictTradeStatus).toHaveBeenCalledWith(CFG.escrowContractId, TRADE_ID);
+  });
+
   it('a contract refusal that is not #9 warns with the order id but does not evict the status cache', async () => {
     const stellar = makeMockStellar({
       buildConfirmReleaseTx: jest.fn().mockRejectedValue(new Error('HostError: Error(Contract, #12)')),
