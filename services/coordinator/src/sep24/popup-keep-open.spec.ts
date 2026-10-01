@@ -52,14 +52,18 @@ describe('the popup tells the depositor to keep it open, because the reference w
   it('on the claim_received screen, where it replaces the invitation to close it', async () => {
     const html = await renderDeposit(new Date());
     expect(html).toContain('That is recorded on this deposit.');
-    expect(html).toContain('Keep this window open');
-    expect(html).not.toContain('You may close it');
+    expect(html).toContain(
+      '<p>Keep this window open: it updates itself until the deposit completes or closes. If it is closed, your wallet may stop following this deposit. That changes nothing about the deposit itself. To check on it later, sign in with this same wallet at <a href="https://app.lolipay.app">app.lolipay.app</a>: the order appears there with its evidence.</p>',
+    );
+    expect(html).not.toMatch(/you may close it|will show the deposit/i);
   });
 
   it('in the claim control before the pay deadline, where it replaces the promise that the wallet will show the deposit', async () => {
     const html = await renderDeposit(null);
     expect(html).toContain('<h2>Already sent it?</h2>');
-    expect(html).toContain('Keep this window open');
-    expect(html).not.toContain('Your wallet will show the deposit if it settles');
+    expect(html).toContain(
+      '<p>Keep this window open: it updates itself until the deposit completes or closes. If it is closed, your wallet may stop following this deposit. The deposit itself carries on either way.</p>',
+    );
+    expect(html).not.toMatch(/you may close it|will show the deposit/i);
   });
 });
