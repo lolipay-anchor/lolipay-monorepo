@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# lolipay web
 
-## Getting Started
+The user-facing app: connect a Stellar wallet, buy or sell USDC for rupiah
+through the escrow, follow an order, raise a dispute, and manage identity
+verification and notifications. It is a Next.js app inside the `frontend/` pnpm
+workspace and talks to the coordinator over its API; it never holds a key — the
+wallet signs.
 
-First, run the development server:
+Routes: `/`, `/buy`, `/sell`, `/orders`, `/orders/[id]`, `/profile`,
+`/notifications`.
+
+## Running it
+
+Dependencies come from the workspace, so install there first:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd frontend
+pnpm install
+cd apps/web
+PORT=3001 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`next dev` defaults to port 3000, which is also the coordinator's default port,
+so run this app on 3001 — the port production serves it on, and the port the
+Playwright configuration expects.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Copy `.env.example` to `.env.local` and fill it in. The names it declares:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Name | What it is |
+|---|---|
+| `NEXT_PUBLIC_API_BASE` | the coordinator's base URL |
+| `NEXT_PUBLIC_RPC_URL` | the Soroban RPC endpoint the wallet submits to |
+| `NEXT_PUBLIC_HORIZON_URL` | the Horizon endpoint; defaults to the public testnet one |
+| `NEXT_PUBLIC_NETWORK_PASSPHRASE` | the Stellar network passphrase |
+| `NEXT_PUBLIC_STELLAR_NETWORK` | the network name, used to build explorer links |
+| `NEXT_PUBLIC_ESCROW_CONTRACT_ID` | the escrow contract |
+| `NEXT_PUBLIC_USDC_CODE`, `NEXT_PUBLIC_USDC_ISSUER` | the settlement asset |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | WalletConnect, for mobile wallets |
 
-## Learn More
+No value in the template is a secret; every one is public configuration that
+the browser receives.
 
-To learn more about Next.js, take a look at the following resources:
+## Tests
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+pnpm test
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`vitest run`, over this app's own test files and — because
+`vitest.config.ts` includes `../../packages/*/src/**` — the shared packages'
+tests as well, so the same package tests also run under their own packages'
+tasks when the workspace runs `pnpm test` at `frontend/`. The counts, with the
+commit and date they were measured at, are in the root `README.md`.
 
-## Deploy on Vercel
+Playwright specs live in `e2e/`, configured by `playwright.config.ts`, which
+starts this app on port 3001 itself unless something already answers there, in
+which case it tests that instead; there is no package script for them, so run
+them with `npx playwright test`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Building
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`pnpm build` runs `next build` and writes `.next/`. On lolipay's own host the
+apps are served in place from the working tree, so a build there is a deploy
+step, not a check. The live app also holds port 3001 on that host, so there
+`PORT=3001 pnpm dev` fails to bind and `npx playwright test` tests the live app
+rather than your working tree; run both on another machine.
